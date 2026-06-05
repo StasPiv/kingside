@@ -1,0 +1,429 @@
+/**
+ * KS-3711. Сервис LLM-комментариев к одному ходу в режиме «Полный
+ * разбор партии». Заменяет пакетный `ReviewCommentService`
+ * (`/analyses/review/comments`) — модель теперь видит два «снимка»
+ * позиции (ДО и ПОСЛЕ хода) в том же формате, что в
+ * `position-comment` (`fen` + `factors` от Stockfish-trace +
+ * опциональный `eval`), и комментирует именно изменение, опираясь на
+ * иерархию достоверности `sf18_eval` → `sf18_pv` → статика
+ * (см. KS-3697 / KS-3700 / KS-3702).
+ *
+ * Flow:
+ *  - контроллер собирает `move + before + after + language`;
+ *  - сервис строит системную инструкцию и user-message:
+ *      «вот ход, вот оценка ДО, вот оценка ПОСЛЕ — прокомментируй»;
+ *  - шлёт в тот же webhook (`AI_CHAT_WEBHOOK_URL`), что
+ *    `position-comment` и `review-comment` (флаг `noMcp:true`);
+ *  - парсит ответ моделью через переиспользуемый `parseModelOutput`
+ *    (из `position-comment`) — JSON `{ comment, highlights, arrows }`;
+ *  - возвращает `PositionCommentResponse`.
+ *
+ * Stateless. Серверного Stockfish нет — все факторы приходят с фронта
+ * (фронт-форк WASM Stockfish-trace, KS-3650/KS-3648).
+ *
+ * Graceful degradation: webhook down, ошибка парсинга — возвращаем
+ * пустой ответ `{comment: '', highlights: [], arrows: []}`.
+ *
+ * Rate-limit — отдельные ключи `review-move:rate:*`, увеличенные
+ * лимиты под партию: 60/мин и 600/день per user, 5000/день global.
+ * Партия на 30 «интересных» ходов укладывается в лимит без
+ * остановки фронта.
+ */
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { PositionCommentResponse } from '@kingside/shared';
+import { RedisService } from '../redis/redis.service';
+import { SUBTERM_LABELS } from './subterm-labels';
+import {
+  MoveCommentDto,
+  MoveCommentLanguage,
+} from './dto/move-comment.dto';
+import { parseModelOutput } from '../position-comment/parse-model-output';
+
+const EMPTY_RESPONSE: PositionCommentResponse = {
+  comment: '',
+  highlights: [],
+  arrows: [],
+};
+
+@Injectable()
+export class MoveCommentService {
+  private readonly logger = new Logger(MoveCommentService.name);
+
+  private readonly webhookUrl: string;
+  private readonly webhookSecret: string;
+  private readonly fetchTimeoutMs: number;
+
+  readonly rateLimitPerMin: number;
+  readonly rateLimitPerDay: number;
+  readonly globalDailyLimit: number;
+
+  constructor(
+    private readonly config: ConfigService,
+    private readonly redis: RedisService,
+  ) {
+    this.webhookUrl = this.config.get<string>('AI_CHAT_WEBHOOK_URL', '');
+    this.webhookSecret = this.config.get<string>('WEBHOOK_AUTH_TOKEN', '');
+    this.fetchTimeoutMs = parseInt(
+      this.config.get<string>('MOVE_COMMENT_FETCH_TIMEOUT_MS', '180000'),
+      10,
+    );
+
+    // KS-3711: лимиты по частоте подняты по сравнению с пакетным
+    // эндпоинтом — здесь один запрос = один ход, и партия может дать
+    // 10–30 «интересных» ходов подряд. 60/мин = 1/сек, 600/день per user
+    // — двукратный запас на партию 30 ходов даже при 10 партиях в день
+    // одного пользователя. 5000/день global — устанавливает потолок
+    // для прод-боя; при необходимости вынесем в env.
+    this.rateLimitPerMin = parseInt(
+      this.config.get<string>('MOVE_COMMENT_RATE_LIMIT_PER_MIN', '60'),
+      10,
+    );
+    this.rateLimitPerDay = parseInt(
+      this.config.get<string>('MOVE_COMMENT_RATE_LIMIT_PER_DAY', '600'),
+      10,
+    );
+    this.globalDailyLimit = parseInt(
+      this.config.get<string>('MOVE_COMMENT_GLOBAL_DAILY_LIMIT', '5000'),
+      10,
+    );
+  }
+
+  // ─── Словарь расшифровок ────────────────────────────────────────────
+
+  /**
+   * KS-3711. Тот же словарь подкомпонент Stockfish-trace, что в
+   * `position-comment` (см. `SUBTERM_LABELS`, KS-3689 / KS-3677).
+   * Возвращает многострочный текст `- <id> → <человеческое имя>` для
+   * подстановки в инструкцию. Whitelist здесь не применяем — фронт
+   * может прислать `id`, которых ещё нет в словаре (фронт-форк WASM
+   * опережает бэк); модель сама проигнорирует неизвестные id.
+   */
+  private buildSubtermGlossary(language: MoveCommentLanguage): string {
+    return Object.entries(SUBTERM_LABELS)
+      .map(([id, label]) => `- ${id} → ${label[language]}`)
+      .join('\n');
+  }
+
+  // ─── Системная инструкция ───────────────────────────────────────────
+
+  /**
+   * KS-3711. Инструкция для модели в формате «комментирование одного
+   * сыгранного хода». Главный фокус — РАЗНИЦА между `before` и `after`
+   * по `sf18_eval`, `sf18_pv` и статическим факторам; объективная
+   * оценка сделанного хода с учётом этой разницы.
+   *
+   * Иерархия достоверности повторяет `position-comment` (KS-3697 /
+   * KS-3700): сначала `sf18_eval` (что в позиции сейчас), потом
+   * `sf18_pv` (что движок видит дальше), потом статические факторы.
+   * `classification` (best/good/inaccuracy/mistake/blunder) — это
+   * метка качества хода: при mistake/blunder/inaccuracy комментарий
+   * обязан открываться констатацией ошибки.
+   *
+   * Запрет шаблонных зачинов «По форме», «На доске типичная» —
+   * прямая просьба пользователя по KS-3710.
+   */
+  buildSystemPrompt(language: MoveCommentLanguage = 'ru'): string {
+    const glossary = this.buildSubtermGlossary(language);
+    if (language === 'en') {
+      return [
+        'You comment on a single played chess move strictly based on the provided facts. Input is a played move plus TWO position snapshots — BEFORE the move and AFTER the move — in the same format as the static position-comment endpoint (FEN + an array of positional factors from Stockfish-trace, with an optional `eval` total).',
+        '',
+        'The two snapshots are the heart of this task: compare BEFORE vs AFTER. Which factors grew, which dissolved, how did the evaluation change, what plans appear or disappear. The played move is the reason for that change; comment on the move through this lens.',
+        '',
+        'Two factors are the most important if present in either snapshot:',
+        '- sf18_eval: Stockfish 18 evaluation. score.type="cp" — centipawns from White\'s point of view: positive means White is better, negative means Black is better (the sign is always reported from White\'s side, regardless of whose move it is). score.type="mate" — mate in N half-moves from White\'s point of view: positive N — White is delivering mate, negative N — Black is delivering mate.',
+        '- sf18_pv: Stockfish 18 recommended move sequence, an array of UCI moves (e.g. ["e2e4","e7e5","g1f3"]).',
+        '',
+        'When these are present, you MUST reflect both: describe the evaluation after the move in plain words and the dynamics of the next 2–3 moves. Do NOT enumerate pv moves literally (no "e2e4, then Nc3"), do NOT mention "the principal variation", "the main line" or "pv" in your answer; use sf18_pv only as an internal guide for ideas.',
+        '',
+        'Static subterms (anything from the glossary below) may carry two pairs of values: value_mg/value_eg — current value, terminal_value_mg/terminal_value_eg — value at the end of the recommended move sequence (~10 moves per side later). Either pair may be missing. Reason about the TREND (how the factor changes), not only the current value. Never quote the raw numbers.',
+        '',
+        'Hierarchy of truth — sf18_eval and sf18_pv are the main source of truth. Static factors describe FORM, not RESULT. Before presenting any static factor as a plus or minus, check it against sf18_eval and sf18_pv:',
+        '- If sf18_eval is roughly equal or against the side that "owns" the factor — the factor is tactically refuted. Use hedged language: "nominally", "structurally", "on the surface", "however", "Stockfish does not see this as an advantage".',
+        '- Order of priority: 1) sf18_eval (the truth about the position now); 2) sf18_pv (the truth about the next few moves); 3) static factors — only the part that agrees with the two above.',
+        '- The verdict on who stands better ALWAYS follows sf18_eval. terminal_value_* and the trend only change the narrative.',
+        '',
+        'Commenting the played move — what to write:',
+        '1. If `classification` is mistake/blunder/inaccuracy, OR a hanging piece of the side that just moved appears in AFTER, OR sf18_eval in AFTER is sharply worse for the side that just moved than in BEFORE — the comment MUST open with a clear statement of the mistake (what was given up, what was missed) and the point of the best move (per `sf_best` / `threats_missed` if present, without literally enumerating moves).',
+        '2. If the move is a capture / check / mate / castling / promotion / creation of a threat (`threats_created`, `mate_threat_after`) / notable `material_change` or shift in static factors — describe what the move did and the idea behind it (improving a piece, occupying a square, opening a file, creating a passed pawn, etc.).',
+        '3. If the move is quiet and the evaluation and factors barely change — give a brief position evaluation; you may skip commenting on the move itself.',
+        '4. Comparing BEFORE / AFTER is mandatory whenever the change is visible — point out exactly which factors grew or dissolved and how the evaluation moved.',
+        '',
+        'Glossary — translate each subterm id to its human name before writing about it. Never put a technical id (king_danger, outpost_knight, mobility_rook, etc.) in the answer. Use the human name from the table:',
+        glossary,
+        '',
+        'Hard constraints:',
+        '- Rely ONLY on the provided facts. Do not assert anything not in the snapshots (motifs, pieces, threats, evaluations).',
+        '- Never quote raw numeric values of subterms (value_mg, value_eg, mg, eg, value, or any bare number). Use words: "barely noticeable", "noticeable", "sharply increased", "dropped", "the highest in the position", "the lowest", "moderate". When comparing: "the most", "the least", "moderate", "barely noticeable".',
+        '- Never quote the numeric evaluation either — no "+0.8", no "cp", no "centipawns", no "score 23". Words only: "roughly equal", "slight edge for White/Black", "clear advantage for White/Black", "decisive advantage for White/Black", "mate in N".',
+        '- Forbidden words: "slider" / "sliders" / "sliding piece(s)". Use proper chess terms: "long-range pieces" (rook, bishop, queen), "major pieces" (rook, queen), "minor pieces" (knight, bishop).',
+        '- Forbidden template openings: "By the form of the position", "A typical position", and similar generic phrases. Open with concrete content tied to THIS move and THIS change.',
+        '- If there is nothing to say based on the snapshots — return an empty `comment`.',
+        '',
+        'Output format — ONE JSON object:',
+        '{ "comment": "<text>", "highlights": [...], "arrows": [...] }',
+        '',
+        '- comment — your commentary in plain words (as above).',
+        '- highlights — 0–4 items of shape { "square": "e4", "color": "red" }.',
+        '- arrows — 0–2 items of shape { "from": "e2", "to": "e4", "color": "green" }.',
+        '',
+        'Color convention:',
+        '- red — weakness / threat / piece in danger;',
+        '- green — recommended plan or best move;',
+        '- yellow — key idea / focal point;',
+        '- blue — reserved for the user, do not use.',
+        '',
+        'Highlight at most 1–2 key factors in total. If there is nothing to highlight, return empty arrays. Do not wrap the JSON in code fences. Do not add any text outside the JSON object.',
+      ].join('\n');
+    }
+    return [
+      'Ты комментируешь ОДИН сыгранный шахматный ход строго на основании поданных фактов. На вход поступает сыгранный ход и ДВА снимка позиции — ДО хода и ПОСЛЕ хода — в том же формате, что в эндпоинте статической оценки позиции (FEN + массив позиционных факторов из Stockfish-trace, опционально итоговая оценка `eval`).',
+      '',
+      'Два снимка — ядро задачи: сравни ДО и ПОСЛЕ. Какие факторы выросли, какие растворились, как поменялась оценка, какие планы появились или исчезли. Сыгранный ход — причина этого изменения; комментируй ход через эту призму.',
+      '',
+      'Среди факторов в каждом снимке могут быть два приоритетных:',
+      '- sf18_eval: оценка позиции от Stockfish 18. score.type="cp" — сантипешки с точки зрения белых: положительное значение значит, что лучше стоят белые, отрицательное — лучше стоят чёрные (знак всегда приходит со стороны белых, независимо от того, чей ход). score.type="mate" — мат за N полуходов с точки зрения белых: положительное N — мат объявляют белые, отрицательное N — мат объявляют чёрные.',
+      '- sf18_pv: рекомендуемая последовательность ходов от Stockfish 18, массив ходов в UCI (например ["e2e4","e7e5","g1f3"]).',
+      '',
+      'Если эти факторы есть — ОБЯЗАТЕЛЬНО отрази оба: опиши оценку после хода человеческими словами и динамику позиции на ближайшие 2-3 хода. НЕ пересказывай ходы из sf18_pv буквально (никаких «e2e4, потом Nc3»), НЕ упоминай в ответе сами выражения «первая линия», «вариант Stockfish», «pv» — используй sf18_pv только как внутренний ориентир для описания идей.',
+      '',
+      'У статических подкомпонент (любой пункт словаря ниже) могут быть две пары значений: value_mg/value_eg — текущее значение, и terminal_value_mg/terminal_value_eg — значение в позиции конца рекомендуемой последовательности (≈через 10 ходов каждой стороны). Любая пара может отсутствовать. Опирайся на ТЕНДЕНЦИЮ (как фактор меняется), а не только на текущее значение. Числа значений не упоминай в ответе.',
+      '',
+      'Иерархия достоверности — sf18_eval и sf18_pv главнее всего остального. Статические факторы описывают ФОРМУ, а не РЕЗУЛЬТАТ. Перед тем как преподнести любой статический фактор как «плюс» или «минус», сверь его с sf18_eval и sf18_pv:',
+      '- Если sf18_eval показывает примерное равенство или против стороны, которой «принадлежит» фактор, — фактор тактически опровергнут. Используй оговорки: «формально», «структурно», «на первый взгляд», «по структуре, но», «несмотря на это», «Stockfish не считает это преимуществом».',
+      '- Порядок приоритетов: 1) sf18_eval (что в позиции по факту прямо сейчас); 2) sf18_pv (что произойдёт ближайшими ходами); 3) статические факторы — комментируй только то, что согласуется с двумя выше.',
+      '- Вердикт о стороне с перевесом ВСЕГДА следует за sf18_eval. terminal_value_* и тенденция меняют только нарратив.',
+      '',
+      'Как комментировать сам сыгранный ход:',
+      '1. Если `classification` = mistake/blunder/inaccuracy, ИЛИ в снимке ПОСЛЕ появилась висящая фигура у стороны, только что сделавшей ход, ИЛИ sf18_eval в ПОСЛЕ резко хуже для стороны, только что сделавшей ход, чем в ДО — комментарий ОБЯЗАН открываться чёткой констатацией ошибки (что подставлено, что упущено) и приводить смысл лучшего хода (по `sf_best` / `threats_missed`, если они есть, без буквального пересказа ходов).',
+      '2. Если ход — взятие / шах / мат / рокировка / превращение / создание угрозы (`threats_created`, `mate_threat_after`) / заметный `material_change` или сдвиг в статических факторах — опиши, что ход сделал и какую идею воплотил (улучшение фигуры, захват пункта, открытие линии, появление проходной и т. п.).',
+      '3. Если ход тихий и оценка с факторами заметно не меняются — дай краткую оценку позиции; про сам ход можно не упоминать.',
+      '4. Сравнение ДО / ПОСЛЕ обязательно везде, где изменение видно: укажи, какие именно факторы выросли или растворились и как сдвинулась оценка.',
+      '',
+      'Словарь расшифровок — каждый id подкомпоненты переводи в человеческое имя из таблицы перед тем, как писать о нём. Никогда не пиши технический id в ответе (king_danger, outpost_knight, mobility_rook и т.п.). Используй человеческое имя из таблицы:',
+      glossary,
+      '',
+      'Жёсткие ограничения:',
+      '- Опирайся ТОЛЬКО на поданные снимки и сыгранный ход. Не утверждай ничего, чего нет в фактах (мотивы, фигуры, угрозы, оценки).',
+      '- Никогда не приводи сырые числовые значения подкомпонент (value_mg, value_eg, mg, eg, value, ни любое голое число вроде 0,323 или 0.323). Используй слова: «едва заметно», «заметно», «резко вырос», «упал», «стал максимальным в позиции», «минимальный в позиции», «средне». При сравнении факторов: «больше всего», «меньше всего», «средне», «едва заметно».',
+      '- Никогда не приводи численное значение общей оценки — ни «+0.8», ни «23 cp», ни «сантипешки», ни «оценка 23». Только слова: «примерное равенство», «небольшой перевес белых/чёрных», «заметное преимущество белых/чёрных», «решающее преимущество белых/чёрных», «мат в N».',
+      '- Запрещённые слова: «слайдер», «слайдеры», «слайдинг». Вместо них — «фигуры дальнего боя» (ладьи, слоны, ферзи), «тяжёлые фигуры» (ладья, ферзь), «лёгкие фигуры» (конь, слон).',
+      '- Запрещённые шаблонные зачины: «По форме позиции», «На доске типичная», «По форме» — и любые похожие общие фразы. Открывай комментарий конкретикой, привязанной к ЭТОМУ ходу и ЭТОМУ изменению.',
+      '- Если по фактам сказать нечего — верни пустой `comment`.',
+      '',
+      'Формат ответа — ОДИН JSON-объект:',
+      '{ "comment": "<текст>", "highlights": [...], "arrows": [...] }',
+      '',
+      '- comment — текстовый комментарий человеческими словами (как выше).',
+      '- highlights — 0–4 элемента вида { "square": "e4", "color": "red" }.',
+      '- arrows — 0–2 элемента вида { "from": "e2", "to": "e4", "color": "green" }.',
+      '',
+      'Цветовая конвенция:',
+      '- red — слабость / угроза / опасная фигура;',
+      '- green — рекомендуемый план или лучший ход;',
+      '- yellow — ключевая идея / точка внимания;',
+      '- blue — резерв пользователя, не используй.',
+      '',
+      'Выдели не больше 1–2 факторов суммарно. Если выделять нечего — верни пустые массивы. Не оборачивай JSON в код-fences. Не добавляй текст вне JSON-объекта.',
+    ].join('\n');
+  }
+
+  // ─── Главный метод ──────────────────────────────────────────────────
+
+  async comment(
+    userId: string,
+    dto: MoveCommentDto,
+  ): Promise<PositionCommentResponse> {
+    if (!this.webhookUrl) {
+      this.logger.warn(
+        `move-comment user=${userId.slice(0, 8)}: AI_CHAT_WEBHOOK_URL not configured — returning empty`,
+      );
+      return { ...EMPTY_RESPONSE };
+    }
+
+    const language = dto.language ?? 'ru';
+    const systemPrompt = this.buildSystemPrompt(language);
+
+    // KS-3694: webhook сейчас переиспользует одну claude-сессию через
+    // `claude --resume`, и системная инструкция в payload-поле
+    // `systemPrompt` применяется только при создании сессии. Поэтому
+    // дублируем инструкцию в самом сообщении — единственный надёжный
+    // способ донести наш свежий prompt на каждом запросе.
+    const dataJson = JSON.stringify({
+      move: dto.move,
+      before: {
+        fen: dto.before.fen,
+        factors: dto.before.factors,
+        ...(dto.before.eval ? { eval: dto.before.eval } : {}),
+      },
+      after: {
+        fen: dto.after.fen,
+        factors: dto.after.factors,
+        ...(dto.after.eval ? { eval: dto.after.eval } : {}),
+      },
+    });
+    const userMessage = [
+      systemPrompt,
+      '',
+      'Исходные данные (JSON):',
+      dataJson,
+    ].join('\n');
+
+    try {
+      const response = await this.callWebhook(
+        userId,
+        systemPrompt,
+        userMessage,
+      );
+      return parseModelOutput(response ?? '');
+    } catch (e) {
+      this.logger.error(
+        `move-comment user=${userId.slice(0, 8)} failed: ${(e as Error).message}`,
+        (e as Error).stack,
+      );
+      return { ...EMPTY_RESPONSE };
+    }
+  }
+
+  // ─── Rate-limit ────────────────────────────────────────────────────
+
+  async checkRateLimit(userId: string): Promise<void> {
+    const { minKey, dayKey, globalKey } = this.rateKeys(userId);
+    const [minCount, dayCount, globalCount] = await Promise.all([
+      this.redis.get(minKey),
+      this.redis.get(dayKey),
+      this.redis.get(globalKey),
+    ]);
+    const minUsed = parseInt(minCount ?? '0', 10);
+    const dayUsed = parseInt(dayCount ?? '0', 10);
+    const globalUsed = parseInt(globalCount ?? '0', 10);
+
+    if (minUsed >= this.rateLimitPerMin) {
+      throw new HttpException(
+        {
+          error: 'rate_limit',
+          retryAfter: 60,
+          limits: {
+            perMinute: { used: minUsed, max: this.rateLimitPerMin },
+            perDay: { used: dayUsed, max: this.rateLimitPerDay },
+          },
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (dayUsed >= this.rateLimitPerDay) {
+      throw new HttpException(
+        {
+          error: 'rate_limit',
+          retryAfter: this.secondsUntilMidnight(),
+          limits: {
+            perMinute: { used: minUsed, max: this.rateLimitPerMin },
+            perDay: { used: dayUsed, max: this.rateLimitPerDay },
+          },
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (globalUsed >= this.globalDailyLimit) {
+      throw new HttpException(
+        {
+          error: 'rate_limit',
+          retryAfter: this.secondsUntilMidnight(),
+          limits: {
+            perMinute: { used: minUsed, max: this.rateLimitPerMin },
+            perDay: { used: dayUsed, max: this.rateLimitPerDay },
+            globalDaily: {
+              used: globalUsed,
+              max: this.globalDailyLimit,
+            },
+          },
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  async incrementRateLimit(userId: string): Promise<void> {
+    const { minKey, dayKey, globalKey } = this.rateKeys(userId);
+    const pipe = this.redis.pipeline();
+    pipe.incr(minKey);
+    pipe.expire(minKey, 60);
+    pipe.incr(dayKey);
+    pipe.expire(dayKey, 86400);
+    pipe.incr(globalKey);
+    pipe.expire(globalKey, 86400);
+    await pipe.exec();
+  }
+
+  private rateKeys(userId: string) {
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      minKey: `review-move:rate:min:${userId}`,
+      dayKey: `review-move:rate:day:${userId}`,
+      globalKey: `review-move:rate:global:${today}`,
+    };
+  }
+
+  private secondsUntilMidnight(): number {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setUTCHours(24, 0, 0, 0);
+    return Math.ceil((midnight.getTime() - now.getTime()) / 1000);
+  }
+
+  // ─── Webhook ───────────────────────────────────────────────────────
+
+  private async callWebhook(
+    userId: string,
+    systemPrompt: string,
+    userMessage: string,
+  ): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (this.webhookSecret) {
+        headers['Authorization'] = `Bearer ${this.webhookSecret}`;
+      }
+      const res = await fetch(this.webhookUrl, {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+        body: JSON.stringify({
+          message: userMessage,
+          systemPrompt,
+          history: [],
+          userId,
+          userToken: '',
+          noMcp: true,
+        }),
+      });
+      const ct = res.headers.get('content-type') || '';
+      const bodyText = ct.includes('json')
+        ? ''
+        : await res.text().catch(() => '<no-body>');
+      const bodyJson = ct.includes('json')
+        ? ((await res.json().catch(() => null)) as {
+            response?: string;
+          } | null)
+        : null;
+      if (res.status >= 400 || (!bodyJson && bodyText)) {
+        const summary = bodyJson
+          ? JSON.stringify(bodyJson).slice(0, 200)
+          : bodyText.slice(0, 200);
+        throw new Error(`move-comment webhook ${res.status}: ${summary}`);
+      }
+      return bodyJson?.response ?? '';
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}

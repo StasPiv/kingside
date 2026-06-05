@@ -20,10 +20,17 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ReviewCommentController } from './review-comment.controller';
 import { ReviewCommentService } from './review-comment.service';
+import { MoveCommentController } from './move-comment.controller';
+import { MoveCommentService } from './move-comment.service';
 
+// KS-3711. Новый эндпоинт `POST /analyses/review/move-comment` живёт в
+// этом же модуле рядом со старым пакетным `POST /analyses/review/comments`.
+// Оба остаются рабочими до миграции фронта (KS-3712); после миграции
+// старый эндпоинт + `ReviewCommentService` / `ReviewCommentController`
+// удалим в отдельном тикете.
 @Module({
   imports: [AuthModule],
-  controllers: [ReviewCommentController],
-  providers: [ReviewCommentService],
+  controllers: [ReviewCommentController, MoveCommentController],
+  providers: [ReviewCommentService, MoveCommentService],
 })
 export class AnalysisReviewModule {}
