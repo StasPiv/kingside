@@ -1459,16 +1459,16 @@ function AnalysisPageInner({
     });
   };
 
-  // KS-3680/KS-3685/KS-3687: контроллер AI-комментария позиции для
-  // отдельной вкладки/блока «AI». В options два ключевых для KS-3687
-  // параметра:
+  // KS-3680/KS-3685/KS-3687/KS-3703: контроллер AI-комментария позиции
+  // для отдельной вкладки/блока «AI». В options два ключевых параметра:
   //   - `engineBestLine` — снимок displayedLines[0] для случая, когда
   //     движок уже думает и линия есть;
-  //   - `engineProbe`    — fallback на случай выключенного движка:
-  //     кратковременно включаем анализ, ждём первую линию (≤2 с),
-  //     возвращаем её и выключаем, если включали. Если линия так и не
-  //     пришла — `null`, хук уходит в KS-3685-поведение (запрос без
-  //     `sf18_eval`/`sf18_pv`).
+  //   - `engineProbe`    — обязательный путь при выключенном анализе:
+  //     включаем движок, ждём `isReady` + первую линию + ~1 с думания
+  //     (потолок 7 с, чтобы укладываться в ENGINE_PROBE_TIMEOUT_MS=8 с
+  //     с запасом). Возвращаем линию и выключаем движок, если включали.
+  //     Если линия так и не пришла — `null`, хук уходит в KS-3685-
+  //     поведение (запрос без `sf18_eval`/`sf18_pv`).
   const displayedLinesRef = useRef(displayedLines);
   displayedLinesRef.current = displayedLines;
   const analysisEnabledRef = useRef(analysisEnabled);
@@ -1490,7 +1490,12 @@ function AnalysisPageInner({
     const fenAtStart = currentFenForProbeRef.current;
     const start = performance.now();
     const POLL_MS = 80;
-    const WAIT_MAX_MS = 2000;
+    // KS-3703: при холодном WASM-движке инициализация (`isReady`) сама по
+    // себе занимает 1–2 секунды, плюс хочется дать ~1 с настоящего думания.
+    // Старого потолка 2 с не хватало — probe возвращал `null`, `sf18_*`
+    // в payload не попадали. 7 с укладывается в ENGINE_PROBE_TIMEOUT_MS=8 с
+    // (см. useAiPositionComment.ts) с запасом на сетевые задержки.
+    const WAIT_MAX_MS = 7000;
     return new Promise<{
       depth: number;
       multipv: number;

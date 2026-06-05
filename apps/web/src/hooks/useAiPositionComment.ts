@@ -169,17 +169,18 @@ export interface UseAiPositionCommentOptions {
    */
   engineBestLine?: EngineBestLineInput | null;
   /**
-   * KS-3687: опциональная функция автозапуска движка перед отправкой
-   * запроса. Если задана — хук вызывает её на каждом `request()`/
-   * `regenerate()` и ждёт результат с потолком {@link ENGINE_PROBE_TIMEOUT_MS}.
-   * Возвращаемое значение приоритетнее `engineBestLine` из ref.
+   * KS-3687/KS-3703: опциональная функция автозапуска движка перед
+   * отправкой запроса. Если задана — хук вызывает её на каждом
+   * `request()`/`regenerate()` и ждёт результат с потолком
+   * {@link ENGINE_PROBE_TIMEOUT_MS}. Возвращаемое значение приоритетнее
+   * `engineBestLine` из ref.
    *
    * Логика обязанности caller'а (AnalysisPage):
    *  - если движок уже думает над текущей позицией и есть свежая
    *    линия — вернуть её мгновенно;
    *  - иначе — на короткое время включить движок, дождаться первой
    *    линии (~1 с), вернуть её и выключить движок, если включали;
-   *  - если по таймауту 2 с линии нет — вернуть `null`.
+   *  - если по таймауту 8 с линии нет — вернуть `null`.
    *
    * Если promise бросил/таймаут — запрос всё равно уходит, просто без
    * `sf18_eval` / `sf18_pv` (поведение KS-3685).
@@ -195,8 +196,17 @@ export interface EngineBestLineInput {
   pv: string;
 }
 
-/** Потолок ожидания engineProbe перед отправкой запроса. */
-export const ENGINE_PROBE_TIMEOUT_MS = 2000;
+/**
+ * Потолок ожидания engineProbe перед отправкой запроса.
+ *
+ * KS-3703: поднят с 2 до 8 секунд. При выключенном бесконечном анализе
+ * `engineProbe` в AnalysisPage должен успеть включить движок, дождаться
+ * `isReady` (на холодном WASM это +1–2 секунды), отправить `go infinite`
+ * и дать ~1 секунду подумать. Старого потолка 2 с на это не хватало —
+ * probe возвращал `null`, и `sf18_eval`/`sf18_pv` не попадали в payload.
+ * 8 с — комфортный буфер на холодную инициализацию + 1 с thinking.
+ */
+export const ENGINE_PROBE_TIMEOUT_MS = 8000;
 
 export interface UseAiPositionCommentResult {
   state: AiCommentState;

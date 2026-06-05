@@ -8,6 +8,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 
 import {
   _resetAiPositionCommentCacheForTests,
+  ENGINE_PROBE_TIMEOUT_MS,
   normalizeFen,
   SOFT_LIMIT,
   SOFT_WINDOW_MIN,
@@ -400,6 +401,61 @@ describe('useAiPositionComment', () => {
     expect(factors).toHaveLength(1);
     expect((factors[0] as { id: string }).id).toBe('space');
   });
+
+  it('KS-3703: ENGINE_PROBE_TIMEOUT_MS = 8000 мс (буфер на холодный WASM + ~1 с думания)', () => {
+    expect(ENGINE_PROBE_TIMEOUT_MS).toBe(8000);
+  });
+
+  it('KS-3703: engineProbe с задержкой 2.5 с (больше старого потолка 2 с) → линия попадает в payload', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    // Промис задерживается на 2500 мс — раньше (потолок 2000) probe
+    // успевал отвалиться по таймауту, sf18_* пропадали из payload.
+    // С новым потолком 8000 — линия попадает в запрос.
+    const probe = vi.fn().mockImplementation(
+      () =>
+        new Promise<{
+          depth: number;
+          multipv: number;
+          score: { type: 'cp'; value: number };
+          pv: string;
+        }>((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                depth: 18,
+                multipv: 1,
+                score: { type: 'cp', value: 25 },
+                pv: 'e2e4 e7e5',
+              }),
+            2500,
+          ),
+        ),
+    );
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineProbe: probe,
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'), {
+      timeout: 6000,
+    });
+    expect(probe).toHaveBeenCalledTimes(1);
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors).toHaveLength(2);
+    expect(factors[0]).toMatchObject({
+      id: 'sf18_eval',
+      score: { type: 'cp', value: 25 },
+    });
+    expect(factors[1]).toMatchObject({ id: 'sf18_pv', pv: ['e2e4', 'e7e5'] });
+  }, 10000);
 
   it('KS-3687: engineProbe бросил исключение → запрос всё равно идёт без sf18', async () => {
     (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
