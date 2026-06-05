@@ -232,10 +232,13 @@ describe('ReviewCommentService', () => {
       makeRedisStub(),
     );
 
-    it('RU: содержит роль, упоминание FEN, перечень полей факторов, требование контракта JSON-массива', () => {
+    it('RU: содержит роль, упоминание FEN, перечень полей факторов, акцент на оценке позиции и условном комментарии хода, требование контракта JSON-массива', () => {
       const p = svc.buildSystemPrompt('ru', 1500);
-      expect(p).toContain('позиционных критериев');
-      expect(p).toContain('FEN');
+      // KS-3706: главная задача — оценка позиции после сыгранного хода,
+      // комментарий хода даётся только когда ход что-то меняет.
+      expect(p).toContain('Главное — дать оценку позиции после сыгранного хода');
+      expect(p).toContain('Комментарий самого хода даётся только тогда, когда ход действительно что-то меняет');
+      expect(p).toContain('fen');
       expect(p).toContain('positional_shifts');
       expect(p).toContain('positional_subterms');
       expect(p).toContain('tactical_motifs');
@@ -243,16 +246,21 @@ describe('ReviewCommentService', () => {
       expect(p).toContain('threats_created');
       expect(p).toContain('threats_missed');
       expect(p).toContain('sf_best');
-      expect(p).toContain('ОДНО короткое предложение на русском');
-      expect(p).toContain('Не выдумывай');
+      expect(p).toContain('classification');
+      // KS-3706: условия добавления комментария хода
+      expect(p).toContain('взятие, размен, шах, мат, рокировка, превращение');
+      expect(p).toContain('mistake/blunder/inaccuracy');
+      expect(p).toContain('тихий и позицию заметно не меняет');
       expect(p).toContain('пустую строку');
       expect(p).toContain('JSON-массив строк той же длины');
     });
 
-    it('EN: содержит роль, FEN, список полей, требование JSON-массива той же длины', () => {
+    it('EN: содержит роль, FEN, список полей, акцент на оценке позиции и условном комментарии хода, требование JSON-массива той же длины', () => {
       const p = svc.buildSystemPrompt('en', 1500);
-      expect(p).toContain('strictly based on the provided positional factors');
-      expect(p).toContain('FEN');
+      // KS-3706: position evaluation is primary; move comment is conditional.
+      expect(p).toContain('The primary task is to evaluate the position after the played move');
+      expect(p).toContain('A comment on the move itself is added only when the move actually changes something');
+      expect(p).toContain('fen');
       expect(p).toContain('positional_shifts');
       expect(p).toContain('positional_subterms');
       expect(p).toContain('tactical_motifs');
@@ -260,8 +268,11 @@ describe('ReviewCommentService', () => {
       expect(p).toContain('threats_created');
       expect(p).toContain('threats_missed');
       expect(p).toContain('sf_best');
-      expect(p).toContain('ONE short English sentence');
-      expect(p).toContain('Do not invent');
+      expect(p).toContain('classification');
+      // KS-3706: conditions for adding a move comment
+      expect(p).toContain('capture, exchange, check, mate, castling, promotion');
+      expect(p).toContain('mistake/blunder/inaccuracy');
+      expect(p).toContain('quiet and does not noticeably change the position');
       expect(p).toContain('empty string');
       expect(p).toContain('JSON array of strings of the same length');
     });
@@ -291,9 +302,9 @@ describe('ReviewCommentService', () => {
       );
     });
 
-    it('prompt короче 2 КБ (KS-3678 — было ~10 КБ с few-shot)', () => {
-      expect(svc.buildSystemPrompt('ru', 1500).length).toBeLessThan(2000);
-      expect(svc.buildSystemPrompt('en', 1500).length).toBeLessThan(2000);
+    it('prompt короче 4 КБ (KS-3706 — добавлены условия комментирования хода, было ~1 КБ после KS-3678)', () => {
+      expect(svc.buildSystemPrompt('ru', 1500).length).toBeLessThan(4000);
+      expect(svc.buildSystemPrompt('en', 1500).length).toBeLessThan(4000);
     });
   });
 
