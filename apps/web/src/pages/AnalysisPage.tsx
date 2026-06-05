@@ -1650,8 +1650,18 @@ function AnalysisPageInner({
   const aiPositionComment = useAiPositionComment({
     fen: currentFen,
     user: user ? { id: user.id } : null,
+    // KS-3725: `currentGlobalIndex` — это сквозной счётчик по всему
+    // дереву (mainline + variations), а `history[]` содержит только
+    // mainline. После первой же вариации индексы в mainline начинают
+    // расходиться с globalIndex (вариации тоже инкрементируют счётчик
+    // в `parseAnnotatedPgn`), поэтому `history[currentGlobalIndex]`
+    // промахивается уже на 2-м и 3-м комментарии «полного разбора» в
+    // PGN — пользователь видел корректный текст только на первом ходе
+    // до любой вариации. `searchInHistory` рекурсивно ходит по дереву
+    // (см. ChessHistoryUtils.ts) и возвращает узел по globalIndex
+    // независимо от того, mainline это или ветка.
     fullReviewComment:
-      (history[currentGlobalIndex] as ChessMove | undefined)?.comment ?? null,
+      (searchInHistory(history, currentGlobalIndex) as ChessMove | null)?.comment ?? null,
     language: aiCommentLanguage,
     // KS-3702 повторное открытие: пробрасываем `engineBestLine` только
     // если линия относится к текущему FEN. Иначе хук нормализует знак

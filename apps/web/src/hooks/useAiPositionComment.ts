@@ -30,11 +30,13 @@
  *   - если в кэше есть запись по новому FEN — сразу `success(source=cache)`;
  *   - иначе — `idle` (либо `unauthenticated` для гостя).
  *
- * Если в `fullReviewComment` приходит непустой текст (=
- * `history[currentGlobalIndex]?.comment` из полного разбора партии) —
- * показываем его как `success(source='full-review')` до первого ручного
- * запроса. Кнопка `regenerate()` форсирует новый запрос: результат пишем
- * в RAM-кэш (не в PGN), карточка переключается на `source='live'`.
+ * Если в `fullReviewComment` приходит непустой текст (комментарий узла
+ * текущего хода из дерева, найденный через `searchInHistory` — см.
+ * KS-3725; раньше caller использовал `history[currentGlobalIndex]?.comment`,
+ * что промахивалось при наличии вариантов в PGN) — показываем его как
+ * `success(source='full-review')` до первого ручного запроса. Кнопка
+ * `regenerate()` форсирует новый запрос: результат пишем в RAM-кэш
+ * (не в PGN), карточка переключается на `source='live'`.
  *
  * Soft-counter: считаем запросы, отправленные текущим клиентом за окно
  * `SOFT_WINDOW_MS` (20 минут). Это локальная UX-индикация, никак не
@@ -145,10 +147,13 @@ export interface UseAiPositionCommentOptions {
   /** `null` → состояние `unauthenticated`, кнопка disabled. */
   user: { id: string } | null;
   /**
-   * `history[currentGlobalIndex]?.comment ?? null` от AnalysisPage.
-   * Непустая строка → показываем её как `success(source='full-review')`
-   * до первого ручного запроса. Кнопка «Перегенерировать» заменит её
-   * результатом из API (только в RAM-кэше).
+   * Комментарий узла текущего хода в дереве разбора (KS-3725: caller
+   * должен искать через `searchInHistory(history, currentGlobalIndex)`,
+   * а не по array-индексу — `globalIndex` сквозной по всему дереву и
+   * не совпадает с порядковым номером в mainline после первой же
+   * вариации). Непустая строка → показываем её как
+   * `success(source='full-review')` до первого ручного запроса. Кнопка
+   * «Перегенерировать» заменит её результатом из API (только в RAM-кэше).
    */
   fullReviewComment?: string | null;
   /** Опционально: язык ответа. Если backend ещё без B1, не передавать. */
