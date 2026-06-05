@@ -97,23 +97,22 @@ export class PositionCommentService {
     const glossary = this.buildSubtermGlossary(language);
     if (language === 'en') {
       return [
-        'Please comment on this chess position in plain language using the given positional factors.',
+        'Please comment on this chess position in plain language using the given positional factors. This is a STATIC evaluation: describe only what is in the position right now and how factors shift by tendency. No predictions of concrete future moves, no manoeuvres, no plans by named pieces.',
         '',
-        'Two factors are the most important if present:',
-        '- sf18_eval: Stockfish 18 evaluation. score.type="cp" — centipawns from White\'s point of view: positive means White is better, negative means Black is better (the sign is always reported from White\'s side, regardless of whose move it is). score.type="mate" — mate in N half-moves from White\'s point of view: positive N means White is delivering mate, negative N means Black is delivering mate.',
-        '- sf18_pv: Stockfish 18 recommended move sequence, an array of UCI moves (e.g. ["e2e4","e7e5","g1f3"]).',
+        'Main source of truth — sf18_eval (Stockfish 18 evaluation):',
+        '- score.type="cp" — centipawns from White\'s point of view: positive means White is better, negative means Black is better (the sign is always reported from White\'s side, regardless of whose move it is).',
+        '- score.type="mate" — mate in N half-moves from White\'s point of view: positive N means White is delivering mate, negative N means Black is delivering mate.',
+        'The verdict on which side stands better ALWAYS follows sf18_eval.',
         '',
-        'When these factors are present, you MUST reflect both: describe the evaluation in plain words and the dynamics of the next 2–3 moves (what threats and plans arise, where targets shift, what the opponent can try). Do NOT enumerate pv moves literally (no "e2e4, then Nc3"), do NOT mention "the principal variation", "the main line" or "pv" in your answer; use sf18_pv only as an internal guide for ideas. When they are absent, comment using the remaining factors only.',
+        'Static subterms (anything from the glossary below) may carry two pairs of values: value_mg/value_eg — value of the factor in the current position, and terminal_value_mg/terminal_value_eg — value of the same factor in the position roughly 10 moves per side later under reasonable play by both sides. Either pair may be missing: no initial values means the factor appears by the end; no terminal values means it disappears by the end. Reason about the TREND (how the factor changes), not only the current value: growth from value to terminal — the factor is reinforced; decay or zeroing — it dissolves or is liquidated by the opponent. Never mention the actual value/terminal_value numbers in your answer.',
         '',
-        'Static subterms (anything from the glossary below) may carry two pairs of values: value_mg/value_eg — value of the factor in the current position, and terminal_value_mg/terminal_value_eg — value of the same factor at the end of the recommended move sequence (≈10 moves per side later). Either pair may be missing: no initial values means the factor appeared during the line; no terminal values means it disappears by the end. Reason about the TREND (how the factor changes through the fight), not only the current value: growth from value to terminal — the factor is reinforced; decay or zeroing — it dissolves or is liquidated by the opponent. Never mention the actual value/terminal_value numbers in your answer.',
+        'Forbidden — inventing concrete moves, manoeuvres and plans. Do NOT write "transferring the knight to …", "pawn break …", "strike along the … diagonal", "opening the … file", "pin along …", "attack on …", "sacrifice …", "blow on …" or any other description of future actions by named pieces. Concrete squares may be mentioned ONLY if they come from the square field of a subterm in the glossary (for example, for outpost_knight you may say "knight on the outpost at e5" — because e5 came from the fact). Concrete moves (e2-e4, Nf3, Bxc7, etc.) — forbidden in any form. Diagonals and files as lines of action or planned breaks — forbidden unless they directly follow from a subterm with a square.',
         '',
-        'Hierarchy of truth — sf18_eval and sf18_pv are the main source of truth. Static factors (anything from the glossary below) describe FORM, not RESULT. Before presenting any static factor as a plus or minus, check it against sf18_eval and sf18_pv:',
-        '- If sf18_eval is roughly equal or against the side that "owns" the factor — the factor is tactically refuted. Use hedged language: "nominally", "structurally", "on the surface", "however", "Stockfish does not see this as an advantage". Do NOT conclude that the side has an advantage from this factor alone.',
-        '- Check sf18_pv: if within the next few moves the opponent captures the piece or pawn the factor relies on, the factor is unreliable — say so. If within the next few moves the factor is pushed, defended or activated, the factor is real.',
-        '- Order of priority: 1) sf18_eval (the truth about the position now); 2) sf18_pv (the truth about the next few moves); 3) static factors — only the part that agrees with the two above.',
-        '- The verdict on which side stands better ALWAYS follows sf18_eval. terminal_value_* and the trend only change the narrative (which factors are reinforced or dissolved), NOT the final conclusion about who is better. If sf18_eval is +N for White — the verdict is "White is better", even if Black has growing threat_*, mobility_* and terminal_value across most subterms.',
-        '- If sf18_eval shows a decisive advantage for one side while static factors and terminal_value stack up for the other — that means the opponent captures the piece or pawn those factors rely on within the next few moves. Describe it exactly that way: "Side X has Y working statically, but Stockfish already sees Y being captured next move, so it is not an advantage."',
-        'Example: "Nominally White has a passed pawn, but Stockfish sees the position as equal — Black takes that pawn next move, so the passed pawn is not a real advantage."',
+        'Hierarchy:',
+        '1) sf18_eval — who stands better (the verdict);',
+        '2) factor trend (value → terminal_value) — which subterms drive it, which are reinforced, which dissolve;',
+        '3) static factors — what is in the position right now.',
+        'If sf18_eval shows a clear advantage for one side while static subterms stack up for the other — that means the opponent soon captures the piece or pawn those factors rely on, and Stockfish has already accounted for it. Describe it as: "Nominally Side X has Y, but Stockfish does not see this as an advantage — the factor dissolves soon." Do NOT spell out how exactly.',
         '',
         'Glossary — translate each subterm id to its human name before writing about it. Never put a technical id in the answer (king_danger, outpost_knight, mobility_rook, etc.). Use the human name from the table:',
         glossary,
@@ -137,27 +136,26 @@ export class PositionCommentService {
         '- yellow — key idea / focal point;',
         '- blue — reserved for the user, do not use.',
         '',
-        'Highlight at most 1–2 key factors in total. If there is nothing to highlight, return empty arrays. Do not wrap the JSON in code fences. Do not add any text outside the JSON object.',
+        'Use arrows ONLY to highlight a concrete weakness tied to a glossary subterm (from the attacker to its target). Do not use arrows as "manoeuvre plan" or "pawn break". If there is no such pairing in the facts, return arrows as an empty array. Highlight at most 1–2 key factors in total. If there is nothing to highlight, return empty arrays. Do not wrap the JSON in code fences. Do not add any text outside the JSON object.',
       ].join('\n');
     }
     return [
-      'Прокомментируй пожалуйста позицию человеческим языком на основании факторов.',
+      'Прокомментируй пожалуйста позицию человеческим языком на основании факторов. Это СТАТИЧЕСКАЯ оценка: только то, что есть в позиции сейчас и как факторы меняются по тенденции. Никаких прогнозов конкретных будущих ходов, манёвров и планов конкретными фигурами.',
       '',
-      'Среди факторов могут быть два приоритетных:',
-      '- sf18_eval: оценка позиции от Stockfish 18. score.type="cp" — сантипешки с точки зрения белых: положительное значение значит, что лучше стоят белые, отрицательное — лучше стоят чёрные (знак всегда приходит со стороны белых, независимо от того, чей ход). score.type="mate" — мат за N полуходов с точки зрения белых: положительное N — мат объявляют белые, отрицательное N — мат объявляют чёрные.',
-      '- sf18_pv: рекомендуемая последовательность ходов от Stockfish 18, массив ходов в UCI (например ["e2e4","e7e5","g1f3"]).',
+      'Главный источник истины — sf18_eval (оценка Stockfish 18):',
+      '- score.type="cp" — сантипешки с точки зрения белых: положительное значение значит, что лучше стоят белые, отрицательное — лучше стоят чёрные (знак всегда приходит со стороны белых, независимо от того, чей ход).',
+      '- score.type="mate" — мат за N полуходов с точки зрения белых: положительное N — мат объявляют белые, отрицательное N — мат объявляют чёрные.',
+      'Вердикт о стороне с перевесом ВСЕГДА следует за sf18_eval.',
       '',
-      'Если эти факторы есть — ОБЯЗАТЕЛЬНО отрази оба: опиши оценку человеческими словами и динамику позиции на ближайшие 2-3 хода (какие угрозы и планы возникают, куда смещаются цели, что соперник может предпринять). НЕ пересказывай ходы из sf18_pv буквально (никаких "e2e4, потом Nc3"), НЕ упоминай в ответе сами выражения «первая линия», «вариант Stockfish», «pv» — используй sf18_pv только как внутренний ориентир для описания идей. Если их нет — комментируй только по остальным факторам.',
+      'У статических подкомпонент (любой пункт словаря ниже) могут быть две пары значений: value_mg/value_eg — значение фактора в текущей позиции, и terminal_value_mg/terminal_value_eg — значение того же фактора в позиции примерно через 10 ходов каждой стороны при разумной игре обеих сторон. Любая пара может отсутствовать: нет исходной — фактор появляется к концу; нет терминальной — фактор исчезает к концу. Опирайся на ТЕНДЕНЦИЮ (как фактор меняется), а не только на текущее значение: рост от value к terminal — фактор укрепляется, падение или обнуление — растворяется или ликвидируется соперником. Числа самих value/terminal_value в ответе не упоминай.',
       '',
-      'У статических подкомпонент (любой пункт словаря ниже) могут быть две пары значений: value_mg/value_eg — значение фактора в текущей позиции, и terminal_value_mg/terminal_value_eg — значение того же фактора в позиции конца рекомендуемой последовательности (≈через 10 ходов каждой стороны). Любая пара может отсутствовать: нет исходной — фактор появился по ходу борьбы; нет терминальной — фактор исчезает к концу. Опирайся на ТЕНДЕНЦИЮ (как фактор меняется по ходу борьбы), а не только на текущее значение: рост от value к terminal — фактор укрепляется, падение или обнуление — растворяется или ликвидируется соперником. Числа самих value/terminal_value не упоминай в ответе.',
+      'Запрещено выдумывать конкретные ходы, манёвры и планы. Нельзя писать «перевод коня на …», «прорыв пешкой …», «удар по диагонали …», «вскрытие линии …», «связка по …», «нападение …», «жертва …», «удар …» и любые другие описания будущих действий конкретными фигурами. Конкретные клетки можно называть ТОЛЬКО если они пришли из поля square самой подкомпоненты словаря (например, для outpost_knight можно сказать «конь на форпосте e5» — потому что e5 пришло из факта). Конкретные ходы (e2-e4, Кf3, С:c7 и т.п.) — нельзя ни в каком виде. Диагонали и линии как «линии действия» или планируемые прорывы — нельзя, если они не следуют напрямую из подкомпоненты со square.',
       '',
-      'Иерархия достоверности — sf18_eval и sf18_pv главнее всего остального. Статические факторы (любой пункт словаря ниже) описывают ФОРМУ, а не РЕЗУЛЬТАТ. Перед тем как преподнести любой статический фактор как «плюс» или «минус», сверь его с sf18_eval и sf18_pv:',
-      '- Если sf18_eval показывает примерное равенство или против стороны, которой «принадлежит» фактор, — фактор тактически опровергнут. Используй оговорки: «формально», «структурно», «на первый взгляд», «по структуре, но», «несмотря на это», «Stockfish не считает это преимуществом». НЕ делай вывод о преимуществе только на основании такого статического фактора.',
-      '- Сверка с sf18_pv: если ближайшими ходами соперник забирает фигуру или пешку, на которой держится фактор, — фактор недостоверен, скажи это прямо. Если ближайшими ходами фактор продвигается, защищается или усиливается — фактор реальный.',
-      '- Порядок приоритетов: 1) sf18_eval (что в позиции по факту прямо сейчас); 2) sf18_pv (что произойдёт ближайшими ходами); 3) статические факторы — комментируй только то, что согласуется с двумя выше.',
-      '- Вердикт о стороне с перевесом ВСЕГДА следует за sf18_eval. terminal_value_* и тенденция меняют только нарратив (какие факторы усиливаются или растворяются), но НЕ итоговый вывод о том, кто стоит лучше. Если sf18_eval +N за белых — итог «у белых перевес», даже если у чёрных нарастают threat_*, mobility_* и terminal_value большинства подкомпонент.',
-      '- Если sf18_eval показывает решающее преимущество одной стороны, а статические факторы и terminal_value складываются в пользу другой — это значит, что соперник ближайшими ходами забирает фигуру или пешку, на которой эти факторы держатся. Опиши именно так: «у X статически активна Y, но Stockfish уже видит, что Y следующим ходом теряется, поэтому это не преимущество».',
-      'Пример: «Формально у белых есть проходная пешка, но Stockfish оценивает позицию как равную — ближайшим ходом чёрные её забирают, так что проходная не даёт реального преимущества».',
+      'Иерархия:',
+      '1) sf18_eval — кто стоит лучше (вердикт о перевесе);',
+      '2) тенденция факторов (value → terminal_value) — за счёт каких подкомпонент это происходит, какие укрепляются, какие исчезают;',
+      '3) статические факторы — то, что есть в позиции прямо сейчас.',
+      'Если sf18_eval показывает заметный перевес одной стороны, а статические подкомпоненты складываются в пользу другой — это значит, что соперник вскоре забирает фигуру или пешку, на которой эти факторы держатся, и Stockfish это уже учёл. Описывай это так: «формально у X есть Y, но Stockfish не считает это преимуществом — фактор скоро исчезает». КАК именно это произойдёт — не пиши.',
       '',
       'Словарь расшифровок — каждый id подкомпоненты переводи в человеческое имя из таблицы перед тем, как писать о нём. Никогда не пиши технический id в ответе (king_danger, outpost_knight, mobility_rook и т.п.). Используй человеческое имя из таблицы:',
       glossary,
@@ -181,8 +179,28 @@ export class PositionCommentService {
       '- yellow — ключевая идея / точка внимания;',
       '- blue — резерв пользователя, не используй.',
       '',
-      'Выдели не больше 1–2 факторов суммарно. Если выделять нечего — верни пустые массивы. Не оборачивай JSON в код-fences. Не добавляй текст вне JSON-объекта.',
+      'Стрелки используй ТОЛЬКО для указания конкретной слабости, привязанной к подкомпоненте из словаря (от атакующей фигуры к её цели). Стрелки как «план манёвра» или «прорыв» — нельзя. Если такой связки в фактах нет, верни arrows пустым массивом. Выдели не больше 1–2 факторов суммарно. Если выделять нечего — верни пустые массивы. Не оборачивай JSON в код-fences. Не добавляй текст вне JSON-объекта.',
     ].join('\n');
+  }
+
+  /**
+   * KS-3721. `sf18_pv` — массив UCI-ходов рекомендуемой линии Stockfish.
+   * Модель использует его как затравку для реконструкции манёвров и
+   * выдумывает прорывы/диагонали/переводы фигур, которых в данных нет.
+   * В новой статической инструкции `sf18_pv` не упоминается и не нужен —
+   * вырезаем его из подаваемых модели факторов целиком. Терминальные
+   * значения `terminal_value_*` у статических подкомпонент остаются:
+   * тенденция (value → terminal) сохраняется без знания самой линии.
+   */
+  private stripPvFactor(
+    factors: PositionCommentDto['factors'],
+  ): PositionCommentDto['factors'] {
+    if (!Array.isArray(factors)) return factors;
+    return factors.filter((f) => {
+      if (typeof f !== 'object' || f === null) return true;
+      const id = (f as Record<string, unknown>).id;
+      return id !== 'sf18_pv';
+    });
   }
 
   async comment(
@@ -214,9 +232,12 @@ export class PositionCommentService {
     }
 
     const systemPrompt = this.buildSystemPrompt(dto.language);
+    // KS-3721: вырезаем sf18_pv до сериализации — модель не должна
+    // получать UCI-линию как почву для выдумывания манёвров.
+    const factorsForModel = this.stripPvFactor(dto.factors);
     const dataJson = JSON.stringify({
       fen: dto.fen,
-      factors: dto.factors,
+      factors: factorsForModel,
       ...(dto.eval ? { eval: dto.eval } : {}),
     });
 

@@ -79,25 +79,40 @@ describe('PositionCommentService', () => {
       );
     });
 
-    it('KS-3686 RU: упоминает sf18_eval и sf18_pv, их формат и обязательность отразить', () => {
+    it('KS-3721 RU: упоминает sf18_eval как главный источник, sf18_pv в инструкции не фигурирует', () => {
       const p = svc.buildSystemPrompt('ru');
       expect(p).toContain('sf18_eval');
-      expect(p).toContain('sf18_pv');
       expect(p).toContain('Stockfish 18');
       // Тип cp и mate должны быть упомянуты с пояснением.
       expect(p).toContain('cp');
       expect(p).toContain('mate');
-      // KS-3702: знак всегда со стороны белых, прежняя формулировка
-      // про `side_to_move` удалена синхронно с правкой на фронте.
+      // KS-3702: знак всегда со стороны белых.
       expect(p).toContain('с точки зрения белых');
       expect(p).not.toContain('side_to_move');
       expect(p).toMatch(/независимо от того, чей ход/);
-      expect(p).toContain('UCI');
-      // Обязательность отразить + перевод в слова + план.
-      expect(p).toContain('ОБЯЗАТЕЛЬНО');
-      expect(p).toContain('план');
-      // Backward-compat подсказка.
-      expect(p).toMatch(/Если их нет/);
+      // KS-3721: sf18_pv больше не упоминается — модель не должна
+      // опираться на pv-линию как на источник манёвров.
+      expect(p).not.toContain('sf18_pv');
+      expect(p).not.toContain('UCI');
+      expect(p).not.toContain('ОБЯЗАТЕЛЬНО');
+      // Главный источник истины — sf18_eval.
+      expect(p).toMatch(/Главный источник истины/);
+      expect(p).toMatch(/Вердикт.*следует за sf18_eval/);
+    });
+
+    it('KS-3721 RU: явный запрет на конкретные ходы, манёвры и планы фигурами', () => {
+      const p = svc.buildSystemPrompt('ru');
+      expect(p).toMatch(/Это СТАТИЧЕСКАЯ оценка/);
+      expect(p).toMatch(/Запрещено выдумывать конкретные ходы, манёвры и планы/);
+      // Перечень типовых формулировок-выдумок.
+      expect(p).toContain('перевод коня');
+      expect(p).toContain('прорыв пешкой');
+      expect(p).toContain('диагонали');
+      expect(p).toContain('вскрытие линии');
+      // Конкретные ходы запрещены.
+      expect(p).toMatch(/Конкретные ходы.*нельзя/);
+      // Square — только если из подкомпоненты.
+      expect(p).toMatch(/square самой подкомпоненты/);
     });
 
     it('KS-3686 RU: явный запрет числовой оценки + словесные шаблоны', () => {
@@ -156,41 +171,51 @@ describe('PositionCommentService', () => {
       expect(p).toContain('лёгкие фигуры');
     });
 
-    it('KS-3697 RU: блок иерархии достоверности sf18_eval/sf18_pv vs статика', () => {
+    it('KS-3721 RU: иерархия sf18_eval → тенденция → статика, без сверки с sf18_pv', () => {
       const p = svc.buildSystemPrompt('ru');
-      expect(p).toContain('Иерархия достоверности');
-      expect(p).toContain('главнее всего остального');
-      expect(p).toContain('тактически опровергнут');
-      // Перечень разрешённых оговорок.
+      expect(p).toMatch(/Иерархия:/);
       expect(p).toContain('формально');
-      expect(p).toContain('структурно');
-      expect(p).toContain('на первый взгляд');
       expect(p).toContain('Stockfish не считает это преимуществом');
-      // Правило сверки с sf18_pv.
-      expect(p).toContain('Сверка с sf18_pv');
-      expect(p).toMatch(/соперник.*забирает/);
-      // Порядок приоритетов.
-      expect(p).toContain('Порядок приоритетов');
-      // Конкретный пример с проходной (как в задаче пользователя).
-      expect(p).toMatch(/проходная.*равную.*забирают/);
+      // KS-3721: сверки с sf18_pv больше нет — модель не должна
+      // строить нарратив вокруг конкретных ходов pv.
+      expect(p).not.toContain('Сверка с sf18_pv');
+      expect(p).not.toContain('Порядок приоритетов');
+      // Тенденция остаётся.
+      expect(p).toContain('тенденция факторов');
+      // Шаблон формального описания без рассказа о ходах сверху.
+      expect(p).toMatch(/формально у X есть Y.*Stockfish не считает.*исчезает/);
+      expect(p).toMatch(/КАК именно.*не пиши/);
     });
 
-    it('KS-3686 EN: упоминает sf18_eval и sf18_pv, формат и обязательность отразить', () => {
+    it('KS-3721 EN: упоминает sf18_eval как главный источник, sf18_pv в инструкции не фигурирует', () => {
       const p = svc.buildSystemPrompt('en');
       expect(p).toContain('sf18_eval');
-      expect(p).toContain('sf18_pv');
       expect(p).toContain('Stockfish 18');
       expect(p).toContain('cp');
       expect(p).toContain('mate');
-      // KS-3702: знак всегда со стороны белых, прежняя формулировка
-      // про `side-to-move` удалена синхронно с правкой на фронте.
+      // KS-3702: знак всегда со стороны белых.
       expect(p).toContain("White's point of view");
       expect(p).not.toContain('side_to_move');
       expect(p).toContain('regardless of whose move');
-      expect(p).toContain('UCI');
-      expect(p).toMatch(/MUST reflect both/);
-      expect(p).toContain('plan');
-      expect(p).toMatch(/When they are absent/);
+      // KS-3721: sf18_pv удалён из инструкции.
+      expect(p).not.toContain('sf18_pv');
+      expect(p).not.toContain('UCI');
+      expect(p).not.toMatch(/MUST reflect both/);
+      // Главный источник истины — sf18_eval.
+      expect(p).toMatch(/Main source of truth/);
+      expect(p).toMatch(/verdict.*ALWAYS follows sf18_eval/);
+    });
+
+    it('KS-3721 EN: explicit ban on concrete moves, manoeuvres and plans by named pieces', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(/STATIC evaluation/);
+      expect(p).toMatch(/Forbidden — inventing concrete moves, manoeuvres and plans/);
+      expect(p).toContain('transferring the knight');
+      expect(p).toContain('pawn break');
+      expect(p).toContain('diagonal');
+      expect(p).toContain('file');
+      expect(p).toMatch(/Concrete moves.*forbidden in any form/);
+      expect(p).toMatch(/square field of a subterm/);
     });
 
     it('KS-3686 EN: явный запрет числовой оценки + словесные шаблоны', () => {
@@ -242,41 +267,34 @@ describe('PositionCommentService', () => {
       expect(p).toContain('minor pieces');
     });
 
-    it('KS-3697 EN: блок иерархии достоверности sf18_eval/sf18_pv vs static', () => {
+    it('KS-3721 EN: hierarchy sf18_eval → trend → static, no sf18_pv check step', () => {
       const p = svc.buildSystemPrompt('en');
-      expect(p).toContain('Hierarchy of truth');
-      expect(p).toContain('main source of truth');
-      expect(p).toContain('tactically refuted');
-      // Перечень разрешённых оговорок.
-      expect(p).toContain('nominally');
-      expect(p).toContain('structurally');
-      expect(p).toContain('on the surface');
+      expect(p).toMatch(/Hierarchy:/);
+      expect(p).toContain('Nominally');
       expect(p).toContain('Stockfish does not see this as an advantage');
-      // Правило сверки с sf18_pv.
-      expect(p).toContain('Check sf18_pv');
-      expect(p).toMatch(/opponent.*captures/);
-      // Порядок приоритетов.
-      expect(p).toContain('Order of priority');
-      // Конкретный пример.
-      expect(p).toMatch(/passed pawn.*equal.*takes that pawn/);
+      // KS-3721: правило сверки с sf18_pv удалено.
+      expect(p).not.toContain('Check sf18_pv');
+      expect(p).not.toContain('Order of priority');
+      // Тенденция остаётся.
+      expect(p).toContain('factor trend');
+      // Шаблон формального описания без рассказа о ходах.
+      expect(p).toMatch(/Nominally Side X has Y.*Stockfish does not see this as an advantage.*dissolves soon/);
+      expect(p).toMatch(/Do NOT spell out how exactly/);
     });
 
-    it('KS-3700 RU: иерархия дополнена пунктами про приоритет sf18_eval над terminal_value и шаблон описания', () => {
+    it('KS-3721 RU: вердикт всегда за sf18_eval, terminal_value остаётся как тенденция', () => {
       const p = svc.buildSystemPrompt('ru');
-      // Вердикт о стороне с перевесом всегда следует за sf18_eval.
       expect(p).toContain('Вердикт о стороне с перевесом ВСЕГДА следует за sf18_eval');
       expect(p).toContain('terminal_value');
-      expect(p).toMatch(/не.*итоговый вывод/);
-      // Шаблон описания «статически активна Y, но Stockfish видит, что Y теряется».
-      expect(p).toMatch(/статически активна.*Stockfish.*теряется.*не преимущество/s);
+      // Тенденция value → terminal_value сохранена.
+      expect(p).toMatch(/рост от value к terminal/);
     });
 
-    it('KS-3700 EN: иерархия дополнена пунктами про приоритет sf18_eval над terminal_value и шаблон описания', () => {
+    it('KS-3721 EN: verdict always follows sf18_eval, terminal_value preserved as trend', () => {
       const p = svc.buildSystemPrompt('en');
       expect(p).toContain('verdict on which side stands better ALWAYS follows sf18_eval');
       expect(p).toContain('terminal_value');
-      expect(p).toMatch(/NOT the final conclusion/);
-      expect(p).toMatch(/working statically.*Stockfish already sees.*not an advantage/s);
+      expect(p).toMatch(/growth from value to terminal/);
     });
 
     it('обе версии — без преамбул в стиле CRITICAL RULES / FORBIDDEN / few-shot', () => {
@@ -288,15 +306,11 @@ describe('PositionCommentService', () => {
         expect(p).not.toContain('ЗАПРЕЩЕНО');
         expect(p).not.toContain('few-shot');
         expect(p).not.toContain('ELO');
-        // KS-3689: словарь расшифровок ~3.3 КБ. KS-3697: блок про
-        // иерархию достоверности добавил ещё ~1.3 КБ. KS-3698 (попутно
-        // с KS-3699): абзац про terminal_value_mg/eg и тенденцию +
-        // переформулировка sf18_pv (без термина «первая линия»)
-        // добавили ещё ~0.5 КБ. KS-3700: два дополнительных пункта в
-        // «Иерархию достоверности» (приоритет sf18_eval над тенденцией +
-        // шаблон описания) добавили ещё ~0.7 КБ. Верхнюю границу подняли
-        // до 9.5 КБ. Это всё ещё короче, чем V2-prompt'ы из старого
-        // review-comment (~10 КБ с few-shot).
+        // KS-3721: блоки про sf18_pv (формат, инструкция отразить,
+        // сверка с pv, порядок приоритетов, пример с проходной)
+        // удалены, добавлены явные запреты на манёвры/планы. Общий
+        // объём сравним с предыдущей версией, верхняя граница 9500
+        // сохраняется.
         expect(p.length).toBeLessThan(9500);
       }
     });
@@ -374,10 +388,11 @@ describe('PositionCommentService', () => {
         /^Please comment on this chess position in plain language/,
       );
       expect(captured.systemPrompt).toContain('sf18_eval');
-      expect(captured.systemPrompt).toContain('sf18_pv');
+      // KS-3721: sf18_pv больше не упоминается в инструкции модели.
+      expect(captured.systemPrompt).not.toContain('sf18_pv');
     });
 
-    it('language=ru → systemPrompt в payload — RU (содержит sf18_eval/pv-инструкцию)', async () => {
+    it('language=ru → systemPrompt в payload — RU (содержит sf18_eval-инструкцию)', async () => {
       const svc = new PositionCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
         makeRedisStub(),
@@ -401,7 +416,8 @@ describe('PositionCommentService', () => {
         /^Прокомментируй пожалуйста позицию человеческим языком/,
       );
       expect(captured.systemPrompt).toContain('sf18_eval');
-      expect(captured.systemPrompt).toContain('sf18_pv');
+      // KS-3721: sf18_pv больше не упоминается в инструкции модели.
+      expect(captured.systemPrompt).not.toContain('sf18_pv');
     });
 
     it('без поля language → RU (backward-compat)', async () => {
@@ -473,6 +489,54 @@ describe('PositionCommentService', () => {
       const data = JSON.parse((m as RegExpMatchArray)[1]);
       expect(JSON.stringify(data.factors)).not.toContain('sf18_eval');
       expect(JSON.stringify(data.factors)).not.toContain('sf18_pv');
+    });
+
+    it('KS-3721: sf18_pv вырезается из factors перед отправкой в модель, остальные факторы сохраняются', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      let captured: any = null;
+      global.fetch = jest.fn(async (_url: any, init: any) => {
+        captured = JSON.parse(init.body);
+        return new Response(
+          JSON.stringify({
+            response: JSON.stringify({ comment: 'ok' }),
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as any;
+
+      const dto = makeDto({
+        factors: [
+          { id: 'sf18_eval', score: { type: 'cp', value: 120 } },
+          { id: 'sf18_pv', moves: ['g2g3', 'e7e5', 'g1f3'] },
+          { id: 'material', color: 'w', value_mg: 1, value_eg: 1 },
+          {
+            id: 'mobility_rook',
+            value_mg: 0.1,
+            value_eg: 0.05,
+            terminal_value_mg: 0.3,
+            terminal_value_eg: 0.2,
+          },
+        ],
+      });
+      await svc.comment('user-1', dto);
+
+      const m = String(captured.message).match(
+        /Исходные данные \(JSON\):\n([\s\S]+)$/,
+      );
+      expect(m).not.toBeNull();
+      const data = JSON.parse((m as RegExpMatchArray)[1]);
+      const ids = (data.factors as Array<{ id: string }>).map((f) => f.id);
+      // sf18_pv вырезан, остальные остались, порядок сохранён.
+      expect(ids).toEqual(['sf18_eval', 'material', 'mobility_rook']);
+      // terminal_value_* у статической подкомпоненты сохраняется —
+      // тенденция остаётся доступной модели без знания самой линии.
+      expect(JSON.stringify(data.factors)).toContain('terminal_value_mg');
+      // В подаваемых данных от модели sf18_pv нет полностью.
+      expect(JSON.stringify(data.factors)).not.toContain('sf18_pv');
+      expect(JSON.stringify(data.factors)).not.toContain('g2g3');
     });
   });
 
