@@ -421,6 +421,98 @@ describe('useAiPositionComment', () => {
     expect(factors).toHaveLength(0);
   });
 
+  it('KS-3702: ход чёрных → cp-оценка sf18_eval инвертируется (нормализация со стороны белых)', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    // FEN_B — на ходу чёрные. Движок отдаёт -150 (со стороны чёрных это
+    // «чёрные хуже на 1.5 пешки»). Для AI должно уйти +150 (белые лучше).
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_B,
+        user: { id: 'u1' },
+        engineBestLine: {
+          depth: 22,
+          multipv: 1,
+          score: { type: 'cp', value: -150 },
+          pv: 'e7e5',
+        },
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors[0]).toMatchObject({
+      id: 'sf18_eval',
+      score: { type: 'cp', value: 150 },
+      side_to_move: 'b',
+    });
+  });
+
+  it('KS-3702: ход чёрных → mate-оценка sf18_eval инвертируется', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    // FEN_B — на ходу чёрные. Mate=+3 от движка (чёрные ставят мат через 3)
+    // → нормализуем к -3 со стороны белых.
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_B,
+        user: { id: 'u1' },
+        engineBestLine: {
+          depth: 18,
+          multipv: 1,
+          score: { type: 'mate', value: 3 },
+          pv: '',
+        },
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors[0]).toMatchObject({
+      id: 'sf18_eval',
+      score: { type: 'mate', value: -3 },
+      side_to_move: 'b',
+    });
+  });
+
+  it('KS-3702: ход белых → cp-оценка sf18_eval уходит без изменений', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    let capturedBody: Record<string, unknown> | null = null;
+    fetchSpy.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse((init as RequestInit).body as string);
+      return jsonResponse({ comment: 'ok' });
+    });
+    // FEN_A — на ходу белые. -42 от движка = -42 для AI (белые хуже).
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        engineBestLine: {
+          depth: 20,
+          multipv: 1,
+          score: { type: 'cp', value: -42 },
+          pv: 'e2e4',
+        },
+      }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    const factors = (capturedBody as unknown as { factors: unknown[] }).factors;
+    expect(factors[0]).toMatchObject({
+      id: 'sf18_eval',
+      score: { type: 'cp', value: -42 },
+      side_to_move: 'w',
+    });
+  });
+
   it('KS-3685: engineBestLine с пустым pv → только sf18_eval (без sf18_pv)', async () => {
     (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     let capturedBody: Record<string, unknown> | null = null;

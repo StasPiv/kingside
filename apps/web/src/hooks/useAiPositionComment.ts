@@ -612,12 +612,21 @@ export function useAiPositionComment(
       const factorsWithEngine: unknown[] = [...mergedFactors];
       if (bestLine && Number.isFinite(bestLine.score?.value)) {
         const sideToMove: 'w' | 'b' = fen.split(/\s+/)[1] === 'b' ? 'b' : 'w';
+        // KS-3702: Stockfish UCI отдаёт `score cp/mate` со стороны того, кто
+        // на ходу. Для AI всегда нормализуем «со стороны белых»: при ходе
+        // чёрных инвертируем знак для обоих типов (cp и mate). Сохраняем
+        // тип и сторону отдельно (`side_to_move`), чтобы модель знала, чей
+        // ход, но трактовала знак единообразно.
+        const normalizedScore = {
+          type: bestLine.score.type,
+          value: sideToMove === 'b' ? -bestLine.score.value : bestLine.score.value,
+        };
         factorsWithEngine.push({
           id: 'sf18_eval',
           engine: 'stockfish-18',
           depth: bestLine.depth,
           multipv: bestLine.multipv,
-          score: bestLine.score,
+          score: normalizedScore,
           side_to_move: sideToMove,
         });
         const pvList = (bestLine.pv ?? '').trim().split(/\s+/).filter(Boolean);
