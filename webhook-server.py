@@ -1051,7 +1051,7 @@ def handle_feedback_notify(handler):
     handler.wfile.write(json.dumps({"ok": True}).encode())
 
 
-AI_CHAT_TIMEOUT = 45
+AI_CHAT_TIMEOUT = 900
 AI_CHAT_IDLE_TTL = 600  # 10 minutes
 MAX_CHAT_DAEMONS = 10
 MCP_SERVER_PATH = os.path.join(PROJECT_DIR, "tools", "mcp-kingside.mjs")
@@ -1120,9 +1120,10 @@ chat_session_ids: dict[str, str] = {}
 class ChatDaemon:
     """Daemon claude CLI для одного пользователя чата."""
 
-    def __init__(self, user_id: str, user_token: str = "", resume_session_id: str | None = None):
+    def __init__(self, user_id: str, user_token: str = "", resume_session_id: str | None = None, no_mcp: bool = False):
         self.user_id = user_id
         self.user_token = user_token
+        self.no_mcp = no_mcp
         self.proc: subprocess.Popen | None = None
         self.lock = threading.Lock()
         self._reader_thread: threading.Thread | None = None
@@ -1135,10 +1136,13 @@ class ChatDaemon:
         self._response_ready = threading.Event()
         self._collecting = False
 
+    def _name_suffix(self) -> str:
+        return "nomcp" if self.no_mcp else "mcp"
+
     def _build_cmd(self, system_prompt: str = "") -> list[str]:
         cmd = [
             "docker", "run", "--rm", "-i",
-            "--name", f"chat-{self.user_id[:8]}",
+            "--name", f"chat-{self.user_id[:8]}-{self._name_suffix()}",
             "--network", "host",
             "-v", f"{AGENT_CLAUDE_DIR}:/home/agent/.claude",
             "-v", f"{AGENT_CLAUDE_JSON}:/home/agent/.claude.json",
@@ -1168,11 +1172,16 @@ class ChatDaemon:
 
     def start(self, system_prompt: str = ""):
         """Запускает daemon-процесс claude."""
-        # Создаём MCP config
-        mcp_config = _build_mcp_config(self.user_id, self.user_token)
-        self._mcp_config_path = f"/tmp/mcp-chat-{self.user_id[:8]}.json"
-        with open(self._mcp_config_path, "w") as f:
-            json.dump(mcp_config, f)
+        if self.no_mcp:
+            # MCP отключён — никаких тулов, фоновый daemon только для генерации
+            # текстовых ответов (например, комментирование позиций в review).
+            self._mcp_config_path = None
+        else:
+            # Создаём MCP config
+            mcp_config = _build_mcp_config(self.user_id, self.user_token)
+            self._mcp_config_path = f"/tmp/mcp-chat-{self.user_id[:8]}.json"
+            with open(self._mcp_config_path, "w") as f:
+                json.dump(mcp_config, f)
 
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
@@ -1219,7 +1228,7 @@ class ChatDaemon:
                     sid = data.get("session_id")
                     if sid:
                         self._resume_session_id = sid
-                        chat_session_ids[self.user_id] = sid
+                        chat_session_ids[_chat_daemon_key(self.user_id, self.no_mcp)] = sid
 
                 # Собираем текстовые блоки ответа
                 if msg_type == "assistant" and self._collecting:
@@ -1299,14 +1308,14 @@ class ChatDaemon:
             except Exception:
                 pass
             subprocess.run(
-                ["docker", "stop", f"chat-{self.user_id[:8]}"],
+                ["docker", "stop", f"chat-{self.user_id[:8]}-{self._name_suffix()}"],
                 capture_output=True, timeout=10,
             )
             try:
                 self.proc.wait(timeout=5)
             except Exception:
                 subprocess.run(
-                    ["docker", "kill", f"chat-{self.user_id[:8]}"],
+                    ["docker", "kill", f"chat-{self.user_id[:8]}-{self._name_suffix()}"],
                     capture_output=True, timeout=5,
                 )
             self.proc = None
@@ -1334,29 +1343,35 @@ def _chat_daemon_cleanup_loop():
             log(f"ChatDaemon cleanup: removed {len(to_remove)} idle daemons")
 
 
-def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str) -> ChatDaemon | None:
+def _chat_daemon_key(user_id: str, no_mcp: bool) -> str:
+    """Ключ chat_daemons: разделяем daemon'ы с MCP и без — у них разные cmd/контейнеры."""
+    return f"{user_id}#nomcp" if no_mcp else user_id
+
+
+def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str, no_mcp: bool = False) -> ChatDaemon | None:
     """Возвращает существующий daemon или создаёт новый. None если лимит достигнут."""
+    key = _chat_daemon_key(user_id, no_mcp)
     with chat_daemons_lock:
-        daemon = chat_daemons.get(user_id)
+        daemon = chat_daemons.get(key)
         if daemon and daemon.is_alive():
             return daemon
         # Убираем мёртвый daemon
         if daemon:
             daemon.stop()
-            del chat_daemons[user_id]
+            del chat_daemons[key]
         # Очищаем мёртвые daemons перед проверкой лимита
-        dead = [uid for uid, d in chat_daemons.items() if not d.is_alive()]
-        for uid in dead:
-            chat_daemons.pop(uid).stop()
+        dead = [k for k, d in chat_daemons.items() if not d.is_alive()]
+        for k in dead:
+            chat_daemons.pop(k).stop()
         # Отказ если лимит достигнут
         if len(chat_daemons) >= MAX_CHAT_DAEMONS:
             log(f"ChatDaemon limit reached ({MAX_CHAT_DAEMONS}), rejecting {user_id[:8]}")
             return None
         # Создаём новый (с резюме предыдущей сессии, если есть)
-        resume_sid = chat_session_ids.get(user_id)
-        daemon = ChatDaemon(user_id, user_token, resume_session_id=resume_sid)
+        resume_sid = chat_session_ids.get(key)
+        daemon = ChatDaemon(user_id, user_token, resume_session_id=resume_sid, no_mcp=no_mcp)
         daemon.start(system_prompt)
-        chat_daemons[user_id] = daemon
+        chat_daemons[key] = daemon
         return daemon
 
 
@@ -1377,6 +1392,7 @@ def handle_ai_chat(handler):
     system_prompt = payload.get("systemPrompt", "").strip()
     user_id = payload.get("userId", "")
     user_token = payload.get("userToken", "")
+    no_mcp = bool(payload.get("noMcp", False))
 
     if not message:
         handler.send_response(400)
@@ -1392,10 +1408,10 @@ def handle_ai_chat(handler):
         handler.wfile.write(json.dumps({"error": "missing userId"}).encode())
         return
 
-    log(f"AI chat: msg={message[:80]}, userId={user_id[:8]}")
+    log(f"AI chat: msg={message[:80]}, userId={user_id[:8]}{' [noMcp]' if no_mcp else ''}")
 
     try:
-        daemon = _get_or_create_chat_daemon(user_id, user_token, system_prompt)
+        daemon = _get_or_create_chat_daemon(user_id, user_token, system_prompt, no_mcp=no_mcp)
         if daemon is None:
             handler.send_response(429)
             handler.send_header("Content-Type", "application/json")
@@ -1410,11 +1426,12 @@ def handle_ai_chat(handler):
         if response_text is None:
             # Daemon died or timeout — kill and retry once
             log(f"AI chat: daemon failed for {user_id[:8]}, retrying")
+            key = _chat_daemon_key(user_id, no_mcp)
             with chat_daemons_lock:
-                old = chat_daemons.pop(user_id, None)
+                old = chat_daemons.pop(key, None)
                 if old:
                     old.stop()
-            daemon = _get_or_create_chat_daemon(user_id, user_token, system_prompt)
+            daemon = _get_or_create_chat_daemon(user_id, user_token, system_prompt, no_mcp=no_mcp)
             if daemon is None:
                 handler.send_response(429)
                 handler.send_header("Content-Type", "application/json")

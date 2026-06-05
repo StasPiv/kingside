@@ -100,13 +100,7 @@ export class ReviewCommentService {
   /**
    * KS-3651 / ADR-107 rev 2 §6. Отбрасывает `positional_subterms[]`
    * с неизвестными `id` (не в `KNOWN_SUBTERM_IDS`) и логирует WARN
-   * с агрегатом. Это терпимое поведение для случая когда фронт-форк
-   * (KS-3650 / KS-3648) опередил бэк по списку идентификаторов
-   * (новые subterm добавились в WASM SF до синхронизации с
-   * `PositionalSubtermId` в shared).
-   *
-   * Возвращает новый массив фактов с отфильтрованными subterms;
-   * остальные поля каждого факта не трогает.
+   * с агрегатом.
    */
   pruneUnknownSubterms(facts: MoveFactsDto[]): MoveFactsDto[] {
     const unknownByPly = new Map<number, Set<string>>();
@@ -143,7 +137,7 @@ export class ReviewCommentService {
     return pruned;
   }
 
-  // ─── Rate-limit (паттерн зеркалит ChatAssistantService) ────────────
+  // ─── Rate-limit ────────────────────────────────────────────────────
 
   async checkRateLimit(userId: string): Promise<void> {
     const { minKey, dayKey, globalKey } = this.rateKeys(userId);
@@ -231,19 +225,8 @@ export class ReviewCommentService {
 
   // ─── Главный метод ──────────────────────────────────────────────────
 
-  /**
-   * Возвращает массив комментариев длины `dto.facts.length`. На любую
-   * нештатную ситуацию (webhook не настроен, 5xx, кривой JSON, неверная
-   * длина) — массив пустых строк (graceful, см. ADR-102 §4.2 «Дефолты»).
-   * Не бросает 5xx за пределами вызова — фронт получает 200 с пустыми
-   * комментариями и решает что показать.
-   */
   async batchComment(userId: string, dto: BatchCommentDto): Promise<string[]> {
     const n = dto.facts.length;
-
-    // ADR-103 rev 3: positional_shifts приходят готовыми с фронта
-    // (WASM SF 16). Бэк ничего не дозаполняет — факты идут в prompt
-    // как есть.
 
     if (!this.webhookUrl) {
       this.logger.warn(
@@ -254,10 +237,6 @@ export class ReviewCommentService {
     }
 
     const systemPrompt = this.buildSystemPrompt(dto.language, dto.userElo);
-    // KS-3651 / ADR-107 rev 2: prune unknown positional_subterms перед
-    // отправкой в LLM. DTO принимает любой `id` (не whitelist),
-    // фронт-форк может опередить бэк по списку ID — отбрасываем
-    // unknown с WARN, чтобы prompt не содержал мусорных идентификаторов.
     const sanitizedFacts = this.pruneUnknownSubterms(dto.facts);
     const userMessage = JSON.stringify({ facts: sanitizedFacts });
 
@@ -281,18 +260,6 @@ export class ReviewCommentService {
 
   // ─── Промпт (KS-3678) ───────────────────────────────────────────────
 
-  /**
-   * KS-3678 — минимальный системный prompt. На вход модели идёт
-   * JSON-массив фактов (один элемент = одна позиция: FEN + поданные с
-   * фронта позиционные критерии). Задача — для каждой позиции выдать
-   * короткий комментарий строго на основе поданных факторов.
-   *
-   * Параметр `userElo` оставлен в сигнатуре, но в промте больше не
-   * используется (ELO-калибровка убрана — модель плохо справлялась с
-   * перегруженным текстом инструкций).
-   *
-   * Метод public — чтобы spec мог проверить содержимое.
-   */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   buildSystemPrompt(language: 'en' | 'ru', _userElo: number): string {
     if (language === 'ru') {
@@ -317,26 +284,8 @@ export class ReviewCommentService {
     ].join('\n');
   }
 
-
   // ─── Webhook call ───────────────────────────────────────────────────
 
-  /**
-   * Тот же контракт что ChatAssistantService.callWebhookOnce
-   * (`apps/api/src/ai-chat/chat-assistant.service.ts`):
-   *   POST AI_CHAT_WEBHOOK_URL { message, systemPrompt, history, userId, userToken }
-   *   Authorization: Bearer <WEBHOOK_AUTH_TOKEN>
-   *   timeout 180s
-   * webhook-server.py распознаёт тот же payload (см. ADR-102 §4.2).
-   *
-   * Возвращает `response`-строку из body (JSON-массив строк в plain text).
-   * На non-2xx или невалидный body — throw.
-   *
-   * **Не дублируем** chat-side: history НЕ ведём, conversationId НЕ нужен —
-   * это stateless батч-запрос. По сравнению с чатом не нужен и user-token
-   * (он использовался для tool-loop'а MCP-ассистента; здесь tools не
-   * вызываются), но webhook-server.py ожидает поле — шлём пустую строку
-   * чтобы не сломать contract.
-   */
   private async callWebhook(
     userId: string,
     systemPrompt: string,
@@ -361,6 +310,7 @@ export class ReviewCommentService {
           history: [],
           userId,
           userToken: '',
+          noMcp: true,
         }),
       });
       const ct = res.headers.get('content-type') || '';
@@ -386,29 +336,15 @@ export class ReviewCommentService {
 
   // ─── Парсинг ────────────────────────────────────────────────────────
 
-  /**
-   * Извлекает JSON-массив строк из ответа модели.
-   *
-   * LLM иногда возвращает массив в markdown-code-block (```json ... ```),
-   * иногда — с префиксом «Here are the comments:». Алгоритм:
-   *   1. Снять окружающий код-блок (```json...``` или ```...```).
-   *   2. Найти первый `[` и последний `]` — JSON-массив.
-   *   3. JSON.parse, проверить структуру.
-   *
-   * Throws — на любое несоответствие. Public для тестов.
-   */
   parseAndValidate(rawResponse: string, expectedLen: number): string[] {
     let body = (rawResponse ?? '').trim();
     if (!body) throw new Error('empty response from webhook');
 
-    // Снять markdown-фенс ```json ... ``` / ``` ... ```.
     const fenceMatch = body.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
     if (fenceMatch) {
       body = fenceMatch[1].trim();
     }
 
-    // Извлекаем строго первое вхождение JSON-массива — на случай если
-    // модель добавила объясняющий текст до/после.
     const startIdx = body.indexOf('[');
     const endIdx = body.lastIndexOf(']');
     if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
@@ -438,22 +374,8 @@ export class ReviewCommentService {
     return parsed as string[];
   }
 
-  // ─── Post-валидация (ADR-103 §8) ───────────────────────────────────
+  // ─── Post-валидация ────────────────────────────────────────────────
 
-  /**
-   * Применяется к успешно распарсенному массиву. Применяется ВСЕГДА —
-   * NAG-тавтологии запрещены в любой ветке (ADR-103 §8.3).
-   *
-   *   1. Чёрный список NAG-тавтологий (RU + EN). Точное совпадение
-   *      нормализованной строки → `''`.
-   *   2. Минимум `minWords` (default 4) ИЛИ `minChars` (default 25).
-   *      Иначе → `''`.
-   *
-   * Пустые строки на входе пропускаем как есть (валидно — модель сама
-   * вернула пустоту, например на безфактовом ходу).
-   *
-   * Public для unit-тестов.
-   */
   postValidate(comments: string[]): string[] {
     return comments.map((c) => this.validateOne(c));
   }
@@ -462,13 +384,11 @@ export class ReviewCommentService {
     const raw = (comment ?? '').trim();
     if (raw === '') return '';
 
-    // Нормализация для blacklist'а: lowercase, убрать пунктуацию края.
     const norm = raw.toLowerCase().replace(/[.!?,:;"'`«»\s]+$/u, '').trim();
     if (NAG_TAUTOLOGY_RU.test(norm) || NAG_TAUTOLOGY_EN.test(norm)) {
       return '';
     }
 
-    // Min-length: считаем слова в исходной строке (по whitespace).
     const wordCount = raw.split(/\s+/).filter(Boolean).length;
     if (wordCount < this.minWords && raw.length < this.minChars) {
       return '';
@@ -477,12 +397,6 @@ export class ReviewCommentService {
   }
 }
 
-// ─── NAG-blacklist regexes (ADR-103 §8.1) ─────────────────────────────
-
-/**
- * RU: одиночные фразы-тавтологии. Точное совпадение нормализованной
- * строки целиком.
- */
 const NAG_TAUTOLOGY_RU =
   /^(сильный\s+ход|отличный\s+ход|лучший\s+ход|хороший\s+ход|слабый\s+ход|плохой\s+ход|ошибка|грубая\s+ошибка|зевок|неточность|хорошо)$/i;
 
