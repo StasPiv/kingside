@@ -15,6 +15,7 @@
  * в этих тестах, т.к. rate-limit вызывается из контроллера).
  */
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import { PositionCommentService } from './position-comment.service';
 import type { PositionCommentDto } from './dto/position-comment.dto';
 
@@ -252,6 +253,24 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/passed pawn.*equal.*takes that pawn/);
     });
 
+    it('KS-3700 RU: иерархия дополнена пунктами про приоритет sf18_eval над terminal_value и шаблон описания', () => {
+      const p = svc.buildSystemPrompt('ru');
+      // Вердикт о стороне с перевесом всегда следует за sf18_eval.
+      expect(p).toContain('Вердикт о стороне с перевесом ВСЕГДА следует за sf18_eval');
+      expect(p).toContain('terminal_value');
+      expect(p).toMatch(/не.*итоговый вывод/);
+      // Шаблон описания «статически активна Y, но Stockfish видит, что Y теряется».
+      expect(p).toMatch(/статически активна.*Stockfish.*теряется.*не преимущество/s);
+    });
+
+    it('KS-3700 EN: иерархия дополнена пунктами про приоритет sf18_eval над terminal_value и шаблон описания', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toContain('verdict on which side stands better ALWAYS follows sf18_eval');
+      expect(p).toContain('terminal_value');
+      expect(p).toMatch(/NOT the final conclusion/);
+      expect(p).toMatch(/working statically.*Stockfish already sees.*not an advantage/s);
+    });
+
     it('обе версии — без преамбул в стиле CRITICAL RULES / FORBIDDEN / few-shot', () => {
       const ru = svc.buildSystemPrompt('ru');
       const en = svc.buildSystemPrompt('en');
@@ -265,10 +284,12 @@ describe('PositionCommentService', () => {
         // иерархию достоверности добавил ещё ~1.3 КБ. KS-3698 (попутно
         // с KS-3699): абзац про terminal_value_mg/eg и тенденцию +
         // переформулировка sf18_pv (без термина «первая линия»)
-        // добавили ещё ~0.5 КБ. Верхнюю границу подняли до 8.5 КБ.
-        // Это всё ещё короче, чем V2-prompt'ы из старого
+        // добавили ещё ~0.5 КБ. KS-3700: два дополнительных пункта в
+        // «Иерархию достоверности» (приоритет sf18_eval над тенденцией +
+        // шаблон описания) добавили ещё ~0.7 КБ. Верхнюю границу подняли
+        // до 9.5 КБ. Это всё ещё короче, чем V2-prompt'ы из старого
         // review-comment (~10 КБ с few-shot).
-        expect(p.length).toBeLessThan(8500);
+        expect(p.length).toBeLessThan(9500);
       }
     });
   });
@@ -566,6 +587,102 @@ describe('PositionCommentService', () => {
       expect(p).toContain('yellow — key idea');
       expect(p).toContain('blue — reserved for the user');
       expect(p).toContain('Do not wrap the JSON in code fences');
+    });
+  });
+
+  describe('comment — KS-3700 diagnostic-лог', () => {
+    function okFetch() {
+      return jest.fn(async () =>
+        new Response(
+          JSON.stringify({
+            response: JSON.stringify({
+              comment: 'ok',
+              highlights: [],
+              arrows: [],
+            }),
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ) as any;
+    }
+
+    it('POSITION_COMMENT_DEBUG=true → logger.log с метаданными (fen, ids, has_sf18_eval/pv, terminal_count)', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({
+          AI_CHAT_WEBHOOK_URL: 'http://wh.test',
+          POSITION_COMMENT_DEBUG: 'true',
+        }),
+        makeRedisStub(),
+      );
+      global.fetch = okFetch();
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+
+      await svc.comment(
+        'user-abcdef12345',
+        makeDto({
+          fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+          factors: [
+            { id: 'sf18_eval', score: { type: 'cp', value: 470 } },
+            { id: 'sf18_pv', moves: ['g2g3'] },
+            {
+              id: 'material',
+              color: 'w',
+              value_mg: 1,
+              value_eg: 1,
+              terminal_value_mg: 2,
+              terminal_value_eg: 2,
+            },
+            { id: 'mobility_rook', value_mg: 0.1, value_eg: 0.05 },
+          ],
+          eval: { mg: 470, eg: 470, v: 470 },
+        }),
+      );
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const payload = logSpy.mock.calls[0][0] as string;
+      expect(payload).toContain('debug:');
+      // user id обрезан до 8 символов (как в остальных логах сервиса).
+      expect(payload).toContain('user=user-abc');
+      expect(payload).toContain('"fen":"4k3/8/8/8/8/8/8/4K3 w - - 0 1"');
+      expect(payload).toContain('"factors_length":4');
+      expect(payload).toContain('"ids":["sf18_eval","sf18_pv","material","mobility_rook"]');
+      expect(payload).toContain('"has_sf18_eval":true');
+      expect(payload).toContain('"has_sf18_pv":true');
+      expect(payload).toContain('"terminal_count":1');
+      expect(payload).toContain('"eval":{"mg":470,"eg":470,"v":470}');
+      // Значения подкомпонент (value_mg, terminal_value_mg) в лог НЕ
+      // попадают — только метаданные.
+      expect(payload).not.toContain('value_mg');
+      expect(payload).not.toContain('terminal_value_mg');
+    });
+
+    it('POSITION_COMMENT_DEBUG отсутствует → logger.log НЕ вызывается', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      global.fetch = okFetch();
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+
+      await svc.comment('user-1', makeDto());
+
+      expect(logSpy).not.toHaveBeenCalled();
+    });
+
+    it('POSITION_COMMENT_DEBUG=false → logger.log НЕ вызывается', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({
+          AI_CHAT_WEBHOOK_URL: 'http://wh.test',
+          POSITION_COMMENT_DEBUG: 'false',
+        }),
+        makeRedisStub(),
+      );
+      global.fetch = okFetch();
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+
+      await svc.comment('user-1', makeDto());
+
+      expect(logSpy).not.toHaveBeenCalled();
     });
   });
 });

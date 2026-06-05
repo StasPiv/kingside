@@ -27,6 +27,7 @@ export class PositionCommentService {
   private readonly webhookUrl: string;
   private readonly webhookSecret: string;
   private readonly fetchTimeoutMs: number;
+  private readonly debug: boolean;
 
   readonly rateLimitPerMin: number;
   readonly rateLimitPerDay: number;
@@ -42,6 +43,14 @@ export class PositionCommentService {
       this.config.get<string>('POSITION_COMMENT_FETCH_TIMEOUT_MS', '180000'),
       10,
     );
+
+    // KS-3700: диагностический лог метаданных входящего запроса
+    // (`fen`, `factors.length`, перечень `id`, флаги наличия
+    // `sf18_eval`/`sf18_pv` и счётчик `terminal_value_*`). Включается
+    // только при `POSITION_COMMENT_DEBUG=true`, значения подкомпонент
+    // в лог не пишутся.
+    this.debug =
+      this.config.get<string>('POSITION_COMMENT_DEBUG', 'false') === 'true';
 
     this.rateLimitPerMin = parseInt(
       this.config.get<string>('POSITION_COMMENT_RATE_LIMIT_PER_MIN', '20'),
@@ -102,6 +111,8 @@ export class PositionCommentService {
         '- If sf18_eval is roughly equal or against the side that "owns" the factor — the factor is tactically refuted. Use hedged language: "nominally", "structurally", "on the surface", "however", "Stockfish does not see this as an advantage". Do NOT conclude that the side has an advantage from this factor alone.',
         '- Check sf18_pv: if within the next few moves the opponent captures the piece or pawn the factor relies on, the factor is unreliable — say so. If within the next few moves the factor is pushed, defended or activated, the factor is real.',
         '- Order of priority: 1) sf18_eval (the truth about the position now); 2) sf18_pv (the truth about the next few moves); 3) static factors — only the part that agrees with the two above.',
+        '- The verdict on which side stands better ALWAYS follows sf18_eval. terminal_value_* and the trend only change the narrative (which factors are reinforced or dissolved), NOT the final conclusion about who is better. If sf18_eval is +N for White — the verdict is "White is better", even if Black has growing threat_*, mobility_* and terminal_value across most subterms.',
+        '- If sf18_eval shows a decisive advantage for one side while static factors and terminal_value stack up for the other — that means the opponent captures the piece or pawn those factors rely on within the next few moves. Describe it exactly that way: "Side X has Y working statically, but Stockfish already sees Y being captured next move, so it is not an advantage."',
         'Example: "Nominally White has a passed pawn, but Stockfish sees the position as equal — Black takes that pawn next move, so the passed pawn is not a real advantage."',
         '',
         'Glossary — translate each subterm id to its human name before writing about it. Never put a technical id in the answer (king_danger, outpost_knight, mobility_rook, etc.). Use the human name from the table:',
@@ -144,6 +155,8 @@ export class PositionCommentService {
       '- Если sf18_eval показывает примерное равенство или против стороны, которой «принадлежит» фактор, — фактор тактически опровергнут. Используй оговорки: «формально», «структурно», «на первый взгляд», «по структуре, но», «несмотря на это», «Stockfish не считает это преимуществом». НЕ делай вывод о преимуществе только на основании такого статического фактора.',
       '- Сверка с sf18_pv: если ближайшими ходами соперник забирает фигуру или пешку, на которой держится фактор, — фактор недостоверен, скажи это прямо. Если ближайшими ходами фактор продвигается, защищается или усиливается — фактор реальный.',
       '- Порядок приоритетов: 1) sf18_eval (что в позиции по факту прямо сейчас); 2) sf18_pv (что произойдёт ближайшими ходами); 3) статические факторы — комментируй только то, что согласуется с двумя выше.',
+      '- Вердикт о стороне с перевесом ВСЕГДА следует за sf18_eval. terminal_value_* и тенденция меняют только нарратив (какие факторы усиливаются или растворяются), но НЕ итоговый вывод о том, кто стоит лучше. Если sf18_eval +N за белых — итог «у белых перевес», даже если у чёрных нарастают threat_*, mobility_* и terminal_value большинства подкомпонент.',
+      '- Если sf18_eval показывает решающее преимущество одной стороны, а статические факторы и terminal_value складываются в пользу другой — это значит, что соперник ближайшими ходами забирает фигуру или пешку, на которой эти факторы держатся. Опиши именно так: «у X статически активна Y, но Stockfish уже видит, что Y следующим ходом теряется, поэтому это не преимущество».',
       'Пример: «Формально у белых есть проходная пешка, но Stockfish оценивает позицию как равную — ближайшим ходом чёрные её забирают, так что проходная не даёт реального преимущества».',
       '',
       'Словарь расшифровок — каждый id подкомпоненты переводи в человеческое имя из таблицы перед тем, как писать о нём. Никогда не пиши технический id в ответе (king_danger, outpost_knight, mobility_rook и т.п.). Используй человеческое имя из таблицы:',
@@ -184,6 +197,13 @@ export class PositionCommentService {
     // пустыми массивами highlights/arrows.
     if (!dto.factors || dto.factors.length === 0) {
       return { ...EMPTY_RESPONSE };
+    }
+
+    if (this.debug) {
+      const meta = this.extractDebugMeta(dto);
+      this.logger.log(
+        `comment user=${userId.slice(0, 8)} debug: ${JSON.stringify(meta)}`,
+      );
     }
 
     if (!this.webhookUrl) {
@@ -232,6 +252,43 @@ export class PositionCommentService {
       );
       return { ...EMPTY_RESPONSE };
     }
+  }
+
+  // ─── Debug meta (KS-3700) ──────────────────────────────────────────
+  /**
+   * Сводка по входящему запросу для диагностического лога. Возвращает
+   * только метаданные: `fen` целиком, длину массива `factors`,
+   * перечень `id` его элементов, флаги наличия `sf18_eval` / `sf18_pv`,
+   * количество элементов с `terminal_value_mg` или `terminal_value_eg`
+   * и dto.eval (если есть). Значения подкомпонент (`value_mg`,
+   * `value_eg`, `terminal_value_*`) сюда НЕ попадают — иначе бы в
+   * CloudWatch улетал весь Stockfish-трейс позиции.
+   */
+  private extractDebugMeta(dto: PositionCommentDto): Record<string, unknown> {
+    const ids: string[] = [];
+    let hasSf18Eval = false;
+    let hasSf18Pv = false;
+    let terminalCount = 0;
+    for (const f of dto.factors) {
+      if (typeof f !== 'object' || f === null) continue;
+      const obj = f as Record<string, unknown>;
+      const id = typeof obj.id === 'string' ? obj.id : undefined;
+      if (id) ids.push(id);
+      if (id === 'sf18_eval') hasSf18Eval = true;
+      if (id === 'sf18_pv') hasSf18Pv = true;
+      if ('terminal_value_mg' in obj || 'terminal_value_eg' in obj) {
+        terminalCount += 1;
+      }
+    }
+    return {
+      fen: dto.fen,
+      factors_length: dto.factors.length,
+      ids,
+      has_sf18_eval: hasSf18Eval,
+      has_sf18_pv: hasSf18Pv,
+      terminal_count: terminalCount,
+      ...(dto.eval ? { eval: dto.eval } : {}),
+    };
   }
 
   // ─── Rate-limit ────────────────────────────────────────────────────
