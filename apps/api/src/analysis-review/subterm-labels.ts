@@ -53,7 +53,7 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     en: 'backward pawn',
   },
   pawn_lever_double: {
-    ru: 'сдвоенные пешки под двойным размером соперника',
+    ru: 'крайне слабая пешка',
     en: 'doubled pawns under multiple enemy levers',
   },
   pawn_blocked: {
@@ -63,15 +63,15 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
 
   // ─── Shelter & storm (pawns.cpp::evaluate_shelter, 4) ───────────
   king_shelter_strength: {
-    ru: 'прочность пешечного щита короля',
+    ru: 'прочность пешечного прикрытия короля',
     en: "king's pawn shelter strength",
   },
   king_blocked_storm: {
-    ru: 'заблокированная пешка-штурмовик противника',
+    ru: 'надвинутая пешка соперника, заблокированная нашей пешкой',
     en: 'blocked enemy storm pawn',
   },
   king_unblocked_storm: {
-    ru: 'открытая пешка-штурмовик противника',
+    ru: 'надвигающаяся незаблокированная пешка соперника к нашему королю',
     en: 'unblocked enemy storm pawn',
   },
   king_on_file: {
@@ -151,7 +151,7 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
 
   // ─── King safety (evaluate.cpp::king, 8) ────────────────────────
   king_safety_pawn: {
-    ru: 'общая безопасность короля по пешечному щиту и штурму',
+    ru: 'общая безопасность короля по пешечному прикрытию и штурму',
     en: 'overall king safety from pawn shelter and storm',
   },
   king_danger: {
@@ -159,19 +159,19 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     en: 'overall king danger (composite kingDanger score)',
   },
   king_safe_check_rook: {
-    ru: 'безопасный шах ладьёй угрожает королю',
+    ru: 'шах ладьёй',
     en: 'safe rook check threatens the king',
   },
   king_safe_check_queen: {
-    ru: 'безопасный шах ферзём угрожает королю',
+    ru: 'шах ферзём',
     en: 'safe queen check threatens the king',
   },
   king_safe_check_bishop: {
-    ru: 'безопасный шах слоном угрожает королю',
+    ru: 'шах слоном',
     en: 'safe bishop check threatens the king',
   },
   king_safe_check_knight: {
-    ru: 'безопасный шах конём угрожает королю',
+    ru: 'шах конём',
     en: 'safe knight check threatens the king',
   },
   king_pawnless_flank: {
@@ -209,7 +209,7 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     en: 'opponent pieces are movement-restricted',
   },
   threat_by_safe_pawn: {
-    ru: 'угроза безопасной пешкой',
+    ru: 'угроза пешкой',
     en: 'threat by a safe pawn',
   },
   threat_by_pawn_push: {
@@ -217,11 +217,11 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     en: 'threat from a pawn push on the next move',
   },
   threat_knight_on_queen: {
-    ru: 'конь грозит атакой на ферзя',
+    ru: 'конь может одним ходом напасть на ферзя',
     en: 'knight threatens the enemy queen',
   },
   threat_slider_on_queen: {
-    ru: 'дальнобойная фигура (слон или ладья) грозит ферзю',
+    ru: 'слон или ладья могут одним ходом напасть на ферзя',
     en: 'slider piece (bishop or rook) threatens the enemy queen',
   },
 

@@ -262,10 +262,13 @@ describe('PositionCommentService', () => {
         expect(p).not.toContain('few-shot');
         expect(p).not.toContain('ELO');
         // KS-3689: словарь расшифровок ~3.3 КБ. KS-3697: блок про
-        // иерархию достоверности добавил ещё ~1.3 КБ. Верхнюю границу
-        // подняли до 7.5 КБ. Это всё ещё короче, чем V2-prompt'ы из
-        // старого review-comment (~10 КБ с few-shot).
-        expect(p.length).toBeLessThan(7500);
+        // иерархию достоверности добавил ещё ~1.3 КБ. KS-3698 (попутно
+        // с KS-3699): абзац про terminal_value_mg/eg и тенденцию +
+        // переформулировка sf18_pv (без термина «первая линия»)
+        // добавили ещё ~0.5 КБ. Верхнюю границу подняли до 8.5 КБ.
+        // Это всё ещё короче, чем V2-prompt'ы из старого
+        // review-comment (~10 КБ с few-shot).
+        expect(p.length).toBeLessThan(8500);
       }
     });
   });
