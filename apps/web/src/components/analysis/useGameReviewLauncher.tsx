@@ -159,6 +159,23 @@ export function useGameReviewLauncher(
           },
         );
         if (cancelled) return;
+        // KS-3720: помечаем автодубль меткой `analysed`, чтобы
+        // пользователь мог отфильтровать в мастерской автоматически
+        // разобранные партии от вручную сохранённых. Если PATCH
+        // упадёт (сеть/4xx) — переход в новую запись всё равно
+        // делаем: метка не критична, без неё не должна теряться
+        // основная функциональность.
+        try {
+          await api.patch(`/analyses/${created.id}`, {
+            tags: ['analysed'],
+          });
+        } catch (tagErr) {
+          console.warn(
+            '[useGameReviewLauncher] не удалось проставить метку analysed:',
+            tagErr,
+          );
+        }
+        if (cancelled) return;
         setCreatingDuplicate(false);
         setModalOpen(false);
         navigate(`/analysis/${created.id}`);

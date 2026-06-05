@@ -937,14 +937,24 @@ function AnalysisPageInner({
   // KS-3603 (ADR-100): свежий PGN для оркестратора. Берём
   // `history`-сериализацию, чтобы клик «Разобрать» использовал
   // именно те ходы, что юзер видит на доске сейчас.
+  // KS-3720: добавлены PGN-заголовки (White/Black/Event/Date/Result/Elo)
+  // и стартовый FEN — без них автодубль `/duplicate-annotated`
+  // сохранял партию с пустыми метаданными и в шапке открытой записи
+  // ничего не было видно. `buildPgnWithFen` собирает стандартный
+  // заголовочный блок в том же порядке что и экспорт PGN.
   const analysisPgn = useMemo<string>(() => {
     if (history.length === 0) return '';
     try {
-      return serializeToAnnotatedPgn(history);
+      const movesOnly = serializeToAnnotatedPgn(
+        history,
+        initialAnnotations,
+        annotationsByIndex,
+      );
+      return buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
     } catch {
       return '';
     }
-  }, [history]);
+  }, [history, initialAnnotations, annotationsByIndex, initialFen, pgnHeaders]);
 
   // KS-3606: launcher «Разобрать партию» — выносится в пункт меню
   // через `onRunGameReview` (см. ниже buildAnalysisActionsItems).
