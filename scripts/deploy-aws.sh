@@ -468,7 +468,157 @@ _perf_summary() {
         }
     ' "$PERF_TRACE_FILE"
     echo "  raw trace: $PERF_TRACE_FILE"
+
+    # KS-3719: разбивка docker build по шагам и docker push по слоям, если
+    # соответствующие *-build-${DEPLOY_SHA}.log / *-push-${DEPLOY_SHA}.log
+    # файлы существуют. Логи создаются прокидыванием stdin docker-команд
+    # через _with_ts, который префиксует каждую строку секундами от старта.
+    if [ -n "${DEPLOY_SHA:-}" ] && [ -d "$REPO_DIR/logs" ]; then
+        for blog in "$REPO_DIR/logs/"*-build-"${DEPLOY_SHA}.log"; do
+            [ -f "$blog" ] || continue
+            local svc
+            svc="$(basename "$blog" | sed -E "s/-build-${DEPLOY_SHA}\.log$//")"
+            echo ""
+            echo "--- docker build steps (${svc}) ---"
+            _parse_build_steps "$blog"
+        done
+        for plog in "$REPO_DIR/logs/"*-push-"${DEPLOY_SHA}.log"; do
+            [ -f "$plog" ] || continue
+            local svc
+            svc="$(basename "$plog" | sed -E "s/-push-${DEPLOY_SHA}\.log$//")"
+            echo ""
+            echo "--- docker push layers (${svc}) ---"
+            _parse_push_layers "$plog"
+        done
+    fi
     echo "====================================="
+}
+
+# KS-3719: префиксует каждую строку stdin десятичными секундами от старта pipe
+# в формате `[NNNN.NNN] <line>`. Используется в pipe между `docker build|push`
+# и `tee`, чтобы зафиксировать тайминги шагов/слоёв в build/push логах.
+# Реализация — perl с Time::HiRes (на любой Debian/Ubuntu хосте есть; ts
+# из moreutils не гарантирован).
+_with_ts() {
+    perl -e '
+        use Time::HiRes qw(time);
+        $| = 1;
+        my $s = time();
+        while (defined(my $line = <STDIN>)) {
+            printf("[%9.3f] %s", time()-$s, $line);
+        }
+    '
+}
+
+# KS-3719: парсер build-лога с --progress=plain, обработанного через _with_ts.
+# Поддерживает оба формата вывода:
+#  1) Classic docker builder:
+#       [   12.345] Step 6/24 : RUN apt-get install ...
+#     Длительность шага = delta до следующей `Step` или до `Successfully built`.
+#  2) BuildKit / buildx:
+#       [    1.234] #6 [build 3/15] RUN apt-get install ...
+#       [   12.345] #6 DONE 11.1s
+#       [   12.346] #7 CACHED
+#     Длительность берётся напрямую из строки DONE/CACHED, описание — из первого
+#     появления `#N ...`. CACHED показывается как 0.00s.
+# Сортирует по убыванию длительности — видно что съело время.
+_parse_build_steps() {
+    local log="$1"
+    [ -f "$log" ] || return 0
+    perl -e '
+        my @rows;
+        # classic builder state
+        my ($prev_t, $prev_step, $prev_cmd);
+        # buildkit state: %desc{step} = command description (из первого появления)
+        my %desc;
+        my $any_bk;
+        open(my $fh, "<", $ARGV[0]) or die "open $ARGV[0]: $!";
+        while (my $line = <$fh>) {
+            # BuildKit: `#6 DONE 11.1s` или `#7 CACHED`
+            if ($line =~ /^\[\s*[\d.]+\] #(\d+)\s+DONE\s+([\d.]+)s/) {
+                my ($step, $dur) = ($1, $2);
+                push @rows, [$dur + 0, $step, ($desc{$step} // "(?)")];
+                $any_bk = 1;
+                next;
+            }
+            if ($line =~ /^\[\s*[\d.]+\] #(\d+)\s+CACHED/) {
+                my $step = $1;
+                push @rows, [0.0, $step, ($desc{$step} // "(?)") . " [CACHED]"];
+                $any_bk = 1;
+                next;
+            }
+            # BuildKit: `#6 [build 3/15] RUN apt-get install ...` — описание
+            if ($line =~ /^\[\s*[\d.]+\] #(\d+)\s+(.+)$/) {
+                my ($step, $rest) = ($1, $2);
+                chomp $rest;
+                # пропускаем технические строки: transferring, sha256:, naming to,
+                # exporting, writing, resolve, transferring context и т.п.
+                next if $rest =~ /^(transferring|sha256:|naming to|exporting|writing|resolve|extracting|naming|preparing)/;
+                next if $rest =~ /^\d+(\.\d+)?B?\s/;  # размеры (123.4kB ...)
+                # запоминаем только первое содержательное описание шага
+                $desc{$step} //= $rest;
+                next;
+            }
+            # Classic builder: `Step 6/24 : RUN apt-get install ...`
+            if ($line =~ /^\[\s*([\d.]+)\] Step (\d+)\/\d+ : (.*)$/) {
+                my ($t, $step, $cmd) = ($1, $2, $3);
+                chomp $cmd;
+                if (defined $prev_t) {
+                    push @rows, [$t - $prev_t, $prev_step, $prev_cmd];
+                }
+                ($prev_t, $prev_step, $prev_cmd) = ($t, $step, $cmd);
+                next;
+            }
+            if ($line =~ /^\[\s*([\d.]+)\] Successfully built/) {
+                if (defined $prev_t) {
+                    push @rows, [$1 - $prev_t, $prev_step, $prev_cmd];
+                    undef $prev_t;
+                }
+                next;
+            }
+        }
+        close $fh;
+        unless (@rows) {
+            print "    (no build steps detected — лог пуст либо неожиданный формат)\n";
+            return;
+        }
+        @rows = sort { $b->[0] <=> $a->[0] } @rows;
+        for my $r (@rows) {
+            my $cmd = $r->[2];
+            $cmd = substr($cmd, 0, 67) . "..." if length($cmd) > 70;
+            printf("    %7.2fs  #%-3s %s\n", $r->[0], $r->[1], $cmd);
+        }
+    ' "$log"
+}
+
+# KS-3719: парсер push-лога docker push, обработанного через _with_ts.
+# Для каждого слоя считает время от первой строки `<id>: Preparing|Pushing|Waiting`
+# до терминальной `<id>: Pushed|Layer already exists|Mounted from`.
+# Выводит по убыванию длительности — видно какие слои реально уходили в сеть
+# и какие были cached.
+_parse_push_layers() {
+    local log="$1"
+    [ -f "$log" ] || return 0
+    perl -e '
+        my %start;
+        my @rows;
+        open(my $fh, "<", $ARGV[0]) or die "open $ARGV[0]: $!";
+        while (my $line = <$fh>) {
+            next unless $line =~ /^\[\s*([\d.]+)\] ([0-9a-f]{8,16}):\s+(Preparing|Pushing|Waiting|Pushed|Layer already exists|Mounted from)/;
+            my ($t, $id, $st) = ($1, $2, $3);
+            $start{$id} = $t unless exists $start{$id};
+            if ($st eq "Pushed" || $st eq "Layer already exists" || $st eq "Mounted from") {
+                my $status = $st eq "Pushed" ? "uploaded" : ($st eq "Mounted from" ? "mounted" : "cached");
+                push @rows, [$t - $start{$id}, $status, $id];
+                delete $start{$id};
+            }
+        }
+        close $fh;
+        @rows = sort { $b->[0] <=> $a->[0] } @rows;
+        for my $r (@rows) {
+            printf("    %7.2fs  %-8s  %s\n", $r->[0], $r->[1], $r->[2]);
+        }
+    ' "$log"
 }
 
 # KS-3121/3122/3123 откачены (валили агентские контейнеры на shared-хосте):
@@ -1091,8 +1241,11 @@ if $DEPLOY_API; then
     BUILD_LOG="$REPO_DIR/logs/api-build-${DEPLOY_SHA}.log"
     mkdir -p "$REPO_DIR/logs"
     set +e
+    # KS-3719: _with_ts добавляет `[NNN.NNN] ` перед каждой строкой → парсер
+    # _parse_build_steps в _perf_summary восстанавливает длительность каждого
+    # Step N/M. Grep / tail ниже всё ещё работают (текст строк сохранён).
     docker build --progress=plain -t "kingside-api:${DEPLOY_SHA}" \
-        -f "$REPO_DIR/apps/api/Dockerfile" "$REPO_DIR" 2>&1 | tee "$BUILD_LOG"
+        -f "$REPO_DIR/apps/api/Dockerfile" "$REPO_DIR" 2>&1 | _with_ts | tee "$BUILD_LOG"
     BUILD_RC=${PIPESTATUS[0]}
     set -e
     if [ "$BUILD_RC" -ne 0 ]; then
@@ -1109,7 +1262,18 @@ if $DEPLOY_API; then
 
     echo "[api] Pushing ${ECR_REPO_API}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-api:${DEPLOY_SHA}" "$NEW_IMAGE"
-    docker push "$NEW_IMAGE" 2>&1 | tail -3
+    # KS-3719: пишем полный push-лог с таймштампами в PUSH_LOG → парсер
+    # _parse_push_layers покажет длительность каждого слоя. В stdout
+    # оставляем `tail -3` (digest + size) как раньше.
+    PUSH_LOG="$REPO_DIR/logs/api-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_IMAGE" 2>&1 | _with_ts | tee "$PUSH_LOG" | tail -3
+    PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: docker push failed (rc=$PUSH_RC). Full log: $PUSH_LOG"
+        exit "$PUSH_RC"
+    fi
     _perf_stamp "api_docker_push_done"
 
     echo "[api] Registering new task-def revision with image=:${DEPLOY_SHA}..."
@@ -1186,12 +1350,33 @@ if $DEPLOY_GAME; then
     _perf_stamp "game_ecr_login_done"
 
     echo "[game-service] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker build -t "kingside-game-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/game-service/Dockerfile" "$REPO_DIR"
+    # KS-3719: --progress=plain + _with_ts + tee → парсер шагов в _perf_summary.
+    BUILD_LOG="$REPO_DIR/logs/game-service-build-${DEPLOY_SHA}.log"
+    mkdir -p "$REPO_DIR/logs"
+    set +e
+    docker build --progress=plain -t "kingside-game-service:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/apps/game-service/Dockerfile" "$REPO_DIR" 2>&1 | _with_ts | tee "$BUILD_LOG"
+    BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$BUILD_RC" -ne 0 ]; then
+        echo "  ERROR: docker build failed (rc=$BUILD_RC). Full log: $BUILD_LOG"
+        tail -80 "$BUILD_LOG" || true
+        exit "$BUILD_RC"
+    fi
     _perf_stamp "game_docker_build_done"
 
     echo "[game-service] Pushing ${ECR_REPO_GAME}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-game-service:${DEPLOY_SHA}" "$NEW_IMAGE"
-    docker push "$NEW_IMAGE" 2>&1 | tail -3
+    # KS-3719: push log с таймштампами → парсер слоёв в _perf_summary.
+    PUSH_LOG="$REPO_DIR/logs/game-service-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_IMAGE" 2>&1 | _with_ts | tee "$PUSH_LOG" | tail -3
+    PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: docker push failed (rc=$PUSH_RC). Full log: $PUSH_LOG"
+        exit "$PUSH_RC"
+    fi
     _perf_stamp "game_docker_push_done"
 
     echo "[game-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
@@ -1241,12 +1426,33 @@ if $DEPLOY_BROADCAST_SERVICE; then
     _perf_stamp "broadcast_ecr_login_done"
 
     echo "[broadcast-service] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker build -t "kingside-broadcast-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/broadcast-service/Dockerfile" "$REPO_DIR"
+    # KS-3719: --progress=plain + _with_ts + tee → парсер шагов в _perf_summary.
+    BUILD_LOG="$REPO_DIR/logs/broadcast-service-build-${DEPLOY_SHA}.log"
+    mkdir -p "$REPO_DIR/logs"
+    set +e
+    docker build --progress=plain -t "kingside-broadcast-service:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/apps/broadcast-service/Dockerfile" "$REPO_DIR" 2>&1 | _with_ts | tee "$BUILD_LOG"
+    BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$BUILD_RC" -ne 0 ]; then
+        echo "  ERROR: docker build failed (rc=$BUILD_RC). Full log: $BUILD_LOG"
+        tail -80 "$BUILD_LOG" || true
+        exit "$BUILD_RC"
+    fi
     _perf_stamp "broadcast_docker_build_done"
 
     echo "[broadcast-service] Pushing ${ECR_REPO_BROADCAST_SERVICE}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-broadcast-service:${DEPLOY_SHA}" "$NEW_IMAGE"
-    docker push "$NEW_IMAGE" 2>&1 | tail -3
+    # KS-3719: push log с таймштампами → парсер слоёв в _perf_summary.
+    PUSH_LOG="$REPO_DIR/logs/broadcast-service-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_IMAGE" 2>&1 | _with_ts | tee "$PUSH_LOG" | tail -3
+    PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: docker push failed (rc=$PUSH_RC). Full log: $PUSH_LOG"
+        exit "$PUSH_RC"
+    fi
     _perf_stamp "broadcast_docker_push_done"
 
     SVC_STATUS=$(aws ecs describe-services \
@@ -1357,12 +1563,33 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     _perf_stamp "archive_ecr_login_done"
 
     echo "[archive-service] Building Docker image (tag=$DEPLOY_SHA)..."
-    docker build -t "kingside-archive-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/archive-service/Dockerfile" "$REPO_DIR"
+    # KS-3719: --progress=plain + _with_ts + tee → парсер шагов в _perf_summary.
+    BUILD_LOG="$REPO_DIR/logs/archive-service-build-${DEPLOY_SHA}.log"
+    mkdir -p "$REPO_DIR/logs"
+    set +e
+    docker build --progress=plain -t "kingside-archive-service:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/apps/archive-service/Dockerfile" "$REPO_DIR" 2>&1 | _with_ts | tee "$BUILD_LOG"
+    BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$BUILD_RC" -ne 0 ]; then
+        echo "  ERROR: docker build failed (rc=$BUILD_RC). Full log: $BUILD_LOG"
+        tail -80 "$BUILD_LOG" || true
+        exit "$BUILD_RC"
+    fi
     _perf_stamp "archive_docker_build_done"
 
     echo "[archive-service] Pushing ${ECR_REPO_ARCHIVE_SERVICE}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-archive-service:${DEPLOY_SHA}" "$NEW_IMAGE"
-    docker push "$NEW_IMAGE" 2>&1 | tail -3
+    # KS-3719: push log с таймштампами → парсер слоёв в _perf_summary.
+    PUSH_LOG="$REPO_DIR/logs/archive-service-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_IMAGE" 2>&1 | _with_ts | tee "$PUSH_LOG" | tail -3
+    PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: docker push failed (rc=$PUSH_RC). Full log: $PUSH_LOG"
+        exit "$PUSH_RC"
+    fi
     _perf_stamp "archive_docker_push_done"
 
     ARCHIVE_SVC_STATUS=$(aws ecs describe-services \
@@ -1541,11 +1768,14 @@ if $DEPLOY_TACTIC_WORKER; then
     # каждый шаг идёт построчно с префиксом #N <step>, tee гарантирует полный
     # лог в файле. /project/logs/ шарится между webhook-сервером и агентским
     # контейнером — devops читает лог сразу после деплоя.
-    BUILD_LOG="$REPO_DIR/logs/tactic-build-${DEPLOY_SHA}.log"
+    BUILD_LOG="$REPO_DIR/logs/tactic-worker-build-${DEPLOY_SHA}.log"
     mkdir -p "$REPO_DIR/logs"
     set +e
+    # KS-3719: _with_ts добавляет таймштампы → парсер шагов в _perf_summary.
+    # Имя файла унифицировано на tactic-worker-build-* (раньше было tactic-build-*)
+    # чтобы парсер вытаскивал название сервиса из basename единообразно.
     docker build --progress=plain -t "kingside-tactic-worker:${DEPLOY_SHA}" \
-        -f "$REPO_DIR/apps/tactic-worker/Dockerfile" "$REPO_DIR" 2>&1 | tee "$BUILD_LOG"
+        -f "$REPO_DIR/apps/tactic-worker/Dockerfile" "$REPO_DIR" 2>&1 | _with_ts | tee "$BUILD_LOG"
     BUILD_RC=${PIPESTATUS[0]}
     set -e
     if [ "$BUILD_RC" -ne 0 ]; then
@@ -1562,7 +1792,16 @@ if $DEPLOY_TACTIC_WORKER; then
 
     echo "[tactic-worker] Pushing ${ECR_REPO_TACTIC_WORKER}:${DEPLOY_SHA} to ECR..."
     docker tag "kingside-tactic-worker:${DEPLOY_SHA}" "$NEW_IMAGE"
-    docker push "$NEW_IMAGE" 2>&1 | tail -3
+    # KS-3719: push log с таймштампами → парсер слоёв в _perf_summary.
+    PUSH_LOG="$REPO_DIR/logs/tactic-worker-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_IMAGE" 2>&1 | _with_ts | tee "$PUSH_LOG" | tail -3
+    PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: docker push failed (rc=$PUSH_RC). Full log: $PUSH_LOG"
+        exit "$PUSH_RC"
+    fi
     _perf_stamp "tactic_docker_push_done"
 
     # Регистрируем новую revision task-def, если family существует. Pinned :<sha>
