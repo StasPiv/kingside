@@ -174,6 +174,23 @@ export interface AnalysisSidebarProps {
    * каких-то режимов тренировки) — тогда блок просто не рендерится.
    */
   aiPositionComment?: UseAiPositionCommentResult;
+  /**
+   * KS-3726. Обработчик «Добавить в комментарий» для панели AI: получает
+   * trimmed AI-текст и пишет его в комментарий узла, на котором стоит
+   * пользователь (mainline или вариант). AnalysisPage реализует через
+   * `setComment(searchInHistory(...).globalIndex, ...)` с merge-логикой
+   * (если у узла уже есть свой комментарий — дописывает через перевод
+   * строки, не затирает). Если не задан — кнопка в панели не
+   * рендерится (sandbox / read-only).
+   */
+  onAddAiCommentToMove?: (text: string) => void;
+  /**
+   * KS-3726. Текущий комментарий узла, на котором стоит пользователь —
+   * нужен панели AI, чтобы кнопка идемпотентно показывала «Добавлено»,
+   * когда AI-текст уже целиком содержится в `move.comment` (например,
+   * full-review с самого начала или повторный клик).
+   */
+  currentMoveComment?: string | null;
 }
 
 export function AnalysisSidebar({
@@ -223,6 +240,8 @@ export function AnalysisSidebar({
   maiaTopMoves,
   originalAnalysisId = null,
   aiPositionComment,
+  onAddAiCommentToMove,
+  currentMoveComment,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
   // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
@@ -639,6 +658,8 @@ export function AnalysisSidebar({
               <AiPositionCommentPanel
                 controller={aiPositionComment}
                 testIdSuffix="desktop"
+                onAddToComment={onAddAiCommentToMove}
+                currentMoveComment={currentMoveComment}
               />
             </div>
           )}
@@ -977,6 +998,8 @@ export function AnalysisSidebar({
                 <AiPositionCommentPanel
                   controller={aiPositionComment}
                   testIdSuffix="mobile"
+                  onAddToComment={onAddAiCommentToMove}
+                  currentMoveComment={currentMoveComment}
                 />
               </div>
             </div>

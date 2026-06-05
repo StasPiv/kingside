@@ -40,6 +40,24 @@ export interface AiPositionCommentPanelProps {
   className?: string;
   /** data-testid суффикс — desktop / mobile. */
   testIdSuffix?: 'desktop' | 'mobile';
+  /**
+   * KS-3726. Опциональный обработчик «Добавить в комментарий»: переносит
+   * текущий показанный AI-текст в комментарий к ходу (mainline или
+   * вариант). Когда задан — рядом с overlay-toggle в секции success
+   * появляется кнопка. Когда не задан (например, sandbox-страница без
+   * привязки к ходу) — кнопка не рендерится. Каллбэк получает уже
+   * trimmed текст, который сейчас отрисован в `state.comment`.
+   */
+  onAddToComment?: (text: string) => void;
+  /**
+   * KS-3726. Текущий комментарий хода в дереве разбора (mainline или
+   * вариант), куда писалось бы добавление. Если AI-текст уже целиком
+   * содержится в этом комментарии — кнопка показывается как
+   * «Добавлено» (disabled), повторный клик невозможен. Это даёт
+   * идемпотентность для full-review кейса (move.comment === AI-текст
+   * сразу при открытии) и предотвращает удвоение при повторном клике.
+   */
+  currentMoveComment?: string | null;
 }
 
 const TESTID_BASE = 'ai-position-comment';
@@ -76,10 +94,28 @@ export function AiPositionCommentPanel({
   controller,
   className,
   testIdSuffix,
+  onAddToComment,
+  currentMoveComment,
 }: AiPositionCommentPanelProps) {
   const { t } = useTranslation();
   const { state, request, regenerate, softCounter, overlay, overlayHidden, toggleOverlay } = controller;
   const retryRemaining = useRetryAfterCountdown(state);
+
+  // KS-3726. Уже добавили этот текст в комментарий хода? Проверяем
+  // через includes: после `setComment` reducer обновит `history`,
+  // AnalysisPage пересчитает `currentMoveComment` — и кнопка сама
+  // перейдёт в «Добавлено» (disabled). При смене позиции (новый
+  // currentMoveComment) состояние сбросится автоматически.
+  const aiText = state.kind === 'success' ? state.comment.trim() : '';
+  const alreadyInComment =
+    aiText.length > 0 && (currentMoveComment ?? '').includes(aiText);
+  const canAddToComment =
+    state.kind === 'success' && aiText.length > 0 && onAddToComment !== undefined;
+
+  const handleAddToComment = () => {
+    if (!canAddToComment || alreadyInComment) return;
+    onAddToComment?.(aiText);
+  };
 
   const testId = testIdSuffix ? `${TESTID_BASE}-${testIdSuffix}` : TESTID_BASE;
   const rootClass = `ai-position-comment${className ? ` ${className}` : ''}`;
@@ -233,6 +269,30 @@ export function AiPositionCommentPanel({
           {overlayHidden
             ? t('analysis.aiComment.showOverlay', 'Show overlay')
             : t('analysis.aiComment.hideOverlay', 'Hide overlay')}
+        </button>
+      )}
+
+      {/* KS-3726. Кнопка «Добавить в комментарий»: переносит показанный
+          AI-текст в `move.comment` текущего узла дерева. Видна только в
+          success-состоянии при заданном `onAddToComment`. Когда текст
+          уже целиком есть в комментарии хода (например, full-review с
+          самого начала, либо повторный клик) — переходит в disabled
+          «Добавлено», вторая запись невозможна. */}
+      {canAddToComment && (
+        <button
+          type="button"
+          className="ai-position-comment__add-to-comment"
+          onClick={handleAddToComment}
+          disabled={alreadyInComment}
+          data-testid={`${testId}-add-to-comment`}
+          title={t(
+            'analysis.aiComment.addToCommentTitle',
+            "Copy this text into the current move's comment — it goes into PGN notation and gets saved",
+          )}
+        >
+          {alreadyInComment
+            ? t('analysis.aiComment.addedToComment', 'Added')
+            : t('analysis.aiComment.addToComment', 'Add to move comment')}
         </button>
       )}
 

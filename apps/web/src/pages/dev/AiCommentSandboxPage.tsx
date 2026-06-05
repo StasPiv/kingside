@@ -280,6 +280,17 @@ export default function AiCommentSandboxPage() {
               <AiPositionCommentPanel
                 controller={v.ctl}
                 testIdSuffix="desktop"
+                /* KS-3726: для success-кейсов прокидываем «Добавить в
+                   комментарий» — sandbox-карточка покажет её рядом с
+                   overlay-toggle. Для prefilled («уже в комменте»)
+                   варианта прокидываем такой же текст в
+                   currentMoveComment — кнопка становится «Добавлено». */
+                onAddToComment={v.ctl.state.kind === 'success' ? noop : undefined}
+                currentMoveComment={
+                  v.ctl.state.kind === 'success' && v.ctl.state.source === 'full-review'
+                    ? v.ctl.state.comment
+                    : null
+                }
               />
             </PanelHost>
           </div>

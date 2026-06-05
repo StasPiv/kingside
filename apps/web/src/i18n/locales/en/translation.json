@@ -941,7 +941,10 @@
       "counterTitle": "{{used}} of {{limit}} requests in last {{minutes}} min",
       "counterUnit": "min",
       "hideOverlay": "Hide overlay",
-      "showOverlay": "Show overlay"
+      "showOverlay": "Show overlay",
+      "addToComment": "Add to move comment",
+      "addedToComment": "Added",
+      "addToCommentTitle": "Copy this text into the current move's comment — it goes into PGN notation and gets saved"
     },
     "maia": {
       "loading": "Loading Maia…",

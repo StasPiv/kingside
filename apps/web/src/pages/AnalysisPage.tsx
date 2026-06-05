@@ -1679,6 +1679,37 @@ function AnalysisPageInner({
     engineProbe: engineProbeForAi,
   });
 
+  // KS-3726. Текущий комментарий узла дерева, на котором стоит
+  // пользователь — нужен и для AI-панели (показать «Добавлено» когда
+  // AI-текст уже в комментарии), и для handleAddAiCommentToMove
+  // (merge с существующим). `searchInHistory` ходит по mainline +
+  // recursive variations (см. KS-3725) и возвращает узел по globalIndex.
+  const currentMoveCommentForAi: string | null =
+    (searchInHistory(history, currentGlobalIndex) as ChessMove | null)
+      ?.comment ?? null;
+  const handleAddAiCommentToMove = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (trimmed.length === 0) return;
+      const move = searchInHistory(history, currentGlobalIndex) as
+        | ChessMove
+        | null;
+      if (!move) return;
+      const existing = (move.comment ?? '').trim();
+      // Идемпотентность: если AI-текст уже в комментарии — ничего не
+      // делаем (AiPositionCommentPanel и сам показывает «Добавлено»,
+      // disabled, но защита нужна на случай прямого вызова).
+      if (existing.includes(trimmed)) return;
+      const merged = existing.length === 0 ? trimmed : `${existing}\n${trimmed}`;
+      // setComment лежит в reducer'е useReviewState и использует
+      // searchInHistory внутри — ок для веток. PGN обновится в
+      // следующем рендере, autosave-effect (см. KS-3724) подхватит
+      // изменение и сделает PATCH /analyses/:id.
+      setComment(move.globalIndex, merged);
+    },
+    [history, currentGlobalIndex, setComment],
+  );
+
   useEffect(() => {
     if (sfState === 'error' && analysisEnabled) {
       if (ec.engineSource === 'external') {
@@ -2858,6 +2889,13 @@ function AnalysisPageInner({
         maiaTopMoves={maiaTopMoves}
         /* KS-3680 (ADR-108): контроллер AI-комментария позиции. */
         aiPositionComment={aiPositionComment}
+        /* KS-3726: «Добавить в комментарий» — переносит AI-текст в
+           комментарий узла дерева, на котором стоит пользователь.
+           Узел адресуется через searchInHistory (после KS-3725).
+           Append-merge: если у узла уже есть свой текст — дописываем
+           через перевод строки, не затираем. */
+        onAddAiCommentToMove={handleAddAiCommentToMove}
+        currentMoveComment={currentMoveCommentForAi}
         /* KS-3606 (ADR-100 §9): source-link «← Исходный анализ» на
            дубле. `analysisOriginalId` lazy-fetch'ится отдельным
            useEffect (см. ниже). Кнопка «Разобрать партию» переехала

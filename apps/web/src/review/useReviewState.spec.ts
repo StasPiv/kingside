@@ -92,6 +92,33 @@ describe('useReviewState — SET_NAG and SET_COMMENT', () => {
     const pgn = serializeToAnnotatedPgn(result.current.history);
     expect(pgn).toBe('1. e4 e5 $6 2. Nf3 *');
   });
+
+  // KS-3726: «Добавить в комментарий» из AI-панели через setComment
+  // должен работать как на mainline-ходе, так и на узле внутри
+  // варианта. Reducer SET_COMMENT (см. useReviewState.ts:278) уже
+  // использует searchInHistory, который ходит по дереву; этот тест
+  // подтверждает поведение и закрепляет инвариант для KS-3726.
+  it('SET_COMMENT записывает текст в узел внутри варианта (KS-3726)', () => {
+    const result = setupWithPgn('1. e4 e5 ( 1... c5 2. Nf3 ) 2. Nf3');
+    const c5 = result.current.history[1].variations![0][0];
+    expect(c5.san).toBe('c5');
+    const c5Index = c5.globalIndex;
+    // Корень KS-3725: c5 — узел в варианте, в массиве `history[]`
+    // (mainline) его нет. setComment использует searchInHistory —
+    // должен найти узел в дереве.
+    expect(result.current.history.find((m) => m.globalIndex === c5Index)).toBeUndefined();
+
+    act(() => {
+      result.current.setComment(c5Index, 'Сицилианская защита.');
+    });
+
+    const c5After = result.current.history[1].variations![0][0];
+    expect(c5After.comment).toBe('Сицилианская защита.');
+
+    const pgn = serializeToAnnotatedPgn(result.current.history);
+    expect(pgn).toContain('{Сицилианская защита.}');
+    expect(pgn).toContain('1... c5');
+  });
 });
 
 /**

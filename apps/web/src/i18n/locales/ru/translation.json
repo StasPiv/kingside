@@ -951,7 +951,10 @@
       "counterTitle": "{{used}} из {{limit}} запросов за последние {{minutes}} мин",
       "counterUnit": "мин",
       "hideOverlay": "Скрыть подсветку",
-      "showOverlay": "Показать подсветку"
+      "showOverlay": "Показать подсветку",
+      "addToComment": "Добавить в комментарий",
+      "addedToComment": "Добавлено",
+      "addToCommentTitle": "Перенести этот текст в комментарий к текущему ходу — он попадёт в нотацию (PGN) и сохранится"
     },
     "maia": {
       "loading": "Загружаем Maia…",

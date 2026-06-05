@@ -298,6 +298,114 @@ describe('AiPositionCommentPanel — overlay toggle (KS-3691)', () => {
   });
 });
 
+describe('KS-3726: AiPositionCommentPanel — кнопка «Добавить в комментарий»', () => {
+  const T_ADD = 'ai-position-comment-desktop-add-to-comment';
+
+  const successState = (comment: string): AiCommentState => ({
+    kind: 'success',
+    comment,
+    source: 'live',
+    highlights: [],
+    arrows: [],
+  });
+
+  function renderWithAdd(opts: {
+    state: AiCommentState;
+    onAddToComment?: (text: string) => void;
+    currentMoveComment?: string | null;
+  }) {
+    return render(
+      <MemoryRouter>
+        <AiPositionCommentPanel
+          controller={controllerOf(opts.state)}
+          testIdSuffix="desktop"
+          onAddToComment={opts.onAddToComment}
+          currentMoveComment={opts.currentMoveComment ?? null}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  it('без onAddToComment кнопка не рендерится (sandbox / read-only)', () => {
+    renderWithAdd({ state: successState('Хороший ход.') });
+    expect(screen.queryByTestId(T_ADD)).toBeNull();
+  });
+
+  it('с onAddToComment + success кнопка показывается и активна', () => {
+    renderWithAdd({
+      state: successState('Хороший ход.'),
+      onAddToComment: vi.fn(),
+    });
+    const btn = screen.getByTestId(T_ADD);
+    expect(btn).not.toBeDisabled();
+    expect(btn).toHaveTextContent('Add to move comment');
+  });
+
+  it('клик зовёт onAddToComment с trimmed AI-текстом', () => {
+    const onAdd = vi.fn();
+    renderWithAdd({
+      state: successState('  Хороший ход.  '),
+      onAddToComment: onAdd,
+    });
+    fireEvent.click(screen.getByTestId(T_ADD));
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onAdd).toHaveBeenCalledWith('Хороший ход.');
+  });
+
+  it('если AI-текст уже в комментарии хода — кнопка disabled, лейбл «Добавлено»', () => {
+    const onAdd = vi.fn();
+    renderWithAdd({
+      state: successState('Хороший ход.'),
+      onAddToComment: onAdd,
+      currentMoveComment: 'Мой пред. коммент.\nХороший ход.',
+    });
+    const btn = screen.getByTestId(T_ADD);
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent('Added');
+    fireEvent.click(btn);
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('full-review (source) тоже даёт активную кнопку, если комментарий ещё не в move.comment', () => {
+    // Кейс: full-review-комментарий взят из move.comment по globalIndex.
+    // По умолчанию AnalysisPage передаёт currentMoveComment === fullReview
+    // → alreadyInComment=true → «Добавлено». Этот тест проверяет
+    // обратный сценарий: текст есть, но в move.comment его нет (например,
+    // регенерация перезаписала state в RAM-кэше). Кнопка должна
+    // работать.
+    renderWithAdd({
+      state: {
+        kind: 'success',
+        comment: 'Свежая оценка из live-запроса.',
+        source: 'full-review',
+        highlights: [],
+        arrows: [],
+      },
+      onAddToComment: vi.fn(),
+      currentMoveComment: null,
+    });
+    expect(screen.getByTestId(T_ADD)).not.toBeDisabled();
+  });
+
+  it('в loading / empty / error / idle / rate-limited / unsupported / unauthenticated кнопка не показывается', () => {
+    const onAdd = vi.fn();
+    const states: AiCommentState[] = [
+      { kind: 'loading' },
+      { kind: 'empty' },
+      { kind: 'error', message: 'network' },
+      { kind: 'idle' },
+      { kind: 'rate-limited', retryAfterSec: 30 },
+      { kind: 'unsupported' },
+      { kind: 'unauthenticated' },
+    ];
+    for (const state of states) {
+      const { unmount } = renderWithAdd({ state, onAddToComment: onAdd });
+      expect(screen.queryByTestId(T_ADD)).toBeNull();
+      unmount();
+    }
+  });
+});
+
 describe('AiPositionCommentPanel — soft-counter', () => {
   it('показывает used/limit', () => {
     renderPanel(
