@@ -1475,9 +1475,21 @@ function AnalysisPageInner({
   analysisEnabledRef.current = analysisEnabled;
   const currentFenForProbeRef = useRef(currentFen);
   currentFenForProbeRef.current = currentFen;
+  // KS-3702 повторное открытие: `displayedLines[0]` принадлежит позиции
+  // `analysisFen`, которая может отставать от `currentFen` сразу после
+  // перехода по дереву (движок ещё думает над предыдущим ходом, новые
+  // линии не пришли). Если в этот момент взять `score` из старой линии,
+  // нормализация со стороны белых (`useAiPositionComment`) применит
+  // инверсию по второму полю нового `currentFen` — а сам знак числа уже
+  // относится к другой позиции с другим side-to-move. Итог: в запрос
+  // ИИ уходит мусорный знак. Защита — сравнить `analysisFen` с текущим.
+  const analysisFenForProbeRef = useRef(analysisFen);
+  analysisFenForProbeRef.current = analysisFen;
   const engineProbeForAi = useCallback(async () => {
     const ready = displayedLinesRef.current[0];
-    if (ready) {
+    const readyFenMatches =
+      analysisFenForProbeRef.current === currentFenForProbeRef.current;
+    if (ready && readyFenMatches) {
       return {
         depth: ready.depth,
         multipv: ready.multipv,
@@ -1513,7 +1525,12 @@ function AnalysisPageInner({
           return;
         }
         const line = displayedLinesRef.current[0];
-        if (line && elapsed >= 1000) {
+        // KS-3702 повторное открытие: линию принимаем только если она
+        // относится к ТЕКУЩЕЙ позиции. Иначе знак нормализуется не той
+        // стороной — см. комментарий выше.
+        const lineFenMatches =
+          analysisFenForProbeRef.current === fenAtStart;
+        if (line && lineFenMatches && elapsed >= 1000) {
           clearInterval(interval);
           if (wasOff && analysisEnabledRef.current) toggleAnalysis();
           resolve({
@@ -1527,7 +1544,7 @@ function AnalysisPageInner({
         if (elapsed >= WAIT_MAX_MS) {
           clearInterval(interval);
           if (wasOff && analysisEnabledRef.current) toggleAnalysis();
-          if (line) {
+          if (line && lineFenMatches) {
             resolve({
               depth: line.depth,
               multipv: line.multipv,
@@ -1548,14 +1565,19 @@ function AnalysisPageInner({
     fullReviewComment:
       (history[currentGlobalIndex] as ChessMove | undefined)?.comment ?? null,
     language: aiCommentLanguage,
-    engineBestLine: displayedLines[0]
-      ? {
-          depth: displayedLines[0].depth,
-          multipv: displayedLines[0].multipv,
-          score: displayedLines[0].score,
-          pv: displayedLines[0].pv,
-        }
-      : null,
+    // KS-3702 повторное открытие: пробрасываем `engineBestLine` только
+    // если линия относится к текущему FEN. Иначе хук нормализует знак
+    // по второму полю `currentFen`, а число пришло от другой позиции
+    // (другого side-to-move) — в payload улетает мусорный знак.
+    engineBestLine:
+      displayedLines[0] && analysisFen === currentFen
+        ? {
+            depth: displayedLines[0].depth,
+            multipv: displayedLines[0].multipv,
+            score: displayedLines[0].score,
+            pv: displayedLines[0].pv,
+          }
+        : null,
     engineProbe: engineProbeForAi,
   });
 
