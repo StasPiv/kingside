@@ -965,9 +965,21 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           const fenBefore = input.fen;
           const fenAfter = applyMove(fenBefore, input.playedUci) ?? fenBefore;
 
-          // before-снимок: позиционные подкомпоненты от stockfish-16-trace.
-          // Один повтор при сбое. Пусто → ход пропускаем (без подкомпонент
-          // модель сваливается в шаблонный текст).
+          // KS-3715: если у хода есть NAG — комментарий шлём ВСЕГДА,
+          // независимо от того, удалось ли собрать позиционные
+          // подкомпоненты (`stockfish-16-trace`).
+          //
+          // Корневая причина: Stockfish-16-trace на позиции В ШАХЕ
+          // возвращает 0 подкомпонент (`in_check: true` в JSON, total = 0).
+          // Это поведение классического движка — позиционная оценка
+          // в шахе не считается. Раньше это молча пропускало ход.
+          // Большая часть зевков (NAG `$4`) — реакция на шах, поэтому
+          // именно зевки чаще всего сюда попадали. Проверено пробой
+          // на позиции после `5.Qe5+`: subterms=0, in_check=true.
+          //
+          // Сейчас пусто = просто едем дальше с `[]` в
+          // `before/after.factors`, модель получит хотя бы
+          // `sf18_eval`/`sf18_pv` от SF 18.
           let beforeSubterms: PositionalSubterm[] = [];
           for (let attempt = 1; attempt <= 2; attempt++) {
             try {
@@ -983,13 +995,11 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           }
           if (beforeSubterms.length === 0) {
             console.warn(
-              `[useGameReview] ply=${input.ply} skipped (empty subterms on fenBefore)`,
+              `[useGameReview] ply=${input.ply}: empty subterms on fenBefore — отправляем запрос без позиционных подкомпонент`,
             );
-            continue;
           }
           if (cancelRef.current) break;
 
-          // after-снимок: тот же приём.
           let afterSubterms: PositionalSubterm[] = [];
           for (let attempt = 1; attempt <= 2; attempt++) {
             try {
@@ -1005,9 +1015,8 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           }
           if (afterSubterms.length === 0) {
             console.warn(
-              `[useGameReview] ply=${input.ply} skipped (empty subterms on fenAfter)`,
+              `[useGameReview] ply=${input.ply}: empty subterms on fenAfter — отправляем запрос без позиционных подкомпонент`,
             );
-            continue;
           }
           if (cancelRef.current) break;
 
@@ -1015,15 +1024,17 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           // `score` и `bestPv` для `sf18_eval`/`sf18_pv` в `after.factors`).
           // multipv=1 + те же engines, что и в main-pass — экземпляр
           // движка один, параллельных Stockfish не создаём.
+          // KS-3715: при сбое — шлём запрос всё равно, без engine-факторов
+          // в `after` (модель получит хотя бы FEN и пустой массив).
           let sfAfter: SfPositionResult | null = null;
           try {
             sfAfter = await engines.analyzeSf(fenAfter, 1, depth);
           } catch (err) {
             console.warn(
-              `[useGameReview] analyzeSf(after) failed for ply=${input.ply}, skipping:`,
+              `[useGameReview] analyzeSf(after) failed for ply=${input.ply}, отправляем без after-engine факторов:`,
               err,
             );
-            continue;
+            sfAfter = null;
           }
           if (cancelRef.current) break;
 
@@ -1042,7 +1053,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             playedSan,
             classification: klass,
             engineMateAfter:
-              sfAfter.topScore?.type === 'mate'
+              sfAfter && sfAfter.topScore?.type === 'mate'
                 ? sfAfter.topScore.value
                 : null,
           });
@@ -1062,11 +1073,13 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           const after = buildSnapshotFactors({
             fen: fenAfter,
             subterms: afterSubterms,
-            engine: {
-              score: sfAfter.topScore ?? null,
-              depth: sfAfter.topDepth ?? 0,
-              pv: sfAfter.bestPv ?? [],
-            },
+            engine: sfAfter
+              ? {
+                  score: sfAfter.topScore ?? null,
+                  depth: sfAfter.topDepth ?? 0,
+                  pv: sfAfter.bestPv ?? [],
+                }
+              : null,
           });
 
           tasks.push({

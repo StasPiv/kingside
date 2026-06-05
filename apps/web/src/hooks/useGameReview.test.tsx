@@ -307,6 +307,55 @@ describe('useGameReview', () => {
     expect(result.current.commentsWarning).toBe(false);
   });
 
+  it('KS-3715: пустые подкомпоненты от evalStockfishTrace (позиция в шахе) → запрос всё равно уходит', async () => {
+    // Воспроизводит сценарий из тикета: Stockfish-16-trace для позиции
+    // под шахом отдаёт 0 подкомпонент (это поведение классического
+    // движка — позиционная оценка в шахе не считается). До KS-3715
+    // ход с таким fenBefore молча пропускался и комментарий по нему
+    // не запрашивался — большая часть зевков (NAG `$4`) теряла
+    // комментарий, потому что зевок чаще всего совершается в реакции
+    // на шах.
+    const trace = await import('../lib/review/stockfishTrace');
+    const evalTraceMock = trace.evalTrace as ReturnType<typeof vi.fn>;
+    evalTraceMock.mockResolvedValue([]); // имитируем пустой trace на обе позиции
+
+    const moveCommentClient: MoveCommentClient = vi
+      .fn()
+      .mockResolvedValue('Зевок: лучше было защититься.');
+    const { result } = renderHook(() =>
+      useGameReview({
+        engines: blunderEngines(),
+        moveCommentClient,
+        createPositionalEval: null,
+      }),
+    );
+    await act(async () => {
+      await result.current.run(PGN_3PLIES);
+    });
+    expect(result.current.status).toBe('done');
+    // КРИТИЧНОЕ ОЖИДАНИЕ: запрос УШЁЛ, несмотря на пустые подкомпоненты.
+    expect(moveCommentClient).toHaveBeenCalledTimes(1);
+    const callArgs = (moveCommentClient as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    const request = callArgs[0] as {
+      move: { uci: string; classification: string };
+      before: { fen: string; factors: unknown[] };
+      after: { fen: string; factors: unknown[] };
+    };
+    expect(request.move.uci).toBe('e7e5');
+    expect(request.move.classification).toBe('blunder');
+    // factors могут быть только из engine (`sf18_eval`/`sf18_pv`), без
+    // подкомпонент — но самое главное, что запрос ушёл.
+    expect(result.current.result?.commentByPly).toEqual({
+      2: 'Зевок: лучше было защититься.',
+    });
+
+    // Восстанавливаем мок для следующих тестов в файле.
+    evalTraceMock.mockResolvedValue([
+      { id: 'space', value_mg: 0, value_eg: 0 },
+    ]);
+  });
+
   it('KS-3616: backend возвращает пустые → commentsWarning=true, дубль создаётся', async () => {
     const moveCommentClient: MoveCommentClient = vi.fn().mockResolvedValue('');
     const { result } = renderHook(() =>
