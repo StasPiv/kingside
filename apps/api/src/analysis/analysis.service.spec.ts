@@ -155,6 +155,22 @@ describe('AnalysisService', () => {
       expect(data.pgn).toBeNull();
     });
 
+    // ── KS-3724: подтверждение контракта. POST с произвольным FEN
+    // сохраняет переданное значение в data.fen, а не null/дефолт.
+    // Если этот тест падает — корень бага «не сохраняется стартовая
+    // позиция» на бэке; если зелёный — корень на клиенте (фронт не
+    // шлёт поле `fen`, или шлёт под другим именем, и ValidationPipe
+    // whitelist=true в `main.ts` молча отбрасывает).
+    it('KS-3724: POST с произвольным fen сохраняет его в data.fen', async () => {
+      prisma.analysis.create.mockResolvedValue(mockAnalysis);
+      const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+
+      await service.create(userId, { fen });
+
+      const data = prisma.analysis.create.mock.calls[0][0].data;
+      expect(data.fen).toBe(fen);
+    });
+
     it('KS-2598 регрессия: непустой PGN сохраняется без изменений', async () => {
       prisma.analysis.create.mockResolvedValue(mockAnalysis);
       const pgn = '[White "Carlsen"]\n[Black "Nepo"]\n\n1. e4 c5 *';
@@ -725,6 +741,18 @@ describe('AnalysisService', () => {
       expect(result.fen).toBeNull();
       expect(result.id).toBe('empty-1');
       expect(result.tags).toEqual([]);
+    });
+
+    // ── KS-3724: GET /analyses/:id возвращает сохранённый fen без
+    // изменений. Подтверждает, что чтение анализа не подменяет
+    // стартовую позицию начальной расстановкой.
+    it('KS-3724: findOne возвращает сохранённый произвольный fen', async () => {
+      const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+      prisma.analysis.findUnique.mockResolvedValue({ ...mockAnalysis, fen });
+
+      const result = await service.findOne(userId, 'analysis-1');
+
+      expect(result.fen).toBe(fen);
     });
   });
 
