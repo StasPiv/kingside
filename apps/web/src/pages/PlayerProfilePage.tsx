@@ -242,6 +242,30 @@ export function PlayerProfilePage() {
             <span className={`player-profile-status ${online ? 'online' : 'offline'}`}>
               {online ? t('playerProfile.online') : t('playerProfile.offline')}
             </span>
+            {/* KS-3788 / ADR-113 §1: бейдж «Тренер». Виден только если
+                backend выставил `isCoach=true` (есть хотя бы один
+                публичный курс или лекция). Сам бейдж — ссылка на
+                публичную витрину тренера /coach/:username. */}
+            {profile.isCoach && (
+              <Link
+                to={`/coach/${encodeURIComponent(profile.username)}`}
+                className="player-profile-coach-badge"
+                data-testid="player-profile-coach-badge"
+                style={{
+                  marginLeft: 12,
+                  padding: '2px 10px',
+                  borderRadius: 12,
+                  background: '#1976d2',
+                  color: '#fff',
+                  fontSize: 14,
+                  textDecoration: 'none',
+                  verticalAlign: 'middle',
+                }}
+                title={t('coachProfile.openCoachPage', 'Open coach page')}
+              >
+                {t('coachProfile.badge', 'Coach')}
+              </Link>
+            )}
           </h1>
           <div className="player-profile-meta">
             {t('playerProfile.joined', { date: formatDate(profile.createdAt, i18n.language) })}

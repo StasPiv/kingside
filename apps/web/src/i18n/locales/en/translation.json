@@ -744,6 +744,7 @@
     "liveBadge": "LIVE",
     "startedAt": "Started",
     "openPlayerProfile": "Open player profile",
+    "openCoachPage": "Open coach page",
     "loadError": "Failed to load coach profile."
   },
   "lecture": {

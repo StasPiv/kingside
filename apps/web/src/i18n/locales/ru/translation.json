@@ -754,6 +754,7 @@
     "liveBadge": "ЭФИР",
     "startedAt": "Начало",
     "openPlayerProfile": "Открыть игровой профиль",
+    "openCoachPage": "Открыть страницу тренера",
     "loadError": "Не удалось загрузить страницу тренера."
   },
   "lecture": {
