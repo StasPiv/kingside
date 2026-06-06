@@ -103,7 +103,28 @@ export interface UseAnalysisLiveBroadcastState {
   stop: () => void;
   /** Эмит хода автора. Безопасно вызывать когда `isLive=false` — будет no-op. */
   emitMove: (uci: string) => void;
+  /**
+   * KS-3749 / ADR-111 §7. Эмит `state-patch` (trailing-edge debounce
+   * 500 мс). Родитель вызывает на каждое изменение review-state
+   * (новый PGN после комментария / NAG / вариации, смена headers,
+   * переключение currentPly, ориентация). Хук замораживает таймер;
+   * по истечению 500 мс уходит ровно один `state-patch` с последним
+   * snapshot'ом. Безопасно вызывать когда `isLive=false` — будет no-op.
+   *
+   * Дебаунс синхронизирован с серверным rate-limit (ADR-111 §2.4:
+   * 5/сек burst 10): при типичном редактировании 1-2 patch'а в
+   * секунду, лимит не пробивается даже при шквале правок.
+   */
+  emitStatePatch: (params: {
+    pgn: string;
+    headers?: Record<string, string>;
+    currentPly?: number;
+    orientation?: LiveAnalysisOrientation;
+  }) => void;
 }
+
+/** KS-3749: debounce для emit state-patch, синхронизирован с серверным rate-limit. */
+const STATE_PATCH_DEBOUNCE_MS = 500;
 
 export function useAnalysisLiveBroadcast({
   currentFen,
@@ -217,13 +238,18 @@ export function useAnalysisLiveBroadcast({
     setError(payload.message || payload.code);
   }, []);
 
-  const { snapshot, emitMove: socketEmitMove, emitReset, emitClose } =
-    useLiveAnalysisSocket({
-      slug,
-      onViewers: handleViewers,
-      onClosed: handleClosed,
-      onError: handleError,
-    });
+  const {
+    snapshot,
+    emitMove: socketEmitMove,
+    emitReset,
+    emitClose,
+    emitStatePatch: socketEmitStatePatch,
+  } = useLiveAnalysisSocket({
+    slug,
+    onViewers: handleViewers,
+    onClosed: handleClosed,
+    onError: handleError,
+  });
 
   // Перезаполняем ref-обёртку как только emitReset «стабилизировался»
   // на новом slug.
@@ -243,6 +269,87 @@ export function useAnalysisLiveBroadcast({
     // живая и валидная.
     setError(null);
   }, [snapshot]);
+
+  // ─── KS-3749: debounced emitStatePatch для автора ─────────────────
+  // Push-метод: AnalysisPage сам вычисляет PGN/headers/currentPly/
+  // orientation (через useEffect на изменения review-state) и зовёт
+  // `emitStatePatch(...)`. Хук собирает входы в trailing-edge debounce
+  // 500 мс — синхронизирован с серверным rate-limit (ADR-111 §2.4).
+  //
+  // Дополнительная защита от лишнего трафика: сравниваем payload с
+  // последним отправленным (через JSON-хеш). Идентичные patch'ы (та же
+  // позиция/ply/orientation) не уходят повторно — экономит трафик и
+  // bandwidth у зрителей.
+  const statePatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingStatePatchRef = useRef<{
+    pgn: string;
+    headers?: Record<string, string>;
+    currentPly?: number;
+    orientation?: LiveAnalysisOrientation;
+  } | null>(null);
+  const lastSentSignatureRef = useRef<string | null>(null);
+  const socketEmitStatePatchRef = useRef(socketEmitStatePatch);
+  useEffect(() => {
+    socketEmitStatePatchRef.current = socketEmitStatePatch;
+  }, [socketEmitStatePatch]);
+
+  // Сброс при смене трансляции (slug стал null или сменился) —
+  // очищаем pending и last-sent baseline. Иначе при перезапуске
+  // трансляции мы бы пропустили первый patch как «уже отправленный».
+  useEffect(() => {
+    if (statePatchTimerRef.current) {
+      clearTimeout(statePatchTimerRef.current);
+      statePatchTimerRef.current = null;
+    }
+    pendingStatePatchRef.current = null;
+    lastSentSignatureRef.current = null;
+  }, [slug]);
+
+  // Очистка таймера на unmount хука.
+  useEffect(() => {
+    return () => {
+      if (statePatchTimerRef.current) {
+        clearTimeout(statePatchTimerRef.current);
+        statePatchTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const emitStatePatch = useCallback<
+    UseAnalysisLiveBroadcastState['emitStatePatch']
+  >(
+    (params) => {
+      if (!slug) return;
+      if (!params.pgn) return;
+      // Dedupe: если ничего не поменялось относительно последней
+      // отправки — не ставим таймер, экономим re-render у зрителей.
+      const signature = JSON.stringify({
+        p: params.pgn,
+        h: params.headers ?? null,
+        c: params.currentPly ?? null,
+        o: params.orientation ?? null,
+      });
+      if (signature === lastSentSignatureRef.current) return;
+      pendingStatePatchRef.current = params;
+      if (statePatchTimerRef.current) {
+        clearTimeout(statePatchTimerRef.current);
+      }
+      statePatchTimerRef.current = setTimeout(() => {
+        statePatchTimerRef.current = null;
+        const payload = pendingStatePatchRef.current;
+        pendingStatePatchRef.current = null;
+        if (!payload) return;
+        socketEmitStatePatchRef.current(payload);
+        lastSentSignatureRef.current = JSON.stringify({
+          p: payload.pgn,
+          h: payload.headers ?? null,
+          c: payload.currentPly ?? null,
+          o: payload.orientation ?? null,
+        });
+      }, STATE_PATCH_DEBOUNCE_MS);
+    },
+    [slug],
+  );
 
   // ─── Действия ─────────────────────────────────────────────────────
 
@@ -313,5 +420,6 @@ export function useAnalysisLiveBroadcast({
     start,
     stop,
     emitMove,
+    emitStatePatch,
   };
 }
