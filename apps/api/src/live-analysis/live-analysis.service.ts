@@ -16,7 +16,9 @@ import {
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { CreateLiveAnalysisDto } from './dto/create-live-analysis.dto';
+import { TokenBucketLimiter } from './live-analysis-rate-limiter';
 
 /**
  * KS-3732 / ADR-110: сервис live-трансляций анализа партии.
@@ -66,6 +68,22 @@ export class LiveAnalysisService {
   static readonly CHANNEL_SYNC = 'live-analysis:sync';
   static readonly CHANNEL_CLOSED = 'live-analysis:closed';
 
+  /** KS-3733 / ADR §3. Порог неактивности для cleanup-job (мс). */
+  static readonly INACTIVITY_THRESHOLD_MS = 30 * 60 * 1000;
+  /** KS-3733: ключ Redis-lock'а cleanup-job'а (multi-instance защита). */
+  static readonly CLEANUP_LOCK_KEY = 'cleanup:live-analysis:lock';
+  /** TTL lock'а — 4 минуты: меньше, чем интервал тика (5 мин),
+   *  чтобы при падении инстанса lock не пережил следующий тик. */
+  static readonly CLEANUP_LOCK_TTL_SEC = 240;
+  /** Сколько кандидатов брать в один тик. Защита от «50k записей за раз». */
+  static readonly CLEANUP_BATCH_LIMIT = 500;
+
+  /** KS-3734 / ADR §6. Жёсткий лимит зрителей на трансляцию. */
+  static readonly VIEWERS_HARD_CAP = 1000;
+
+  /** KS-3734 / ADR §2.9.15. Token-bucket автора: 30 ходов/мин с burst 10. */
+  private readonly authorMoveLimiter = new TokenBucketLimiter(10, 0.5);
+
   private readonly nanoid = customAlphabet(
     LiveAnalysisService.SLUG_ALPHABET,
     LiveAnalysisService.SLUG_LENGTH,
@@ -86,6 +104,7 @@ export class LiveAnalysisService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly metrics: MetricsService,
   ) {}
 
   // ─── REST: CRUD ─────────────────────────────────────────────────────
@@ -118,6 +137,7 @@ export class LiveAnalysisService {
 
     await this.initRedisState(id, startingFen, orientation);
     this.slugToOwnerCache.set(created.slug, ownerId);
+    this.metrics.incLiveAnalysisActive();
 
     this.logger.log(
       `Live analysis created: slug=${created.slug} owner=${ownerId}`,
@@ -214,11 +234,113 @@ export class LiveAnalysisService {
     });
     this.slugToOwnerCache.delete(slug);
     this.lastActivityCache.delete(slug);
+    this.authorMoveLimiter.reset(slug);
+    this.metrics.decLiveAnalysisActive();
+    await this.purgeRedisState(found.id);
 
     await this.publish(LiveAnalysisService.CHANNEL_CLOSED, { slug, reason });
 
     this.logger.log(`Live analysis closed: slug=${slug} reason=${reason}`);
     return { id: found.id, alreadyClosed: false };
+  }
+
+  // ─── KS-3733: cleanup-job ──────────────────────────────────────────
+
+  /**
+   * Запускается из `LiveAnalysisCleanupScheduler` (cron 5 мин).
+   *
+   * Redis-lock `cleanup:live-analysis:lock` через `SET NX EX` — только
+   * один инстанс api за тик пройдёт ниже, остальные no-op.
+   * Возвращает счётчик закрытых трансляций для логов/метрик.
+   *
+   * Закрывает: `status='active' AND lastActivityAt < NOW() - 30 min`.
+   * Для каждой кандидатуры — UPDATE в PG, чистка Redis-ключей,
+   * publish `live-analysis:closed { reason: 'inactivity' }`.
+   */
+  async runCleanupTick(now: Date = new Date()): Promise<{
+    locked: boolean;
+    scanned: number;
+    closed: number;
+  }> {
+    const lockOwner = `${process.pid}-${Date.now()}`;
+    // SET key value NX EX ttl — атомарный acquire.
+    const acquired = await this.redis.set(
+      LiveAnalysisService.CLEANUP_LOCK_KEY,
+      lockOwner,
+      'EX',
+      LiveAnalysisService.CLEANUP_LOCK_TTL_SEC,
+      'NX',
+    );
+    if (acquired !== 'OK') {
+      return { locked: false, scanned: 0, closed: 0 };
+    }
+
+    let scanned = 0;
+    let closed = 0;
+    try {
+      const cutoff = new Date(now.getTime() - LiveAnalysisService.INACTIVITY_THRESHOLD_MS);
+      const candidates = await this.prisma.liveAnalysis.findMany({
+        where: { status: 'active', lastActivityAt: { lt: cutoff } },
+        select: { id: true, slug: true },
+        take: LiveAnalysisService.CLEANUP_BATCH_LIMIT,
+      });
+      scanned = candidates.length;
+
+      for (const row of candidates) {
+        try {
+          await this.prisma.liveAnalysis.update({
+            where: { id: row.id },
+            data: { status: 'closed', closedAt: now },
+          });
+          this.slugToOwnerCache.delete(row.slug);
+          this.lastActivityCache.delete(row.slug);
+          this.authorMoveLimiter.reset(row.slug);
+          await this.purgeRedisState(row.id);
+          await this.publish(LiveAnalysisService.CHANNEL_CLOSED, {
+            slug: row.slug,
+            reason: 'inactivity',
+          });
+          this.metrics.decLiveAnalysisActive();
+          this.metrics.incLiveAnalysisCleanupClosed();
+          closed += 1;
+          this.logger.log(
+            `cleanup closed slug=${row.slug} (inactive > ${LiveAnalysisService.INACTIVITY_THRESHOLD_MS}ms)`,
+          );
+        } catch (e) {
+          this.logger.warn(
+            `cleanup failed for slug=${row.slug}: ${(e as Error).message}`,
+          );
+        }
+      }
+    } finally {
+      // Lock-release «if owner» — Lua-скрипт чтобы не снести чужой
+      // lock, который мог встать после нашего TTL. Не используем — TTL
+      // 4 мин < интервал 5 мин, естественное истечение покрывает.
+      // Просто DEL под нашим owner-стампом, защитив от уже-истёкшего:
+      try {
+        const current = await this.redis.get(LiveAnalysisService.CLEANUP_LOCK_KEY);
+        if (current === lockOwner) {
+          await this.redis.del(LiveAnalysisService.CLEANUP_LOCK_KEY);
+        }
+      } catch (e) {
+        this.logger.warn(
+          `cleanup lock release failed: ${(e as Error).message}`,
+        );
+      }
+    }
+    return { locked: true, scanned, closed };
+  }
+
+  /**
+   * Пересчитать gauge `live_analysis_active_total` из PG. Вызывается
+   * из cleanup-scheduler'а раз в тик — это дёшево (один COUNT) и
+   * страхует от расхождений при рестартах процесса (in-memory счётчик
+   * на старте равен 0, реальное число active в PG — другое).
+   */
+  async resyncActiveGauge(): Promise<number> {
+    const n = await this.prisma.liveAnalysis.count({ where: { status: 'active' } });
+    this.metrics.setLiveAnalysisActive(n);
+    return n;
   }
 
   // ─── WS handlers (вызываются из gateway) ───────────────────────────
@@ -264,6 +386,14 @@ export class LiveAnalysisService {
   ): Promise<LiveAnalysisMoveEvent> {
     return this.runExclusive(slug, async () => {
       const meta = await this.assertOwnerAndActive(slug, actingUserId);
+      // KS-3734 / ADR §2.9.15: rate-limit автора (token-bucket 30/мин, burst 10).
+      if (!this.authorMoveLimiter.tryConsume(slug)) {
+        this.metrics.incLiveAnalysisRateLimited('author_moves');
+        this.logger.warn(
+          `rate-limit drop move slug=${slug} owner=${actingUserId}`,
+        );
+        throw new BadRequestException('Rate limit exceeded (author moves)');
+      }
       const state = await this.readRedisState(meta.id);
       const currentFen =
         state?.currentFen ?? meta.startingFen ?? LiveAnalysisService.INITIAL_FEN;
@@ -272,6 +402,7 @@ export class LiveAnalysisService {
       const chess = new Chess(currentFen);
       const move = this.tryUciMove(chess, uci);
       if (!move) {
+        this.metrics.incLiveAnalysisMoveIllegal();
         throw new BadRequestException(`Illegal UCI move "${uci}"`);
       }
       const newFen = chess.fen();
@@ -300,6 +431,7 @@ export class LiveAnalysisService {
         fen: newFen,
         ply: newPly,
       };
+      this.metrics.incLiveAnalysisMoveAccepted();
       await this.publish(LiveAnalysisService.CHANNEL_MOVE, payload);
       return payload;
     });
@@ -350,13 +482,28 @@ export class LiveAnalysisService {
     });
   }
 
-  /** Viewer-счётчик: атомарный INCR + обновление viewerPeak в PG. */
-  async incrementViewer(slug: string): Promise<number> {
+  /**
+   * Попытаться занять место зрителя. Атомарный INCR, и если значение
+   * превысило `VIEWERS_HARD_CAP` (ADR §2.9.6 / §6) — откатываем DECR
+   * и возвращаем `null`. Gateway трактует `null` как «лимит исчерпан»
+   * и шлёт зрителю `error { code: 'rate-limit' }`.
+   *
+   * Используется gateway-handler'ом `subscribe`. Лимит на трансляцию
+   * считается в Redis (multi-instance безопасно): два инстанса не
+   * перешагнут capacity, потому что `INCR` атомарен.
+   */
+  async tryAcquireViewerSlot(slug: string): Promise<number | null> {
     const id = await this.resolveSlugToId(slug);
-    if (!id) return 0;
+    if (!id) return null;
     const key = this.viewersKey(id);
     const count = await this.redis.incr(key);
     await this.redis.expire(key, LiveAnalysisService.STATE_TTL_SEC);
+    if (count > LiveAnalysisService.VIEWERS_HARD_CAP) {
+      // Откатываем INCR, не пускаем зрителя.
+      await this.redis.decr(key);
+      this.metrics.incLiveAnalysisRateLimited('viewers_cap');
+      return null;
+    }
     if (count > 0) {
       // viewerPeak обновляем только при росте сверх текущего пика.
       // CAS-style UPDATE через WHERE viewer_peak < count — дёшево и
@@ -366,7 +513,15 @@ export class LiveAnalysisService {
         data: { viewerPeak: count },
       });
     }
+    this.metrics.incLiveAnalysisViewers();
     return count;
+  }
+
+  /** @deprecated KS-3734: используйте `tryAcquireViewerSlot`. Оставлен
+   *  для обратной совместимости тестов KS-3732. */
+  async incrementViewer(slug: string): Promise<number> {
+    const n = await this.tryAcquireViewerSlot(slug);
+    return n ?? 0;
   }
 
   async decrementViewer(slug: string): Promise<number> {
@@ -374,12 +529,51 @@ export class LiveAnalysisService {
     if (!id) return 0;
     const key = this.viewersKey(id);
     const count = await this.redis.decr(key);
+    this.metrics.decLiveAnalysisViewers();
     // Защита от ухода в минус — gateway мог двойной disconnect получить.
     if (count < 0) {
       await this.redis.set(key, '0', 'EX', LiveAnalysisService.STATE_TTL_SEC);
       return 0;
     }
     return count;
+  }
+
+  // ─── KS-3734: лимит подключений с IP ───────────────────────────────
+
+  /** Максимум одновременных WS-подключений с одного IP. ADR §6. */
+  static readonly IP_CONNS_HARD_CAP = 10;
+
+  private ipConnsKey(ip: string): string {
+    return `live-analysis:ip:${ip}:conns`;
+  }
+
+  /**
+   * Попытаться занять слот WS-подключения для IP. Возвращает `true`,
+   * если можно подключиться; `false` — превышен лимит (gateway тогда
+   * сразу `disconnect`). Атомарный INCR, при превышении — откат DECR.
+   */
+  async tryAcquireIpSlot(ip: string): Promise<boolean> {
+    const key = this.ipConnsKey(ip);
+    const count = await this.redis.incr(key);
+    // TTL — час: на случай если процесс упадёт между INCR и release-ом
+    // в handleDisconnect, счётчик не повиснет навсегда.
+    await this.redis.expire(key, 3600);
+    if (count > LiveAnalysisService.IP_CONNS_HARD_CAP) {
+      await this.redis.decr(key);
+      this.metrics.incLiveAnalysisRateLimited('ip_conns');
+      this.logger.warn(`rate-limit drop WS connection ip=${ip} (cap exceeded)`);
+      return false;
+    }
+    return true;
+  }
+
+  /** Освободить слот подключения для IP (handleDisconnect). */
+  async releaseIpSlot(ip: string): Promise<void> {
+    const key = this.ipConnsKey(ip);
+    const n = await this.redis.decr(key);
+    if (n < 0) {
+      await this.redis.set(key, '0', 'EX', 3600);
+    }
   }
 
   // ─── Owner / slug-resolution ───────────────────────────────────────
@@ -649,5 +843,15 @@ export class LiveAnalysisService {
   }
   private viewersKey(id: string): string {
     return `live_analysis:${id}:viewers`;
+  }
+
+  /** KS-3733: очистить state/moves/viewers ключи трансляции. */
+  private async purgeRedisState(id: string): Promise<void> {
+    await this.redis
+      .multi()
+      .del(this.stateKey(id))
+      .del(this.movesKey(id))
+      .del(this.viewersKey(id))
+      .exec();
   }
 }

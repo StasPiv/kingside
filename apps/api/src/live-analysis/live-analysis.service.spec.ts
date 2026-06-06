@@ -7,6 +7,7 @@ import {
 import { LiveAnalysisService } from './live-analysis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 /**
  * KS-3732 / ADR-110 §2.9. Unit-тесты сервиса live-трансляции.
@@ -68,7 +69,14 @@ class FakeRedis {
   async get(key: string): Promise<string | null> {
     return this.kv.get(key) ?? null;
   }
-  async set(key: string, value: string): Promise<'OK'> {
+  /**
+   * Совместим с ioredis: `set(key, value)`, `set(key, value, 'EX', ttl)`,
+   * `set(key, value, 'EX', ttl, 'NX')`. NX возвращает `null` если ключ
+   * уже существует, `OK` если установлен.
+   */
+  async set(key: string, value: string, ...args: unknown[]): Promise<'OK' | null> {
+    const hasNX = args.some((a) => String(a).toUpperCase() === 'NX');
+    if (hasNX && this.kv.has(key)) return null;
     this.kv.set(key, value);
     return 'OK';
   }
@@ -110,9 +118,11 @@ describe('LiveAnalysisService', () => {
       findMany: jest.Mock;
       update: jest.Mock;
       updateMany: jest.Mock;
+      count: jest.Mock;
     };
   };
   let redis: FakeRedis;
+  let metrics: jest.Mocked<Partial<MetricsService>>;
 
   beforeEach(async () => {
     prisma = {
@@ -123,15 +133,28 @@ describe('LiveAnalysisService', () => {
         findMany: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        count: jest.fn().mockResolvedValue(0),
       },
     };
     redis = new FakeRedis();
+    metrics = {
+      incLiveAnalysisActive: jest.fn(),
+      decLiveAnalysisActive: jest.fn(),
+      setLiveAnalysisActive: jest.fn(),
+      incLiveAnalysisViewers: jest.fn(),
+      decLiveAnalysisViewers: jest.fn(),
+      incLiveAnalysisMoveAccepted: jest.fn(),
+      incLiveAnalysisMoveIllegal: jest.fn(),
+      incLiveAnalysisRateLimited: jest.fn(),
+      incLiveAnalysisCleanupClosed: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LiveAnalysisService,
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redis as unknown as RedisService },
+        { provide: MetricsService, useValue: metrics as unknown as MetricsService },
       ],
     }).compile();
     service = module.get(LiveAnalysisService);
@@ -386,6 +409,149 @@ describe('LiveAnalysisService', () => {
       await expect(service.applyReset('s', 'NOT-u-1')).rejects.toThrow(
         ForbiddenException,
       );
+    });
+  });
+
+  // ─── KS-3734: token-bucket автора ─────────────────────────────────
+
+  describe('applyMove — token-bucket', () => {
+    it('блокирует 11-й ход подряд (burst 10)', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        ownerId: 'u-1',
+        status: 'active',
+        startingFen: null,
+      });
+      // Серия легальных ходов; конкретные комбинации не важны — фиксим
+      // позицию ручным sequence'ом: 5 ходов вперёд/назад королём белых
+      // в специально подготовленном FEN. Проще: подставим FEN такой,
+      // что любой ход одной фигуры легален. Используем King-only
+      // позицию (нелегальна по FIDE, но chess.js парсит позиции с
+      // одинокими королями).
+      // Проще: имитируем moves строго pre-validated через
+      // applyMove с реальной шахматной партией — она проходит ~5-6
+      // легальных ходов. Возьмём короткую серию e2e4 e7e5 g1f3 g8f6...
+      const sequence = ['e2e4', 'e7e5', 'g1f3', 'g8f6', 'b1c3', 'b8c6', 'f1c4', 'f8c5', 'd2d3', 'd7d6'];
+      for (const uci of sequence) {
+        await service.applyMove('s', 'u-1', uci);
+      }
+      // 11-й любой ход → token-bucket пустой, отказ.
+      await expect(service.applyMove('s', 'u-1', 'a2a3')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(metrics.incLiveAnalysisRateLimited).toHaveBeenCalledWith('author_moves');
+    });
+  });
+
+  // ─── KS-3734: лимит зрителей на трансляцию ────────────────────────
+
+  describe('tryAcquireViewerSlot', () => {
+    beforeEach(() => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        status: 'active',
+      });
+    });
+
+    it('возвращает count при наличии слотов', async () => {
+      const n = await service.tryAcquireViewerSlot('s');
+      expect(n).toBe(1);
+      expect(metrics.incLiveAnalysisViewers).toHaveBeenCalled();
+    });
+
+    it('возвращает null при превышении capacity 1000', async () => {
+      // Имитируем уже занятые 1000 слотов прямой записью в FakeRedis.
+      await redis.set('live_analysis:la-1:viewers', '1000');
+      const n = await service.tryAcquireViewerSlot('s');
+      expect(n).toBeNull();
+      expect(metrics.incLiveAnalysisRateLimited).toHaveBeenCalledWith('viewers_cap');
+      // Откат INCR — счётчик опять 1000.
+      const after = await redis.get('live_analysis:la-1:viewers');
+      expect(after).toBe('1000');
+    });
+  });
+
+  // ─── KS-3734: лимит IP-подключений ────────────────────────────────
+
+  describe('tryAcquireIpSlot', () => {
+    it('пускает первые 10 коннектов с IP', async () => {
+      for (let i = 0; i < 10; i++) {
+        const ok = await service.tryAcquireIpSlot('1.2.3.4');
+        expect(ok).toBe(true);
+      }
+    });
+
+    it('блокирует 11-й коннект и возвращает счётчик к 10', async () => {
+      for (let i = 0; i < 10; i++) {
+        await service.tryAcquireIpSlot('1.2.3.4');
+      }
+      const ok = await service.tryAcquireIpSlot('1.2.3.4');
+      expect(ok).toBe(false);
+      expect(metrics.incLiveAnalysisRateLimited).toHaveBeenCalledWith('ip_conns');
+      // INCR откатился, счётчик 10
+      const v = await redis.get('live-analysis:ip:1.2.3.4:conns');
+      expect(v).toBe('10');
+    });
+
+    it('releaseIpSlot декрементирует счётчик', async () => {
+      await service.tryAcquireIpSlot('5.6.7.8');
+      await service.tryAcquireIpSlot('5.6.7.8');
+      await service.releaseIpSlot('5.6.7.8');
+      const v = await redis.get('live-analysis:ip:5.6.7.8:conns');
+      expect(v).toBe('1');
+    });
+  });
+
+  // ─── KS-3733: cleanup-job + Redis lock ────────────────────────────
+
+  describe('runCleanupTick', () => {
+    const cutoffNow = new Date('2026-06-06T12:30:00Z');
+
+    it('закрывает active с lastActivityAt < NOW() - 30min и публикует closed', async () => {
+      prisma.liveAnalysis.findMany.mockResolvedValueOnce([
+        { id: 'la-1', slug: 'slug-1' },
+        { id: 'la-2', slug: 'slug-2' },
+      ]);
+      const result = await service.runCleanupTick(cutoffNow);
+      expect(result.locked).toBe(true);
+      expect(result.scanned).toBe(2);
+      expect(result.closed).toBe(2);
+      // SELECT cutoff = now - 30 min
+      const whereArg = prisma.liveAnalysis.findMany.mock.calls[0][0].where;
+      const cutoffMs = whereArg.lastActivityAt.lt.getTime();
+      expect(cutoffNow.getTime() - cutoffMs).toBe(30 * 60 * 1000);
+      // Обновление статуса
+      expect(prisma.liveAnalysis.update).toHaveBeenCalledTimes(2);
+      expect(prisma.liveAnalysis.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'closed' }),
+        }),
+      );
+      // Pub/sub closed { reason: 'inactivity' }
+      expect(redis.publish).toHaveBeenCalledWith(
+        'live-analysis:closed',
+        expect.stringContaining('"reason":"inactivity"'),
+      );
+      // Метрики
+      expect(metrics.incLiveAnalysisCleanupClosed).toHaveBeenCalledTimes(2);
+    });
+
+    it('второй параллельный тик не получает lock и делает no-op', async () => {
+      // Первый — занял lock и не успел отпустить (имитация: руками
+      // выставим lock-ключ).
+      await redis.set('cleanup:live-analysis:lock', 'someone-else');
+      prisma.liveAnalysis.findMany.mockResolvedValue([]);
+      const result = await service.runCleanupTick(cutoffNow);
+      expect(result.locked).toBe(false);
+      expect(result.scanned).toBe(0);
+      expect(prisma.liveAnalysis.findMany).not.toHaveBeenCalled();
+    });
+
+    it('освобождает lock по завершении', async () => {
+      prisma.liveAnalysis.findMany.mockResolvedValue([]);
+      await service.runCleanupTick(cutoffNow);
+      const lock = await redis.get('cleanup:live-analysis:lock');
+      expect(lock).toBeNull();
     });
   });
 });

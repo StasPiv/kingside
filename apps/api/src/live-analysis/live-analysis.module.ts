@@ -4,6 +4,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { LiveAnalysisController } from './live-analysis.controller';
 import { LiveAnalysisService } from './live-analysis.service';
 import { LiveAnalysisGateway } from './live-analysis.gateway';
+import { LiveAnalysisCleanupScheduler } from './live-analysis-cleanup.scheduler';
 
 /**
  * KS-3732 / ADR-110: модуль live-трансляции анализа партии.
@@ -15,7 +16,7 @@ import { LiveAnalysisGateway } from './live-analysis.gateway';
 @Module({
   imports: [AuthModule, PrismaModule],
   controllers: [LiveAnalysisController],
-  providers: [LiveAnalysisService, LiveAnalysisGateway],
+  providers: [LiveAnalysisService, LiveAnalysisGateway, LiveAnalysisCleanupScheduler],
   exports: [LiveAnalysisService, LiveAnalysisGateway],
 })
 export class LiveAnalysisModule {}

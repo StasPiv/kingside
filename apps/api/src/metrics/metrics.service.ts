@@ -45,6 +45,29 @@ export class MetricsService implements OnModuleInit {
    */
   readonly screenshotTokenIssuedTotal: Counter<'ip'>;
 
+  /**
+   * KS-3734 / ADR-110 §2.9.14. Метрики live-трансляции анализа.
+   *
+   * - `live_analysis_active_total` (gauge) — текущее число active-трансляций.
+   *   Источник: cleanup-tick (после удаления просроченных пересчитывает),
+   *   плюс инкремент/декремент на create/close.
+   * - `live_analysis_viewers_total` (gauge) — суммарно зрителей по всем
+   *   active. Обновляется gateway-ом на subscribe/unsubscribe.
+   * - `live_analysis_moves_total` (counter) — суммарное число принятых
+   *   ходов автора (после валидации). Метка `outcome` — `accepted` или
+   *   `illegal`.
+   * - `live_analysis_rate_limited_total` (counter) — отказы по любому
+   *   лимиту. Метка `reason`: `author_moves` (token-bucket), `viewers_cap`
+   *   (1000 viewers на трансляцию), `ip_conns` (10 коннектов с IP).
+   * - `live_analysis_cleanup_closed_total` (counter) — сколько трансляций
+   *   закрыто cleanup-job'ом за всё время.
+   */
+  readonly liveAnalysisActiveTotal: Gauge<string>;
+  readonly liveAnalysisViewersTotal: Gauge<string>;
+  readonly liveAnalysisMovesTotal: Counter<'outcome'>;
+  readonly liveAnalysisRateLimitedTotal: Counter<'reason'>;
+  readonly liveAnalysisCleanupClosedTotal: Counter<string>;
+
   constructor() {
     this.registry = new Registry();
 
@@ -97,6 +120,44 @@ export class MetricsService implements OnModuleInit {
       labelNames: ['ip'] as const,
       registers: [this.registry],
     });
+
+    // KS-3734 / ADR-110 §2.9.14: live-analysis метрики.
+    this.liveAnalysisActiveTotal = new Gauge({
+      name: 'live_analysis_active_total',
+      help: 'Текущее число активных live-трансляций анализа (status=active).',
+      registers: [this.registry],
+    });
+    this.liveAnalysisViewersTotal = new Gauge({
+      name: 'live_analysis_viewers_total',
+      help:
+        'Текущее суммарное число подключённых зрителей по всем активным ' +
+        'live-трансляциям анализа.',
+      registers: [this.registry],
+    });
+    this.liveAnalysisMovesTotal = new Counter({
+      name: 'live_analysis_moves_total',
+      help:
+        'Принятые/отклонённые ходы автора live-трансляции. Label outcome: ' +
+        'accepted | illegal.',
+      labelNames: ['outcome'] as const,
+      registers: [this.registry],
+    });
+    this.liveAnalysisRateLimitedTotal = new Counter({
+      name: 'live_analysis_rate_limited_total',
+      help:
+        'Отказы по лимитам live-трансляции. Label reason: author_moves ' +
+        '(token-bucket автора) | viewers_cap (1000 на трансляцию) | ' +
+        'ip_conns (10 WS-коннектов с одного IP).',
+      labelNames: ['reason'] as const,
+      registers: [this.registry],
+    });
+    this.liveAnalysisCleanupClosedTotal = new Counter({
+      name: 'live_analysis_cleanup_closed_total',
+      help:
+        'Сколько live-трансляций закрыто cleanup-job’ом по неактивности ' +
+        '(lastActivityAt < NOW() - 30 min).',
+      registers: [this.registry],
+    });
   }
 
   async onModuleInit(): Promise<void> {
@@ -130,6 +191,45 @@ export class MetricsService implements OnModuleInit {
   /** KS-2305: инкремент `screenshot_token_issued_total{ip}`. */
   incScreenshotTokenIssued(ip: string): void {
     this.screenshotTokenIssuedTotal.inc({ ip });
+  }
+
+  // ─── KS-3734 / ADR-110: live-analysis ──────────────────────────────
+
+  /** Установить текущее значение `live_analysis_active_total`. */
+  setLiveAnalysisActive(count: number): void {
+    this.liveAnalysisActiveTotal.set(count);
+  }
+  /** Инкремент `live_analysis_active_total` на create. */
+  incLiveAnalysisActive(): void {
+    this.liveAnalysisActiveTotal.inc();
+  }
+  /** Декремент `live_analysis_active_total` на close. */
+  decLiveAnalysisActive(): void {
+    this.liveAnalysisActiveTotal.dec();
+  }
+  /** Инкремент суммарных зрителей. */
+  incLiveAnalysisViewers(by = 1): void {
+    this.liveAnalysisViewersTotal.inc(by);
+  }
+  /** Декремент суммарных зрителей. */
+  decLiveAnalysisViewers(by = 1): void {
+    this.liveAnalysisViewersTotal.dec(by);
+  }
+  /** Принятый ход автора. */
+  incLiveAnalysisMoveAccepted(): void {
+    this.liveAnalysisMovesTotal.inc({ outcome: 'accepted' });
+  }
+  /** Нелегальный/некорректный ход. */
+  incLiveAnalysisMoveIllegal(): void {
+    this.liveAnalysisMovesTotal.inc({ outcome: 'illegal' });
+  }
+  /** Срабатывание любого rate-limit'а. */
+  incLiveAnalysisRateLimited(reason: 'author_moves' | 'viewers_cap' | 'ip_conns'): void {
+    this.liveAnalysisRateLimitedTotal.inc({ reason });
+  }
+  /** Cleanup-tick закрыл одну трансляцию по неактивности. */
+  incLiveAnalysisCleanupClosed(by = 1): void {
+    this.liveAnalysisCleanupClosedTotal.inc(by);
   }
 
   /**

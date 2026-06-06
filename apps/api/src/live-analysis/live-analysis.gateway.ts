@@ -129,7 +129,24 @@ export class LiveAnalysisGateway
     }
   }
 
-  handleConnection(client: Socket): void {
+  async handleConnection(client: Socket): Promise<void> {
+    // KS-3734 / ADR §6: лимит 10 одновременных WS-коннектов на IP.
+    const ip = this.extractClientIp(client);
+    client.data.ip = ip;
+    const allowed = await this.service.tryAcquireIpSlot(ip);
+    if (!allowed) {
+      this.logger.warn(`Reject WS connection from ip=${ip} (cap exceeded)`);
+      // Сообщаем причину и закрываем — клиент увидит error до disconnect.
+      const errPayload: LiveAnalysisErrorEvent = {
+        code: 'rate-limit',
+        message: 'IP connection limit exceeded',
+      };
+      client.emit(LiveAnalysisEvents.ERROR, errPayload);
+      client.disconnect(true);
+      return;
+    }
+    client.data.ipSlotAcquired = true;
+
     try {
       const rawToken = client.handshake.auth?.token ?? client.handshake.query?.token;
       if (rawToken) {
@@ -146,7 +163,33 @@ export class LiveAnalysisGateway
     client.data.subscribedSlugs = new Set<string>();
   }
 
+  /**
+   * Извлечь IP клиента. Приоритет: X-Forwarded-For (за ALB/proxy),
+   * затем `handshake.address`. Берём первый IP из XFF — это исходный
+   * клиент (последующие — цепочка прокси).
+   */
+  private extractClientIp(client: Socket): string {
+    const xff = client.handshake.headers['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.length > 0) {
+      return xff.split(',')[0].trim();
+    }
+    if (Array.isArray(xff) && xff.length > 0) {
+      return String(xff[0]).split(',')[0].trim();
+    }
+    return client.handshake.address || 'unknown';
+  }
+
   async handleDisconnect(client: Socket): Promise<void> {
+    // KS-3734: освобождаем slot IP-counter'а.
+    if (client.data?.ipSlotAcquired && client.data?.ip) {
+      try {
+        await this.service.releaseIpSlot(String(client.data.ip));
+      } catch (e) {
+        this.logger.warn(
+          `releaseIpSlot failed ip=${client.data.ip}: ${(e as Error).message}`,
+        );
+      }
+    }
     const subs: Set<string> | undefined = client.data?.subscribedSlugs;
     if (!subs || subs.size === 0) return;
     for (const slug of subs) {
@@ -179,12 +222,22 @@ export class LiveAnalysisGateway
     @MessageBody() data: SubscribePayloadDto,
   ): Promise<void> {
     try {
+      // KS-3734: лимит зрителей на трансляцию (capacity 1000). Сначала
+      // пытаемся занять слот; если переполнено — не отдаём sync и не
+      // присоединяем к комнате.
+      const count = await this.service.tryAcquireViewerSlot(data.slug);
+      if (count === null) {
+        const errPayload: LiveAnalysisErrorEvent = {
+          code: 'rate-limit',
+          message: 'Viewer capacity reached',
+        };
+        client.emit(LiveAnalysisEvents.ERROR, errPayload);
+        return;
+      }
       const snapshot = await this.service.getSyncSnapshot(data.slug);
       await client.join(this.roomFor(data.slug));
       (client.data.subscribedSlugs as Set<string>).add(data.slug);
       client.emit(LiveAnalysisEvents.SYNC, snapshot);
-
-      const count = await this.service.incrementViewer(data.slug);
       this.emitViewers(data.slug, count);
     } catch (e) {
       this.emitError(client, e);
@@ -311,6 +364,9 @@ export class LiveAnalysisGateway
     const err = e as { message?: string; status?: number };
     if (err?.message?.toLowerCase().includes('illegal')) {
       return { code: 'illegal-move', message: err.message };
+    }
+    if (err?.message?.toLowerCase().includes('rate limit')) {
+      return { code: 'rate-limit', message: err.message ?? 'Rate limit' };
     }
     if (err?.status === 400) {
       return { code: 'invalid-payload', message: err.message ?? 'Invalid payload' };
