@@ -372,6 +372,10 @@ export class LiveAnalysisGateway
         headers: data.headers,
         currentPly: data.currentPly,
         orientation: data.orientation,
+        // KS-3775: пробрасываем сквозной индекс узла дерева автора.
+        // Без этой строки поле теряется на gateway-слое и не доходит
+        // до сервиса — sync.currentGlobalIndex всегда отсутствует.
+        currentGlobalIndex: data.currentGlobalIndex,
       });
     } catch (e) {
       this.emitError(client, e);
