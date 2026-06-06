@@ -1726,13 +1726,21 @@ function AnalysisPageInner({
   // только `ctx.kind==='analysis'`.
   const stateHasPgn = !!(location.state as { pgn?: string } | null)?.pgn;
   useAdHocAnalysisAutosave({
+    // KS-3780: viewer-режим live-трансляции — зритель НЕ должен ни
+    // писать своё дерево в ad-hoc localStorage, ни тем более
+    // восстанавливать оттуда чужой снимок при открытии новой
+    // /live/<slug>. Это и было корнем KS-3779: ad-hoc-ключ
+    // `analysis:adhoc:<base64(initialFen)>` одинаков для всех новых
+    // трансляций со стандартной стартовой позицией, и зрителю
+    // вечно загружалось дерево от прошлой трансляции.
     enabled:
       ctx.kind === 'analysis' &&
       !gameId &&
       !analysisId &&
       !stateHasPgn &&
       !puzzleFen &&
-      !puzzlePgn,
+      !puzzlePgn &&
+      !isViewerLive,
     initialFen,
     history,
     initialAnnotations,
