@@ -936,6 +936,11 @@ function AnalysisPageInner({
   // Применённый PGN запоминаем в `lastAppliedLivePgnRef`, чтобы тот
   // же snapshot не применился дважды.
   const lastAppliedLivePgnRef = useRef<string | null>(null);
+  // KS-3769: FEN автора на момент последнего apply. Используется чтобы
+  // отличить «зритель идёт за автором» (viewerFen === lastAppliedAuthorFen)
+  // от «зритель листает дерево сам» (viewerFen ≠ lastAppliedAuthorFen).
+  // Null до первого apply — трактуется как «следовать за автором».
+  const lastAppliedAuthorFenRef = useRef<string | null>(null);
   const [pendingLivePgn, setPendingLivePgn] = useState<string | null>(null);
 
   // KS-3768 фикс KS-3750: предикат «зритель находится в дереве автора».
@@ -964,32 +969,65 @@ function AnalysisPageInner({
   // кнопке «Применить» из badge'а.
   const applyLivePgn = useCallback(
     (nextPgn: string) => {
-      const preserveFen = currentMove?.fen ?? initialFen;
+      const viewerFen = currentMove?.fen ?? initialFen;
+      const authorFen = liveFull.currentFen;
       try {
         const moves = parseAnnotatedPgn(nextPgn);
         const initialAnn = extractInitialAnnotations(nextPgn);
         loadFromPgn(moves, initialAnn);
-        // KS-3768: при первом apply (зритель только открылся, его
-        // viewerFen=initialFen, currentMove=null) предпочитаем
-        // перевести его на позицию автора, а не оставить на root —
-        // зритель ожидает увидеть то, что разбирает автор. На
-        // последующих apply (currentMove есть) сохраняем позицию
-        // зрителя через findGlobalIndexByFen(preserveFen).
-        const targetFen =
-          !currentMove && liveFull.currentFen ? liveFull.currentFen : preserveFen;
-        const idx = findGlobalIndexByFen(moves, targetFen);
-        if (idx !== null) {
-          const target = searchInHistory(moves, idx);
-          if (target) gotoMove(target);
+        // KS-3769: ключевое решение «куда перевести курсор».
+        //   - Первый apply (lastAppliedAuthorFenRef.current === null) →
+        //     зритель только что открылся, ведём его на позицию автора.
+        //   - Зритель остался синхронизированным с автором
+        //     (viewerFen === lastAppliedAuthorFenRef.current) → ведём за
+        //     автором на новую позицию. Это покрывает основной сценарий
+        //     KS-3769: зритель смотрит, автор делает ход, курсор зрителя
+        //     автоматически двигается.
+        //   - Зритель ушёл в листание дерева (viewerFen ≠
+        //     lastAppliedAuthorFenRef) → сохраняем его позицию через
+        //     findGlobalIndexByFen(viewerFen). Не сбиваем зрителя
+        //     посреди разбора.
+        const followAuthor =
+          !lastAppliedAuthorFenRef.current ||
+          viewerFen === lastAppliedAuthorFenRef.current;
+        let target: ChessMove | null = null;
+        if (followAuthor && authorFen) {
+          const idx = findGlobalIndexByFen(moves, authorFen);
+          if (idx !== null) target = searchInHistory(moves, idx) as ChessMove | null;
+          // Fallback по currentPly, если точный FEN не нашёлся
+          // (расхождение нормализации FEN, exotic вариант, …).
+          if (!target && liveFull.currentPly > 0) {
+            for (const m of moves) {
+              if (m.ply === liveFull.currentPly) {
+                target = m;
+                break;
+              }
+              if (m.ply > liveFull.currentPly) break;
+              target = m;
+            }
+          }
+        } else {
+          // Зритель листает сам — сохраняем его позицию.
+          const idx = findGlobalIndexByFen(moves, viewerFen);
+          if (idx !== null) target = searchInHistory(moves, idx) as ChessMove | null;
         }
+        if (target) gotoMove(target);
         // Если узла нет — reducer оставит currentMove на последнем ходе
         // (soft drift), это норма.
         lastAppliedLivePgnRef.current = nextPgn;
+        lastAppliedAuthorFenRef.current = authorFen;
       } catch {
         /* битый PGN — оставляем дерево как есть, ждём следующего sync. */
       }
     },
-    [currentMove, initialFen, liveFull.currentFen, loadFromPgn, gotoMove],
+    [
+      currentMove,
+      initialFen,
+      liveFull.currentFen,
+      liveFull.currentPly,
+      loadFromPgn,
+      gotoMove,
+    ],
   );
 
   // Шлюз входящих state-patch'ей. Решаем: применить сразу или отложить.
