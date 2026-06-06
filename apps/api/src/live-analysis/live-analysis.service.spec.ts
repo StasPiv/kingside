@@ -114,11 +114,15 @@ describe('LiveAnalysisService', () => {
     liveAnalysis: {
       create: jest.Mock;
       findUnique: jest.Mock;
+      findFirst: jest.Mock;
       findUniqueOrThrow: jest.Mock;
       findMany: jest.Mock;
       update: jest.Mock;
       updateMany: jest.Mock;
       count: jest.Mock;
+    };
+    analysis: {
+      findUnique: jest.Mock;
     };
   };
   let redis: FakeRedis;
@@ -129,11 +133,18 @@ describe('LiveAnalysisService', () => {
       liveAnalysis: {
         create: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
         findUniqueOrThrow: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         count: jest.fn().mockResolvedValue(0),
+      },
+      analysis: {
+        // KS-3759: по умолчанию владелец совпадает с тем, кому
+        // принадлежит анализ — тестам без явного mock-а это позволяет
+        // не падать на проверке владельца.
+        findUnique: jest.fn().mockResolvedValue({ id: 'a-1', userId: 'u-1' }),
       },
     };
     redis = new FakeRedis();
@@ -213,8 +224,92 @@ describe('LiveAnalysisService', () => {
       expect(prisma.liveAnalysis.create).not.toHaveBeenCalled();
     });
 
+    // ─── KS-3759: ownership Analysis ───────────────────────────────
+
+    it('404 если Analysis не найден', async () => {
+      prisma.analysis.findUnique.mockResolvedValueOnce(null);
+      await expect(
+        service.create('u-1', { analysisId: 'a-MISSING' }, 'https://k.s'),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.liveAnalysis.create).not.toHaveBeenCalled();
+    });
+
+    it('403 если ownerId != Analysis.userId', async () => {
+      prisma.analysis.findUnique.mockResolvedValueOnce({
+        id: 'a-1',
+        userId: 'OTHER-user',
+      });
+      await expect(
+        service.create('u-1', { analysisId: 'a-1' }, 'https://k.s'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.liveAnalysis.create).not.toHaveBeenCalled();
+    });
+
+    // ─── KS-3759: идемпотентность ──────────────────────────────────
+
+    it('возвращает existing active без INSERT (идемпотентность)', async () => {
+      prisma.liveAnalysis.findFirst.mockResolvedValueOnce({
+        id: 'la-existing',
+        slug: 'EXIST00000',
+        ownerId: 'u-1',
+        title: null,
+        startingFen: null,
+        status: 'active',
+        createdAt: new Date('2026-06-06T00:00:00Z'),
+        closedAt: null,
+        analysisId: 'a-1',
+        owner: { username: 'alice' },
+      });
+      const resp = await service.create(
+        'u-1',
+        { analysisId: 'a-1' },
+        'https://kingside.site',
+      );
+      expect(resp.slug).toBe('EXIST00000');
+      expect(resp.analysisId).toBe('a-1');
+      expect(prisma.liveAnalysis.create).not.toHaveBeenCalled();
+    });
+
+    // ─── KS-3759: P2002 race на partial UNIQUE ─────────────────────
+
+    it('concurrent POST: на P2002 (partial UNIQUE) возвращает existing', async () => {
+      // findFirst в начале — null (ещё нет). После INSERT-failure
+      // findFirst возвращает запись, созданную параллельным процессом.
+      prisma.liveAnalysis.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 'la-race',
+          slug: 'RACEWINNER',
+          ownerId: 'u-1',
+          title: null,
+          startingFen: null,
+          status: 'active',
+          createdAt: new Date(),
+          closedAt: null,
+          analysisId: 'a-1',
+          owner: { username: 'alice' },
+        });
+      // P2002 на partial UNIQUE — meta.target указывает на индекс
+      // (owner_id, analysis_id) ИЛИ Prisma даёт indexName.
+      const p2002 = Object.assign(new Error('unique'), {
+        code: 'P2002',
+        meta: { target: ['owner_id', 'analysis_id'] },
+      });
+      prisma.liveAnalysis.create.mockRejectedValueOnce(p2002);
+      const resp = await service.create(
+        'u-1',
+        { analysisId: 'a-1' },
+        'https://k.s',
+      );
+      expect(resp.slug).toBe('RACEWINNER');
+    });
+
     it('retry при коллизии UNIQUE(slug)', async () => {
-      const p2002 = Object.assign(new Error('unique'), { code: 'P2002' });
+      // meta.target указывает на slug — это и есть сигнал retry.
+      const p2002 = Object.assign(new Error('unique'), {
+        code: 'P2002',
+        meta: { target: ['slug'] },
+      });
       prisma.liveAnalysis.create
         .mockRejectedValueOnce(p2002)
         .mockResolvedValueOnce({ id: 'la-2' });
@@ -231,6 +326,48 @@ describe('LiveAnalysisService', () => {
       });
       await service.create('u-1', { analysisId: 'a-1' }, 'https://k.s');
       expect(prisma.liveAnalysis.create).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ─── KS-3759: findActiveByAnalysisId ───────────────────────────────
+
+  describe('findActiveByAnalysisId', () => {
+    it('возвращает активную трансляцию при наличии', async () => {
+      prisma.liveAnalysis.findFirst.mockResolvedValueOnce({
+        id: 'la-99',
+        slug: 'ACTIVE0000',
+        ownerId: 'u-1',
+        title: 'Live',
+        startingFen: null,
+        status: 'active',
+        createdAt: new Date(),
+        closedAt: null,
+        analysisId: 'a-1',
+        owner: { username: 'alice' },
+      });
+      const resp = await service.findActiveByAnalysisId(
+        'u-1',
+        'a-1',
+        'https://k.s',
+      );
+      expect(resp).not.toBeNull();
+      expect(resp!.slug).toBe('ACTIVE0000');
+      expect(resp!.analysisId).toBe('a-1');
+      // findFirst фильтрует по ownerId, analysisId, status='active'.
+      const args = prisma.liveAnalysis.findFirst.mock.calls[0][0];
+      expect(args.where).toEqual(
+        expect.objectContaining({ ownerId: 'u-1', analysisId: 'a-1', status: 'active' }),
+      );
+    });
+
+    it('возвращает null если нет active', async () => {
+      prisma.liveAnalysis.findFirst.mockResolvedValueOnce(null);
+      const resp = await service.findActiveByAnalysisId(
+        'u-1',
+        'a-1',
+        'https://k.s',
+      );
+      expect(resp).toBeNull();
     });
   });
 

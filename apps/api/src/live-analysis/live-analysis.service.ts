@@ -133,6 +133,22 @@ export class LiveAnalysisService {
    * `startingFen` — валидируется через `chess.js`, невалидный → 400.
    * State в Redis заводится сразу, чтобы первый зритель на subscribe
    * получил консистентный snapshot.
+   *
+   * KS-3759 / ADR-112 §3, §2.8.
+   *
+   * Расширения:
+   *   1. `analysisId` обязателен. Перед INSERT проверяем существование
+   *      и принадлежность `Analysis`:
+   *         - 404 если запись не найдена;
+   *         - 403 если `Analysis.userId !== ownerId`.
+   *   2. Идемпотентность. До INSERT ищем уже существующую active по
+   *      `(ownerId, analysisId)` — если есть, возвращаем её Response
+   *      без создания новой. Так повторный `POST /live-analyses`
+   *      из той же вкладки/после перезагрузки даёт тот же slug.
+   *   3. Гонка на параллельный INSERT (две вкладки одновременно).
+   *      Partial UNIQUE индекс `live_analysis_owner_analysis_active_unique`
+   *      (KS-3757) даёт Prisma P2002 на проигравшем потоке. Ловим и
+   *      возвращаем существующую запись вместо 500.
    */
   async create(
     ownerId: string,
@@ -142,11 +158,64 @@ export class LiveAnalysisService {
     const startingFen = this.normalizeStartingFen(dto.startingFen);
     const orientation: LiveAnalysisOrientation = dto.orientation ?? 'white';
 
-    const id = await this.tryInsertWithUniqueSlug(
+    // (1) проверка владельца анализа.
+    const analysis = await this.prisma.analysis.findUnique({
+      where: { id: dto.analysisId },
+      select: { id: true, userId: true },
+    });
+    if (!analysis) {
+      throw new NotFoundException(`Analysis "${dto.analysisId}" not found`);
+    }
+    if (analysis.userId !== ownerId) {
+      throw new ForbiddenException(
+        'Only the owner of the analysis can broadcast it',
+      );
+    }
+
+    // (2) идемпотентность: если уже есть active с тем же binding —
+    // возвращаем её сразу.
+    const existing = await this.findActiveByAnalysisId(
       ownerId,
-      dto.title ?? null,
-      startingFen,
+      dto.analysisId,
+      publicBaseUrl,
     );
+    if (existing) {
+      this.logger.log(
+        `Live analysis idempotent return: slug=${existing.slug} owner=${ownerId} analysisId=${dto.analysisId}`,
+      );
+      return existing;
+    }
+
+    // (3) INSERT с обработкой race по partial UNIQUE.
+    let id: string;
+    try {
+      id = await this.tryInsertWithUniqueSlug(
+        ownerId,
+        dto.title ?? null,
+        startingFen,
+        dto.analysisId,
+      );
+    } catch (e) {
+      // tryInsertWithUniqueSlug различает коллизии по slug (retry'ит
+      // их сам) и пробрасывает P2002 только если это partial UNIQUE
+      // на (owner_id, analysis_id). Это значит — concurrent INSERT
+      // успел раньше; возвращаем то, что он создал.
+      if (this.isUniqueViolation(e)) {
+        const concurrent = await this.findActiveByAnalysisId(
+          ownerId,
+          dto.analysisId,
+          publicBaseUrl,
+        );
+        if (concurrent) {
+          this.logger.warn(
+            `Live analysis concurrent create: returning existing slug=${concurrent.slug} owner=${ownerId} analysisId=${dto.analysisId}`,
+          );
+          return concurrent;
+        }
+      }
+      throw e;
+    }
+
     const created = await this.prisma.liveAnalysis.findUniqueOrThrow({
       where: { id },
       include: { owner: { select: { username: true } } },
@@ -157,7 +226,7 @@ export class LiveAnalysisService {
     this.metrics.incLiveAnalysisActive();
 
     this.logger.log(
-      `Live analysis created: slug=${created.slug} owner=${ownerId}`,
+      `Live analysis created: slug=${created.slug} owner=${ownerId} analysisId=${dto.analysisId}`,
     );
 
     return this.toResponse(created, publicBaseUrl, {
@@ -165,6 +234,44 @@ export class LiveAnalysisService {
       currentPly: 0,
       orientation,
       viewerCount: 0,
+    });
+  }
+
+  /**
+   * KS-3759 / ADR-112 §3. Поиск активной трансляции по `(ownerId,
+   * analysisId)`. Возвращает полностью сформированный `LiveAnalysisResponse`
+   * (с актуальным `currentFen`/`viewerCount`/`currentPgn` из Redis)
+   * или `null`, если такой нет.
+   *
+   * Используется в:
+   *   - `create()` для идемпотентности и обработки race;
+   *   - фронте через REST-эндпоинт (отдельная задача), чтобы автор
+   *     перед нажатием «Транслировать» мог узнать, идёт ли уже
+   *     трансляция на этот анализ.
+   */
+  async findActiveByAnalysisId(
+    ownerId: string,
+    analysisId: string,
+    publicBaseUrl: string,
+  ): Promise<LiveAnalysisResponse | null> {
+    const row = await this.prisma.liveAnalysis.findFirst({
+      where: { ownerId, analysisId, status: 'active' },
+      include: { owner: { select: { username: true } } },
+    });
+    if (!row) return null;
+
+    const state = await this.readRedisState(row.id);
+    const viewerCount = await this.readViewerCount(row.id);
+    return this.toResponse(row, publicBaseUrl, {
+      currentFen:
+        state?.currentFen ??
+        row.startingFen ??
+        LiveAnalysisService.INITIAL_FEN,
+      currentPly: state?.currentPly ?? 0,
+      orientation: state?.orientation ?? 'white',
+      viewerCount,
+      currentPgn: state?.currentPgn,
+      headers: state?.headers,
     });
   }
 
@@ -860,11 +967,22 @@ export class LiveAnalysisService {
     return next;
   }
 
-  /** INSERT с retry на коллизию UNIQUE(slug). Возвращает id. */
+  /**
+   * INSERT с retry на коллизию UNIQUE(slug). Возвращает id.
+   *
+   * KS-3759 / ADR-112: добавлен `analysisId` (обязательный binding).
+   * P2002 различается по `meta.target`/`meta.indexName`:
+   *   - совпадение `slug` — статистически невозможная коллизия, retry
+   *     до `SLUG_GEN_MAX_ATTEMPTS`;
+   *   - совпадение partial UNIQUE `live_analysis_owner_analysis_active_unique`
+   *     — concurrent INSERT от другой вкладки/инстанса; пробрасываем
+   *     наверх, чтобы `create()` подменил на existing.
+   */
   private async tryInsertWithUniqueSlug(
     ownerId: string,
     title: string | null,
     startingFen: string,
+    analysisId: string,
   ): Promise<string> {
     for (let attempt = 0; attempt < LiveAnalysisService.SLUG_GEN_MAX_ATTEMPTS; attempt++) {
       const slug = this.nanoid();
@@ -878,18 +996,21 @@ export class LiveAnalysisService {
             // в БД когда автор не задавал явный FEN.
             startingFen: startingFen === LiveAnalysisService.INITIAL_FEN ? null : startingFen,
             status: 'active',
+            analysisId,
           },
           select: { id: true },
         });
         return created.id;
       } catch (e) {
-        // Prisma P2002 — unique constraint violation. По statistically
-        // невозможной коллизии 10⁻¹⁴ retry'имся, остальные ошибки
-        // пробрасываем.
-        if (this.isUniqueViolation(e) && attempt < LiveAnalysisService.SLUG_GEN_MAX_ATTEMPTS - 1) {
-          this.logger.warn(`Slug collision on attempt ${attempt + 1}: ${slug}`);
-          continue;
+        if (this.isSlugUniqueViolation(e)) {
+          if (attempt < LiveAnalysisService.SLUG_GEN_MAX_ATTEMPTS - 1) {
+            this.logger.warn(`Slug collision on attempt ${attempt + 1}: ${slug}`);
+            continue;
+          }
+          throw new BadRequestException('Failed to generate unique slug');
         }
+        // Partial UNIQUE (analysis-binding) или другая ошибка —
+        // пробрасываем; `create()` решит, нужно ли подменять existing.
         throw e;
       }
     }
@@ -903,6 +1024,33 @@ export class LiveAnalysisService {
       // PrismaClientKnownRequestError.code
       (e as { code?: string }).code === 'P2002'
     );
+  }
+
+  /**
+   * KS-3759: специально для slug-коллизии. У Prisma в `meta.target`
+   * (массив колонок) или `meta.indexName` приходит указатель на
+   * нарушенный индекс. Slug-коллизия маркируется наличием `slug` в
+   * target. Partial UNIQUE по `(owner_id, analysis_id)` сюда не
+   * подпадёт — он различается по другим колонкам / по индекс-имени.
+   */
+  private isSlugUniqueViolation(e: unknown): boolean {
+    if (!this.isUniqueViolation(e)) return false;
+    const meta = (e as { meta?: { target?: unknown; indexName?: unknown } })
+      .meta;
+    if (!meta) return false;
+    const target = meta.target;
+    if (Array.isArray(target)) {
+      return target.some(
+        (t) => typeof t === 'string' && t.toLowerCase().includes('slug'),
+      );
+    }
+    if (typeof target === 'string') {
+      return target.toLowerCase().includes('slug');
+    }
+    if (typeof meta.indexName === 'string') {
+      return meta.indexName.toLowerCase().includes('slug');
+    }
+    return false;
   }
 
   /** Безопасное применение UCI через chess.js. `null` если нелегально. */
