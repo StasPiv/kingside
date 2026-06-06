@@ -410,4 +410,62 @@ describe('LecturesService', () => {
       });
     });
   });
+
+  // ─── KS-3793: getRecordingByLectureId ─────────────────────────────
+
+  describe('getRecordingByLectureId', () => {
+    it('404 если лекции нет', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(null);
+      await expect(service.getRecordingByLectureId('missing')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('404 если статус != recorded', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'live',
+        recording: null,
+      });
+      await expect(service.getRecordingByLectureId('l-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('404 если recording отсутствует (например, cancelled)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'cancelled',
+        recording: null,
+      });
+      await expect(service.getRecordingByLectureId('l-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('200 с полной записью если recorded и recording привязан', async () => {
+      const recording = {
+        id: 'rec-1',
+        lectureId: 'l-1',
+        events: [{ t: 0, type: 'move', payload: { uci: 'e2e4', ply: 1 } }],
+        durationMs: 1200,
+        eventCount: 1,
+        byteSize: 42,
+        startingFen: 'rnbqkbnr/...',
+        orientation: 'white',
+        truncated: false,
+        createdAt: new Date('2026-06-06T00:00:00Z'),
+      };
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'recorded',
+        recording,
+      });
+      const r = await service.getRecordingByLectureId('l-1');
+      expect(r).toBe(recording);
+      // findUnique вызывается с include: { recording: true }.
+      const args = prisma.lecture.findUnique.mock.calls[0][0];
+      expect(args.include).toEqual({ recording: true });
+    });
+  });
 });

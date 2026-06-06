@@ -297,6 +297,32 @@ export class LecturesService {
   }
 
   /**
+   * KS-3793 / ADR-113 §4 крупная задача 2. Возвращает запись лекции
+   * по её id. 404 если лекции нет, не в статусе `recorded` или у
+   * неё нет связанной `LectureRecording`.
+   *
+   * Контроллер на этом эндпоинте выставляет
+   * `Cache-Control: public, max-age=31536000, immutable` — запись
+   * иммутабельна (id — UUID; перезапись не предусмотрена), агрессивное
+   * кеширование на стороне CDN/браузера безопасно.
+   */
+  async getRecordingByLectureId(lectureId: string) {
+    const lecture = await this.prisma.lecture.findUnique({
+      where: { id: lectureId },
+      include: { recording: true },
+    });
+    if (!lecture) {
+      throw new NotFoundException(`Lecture "${lectureId}" not found`);
+    }
+    if (lecture.status !== 'recorded' || !lecture.recording) {
+      throw new NotFoundException(
+        `Lecture "${lectureId}" has no recording`,
+      );
+    }
+    return lecture.recording;
+  }
+
+  /**
    * KS-3786 follow-up. Заменяет вложенный объект `liveAnalysis: { id,
    * slug }` (из Prisma include) на `liveAnalysis: { id, slug, url }
    * | null` — добавляет публичный URL `/live/<slug>` для фронта.
