@@ -148,6 +148,44 @@ function formatDuration(
   return `${seconds}${t('coachProfile.durSec', 's')}`;
 }
 
+/**
+ * KS-3803: относительное время до scheduledAt: «через 3 часа»,
+ * «через 5 минут», «уже идёт». Использует `Intl.RelativeTimeFormat`
+ * (поддерживается во всех современных браузерах). На случай старых
+ * браузеров без него — возвращает пустую строку, потребитель в
+ * крайнем случае покажет только абсолютную дату.
+ */
+function formatRelativeToNow(iso: string, locale: string): string {
+  try {
+    const target = new Date(iso).getTime();
+    if (!Number.isFinite(target)) return '';
+    const diffMs = target - Date.now();
+    if (typeof Intl.RelativeTimeFormat !== 'function') return '';
+    const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+    const abs = Math.abs(diffMs);
+    const min = 60_000;
+    const hour = 60 * min;
+    const day = 24 * hour;
+    const week = 7 * day;
+    if (abs >= week) {
+      const value = Math.round(diffMs / day);
+      return rtf.format(value, 'day');
+    }
+    if (abs >= day) {
+      const value = Math.round(diffMs / day);
+      return rtf.format(value, 'day');
+    }
+    if (abs >= hour) {
+      const value = Math.round(diffMs / hour);
+      return rtf.format(value, 'hour');
+    }
+    const value = Math.round(diffMs / min);
+    return rtf.format(value, 'minute');
+  } catch {
+    return '';
+  }
+}
+
 export function CoachProfilePage() {
   const { t, i18n } = useTranslation();
   const { username } = useParams<{ username: string }>();
@@ -155,30 +193,110 @@ export function CoachProfilePage() {
 
   const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
   const [liveLectures, setLiveLectures] = useState<CoachLecture[]>([]);
+  const [scheduledLectures, setScheduledLectures] = useState<CoachLecture[]>([]);
   const [recordedLectures, setRecordedLectures] = useState<CoachLecture[]>([]);
   const [cancelledLectures, setCancelledLectures] = useState<CoachLecture[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // KS-3802 / ADR-113 §4 крупная задача 3: модальное окно
-  // «Запланировать лекцию». Видимо только хозяину страницы; рендер
-  // ниже под гейтом `isOwnPage`.
+  // KS-3802/KS-3803: модальное окно «Запланировать / Изменить
+  // лекцию». editingLecture !== null → режим редактирования.
   const [showSchedule, setShowSchedule] = useState(false);
+  const [editingLecture, setEditingLecture] = useState<{
+    id: string;
+    title: string;
+    description?: string | null;
+    scheduledAt: string;
+  } | null>(null);
   const [scheduleToast, setScheduleToast] = useState<string | null>(null);
+  const showToast = useCallback((message: string) => {
+    setScheduleToast(message);
+    window.setTimeout(() => setScheduleToast(null), 3500);
+  }, []);
   const handleScheduleCreated = useCallback(
     (lecture: { id: string; title: string; scheduledAt: string }) => {
-      // Секцию «Расписание» нарисует KS-3803 — там же будет
-      // рефреш списка scheduled-лекций. Сейчас минимально: показываем
-      // мгновенное всплывающее уведомление, чтобы автор видел, что
-      // запрос прошёл успешно.
-      setScheduleToast(
+      // KS-3803: обновляем секцию «Расписание» оптимистично — без
+      // лишнего GET-запроса. Сортировка по scheduledAt ASC: вставляем
+      // новую лекцию в правильное место.
+      setScheduledLectures((prev) => {
+        const next = [...prev, lecture as CoachLecture];
+        next.sort((a, b) => {
+          const ta = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+          const tb = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+          return ta - tb;
+        });
+        return next;
+      });
+      showToast(
         t('lectureSchedule.create.successToast', '«{{title}}» scheduled', {
           title: lecture.title,
         }),
       );
-      window.setTimeout(() => setScheduleToast(null), 3500);
     },
-    [t],
+    [showToast, t],
+  );
+  const handleLectureEdited = useCallback(
+    (lecture: { id: string; title: string; scheduledAt: string }) => {
+      // KS-3803: обновляем карточку в state. Сортируем заново — у
+      // лекции могло поменяться scheduledAt.
+      setScheduledLectures((prev) => {
+        const next = prev.map((l) =>
+          l.id === lecture.id ? { ...l, ...lecture } : l,
+        );
+        next.sort((a, b) => {
+          const ta = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+          const tb = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+          return ta - tb;
+        });
+        return next;
+      });
+      showToast(
+        t('lectureSchedule.edit.successToast', '«{{title}}» updated', {
+          title: lecture.title,
+        }),
+      );
+    },
+    [showToast, t],
+  );
+  const handleCancelLecture = useCallback(
+    async (lecture: CoachLecture) => {
+      // KS-3800 / KS-3803: POST /lectures/:id/cancel — owner-only.
+      // Confirm: спрашиваем подтверждение, чтобы не отменить случайно.
+      if (
+        !window.confirm(
+          t(
+            'lectureSchedule.cancel.confirm',
+            'Cancel «{{title}}»? This cannot be undone.',
+            { title: lecture.title },
+          ),
+        )
+      ) {
+        return;
+      }
+      try {
+        await api.post(
+          `/lectures/${encodeURIComponent(lecture.id)}/cancel`,
+          {},
+        );
+        // Оптимистично выкидываем из расписания.
+        setScheduledLectures((prev) => prev.filter((l) => l.id !== lecture.id));
+        showToast(
+          t('lectureSchedule.cancel.successToast', '«{{title}}» cancelled', {
+            title: lecture.title,
+          }),
+        );
+      } catch (e) {
+        const msg =
+          e instanceof ApiError
+            ? e.message
+            : t(
+                'lectureSchedule.cancel.failed',
+                'Failed to cancel the lecture. Please try again.',
+              );
+        showToast(msg);
+      }
+    },
+    [showToast, t],
   );
 
   useEffect(() => {
@@ -191,7 +309,9 @@ export function CoachProfilePage() {
     // 404 — показываем not-found без шанса для list-запроса перетереть
     // состояние. Ошибки списков не должны сорвать рендер профиля —
     // соответствующие секции в этом случае просто не отрисуются.
-    const lecturesByStatus = (status: 'live' | 'recorded' | 'cancelled') =>
+    const lecturesByStatus = (
+      status: 'live' | 'scheduled' | 'recorded' | 'cancelled',
+    ) =>
       api
         .get<CoachLecture[]>(
           `/coaches/${encodeURIComponent(username)}/lectures?status=${status}`,
@@ -202,13 +322,15 @@ export function CoachProfilePage() {
         `/players/${encodeURIComponent(username)}`,
       ),
       lecturesByStatus('live'),
+      lecturesByStatus('scheduled'),
       lecturesByStatus('recorded'),
       lecturesByStatus('cancelled'),
     ])
-      .then(([p, live, recorded, cancelledList]) => {
+      .then(([p, live, scheduled, recorded, cancelledList]) => {
         if (cancelled) return;
         setProfile(p);
         setLiveLectures(live);
+        setScheduledLectures(scheduled);
         setRecordedLectures(recorded);
         setCancelledLectures(cancelledList);
       })
@@ -397,8 +519,165 @@ export function CoachProfilePage() {
       {showSchedule && (
         <ScheduleLectureModal
           onClose={() => setShowSchedule(false)}
-          onCreated={handleScheduleCreated}
+          onSaved={handleScheduleCreated}
         />
+      )}
+      {editingLecture && (
+        <ScheduleLectureModal
+          onClose={() => setEditingLecture(null)}
+          onSaved={handleLectureEdited}
+          initial={editingLecture}
+        />
+      )}
+
+      {/* KS-3803: «Расписание» — будущие scheduled-лекции, отсортированы
+          по scheduledAt ASC (backend сортирует, но при оптимистичных
+          вставках мы пересортируем сами). Своему автору на карточке —
+          кнопки «Изменить» и «Отменить»; гостям только информация. */}
+      {scheduledLectures.length > 0 && (
+        <section
+          className="coach-profile-section"
+          data-testid="coach-profile-schedule-section"
+          aria-label={t('coachProfile.scheduleTitle', 'Schedule')}
+          style={{ marginTop: 24 }}
+        >
+          <h2>{t('coachProfile.scheduleTitle', 'Schedule')}</h2>
+          <ul
+            className="coach-profile-cards-grid"
+            data-testid="coach-profile-schedule-grid"
+            style={{
+              listStyle: 'none',
+              padding: 0,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: 16,
+            }}
+          >
+            {scheduledLectures.map((l) => {
+              const absoluteLabel = formatStartedAt(
+                l.scheduledAt,
+                i18n.language,
+              );
+              const relativeLabel = l.scheduledAt
+                ? formatRelativeToNow(l.scheduledAt, i18n.language)
+                : '';
+              return (
+                <li
+                  key={l.id}
+                  className="coach-profile-schedule-card"
+                  data-testid={`coach-profile-schedule-card-${l.id}`}
+                  style={{
+                    border: '1px solid #ddd',
+                    borderRadius: 8,
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <Link
+                    to={`/lectures/${l.id}`}
+                    style={{
+                      textDecoration: 'none',
+                      color: 'inherit',
+                      display: 'block',
+                    }}
+                    data-testid={`coach-profile-schedule-link-${l.id}`}
+                  >
+                    <header style={{ marginBottom: 4 }}>
+                      <strong>{l.title}</strong>
+                    </header>
+                    {l.description && (
+                      <p
+                        style={{
+                          margin: '4px 0',
+                          fontSize: 14,
+                          opacity: 0.85,
+                        }}
+                      >
+                        {l.description}
+                      </p>
+                    )}
+                    <div
+                      style={{
+                        fontSize: 12,
+                        opacity: 0.7,
+                        display: 'flex',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      {relativeLabel && (
+                        <span
+                          data-testid={`coach-profile-schedule-relative-${l.id}`}
+                        >
+                          {relativeLabel}
+                        </span>
+                      )}
+                      {absoluteLabel && (
+                        <span
+                          data-testid={`coach-profile-schedule-absolute-${l.id}`}
+                        >
+                          {absoluteLabel}
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                  {isOwnPage && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        marginTop: 8,
+                        borderTop: '1px solid #eee',
+                        paddingTop: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        data-testid={`coach-profile-schedule-edit-${l.id}`}
+                        onClick={() =>
+                          setEditingLecture({
+                            id: l.id,
+                            title: l.title,
+                            description: l.description,
+                            scheduledAt: l.scheduledAt ?? '',
+                          })
+                        }
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 4,
+                          border: '1px solid #ddd',
+                          background: '#fff',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        {t('lectureSchedule.actions.edit', 'Edit')}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`coach-profile-schedule-cancel-${l.id}`}
+                        onClick={() => void handleCancelLecture(l)}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 4,
+                          border: '1px solid #d32f2f',
+                          background: '#fff',
+                          color: '#d32f2f',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        {t('lectureSchedule.actions.cancel', 'Cancel')}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       {/* «В эфире» — карточки активных лекций. Скрываем секцию целиком,

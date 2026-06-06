@@ -739,6 +739,7 @@
     "loadError": "Failed to load coach profile.",
     "recordingsTitle": "Recordings",
     "finishedTitle": "Finished without recording",
+    "scheduleTitle": "Schedule",
     "duration": "Duration",
     "noRecordingNote": "no recording available",
     "durHour": "h",
@@ -766,6 +767,21 @@
       "submit": "Schedule lecture",
       "failed": "Failed to schedule the lecture. Please try again.",
       "successToast": "«{{title}}» scheduled"
+    },
+    "edit": {
+      "title": "Edit scheduled lecture",
+      "submit": "Save changes",
+      "failed": "Failed to save changes. Please try again.",
+      "successToast": "«{{title}}» updated"
+    },
+    "cancel": {
+      "confirm": "Cancel «{{title}}»? This cannot be undone.",
+      "successToast": "«{{title}}» cancelled",
+      "failed": "Failed to cancel the lecture. Please try again."
+    },
+    "actions": {
+      "edit": "Edit",
+      "cancel": "Cancel"
     }
   },
   "lecture": {

@@ -4,21 +4,23 @@ import { api } from '../../api';
 import { ApiError } from '../../ApiError';
 
 /**
- * KS-3802 / ADR-113 §4 крупная задача 3. Модальное окно «Запланировать
- * лекцию» на странице тренера `/coach/:username`. Поля: title,
- * description, scheduledAt (datetime-local). На submit:
+ * KS-3802 / KS-3803 / ADR-113 §4 крупная задача 3. Модальное окно
+ * «Запланировать лекцию» (`create`) или «Изменить лекцию» (`edit`).
  *
- *   POST /lectures { title, description?, scheduledAt }
- *
- * без `analysisId` — scheduled-лекция без привязки к Analysis,
- * привязка появится позже когда автор откроет её и запустит. Backend
- * (KS-3784/KS-3785) возвращает `{ lecture, liveAnalysis: null }` для
- * scheduled-веток.
+ *  - `create` (без `initial`) делает POST /lectures { title,
+ *    description?, scheduledAt } без `analysisId`. Backend (KS-3784/85)
+ *    создаёт лекцию в `status='scheduled'` и возвращает
+ *    `{ lecture, liveAnalysis: null }`.
+ *  - `edit` (с `initial`) делает PATCH /lectures/:id { title?,
+ *    description?, scheduledAt? } по контракту KS-3800. Allowed только
+ *    для `status='scheduled'` — backend сам отобьёт ошибкой если
+ *    лекция уже ушла в live/recorded.
  */
 
-interface ScheduledLectureSummary {
+export interface ScheduledLectureSummary {
   id: string;
   title: string;
+  description?: string | null;
   scheduledAt: string;
 }
 
@@ -29,12 +31,13 @@ interface CreateLectureResponse {
 
 interface ScheduleLectureModalProps {
   onClose: () => void;
+  /** Колбэк успешного завершения операции (create или edit). */
+  onSaved: (lecture: ScheduledLectureSummary) => void;
   /**
-   * Колбэк успешного создания — родитель обновит секцию «Расписание»
-   * (когда она появится в KS-3803). До тех пор используется чтобы
-   * показать всплывающее уведомление.
+   * Существующая лекция — переключает форму в режим редактирования
+   * (PATCH /lectures/:id). Без этого параметра — режим создания.
    */
-  onCreated: (lecture: ScheduledLectureSummary) => void;
+  initial?: ScheduledLectureSummary;
 }
 
 /**
@@ -47,21 +50,34 @@ interface ScheduleLectureModalProps {
 function defaultScheduledAtLocal(): string {
   const now = new Date();
   now.setMinutes(now.getMinutes() + 60);
+  return toDatetimeLocal(now);
+}
+
+/** ISO-строка → формат `<input type="datetime-local">` в локальной TZ. */
+function toDatetimeLocal(d: Date): string {
   const pad = (n: number) => n.toString().padStart(2, '0');
   return (
-    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
-    `T${pad(now.getHours())}:${pad(now.getMinutes())}`
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
   );
 }
 
 export function ScheduleLectureModal({
   onClose,
-  onCreated,
+  onSaved,
+  initial,
 }: ScheduleLectureModalProps) {
   const { t } = useTranslation();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const initialScheduled = useMemo(() => defaultScheduledAtLocal(), []);
+  const isEdit = !!initial;
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [description, setDescription] = useState(initial?.description ?? '');
+  const initialScheduled = useMemo(() => {
+    if (initial?.scheduledAt) {
+      const d = new Date(initial.scheduledAt);
+      if (!Number.isNaN(d.getTime())) return toDatetimeLocal(d);
+    }
+    return defaultScheduledAtLocal();
+  }, [initial?.scheduledAt]);
   const [scheduledAtLocal, setScheduledAtLocal] = useState(initialScheduled);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,12 +96,28 @@ export function ScheduleLectureModal({
     setSubmitting(true);
     setError(null);
     try {
-      const resp = await api.post<CreateLectureResponse>('/lectures', {
-        title: trimmedTitle,
-        ...(description.trim() ? { description: description.trim() } : {}),
-        scheduledAt: parsedScheduledAt!.toISOString(),
-      });
-      onCreated(resp.lecture);
+      if (isEdit && initial) {
+        // PATCH: отправляем только поля, которые автор реально мог
+        // изменить. scheduledAt всегда — даже если совпадает с
+        // прежним; backend хранит ISO и сам обработает идентичный
+        // апдейт.
+        const resp = await api.patch<ScheduledLectureSummary>(
+          `/lectures/${encodeURIComponent(initial.id)}`,
+          {
+            title: trimmedTitle,
+            description: description.trim() || null,
+            scheduledAt: parsedScheduledAt!.toISOString(),
+          },
+        );
+        onSaved(resp);
+      } else {
+        const resp = await api.post<CreateLectureResponse>('/lectures', {
+          title: trimmedTitle,
+          ...(description.trim() ? { description: description.trim() } : {}),
+          scheduledAt: parsedScheduledAt!.toISOString(),
+        });
+        onSaved(resp.lecture);
+      }
       onClose();
     } catch (e) {
       if (e instanceof ApiError) {
@@ -93,8 +125,12 @@ export function ScheduleLectureModal({
       } else {
         setError(
           t(
-            'lectureSchedule.create.failed',
-            'Failed to schedule the lecture. Please try again.',
+            isEdit
+              ? 'lectureSchedule.edit.failed'
+              : 'lectureSchedule.create.failed',
+            isEdit
+              ? 'Failed to save changes. Please try again.'
+              : 'Failed to schedule the lecture. Please try again.',
           ),
         );
       }
@@ -113,7 +149,9 @@ export function ScheduleLectureModal({
       >
         <div className="modal-header">
           <h2>
-            {t('lectureSchedule.create.title', 'Schedule a lecture')}
+            {isEdit
+              ? t('lectureSchedule.edit.title', 'Edit scheduled lecture')
+              : t('lectureSchedule.create.title', 'Schedule a lecture')}
           </h2>
           <button
             className="modal-close"
@@ -193,7 +231,9 @@ export function ScheduleLectureModal({
           >
             {submitting
               ? t('common.loading', 'Loading…')
-              : t('lectureSchedule.create.submit', 'Schedule lecture')}
+              : isEdit
+                ? t('lectureSchedule.edit.submit', 'Save changes')
+                : t('lectureSchedule.create.submit', 'Schedule lecture')}
           </button>
         </div>
       </div>
