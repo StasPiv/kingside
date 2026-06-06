@@ -102,15 +102,19 @@ export class StatePatchPayloadDto {
   @MaxLength(64)
   slug!: string;
 
-  @IsString()
   /**
+   * KS-3780. JSON-сериализованное дерево анализа. Backend хранит
+   * строку как непрозрачный blob: внутреннее содержимое
+   * (`{ history, initialFen?, initialAnnotations? }`) не парсится и
+   * не валидируется — за корректный JSON отвечает фронт.
+   *
    * 262 144 байт = 256 KB. Гейтвей при превышении возвращает
-   * `error { code: 'pgn-too-large' }`. Класс-валидатор сообщает
-   * стандартной ошибкой `MaxLength` — мапим в этот код в гейтвее
-   * по фразе `pgn` в message.
+   * `error { code: 'tree-too-large' }` — маппинг по фразе `tree` в
+   * message от MaxLength.
    */
+  @IsString()
   @MaxLength(262_144)
-  pgn!: string;
+  tree!: string;
 
   @IsOptional()
   @IsIn(['white', 'black'])

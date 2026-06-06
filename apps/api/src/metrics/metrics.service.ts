@@ -78,7 +78,7 @@ export class MetricsService implements OnModuleInit {
    *   среднюю длину в Grafana без отдельного histogram'а.
    * - `live_analysis_state_patch_rejected_total{reason}` (counter)
    *   отказы. Допустимые значения `reason`:
-   *     pgn_too_large | invalid_pgn | rate_limit | forbidden.
+   *     tree_too_large | rate_limit | forbidden.
    */
   readonly liveAnalysisStatePatchesTotal: Counter<string>;
   readonly liveAnalysisStatePatchBytesSum: Counter<string>;
@@ -212,8 +212,8 @@ export class MetricsService implements OnModuleInit {
     this.liveAnalysisStatePatchRejectedTotal = new Counter({
       name: 'live_analysis_state_patch_rejected_total',
       help:
-        'Отказы по state-patch. Label reason: pgn_too_large | ' +
-        'invalid_pgn | rate_limit | forbidden.',
+        'Отказы по state-patch. Label reason: tree_too_large | ' +
+        'rate_limit | forbidden.',
       labelNames: ['reason'] as const,
       registers: [this.registry],
     });
@@ -321,9 +321,9 @@ export class MetricsService implements OnModuleInit {
     }
   }
 
-  /** Отказ по причине: pgn_too_large | invalid_pgn | rate_limit | forbidden. */
+  /** Отказ по причине: tree_too_large | rate_limit | forbidden. */
   incLiveAnalysisStatePatchRejected(
-    reason: 'pgn_too_large' | 'invalid_pgn' | 'rate_limit' | 'forbidden',
+    reason: 'tree_too_large' | 'rate_limit' | 'forbidden',
   ): void {
     this.liveAnalysisStatePatchRejectedTotal.inc({ reason });
   }

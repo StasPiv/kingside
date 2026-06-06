@@ -368,7 +368,7 @@ export class LiveAnalysisGateway
     }
     try {
       await this.service.applyStatePatch(data.slug, user.id, {
-        pgn: data.pgn,
+        tree: data.tree,
         orientation: data.orientation,
         currentGlobalIndex: data.currentGlobalIndex,
       });
@@ -407,13 +407,26 @@ export class LiveAnalysisGateway
     }
     const err = e as { message?: string; status?: number; response?: { message?: string | string[] } };
     const msg = (err?.message ?? '').toLowerCase();
-    // KS-3744 / ADR-111: hard cap PGN ловится двумя путями — либо
-    // BadRequestException('pgn-too-large') из сервиса, либо
-    // MaxLength-нарушение от ValidationPipe (text содержит "pgn"
-    // и "longer than"). Мапим оба варианта в один код события.
     const validationMessages = Array.isArray(err?.response?.message)
       ? (err!.response!.message as string[]).join(' ').toLowerCase()
       : (err?.response?.message ?? '').toString().toLowerCase();
+    // KS-3780: hard cap длины tree (256 KB) ловится двумя путями —
+    // BadRequestException('tree-too-large') из сервиса либо
+    // MaxLength-нарушение от ValidationPipe на поле tree.
+    if (
+      msg.includes('tree-too-large') ||
+      (validationMessages.includes('tree') &&
+        (validationMessages.includes('longer than') ||
+          validationMessages.includes('maxlength')))
+    ) {
+      return {
+        code: 'tree-too-large',
+        message: err?.message ?? 'Tree exceeds 256 KB limit',
+      };
+    }
+    // KS-3744 / ADR-111. До KS-3780 — для annotated PGN. Сохранено
+    // на случай legacy-клиентов, новые трансляции этого кода уже
+    // не получат.
     if (
       msg.includes('pgn-too-large') ||
       (validationMessages.includes('pgn') &&
@@ -424,9 +437,6 @@ export class LiveAnalysisGateway
         code: 'pgn-too-large',
         message: err?.message ?? 'PGN exceeds 256 KB limit',
       };
-    }
-    if (msg.includes('invalid pgn')) {
-      return { code: 'invalid-payload', message: err.message ?? 'Invalid PGN' };
     }
     if (msg.includes('illegal')) {
       return { code: 'illegal-move', message: err.message ?? 'Illegal move' };

@@ -39,7 +39,7 @@ describe('LiveAnalysisGateway.handleStatePatch (KS-3775)', () => {
       new StatePatchPayloadDto(),
       {
         slug: 'faxRe7ajRY',
-        pgn: '1. e4 e5 *',
+        tree: '{"history":[]}',
         orientation: 'white' as const,
         currentGlobalIndex: 42,
       },
@@ -53,7 +53,7 @@ describe('LiveAnalysisGateway.handleStatePatch (KS-3775)', () => {
     expect(ownerId).toBe('u-1');
     expect(params).toEqual(
       expect.objectContaining({
-        pgn: '1. e4 e5 *',
+        tree: '{"history":[]}',
         orientation: 'white',
         currentGlobalIndex: 42,
       }),
@@ -64,7 +64,7 @@ describe('LiveAnalysisGateway.handleStatePatch (KS-3775)', () => {
     const client = makeClient({ id: 'u-1', username: 'alice' });
     const payload: StatePatchPayloadDto = Object.assign(
       new StatePatchPayloadDto(),
-      { slug: 'faxRe7ajRY', pgn: '1. e4 e5 *' },
+      { slug: 'faxRe7ajRY', tree: '{"history":[]}' },
     );
 
     await gateway.handleStatePatch(client, payload);
@@ -77,7 +77,7 @@ describe('LiveAnalysisGateway.handleStatePatch (KS-3775)', () => {
     const client = makeClient(null);
     const payload: StatePatchPayloadDto = Object.assign(
       new StatePatchPayloadDto(),
-      { slug: 'x', pgn: '*', currentGlobalIndex: 5 },
+      { slug: 'x', tree: '{}', currentGlobalIndex: 5 },
     );
 
     await gateway.handleStatePatch(client, payload);

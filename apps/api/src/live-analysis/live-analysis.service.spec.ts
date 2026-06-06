@@ -40,6 +40,18 @@ class FakeRedis {
   async hgetall(key: string): Promise<RedisHash> {
     return { ...(this.hashes.get(key) ?? {}) };
   }
+  async hdel(key: string, ...fields: string[]): Promise<number> {
+    const h = this.hashes.get(key);
+    if (!h) return 0;
+    let removed = 0;
+    for (const f of fields) {
+      if (f in h) {
+        delete h[f];
+        removed += 1;
+      }
+    }
+    return removed;
+  }
   async rpush(key: string, ...values: string[]): Promise<number> {
     const arr = this.lists.get(key) ?? [];
     for (const v of values) arr.push(v);
@@ -95,6 +107,7 @@ class FakeRedis {
       return chain;
     };
     chain.hset = wrap('hset');
+    chain.hdel = wrap('hdel');
     chain.rpush = wrap('rpush');
     chain.del = wrap('del');
     chain.expire = wrap('expire');
@@ -484,34 +497,30 @@ describe('LiveAnalysisService', () => {
       });
       // state не инициализирован в FakeRedis для этого id — fallback на initial.
       const snap = await service.getSyncSnapshot('s');
-      expect(snap.moves).toEqual([]);
       expect(snap.startingFen).toContain('rnbqkbnr');
       expect(snap.orientation).toBe('white');
+      // KS-3780: до первого state-patch tree отсутствует.
+      expect(snap.tree).toBeUndefined();
     });
 
-    it('возвращает накопленный список ходов', async () => {
+    it('KS-3780: после state-patch отдаёт tree', async () => {
+      // Подготовка: тестовый владелец active.
       prisma.liveAnalysis.findUnique.mockResolvedValueOnce({
         id: 'la-1',
         ownerId: 'u-1',
         status: 'active',
         startingFen: null,
       });
-      await service.applyMove('s', 'u-1', 'e2e4');
-      prisma.liveAnalysis.findUnique.mockResolvedValueOnce({
-        id: 'la-1',
-        ownerId: 'u-1',
-        status: 'active',
-        startingFen: null,
+      await service.applyStatePatch('s', 'u-1', {
+        tree: '{"history":[{"uci":"e2e4"}]}',
       });
-      await service.applyMove('s', 'u-1', 'e7e5');
-
       prisma.liveAnalysis.findUnique.mockResolvedValueOnce({
         id: 'la-1',
         status: 'active',
         startingFen: null,
       });
       const snap = await service.getSyncSnapshot('s');
-      expect(snap.moves).toEqual(['e2e4', 'e7e5']);
+      expect(snap.tree).toBe('{"history":[{"uci":"e2e4"}]}');
     });
 
     it('404 если slug closed', async () => {
@@ -538,11 +547,13 @@ describe('LiveAnalysisService', () => {
       await service.applyMove('s', 'u-1', 'e2e4');
       // потом reset
       const snap = await service.applyReset('s', 'u-1');
-      expect(snap.moves).toEqual([]);
       const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
       expect(moves).toEqual([]);
-      // KS-3775: snapshot после reset уже не содержит currentPly/currentFen,
-      // зритель восстанавливает позицию по startingFen + moves.
+      // KS-3780: snapshot после reset содержит только slug,
+      // startingFen и orientation; tree сбрасывается до следующего
+      // state-patch.
+      expect(snap.startingFen).toContain('rnbqkbnr');
+      expect(snap.tree).toBeUndefined();
       expect(redis.publish).toHaveBeenCalledWith(
         'live-analysis:sync',
         expect.stringContaining('"startingFen"'),
@@ -662,60 +673,60 @@ describe('LiveAnalysisService', () => {
       startingFen: null as string | null,
     };
 
-    const tinyPgn = '1. e4 e5 2. Nf3 Nc6 *';
+    // KS-3780: tree — это непрозрачная строка (JSON-сериализованное
+    // дерево фронта). Backend не парсит её, так что в тестах можно
+    // использовать любую строку.
+    const tinyTree = '{"history":[{"uci":"e2e4"},{"uci":"e7e5"}]}';
 
     beforeEach(() => {
       prisma.liveAnalysis.findUnique.mockResolvedValue(activeMeta);
     });
 
-    it('применяет валидный PGN: синхронизирует moves-list по main-line и пишет currentPgn в Redis', async () => {
-      const snap = await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
-      expect(snap.currentPgn).toBe(tinyPgn);
-      expect(snap.moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
-      const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
-      expect(moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
+    it('KS-3780: пишет tree в Redis state hash и в snapshot', async () => {
+      const snap = await service.applyStatePatch('s', 'u-1', { tree: tinyTree });
+      expect(snap.tree).toBe(tinyTree);
       const state = await redis.hgetall('live_analysis:la-1:state');
-      expect(state.currentPgn).toBe(tinyPgn);
-      // KS-3775: state hash хранит currentFen для applyMove и REST,
-      // в snapshot он не отдаётся.
-      expect(state.currentFen).toContain('w');
+      expect(state.tree).toBe(tinyTree);
       expect(redis.publish).toHaveBeenCalledWith(
         'live-analysis:sync',
-        expect.stringContaining('"currentPgn"'),
+        expect.stringContaining('"tree"'),
       );
     });
 
-    it('reconnect зрителя: getSyncSnapshot возвращает те же moves что и main-line PGN', async () => {
-      // Применяем patch
-      await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
-      // Эмулируем reconnect: getSyncSnapshot читает Redis заново.
+    it('KS-3780: reconnect зрителя: getSyncSnapshot возвращает тот же tree', async () => {
+      await service.applyStatePatch('s', 'u-1', { tree: tinyTree });
       prisma.liveAnalysis.findUnique.mockResolvedValueOnce({
         id: 'la-1',
         status: 'active',
         startingFen: null,
       });
       const snap = await service.getSyncSnapshot('s');
-      expect(snap.moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
-      expect(snap.currentPgn).toBe(tinyPgn);
+      expect(snap.tree).toBe(tinyTree);
     });
 
-    it('rejects PGN с >256 KB', async () => {
-      const huge = '[Event "x"]\n\n1. e4 e5 *\n' + 'A'.repeat(300_000);
+    it('KS-3780: snapshot больше НЕ содержит moves[], currentPgn, currentFen, currentPly, headers', async () => {
+      await service.applyStatePatch('s', 'u-1', { tree: tinyTree });
+      const publishedCalls = (redis.publish as jest.Mock).mock.calls;
+      const syncCall = publishedCalls.find((c) => c[0] === 'live-analysis:sync');
+      const payload = JSON.parse(syncCall![1]);
+      expect(payload.moves).toBeUndefined();
+      expect(payload.currentPgn).toBeUndefined();
+      expect(payload.currentFen).toBeUndefined();
+      expect(payload.currentPly).toBeUndefined();
+      expect(payload.headers).toBeUndefined();
+    });
+
+    it('rejects tree с >256 KB', async () => {
+      const huge = 'A'.repeat(300_000);
       await expect(
-        service.applyStatePatch('s', 'u-1', { pgn: huge }),
-      ).rejects.toThrow(/pgn-too-large/);
+        service.applyStatePatch('s', 'u-1', { tree: huge }),
+      ).rejects.toThrow(/tree-too-large/);
       expect(prisma.liveAnalysis.update).not.toHaveBeenCalled();
-    });
-
-    it('rejects невалидный PGN', async () => {
-      await expect(
-        service.applyStatePatch('s', 'u-1', { pgn: '!!!garbage!!!' }),
-      ).rejects.toThrow(/Invalid PGN|pgn/i);
     });
 
     it('rejects если не owner', async () => {
       await expect(
-        service.applyStatePatch('s', 'NOT-u-1', { pgn: tinyPgn }),
+        service.applyStatePatch('s', 'NOT-u-1', { tree: tinyTree }),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -725,51 +736,42 @@ describe('LiveAnalysisService', () => {
         status: 'closed',
       });
       await expect(
-        service.applyStatePatch('s', 'u-1', { pgn: tinyPgn }),
+        service.applyStatePatch('s', 'u-1', { tree: tinyTree }),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('rate-limit: 11 patch-ей подряд → 11-й отклонён', async () => {
       for (let i = 0; i < 10; i++) {
-        await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+        await service.applyStatePatch('s', 'u-1', { tree: tinyTree });
       }
       await expect(
-        service.applyStatePatch('s', 'u-1', { pgn: tinyPgn }),
+        service.applyStatePatch('s', 'u-1', { tree: tinyTree }),
       ).rejects.toThrow(/Rate limit/);
     });
 
     it('инкрементит state_patches_total + bytes_sum на успешный patch', async () => {
-      await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+      await service.applyStatePatch('s', 'u-1', { tree: tinyTree });
       expect(metrics.incLiveAnalysisStatePatchAccepted).toHaveBeenCalledWith(
-        tinyPgn.length,
+        tinyTree.length,
       );
     });
 
-    it('инкрементит rejected_total{reason=pgn_too_large} при превышении 256 KB', async () => {
-      const huge = '[Event "x"]\n\n1. e4 *\n' + 'A'.repeat(300_000);
+    it('KS-3780: инкрементит rejected_total{reason=tree_too_large} при превышении 256 KB', async () => {
+      const huge = 'A'.repeat(300_000);
       await expect(
-        service.applyStatePatch('s', 'u-1', { pgn: huge }),
+        service.applyStatePatch('s', 'u-1', { tree: huge }),
       ).rejects.toThrow();
       expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
-        'pgn_too_large',
-      );
-    });
-
-    it('инкрементит rejected_total{reason=invalid_pgn} при битом PGN', async () => {
-      await expect(
-        service.applyStatePatch('s', 'u-1', { pgn: '!!!garbage!!!' }),
-      ).rejects.toThrow();
-      expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
-        'invalid_pgn',
+        'tree_too_large',
       );
     });
 
     it('инкрементит rejected_total{reason=rate_limit} при срабатывании bucket', async () => {
       for (let i = 0; i < 10; i++) {
-        await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+        await service.applyStatePatch('s', 'u-1', { tree: tinyTree });
       }
       await expect(
-        service.applyStatePatch('s', 'u-1', { pgn: tinyPgn }),
+        service.applyStatePatch('s', 'u-1', { tree: tinyTree }),
       ).rejects.toThrow();
       expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
         'rate_limit',
@@ -778,31 +780,16 @@ describe('LiveAnalysisService', () => {
 
     it('инкрементит rejected_total{reason=forbidden} если не владелец', async () => {
       await expect(
-        service.applyStatePatch('s', 'NOT-u-1', { pgn: tinyPgn }),
+        service.applyStatePatch('s', 'NOT-u-1', { tree: tinyTree }),
       ).rejects.toThrow(ForbiddenException);
       expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
         'forbidden',
       );
     });
 
-    it('publish payload включает currentPgn и moves; headers не передаются (KS-3775)', async () => {
-      const pgnWithHeaders = '[White "Alice"]\n[Black "Bob"]\n\n1. e4 *';
-      await service.applyStatePatch('s', 'u-1', { pgn: pgnWithHeaders });
-      const publishedCalls = (redis.publish as jest.Mock).mock.calls;
-      const syncCall = publishedCalls.find((c) => c[0] === 'live-analysis:sync');
-      expect(syncCall).toBeDefined();
-      const payload = JSON.parse(syncCall![1]);
-      expect(payload.currentPgn).toContain('Alice');
-      expect(payload.moves).toEqual(['e2e4']);
-      // KS-3775: headers/currentFen/currentPly в snapshot не передаются.
-      expect(payload.headers).toBeUndefined();
-      expect(payload.currentFen).toBeUndefined();
-      expect(payload.currentPly).toBeUndefined();
-    });
-
     it('KS-3775: пробрасывает currentGlobalIndex в snapshot и Redis', async () => {
       const snap = await service.applyStatePatch('s', 'u-1', {
-        pgn: tinyPgn,
+        tree: tinyTree,
         currentGlobalIndex: 7,
       });
       expect(snap.currentGlobalIndex).toBe(7);
@@ -810,28 +797,23 @@ describe('LiveAnalysisService', () => {
       expect(state.currentGlobalIndex).toBe('7');
       const publishedCalls = (redis.publish as jest.Mock).mock.calls;
       const syncCall = publishedCalls.find((c) => c[0] === 'live-analysis:sync');
-      expect(syncCall).toBeDefined();
       const payload = JSON.parse(syncCall![1]);
       expect(payload.currentGlobalIndex).toBe(7);
     });
 
     it('KS-3775: без currentGlobalIndex поле не появляется в snapshot', async () => {
-      const snap = await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+      const snap = await service.applyStatePatch('s', 'u-1', { tree: tinyTree });
       expect(snap.currentGlobalIndex).toBeUndefined();
     });
 
-    it('KS-3775: невалидные значения currentGlobalIndex (отрицательное / нецелое) игнорируются', async () => {
-      // Тип number формально допускает любые числа; защита сервиса
-      // дополнительно отбрасывает отрицательные и нецелые значения,
-      // которые могли прийти от устаревшего клиента или из мусорного
-      // payload-а в обход DTO-валидации.
+    it('KS-3775: невалидные значения currentGlobalIndex игнорируются', async () => {
       const snap = await service.applyStatePatch('s', 'u-1', {
-        pgn: tinyPgn,
+        tree: tinyTree,
         currentGlobalIndex: -3,
       });
       expect(snap.currentGlobalIndex).toBeUndefined();
       const snap2 = await service.applyStatePatch('s', 'u-1', {
-        pgn: tinyPgn,
+        tree: tinyTree,
         currentGlobalIndex: 1.5,
       });
       expect(snap2.currentGlobalIndex).toBeUndefined();

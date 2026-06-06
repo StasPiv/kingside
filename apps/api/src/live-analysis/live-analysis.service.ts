@@ -527,15 +527,13 @@ export class LiveAnalysisService implements OnModuleInit {
       throw new NotFoundException(`Live analysis "${slug}" not available`);
     }
     const state = await this.readRedisState(row.id);
-    const moves = await this.redis.lrange(this.movesKey(row.id), 0, -1);
     return {
       slug,
       startingFen: state?.startingFen ?? row.startingFen ?? LiveAnalysisService.INITIAL_FEN,
-      moves,
       orientation: state?.orientation ?? 'white',
-      // KS-3743 / ADR-111: annotated PGN автора (опц., до первого
-      // state-patch отсутствует).
-      ...(state?.currentPgn !== undefined && { currentPgn: state.currentPgn }),
+      // KS-3780: JSON-сериализованное дерево автора. До первого
+      // state-patch отсутствует.
+      ...(state?.tree !== undefined && { tree: state.tree }),
       // KS-3775: сквозной индекс узла дерева автора.
       ...(state?.currentGlobalIndex !== undefined && {
         currentGlobalIndex: state.currentGlobalIndex,
@@ -663,18 +661,16 @@ export class LiveAnalysisService implements OnModuleInit {
         throw e;
       }
 
-      // (2) жёсткий лимит длины PGN. JS string.length — UTF-16 code
-      // units, что для ASCII-PGN совпадает с байтами; для кириллических
-      // комментариев расход вдвое, но на верхнюю границу абуза 256 KB
-      // строки в любом случае хватает с запасом.
+      // (2) KS-3780: жёсткий лимит длины JSON-дерева — 256 KB.
+      // Длина считается через String.prototype.length (UTF-16 code units).
       if (
-        payload.pgn.length > LiveAnalysisService.STATE_PATCH_PGN_HARD_CAP_BYTES
+        payload.tree.length > LiveAnalysisService.STATE_PATCH_PGN_HARD_CAP_BYTES
       ) {
-        this.metrics.incLiveAnalysisStatePatchRejected('pgn_too_large');
+        this.metrics.incLiveAnalysisStatePatchRejected('tree_too_large');
         this.logger.warn(
-          `state-patch rejected (pgn too large) slug=${slug} bytes=${payload.pgn.length}`,
+          `state-patch rejected (tree too large) slug=${slug} bytes=${payload.tree.length}`,
         );
-        throw new BadRequestException('pgn-too-large');
+        throw new BadRequestException('tree-too-large');
       }
 
       // (3) ограничение частоты. Отдельный bucket от move — у них
@@ -687,65 +683,16 @@ export class LiveAnalysisService implements OnModuleInit {
         throw new BadRequestException('Rate limit exceeded (state-patch)');
       }
 
-      // (4) валидация PGN.
-      const chess = new Chess();
-      try {
-        chess.loadPgn(payload.pgn);
-      } catch (e) {
-        this.metrics.incLiveAnalysisStatePatchRejected('invalid_pgn');
-        this.logger.warn(
-          `state-patch invalid PGN slug=${slug}: ${(e as Error).message}`,
-        );
-        throw new BadRequestException('Invalid PGN');
-      }
+      // KS-3780: содержимое tree backend не парсит и не валидирует —
+      // строка хранится как непрозрачный blob. За корректность JSON и
+      // структуры ChessMove[] отвечает фронт.
 
-      // (5) main-line UCI и стартовый FEN из PGN-headers SetUp/FEN.
-      const verbose = chess.history({ verbose: true }) as Array<{
-        from: string;
-        to: string;
-        promotion?: string;
-        before?: string;
-      }>;
-      const startingFen =
-        verbose[0]?.before ??
-        // Если ходов нет — chess.fen() это и есть стартовая позиция
-        // (либо initial, либо то, что было задано через [SetUp/FEN]).
-        chess.fen();
-      const uciHistory = verbose.map(
-        (m) => `${m.from}${m.to}${m.promotion ?? ''}`,
-      );
-
-      // KS-3775: currentPly больше не приходит от автора (frontend
-      // вычисляет позицию по currentGlobalIndex). Внутри сервиса
-      // используем длину main-line — этого достаточно для applyMove
-      // (продолжает считать ply от main-line) и для REST-ответа
-      // getBySlug, где currentPly отдаётся как «сколько ходов в
-      // main-line к моменту последнего state-patch».
-      const currentPly = uciHistory.length;
-
-      // currentFen — собираем по main-line как «позиция после
-      // последнего хода main-line». Хранится в state hash для REST
-      // (getBySlug) и applyMove. В sync-snapshot уже не отдаётся,
-      // зритель восстанавливает позицию автора по globalIndex/PGN.
-      const replay = new Chess(startingFen);
-      for (const uci of uciHistory) {
-        const from = uci.slice(0, 2);
-        const to = uci.slice(2, 4);
-        const promotion = uci.length === 5 ? uci.slice(4, 5) : undefined;
-        replay.move({ from, to, promotion });
-      }
-      const currentFen = replay.fen();
-
+      const existingState = await this.readRedisState(meta.id);
       const orientation: LiveAnalysisOrientation =
-        payload.orientation ??
-        (await this.readRedisState(meta.id))?.orientation ??
-        'white';
+        payload.orientation ?? existingState?.orientation ?? 'white';
 
       // KS-3775: сквозной индекс узла дерева автора. Никакой шахматной
-      // валидации — это идентификатор узла из parseAnnotatedPgn; в
-      // частности однозначно покрывает транспозиции, где FEN не уникален.
-      // Записываем строкой; если payload не прислал — поле не трогаем
-      // (старые клиенты).
+      // валидации — это идентификатор узла; записываем строкой как есть.
       const currentGlobalIndexValue =
         typeof payload.currentGlobalIndex === 'number' &&
         Number.isInteger(payload.currentGlobalIndex) &&
@@ -753,56 +700,45 @@ export class LiveAnalysisService implements OnModuleInit {
           ? payload.currentGlobalIndex
           : undefined;
 
-      // (8) HSET state + замена moves-list по main-line.
-      // KS-3775: headersJson больше не пишем — headers убраны из
-      // snapshot, фронт извлекает их из самого PGN через parsePgnHeaders.
+      // KS-3780: HSET state hash — пишем только поля, относящиеся к
+      // state-patch (tree, orientation, lastPatchAt, опц.
+      // currentGlobalIndex). startingFen/currentFen/currentPly уже
+      // инициализированы в create() и обновляются applyMove —
+      // state-patch их не трогает. Синхронизация moves-list по
+      // main-line PGN (KS-3743) больше не нужна: snapshot не отдаёт
+      // moves[], applyMove ведёт свою историю самостоятельно.
       const stateKey = this.stateKey(meta.id);
-      const movesKey = this.movesKey(meta.id);
-      const pipeline = this.redis
+      await this.redis
         .multi()
         .hset(stateKey, {
-          startingFen,
-          currentFen,
-          currentPly: String(currentPly),
           orientation,
-          currentPgn: payload.pgn,
+          tree: payload.tree,
           lastPatchAt: String(Date.now()),
           ...(currentGlobalIndexValue !== undefined && {
             currentGlobalIndex: String(currentGlobalIndexValue),
           }),
         })
-        .del(movesKey);
-      // RPUSH с многими аргументами — ioredis принимает variadic;
-      // если main-line пустая (свежий PGN c одной headers-секцией) —
-      // RPUSH не зовём, иначе попадёт пустая команда.
-      if (uciHistory.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (pipeline as any).rpush(movesKey, ...uciHistory);
-      }
-      pipeline
         .expire(stateKey, LiveAnalysisService.STATE_TTL_SEC)
-        .expire(movesKey, LiveAnalysisService.STATE_TTL_SEC);
-      await pipeline.exec();
+        .exec();
 
       // (9) throttled lastActivityAt.
       await this.touchLastActivity(slug, meta.id);
 
       // (10) publish full sync — gateway разошлёт в комнату.
-      // KS-3775: currentFen/currentPly/headers убраны из snapshot —
-      // зритель извлекает позицию по currentGlobalIndex и headers из
-      // самого currentPgn.
+      const startingFen =
+        existingState?.startingFen ?? LiveAnalysisService.INITIAL_FEN;
       const snapshot: LiveAnalysisSyncSnapshot = {
         slug,
         startingFen,
-        moves: uciHistory,
         orientation,
-        currentPgn: payload.pgn,
+        tree: payload.tree,
         ...(currentGlobalIndexValue !== undefined && {
           currentGlobalIndex: currentGlobalIndexValue,
         }),
       };
       // KS-3745: counter принятых патчей + bytes_sum по длине payload.
-      this.metrics.incLiveAnalysisStatePatchAccepted(payload.pgn.length);
+      // KS-3780: длина считается по новому полю tree вместо pgn.
+      this.metrics.incLiveAnalysisStatePatchAccepted(payload.tree.length);
       await this.publish(LiveAnalysisService.CHANNEL_SYNC, snapshot);
       return snapshot;
     });
@@ -826,7 +762,10 @@ export class LiveAnalysisService implements OnModuleInit {
 
       const stateKey = this.stateKey(meta.id);
       const movesKey = this.movesKey(meta.id);
-      await this.redis
+      // KS-3780: при reset сбрасываем «авторские» поля state hash
+      // (tree, legacy currentPgn, currentGlobalIndex, lastPatchAt),
+      // оставляя только базовое состояние позиции для applyMove.
+      const pipeline = this.redis
         .multi()
         .del(movesKey)
         .hset(stateKey, {
@@ -834,19 +773,27 @@ export class LiveAnalysisService implements OnModuleInit {
           currentFen,
           currentPly: '0',
           orientation,
-        })
+        });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (pipeline as any).hdel(
+        stateKey,
+        'tree',
+        'currentPgn',
+        'currentGlobalIndex',
+        'lastPatchAt',
+      );
+      await pipeline
         .expire(stateKey, LiveAnalysisService.STATE_TTL_SEC)
         .exec();
 
       await this.touchLastActivity(slug, meta.id, /*force*/ true);
 
-      // KS-3775: currentFen/currentPly из snapshot убраны. После
-      // reset зритель видит startingFen + пустой moves — этого
-      // достаточно для отрисовки начальной позиции.
+      // KS-3780: snapshot после reset содержит только slug,
+      // startingFen и orientation. Дерево автора (`tree`) сбрасывается
+      // вместе с reset и появится снова при первом state-patch.
       const snapshot: LiveAnalysisSyncSnapshot = {
         slug,
         startingFen: newStartingFen,
-        moves: [],
         orientation,
       };
       // Локальный currentFen после reset используется только для
@@ -1138,7 +1085,14 @@ export class LiveAnalysisService implements OnModuleInit {
         currentFen: string;
         currentPly: number;
         orientation: LiveAnalysisOrientation;
-        /** KS-3743 / ADR-111: annotated PGN последнего state-patch (опц.). */
+        /**
+         * KS-3780: JSON-сериализованное дерево автора. До KS-3780 в
+         * этом же hash под полем `currentPgn` лежал annotated PGN —
+         * legacy-поле тоже читаем для совместимости с трансляциями,
+         * созданными до перехода.
+         */
+        tree?: string;
+        /** Legacy KS-3743 (до KS-3780): annotated PGN. */
         currentPgn?: string;
         /** KS-3775: сквозной индекс узла, на котором стоит автор. */
         currentGlobalIndex?: number;
@@ -1146,7 +1100,12 @@ export class LiveAnalysisService implements OnModuleInit {
     | null
   > {
     const raw = await this.redis.hgetall(this.stateKey(id));
-    if (!raw || !raw.currentFen) return null;
+    // KS-3780: hash считается «непустым», если в нём есть хотя бы одно
+    // поле. До KS-3780 здесь стояла проверка `!raw.currentFen`, но в
+    // новом контракте state-patch не пишет currentFen, и при state-patch
+    // без предварительного create-инициализации hash оставался бы
+    // невидимым для readRedisState.
+    if (!raw || Object.keys(raw).length === 0) return null;
     let currentGlobalIndex: number | undefined;
     if (typeof raw.currentGlobalIndex === 'string' && raw.currentGlobalIndex.length > 0) {
       const n = Number(raw.currentGlobalIndex);
@@ -1156,9 +1115,13 @@ export class LiveAnalysisService implements OnModuleInit {
     }
     return {
       startingFen: raw.startingFen ?? LiveAnalysisService.INITIAL_FEN,
-      currentFen: raw.currentFen,
+      // KS-3780: state-patch больше не пишет currentFen — fallback на
+      // startingFen, если поля нет (бывает, когда state-patch пришёл
+      // раньше любого applyMove).
+      currentFen: raw.currentFen ?? raw.startingFen ?? LiveAnalysisService.INITIAL_FEN,
       currentPly: Number(raw.currentPly ?? '0') || 0,
       orientation: (raw.orientation as LiveAnalysisOrientation) ?? 'white',
+      tree: raw.tree && raw.tree.length > 0 ? raw.tree : undefined,
       currentPgn: raw.currentPgn && raw.currentPgn.length > 0 ? raw.currentPgn : undefined,
       currentGlobalIndex,
     };

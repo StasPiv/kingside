@@ -221,19 +221,27 @@ export type LiveAnalysisSyncRequestPayload = {
 export type LiveAnalysisStatePatchPayload = {
   slug: string;
   /**
-   * Annotated PGN дерева анализа автора. Длина ≤ 256 KB
-   * (262 144 байт), иначе `error { code: 'pgn-too-large' }`.
+   * KS-3780. JSON-сериализованное дерево анализа автора с уже
+   * проставленными `globalIndex` у каждого узла. Структура внутри
+   * строки: `{ history: ChessMove[], headers?, initialFen?,
+   * initialAnnotations? }`. Backend хранит строку как есть, не
+   * парсит и не валидирует содержимое — за корректный JSON отвечает
+   * фронт.
+   *
+   * Длина ≤ 256 KB (262 144 байт), иначе
+   * `error { code: 'tree-too-large' }`.
+   *
+   * KS-3780 заменил формат: до этого передавался annotated PGN.
+   * Замена нужна для того, чтобы у автора и зрителя совпадали
+   * `globalIndex` каждого узла — при PGN зритель пересчитывал
+   * индексы через `parseAnnotatedPgn` DFS-обходом, что давало
+   * расхождение с reducer-счётчиком автора.
    */
-  pgn: string;
+  tree: string;
   /**
    * KS-3775. Сквозной индекс узла дерева, на котором автор стоит в
-   * данный момент. `parseAnnotatedPgn` присваивает `globalIndex`
-   * каждому узлу детерминированно — это уникальный идентификатор
-   * позиции автора в дереве, в том числе при транспозициях, где FEN
-   * не уникален.
-   *
-   * Опциональное по типу для совместимости со старыми клиентами,
-   * фактически после KS-3775 frontend всегда шлёт его.
+   * данный момент. После KS-3780 индекс берётся из самого `tree` и
+   * совпадает у автора и зрителя (вычислять заново не нужно).
    */
   currentGlobalIndex?: number;
   orientation?: LiveAnalysisOrientation;
@@ -272,22 +280,21 @@ export type LiveAnalysisMoveEvent = {
 export type LiveAnalysisSyncSnapshot = {
   slug: string;
   startingFen: string;
-  /**
-   * UCI-история main-line. Сохранена для совместимости со зрителями
-   * ADR-110, у которых ещё нет PGN-логики и которые проигрывают
-   * партию из `startingFen + moves[]`.
-   */
-  moves: string[];
   orientation: LiveAnalysisOrientation;
-  /** KS-3742 / ADR-111: annotated PGN дерева анализа автора (опц.). */
-  currentPgn?: string;
+  /**
+   * KS-3780. JSON-сериализованное дерево анализа автора с уже
+   * проставленными `globalIndex` у каждого узла. До первого
+   * `state-patch` за время трансляции поле отсутствует. Заменило
+   * прежнее поле `currentPgn` (annotated PGN) — переход на JSON
+   * нужен, чтобы у автора и зрителя совпадали `globalIndex`.
+   */
+  tree?: string;
   /**
    * KS-3775. Сквозной индекс узла дерева, на котором стоит автор.
    * Зритель использует его для прямого позиционирования курсора в
    * `ReviewMoveList` через `searchInHistory(history, globalIndex)`.
-   * Это единственный авторитативный источник позиции автора —
-   * `currentFen`/`currentPly`/`headers` из snapshot убраны в KS-3775,
-   * фронт извлекает их из узла по `globalIndex` и из `currentPgn`.
+   * После KS-3780 индекс уже зашит в самом `tree`, дополнительный
+   * расчёт на стороне зрителя не требуется.
    */
   currentGlobalIndex?: number;
 };
@@ -331,7 +338,15 @@ export type LiveAnalysisErrorEvent = {
     | 'illegal-move'
     | 'rate-limit'
     | 'invalid-payload'
-    | 'pgn-too-large';
+    /**
+     * KS-3742 / ADR-111. До KS-3780 — превышение длины annotated PGN
+     * в `state-patch`. После KS-3780 для тех же 256 KB используется
+     * `'tree-too-large'`. Старый код оставлен в union на случай
+     * legacy-клиентов, новые трансляции его уже не получат.
+     */
+    | 'pgn-too-large'
+    /** KS-3780. Длина JSON-сериализованного `tree` превысила 256 KB. */
+    | 'tree-too-large';
   message: string;
 };
 
