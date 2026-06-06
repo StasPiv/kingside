@@ -140,6 +140,10 @@ describe('LiveAnalysisService', () => {
     lecture: {
       updateMany: jest.Mock;
       findFirst: jest.Mock;
+      update: jest.Mock;
+    };
+    lectureRecording: {
+      create: jest.Mock;
     };
   };
   let redis: FakeRedis;
@@ -171,6 +175,12 @@ describe('LiveAnalysisService', () => {
         // KS-3791: getLectureBinding зовёт findFirst. По умолчанию
         // лекции под трансляцией нет — recordLectureEvent no-op.
         findFirst: jest.fn().mockResolvedValue(null),
+        // KS-3792: финализатор делает UPDATE Lecture (status,
+        // recordingId/endedAt). По умолчанию резолвится пустым объектом.
+        update: jest.fn().mockResolvedValue({}),
+      },
+      lectureRecording: {
+        create: jest.fn().mockResolvedValue({ id: 'rec-1' }),
       },
     };
     redis = new FakeRedis();
@@ -1076,21 +1086,23 @@ describe('LiveAnalysisService', () => {
       expect(types).toContain('reset');
     });
 
-    it('пишет событие closed при closeBySlug и очищает кеш биндинга', async () => {
+    it('пишет событие closed при closeBySlug и финализирует запись', async () => {
       prisma.liveAnalysis.findUnique.mockResolvedValue({
         id: 'la-1',
         ownerId: 'u-1',
         status: 'active',
       });
-      prisma.lecture.findFirst.mockResolvedValueOnce({
+      prisma.lecture.findFirst.mockResolvedValue({
         id: 'l-1',
         startedAt: new Date(Date.now() - 100),
       });
       await service.closeBySlug('s', 'u-1');
-      const recorded = readRecordedEvents('la-1');
-      const last = JSON.parse(recorded[recorded.length - 1]);
-      expect(last.type).toBe('closed');
-      expect(last.payload).toEqual({ reason: 'by_owner' });
+      // KS-3792: после finalizer events list очищается. Проверяем,
+      // что в INSERT LectureRecording.events попало событие 'closed'.
+      expect(prisma.lectureRecording.create).toHaveBeenCalledTimes(1);
+      const args = prisma.lectureRecording.create.mock.calls[0][0].data;
+      const types = (args.events as Array<{ type: string }>).map((e) => e.type);
+      expect(types).toContain('closed');
     });
 
     it('ошибка findFirst не валит applyMove — событие просто не пишется', async () => {
@@ -1099,6 +1111,186 @@ describe('LiveAnalysisService', () => {
       const ev = await service.applyMove('s', 'u-1', 'e2e4');
       expect(ev.uci).toBe('e2e4');
       expect(readRecordedEvents('la-1')).toEqual([]);
+    });
+  });
+
+  // ─── KS-3792 / ADR-113 §2.3: finalizer записи лекции ──────────────
+
+  describe('KS-3792: finalizeLectureRecording через closeBySlug', () => {
+    /** Положить «вручную» события в FakeRedis (как будто recorder уже писал). */
+    function seedEvents(liveAnalysisId: string, events: unknown[]): void {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lists = (redis as any).lists as Map<string, string[]>;
+      lists.set(
+        `lecture_recording:${liveAnalysisId}:events`,
+        events.map((e) => JSON.stringify(e)),
+      );
+    }
+
+    /** Положить state hash чтобы readRedisState вернул startingFen/orientation. */
+    function seedStateHash(
+      liveAnalysisId: string,
+      startingFen: string,
+      orientation: string,
+    ): void {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const hashes = (redis as any).hashes as Map<string, Record<string, string>>;
+      hashes.set(`live_analysis:${liveAnalysisId}:state`, {
+        startingFen,
+        currentFen: startingFen,
+        currentPly: '0',
+        orientation,
+      });
+    }
+
+    /** Получить ключ списка записи — `null` если уже удалён DEL'ом. */
+    function readEventListKey(liveAnalysisId: string): string[] | undefined {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lists = (redis as any).lists as Map<string, string[]>;
+      return lists.get(`lecture_recording:${liveAnalysisId}:events`);
+    }
+
+    beforeEach(() => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        ownerId: 'u-1',
+        status: 'active',
+      });
+      prisma.lecture.findFirst.mockResolvedValue({
+        id: 'l-1',
+        startedAt: new Date(Date.now() - 60_000),
+      });
+    });
+
+    it('нормальное закрытие: INSERT LectureRecording, UPDATE recorded, DEL events', async () => {
+      seedStateHash('la-1', 'rnbqkbnr/...', 'white');
+      seedEvents('la-1', [
+        { t: 0, type: 'move', payload: { uci: 'e2e4', ply: 1 } },
+        { t: 500, type: 'move', payload: { uci: 'e7e5', ply: 2 } },
+        { t: 1200, type: 'move', payload: { uci: 'g1f3', ply: 3 } },
+      ]);
+      await service.closeBySlug('s', 'u-1');
+      expect(prisma.lectureRecording.create).toHaveBeenCalledTimes(1);
+      const args = prisma.lectureRecording.create.mock.calls[0][0].data;
+      expect(args.lectureId).toBe('l-1');
+      // 3 seeded + 1 'closed' от recordLectureEvent в closeBySlug.
+      expect(args.eventCount).toBeGreaterThanOrEqual(3);
+      // durationMs = t последнего события; recordLectureEvent('closed')
+      // добавляет своё событие с t≈Date.now()-startedAt ≥ 1200.
+      expect(args.durationMs).toBeGreaterThanOrEqual(1200);
+      expect(args.truncated).toBe(false);
+      expect(args.startingFen).toBe('rnbqkbnr/...');
+      expect(args.orientation).toBe('white');
+      // UPDATE Lecture: status='recorded', recordingId=rec-1.
+      expect(prisma.lecture.update).toHaveBeenCalledWith({
+        where: { id: 'l-1' },
+        data: expect.objectContaining({
+          status: 'recorded',
+          recordingId: 'rec-1',
+        }),
+      });
+      // events ключ удалён.
+      expect(readEventListKey('la-1')).toBeUndefined();
+    });
+
+    it('пустая запись (0 событий): Lecture → cancelled, без LectureRecording', async () => {
+      // Сценарий: recordLectureEvent не сработал (например, биндинг не
+      // нашёлся в первый раз), кеш сбрасывается, и finalizer находит
+      // лекцию — но events list пуст, поэтому cancelled без INSERT.
+      seedStateHash('la-1', 'rnbqkbnr/...', 'white');
+      prisma.lecture.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 'l-1',
+          startedAt: new Date(Date.now() - 60_000),
+        });
+      // Сбрасываем кеш биндинга между recordLectureEvent и finalizer
+      // через монки-патч getLectureBinding: первая её попытка положит
+      // null в кеш — после этого вручную очищаем.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cache = (service as any).lectureBindingCache as Map<string, unknown>;
+      // Перехватываем recordLectureEvent — он первым вызовет findFirst
+      // и положит null в кеш; после его завершения cache.clear().
+      const origRecord = (service as unknown as {
+        recordLectureEvent: (a: string, b: string, c: unknown) => Promise<void>;
+      }).recordLectureEvent.bind(service);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (service as any).recordLectureEvent = async (a: string, b: string, c: unknown) => {
+        await origRecord(a, b, c);
+        cache.clear();
+      };
+
+      await service.closeBySlug('s', 'u-1');
+
+      expect(prisma.lectureRecording.create).not.toHaveBeenCalled();
+      expect(prisma.lecture.update).toHaveBeenCalledWith({
+        where: { id: 'l-1' },
+        data: expect.objectContaining({ status: 'cancelled' }),
+      });
+    });
+
+    it('truncated=true при суммарном размере >50 MB (синтетический лимит через CONST = маленький не делаем)', async () => {
+      // Чтобы не аллоцировать 50 MB в тесте, имитируем размер через
+      // монки-патч константы LECTURE_RECORDING_MAX_BYTES на сервисе.
+      const original = LiveAnalysisService.LECTURE_RECORDING_MAX_BYTES;
+      Object.defineProperty(LiveAnalysisService, 'LECTURE_RECORDING_MAX_BYTES', {
+        value: 100, // 100 байт — чтобы триггерить отсечение на нескольких маленьких событиях
+        writable: true,
+      });
+      try {
+        seedStateHash('la-1', 'fen', 'white');
+        seedEvents('la-1', [
+          { t: 0, type: 'move', payload: { uci: 'e2e4', ply: 1 } }, // ~50 байт
+          { t: 100, type: 'move', payload: { uci: 'e7e5', ply: 2 } }, // ~50 байт — суммарно >100
+          { t: 200, type: 'move', payload: { uci: 'g1f3', ply: 3 } }, // отброшен
+        ]);
+        await service.closeBySlug('s', 'u-1');
+        expect(prisma.lectureRecording.create).toHaveBeenCalled();
+        const args = prisma.lectureRecording.create.mock.calls[0][0].data;
+        expect(args.truncated).toBe(true);
+        // в записи событий <3.
+        expect(args.eventCount).toBeLessThan(3);
+      } finally {
+        Object.defineProperty(LiveAnalysisService, 'LECTURE_RECORDING_MAX_BYTES', {
+          value: original,
+          writable: true,
+        });
+      }
+    });
+
+    it('ошибка lectureRecording.create логируется и не валит закрытие', async () => {
+      seedStateHash('la-1', 'fen', 'white');
+      seedEvents('la-1', [{ t: 0, type: 'move', payload: { uci: 'e2e4', ply: 1 } }]);
+      prisma.lectureRecording.create.mockRejectedValueOnce(new Error('boom'));
+      const res = await service.closeBySlug('s', 'u-1');
+      expect(res.alreadyClosed).toBe(false);
+      // LiveAnalysis всё равно ушёл в closed (UPDATE сделан).
+      expect(prisma.liveAnalysis.update).toHaveBeenCalledWith({
+        where: { id: 'la-1' },
+        data: expect.objectContaining({ status: 'closed' }),
+      });
+      // Lecture осталась live → markLiveLectureEnded поставит endedAt.
+      expect(prisma.lecture.updateMany).toHaveBeenCalled();
+    });
+
+    it('runCleanupTick тоже вызывает finalizer', async () => {
+      seedStateHash('la-zombie', 'fen', 'white');
+      seedEvents('la-zombie', [
+        { t: 0, type: 'move', payload: { uci: 'e2e4', ply: 1 } },
+      ]);
+      prisma.liveAnalysis.findMany.mockResolvedValueOnce([
+        { id: 'la-zombie', slug: 'ZSLUG00000' },
+      ]);
+      prisma.lecture.findFirst.mockResolvedValue({
+        id: 'l-zombie',
+        startedAt: new Date(Date.now() - 60_000),
+      });
+      const result = await service.runCleanupTick();
+      expect(result.locked).toBe(true);
+      expect(result.closed).toBe(1);
+      expect(prisma.lectureRecording.create).toHaveBeenCalled();
+      const args = prisma.lectureRecording.create.mock.calls[0][0].data;
+      expect(args.lectureId).toBe('l-zombie');
     });
   });
 });

@@ -136,6 +136,13 @@ export class LiveAnalysisService implements OnModuleInit {
   /** KS-3791. TTL ключа `lecture_recording:<liveAnalysisId>:events` (сек). */
   static readonly LECTURE_RECORDING_TTL_SEC = 26 * 3600;
 
+  /**
+   * KS-3792. Жёсткий лимит суммарного размера сериализованных событий
+   * записи лекции — 50 MB. Хвост сверх лимита отсекается, в записи
+   * выставляется `truncated=true`.
+   */
+  static readonly LECTURE_RECORDING_MAX_BYTES = 50 * 1024 * 1024;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -454,6 +461,20 @@ export class LiveAnalysisService implements OnModuleInit {
     }
 
     const closedAt = new Date();
+
+    // KS-3791: финальное событие записи лекции пишется ДО основного
+    // UPDATE LiveAnalysis — пока state hash и events list ещё на
+    // месте, getLectureBinding ещё находит лекцию по status='live'.
+    await this.recordLectureEvent(found.id, 'closed', { reason });
+
+    // KS-3792: финализатор записи лекции — INSERT LectureRecording и
+    // переход Lecture в recorded/cancelled. Делается ДО purgeRedisState,
+    // потому что внутри читается state hash (startingFen/orientation).
+    const binding = await this.getLectureBinding(found.id);
+    if (binding) {
+      await this.finalizeLectureRecording(found.id, binding, closedAt);
+    }
+
     await this.prisma.liveAnalysis.update({
       where: { id: found.id },
       data: { status: 'closed', closedAt },
@@ -465,14 +486,10 @@ export class LiveAnalysisService implements OnModuleInit {
     this.metrics.decLiveAnalysisActive();
     await this.purgeRedisState(found.id);
 
-    // KS-3791: финальное событие записи лекции — до markLiveLectureEnded,
-    // потому что после изменения статуса лекции на не-`live` биндинг
-    // в getLectureBinding может перестать находиться. Очистка кеша —
-    // после всех записей.
-    await this.recordLectureEvent(found.id, 'closed', { reason });
-    // KS-3785 / ADR-113 §4 эпик 1: проставить endedAt связанной
-    // live-лекции (если есть). Статус Lecture не меняем — переход в
-    // recorded/cancelled будет в эпике 2 после финализатора записи.
+    // KS-3785: резерв на случай если finalizer не сработал или у
+    // трансляции вообще нет связанной лекции — поставит endedAt у
+    // лекций, оставшихся в status='live'. После finalizer (status уже
+    // recorded/cancelled) markLiveLectureEnded найдёт 0 записей.
     await this.markLiveLectureEnded(found.id, closedAt);
     this.lectureBindingCache.delete(found.id);
 
@@ -585,6 +602,127 @@ export class LiveAnalysisService implements OnModuleInit {
     }
   }
 
+  /**
+   * KS-3792 / ADR-113 §2.3, §4 крупная задача 2. Финализатор записи
+   * лекции.
+   *
+   * Алгоритм:
+   *   1. `LRANGE lecture_recording:<liveAnalysisId>:events 0 -1`.
+   *   2. Парсинг + валидация размера: считаем суммарный
+   *      `Buffer.byteLength(raw)` по элементам; при превышении
+   *      `LECTURE_RECORDING_MAX_BYTES` (50 MB) — отсекаем хвост,
+   *      `truncated=true`. Битый JSON в строке трактуется как пустая
+   *      запись (лекция → `cancelled`).
+   *   3. Если 0 событий → `Lecture.status='cancelled', endedAt=now`,
+   *      без INSERT в `LectureRecording`.
+   *   4. Иначе:
+   *        - читаем `startingFen`/`orientation` из state hash;
+   *        - `durationMs = last.t` (после среза);
+   *        - INSERT в `LectureRecording` (lectureId, events,
+   *          durationMs, eventCount, byteSize, startingFen,
+   *          orientation, truncated);
+   *        - UPDATE Lecture: status='recorded', recordingId,
+   *          endedAt=now.
+   *   5. `DEL lecture_recording:<liveAnalysisId>:events`.
+   *
+   * Ошибки внутри метода логируются `warn` и не пробрасываются. Если
+   * финализатор не отработал, ключ Redis остаётся (TTL 26ч), Lecture
+   * остаётся `live`; cleanup-tick через 30 мин снова попадёт сюда
+   * через тот же путь.
+   */
+  private async finalizeLectureRecording(
+    liveAnalysisId: string,
+    binding: { lectureId: string; startedAt: number },
+    endedAt: Date,
+  ): Promise<void> {
+    const eventsKey = `lecture_recording:${liveAnalysisId}:events`;
+    try {
+      const rawList = await this.redis.lrange(eventsKey, 0, -1);
+
+      // (a) валидация размера, отсечение хвоста.
+      let totalBytes = 0;
+      let truncated = false;
+      const acceptedRaw: string[] = [];
+      for (const raw of rawList) {
+        const size = Buffer.byteLength(raw, 'utf8');
+        if (totalBytes + size > LiveAnalysisService.LECTURE_RECORDING_MAX_BYTES) {
+          truncated = true;
+          break;
+        }
+        totalBytes += size;
+        acceptedRaw.push(raw);
+      }
+
+      // (b) парсинг каждой строки. Битый JSON где-либо => трактуем
+      // как «запись непригодна» и переводим в cancelled.
+      let events: unknown[] | null = [];
+      try {
+        events = acceptedRaw.map((s) => JSON.parse(s));
+      } catch (e) {
+        this.logger.warn(
+          `finalize parse failed liveAnalysisId=${liveAnalysisId}: ${(e as Error).message}`,
+        );
+        events = null;
+      }
+
+      if (!events || events.length === 0) {
+        await this.prisma.lecture.update({
+          where: { id: binding.lectureId },
+          data: { status: 'cancelled', endedAt },
+        });
+        this.logger.log(
+          `Lecture cancelled (no events): id=${binding.lectureId} liveAnalysisId=${liveAnalysisId}`,
+        );
+      } else {
+        const state = await this.readRedisState(liveAnalysisId);
+        const startingFen = state?.startingFen ?? null;
+        const orientation = state?.orientation ?? null;
+        const lastT =
+          typeof (events[events.length - 1] as { t?: unknown }).t === 'number'
+            ? ((events[events.length - 1] as { t: number }).t)
+            : 0;
+        const durationMs = Math.max(0, lastT);
+
+        const created = await this.prisma.lectureRecording.create({
+          data: {
+            lectureId: binding.lectureId,
+            // Prisma `Json` принимает любую сериализуемую структуру.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            events: events as any,
+            durationMs,
+            eventCount: events.length,
+            byteSize: totalBytes,
+            startingFen,
+            orientation,
+            truncated,
+          },
+          select: { id: true },
+        });
+        await this.prisma.lecture.update({
+          where: { id: binding.lectureId },
+          data: {
+            status: 'recorded',
+            recordingId: created.id,
+            endedAt,
+          },
+        });
+        this.logger.log(
+          `Lecture recorded: id=${binding.lectureId} recordingId=${created.id} events=${events.length} bytes=${totalBytes} truncated=${truncated}`,
+        );
+      }
+
+      // (c) Очищаем events list — запись финализирована.
+      await this.redis.del(eventsKey);
+    } catch (e) {
+      // При ошибке оставляем ключ и состояние лекции как есть — на
+      // следующее закрытие зомби-LiveAnalysis cleanup-tick через
+      // 30 мин повторит попытку.
+      this.logger.warn(
+        `finalizeLectureRecording failed liveAnalysisId=${liveAnalysisId}: ${(e as Error).message}`,
+      );
+    }
+  }
+
   // ─── KS-3733: cleanup-job ──────────────────────────────────────────
 
   /**
@@ -629,6 +767,15 @@ export class LiveAnalysisService implements OnModuleInit {
 
       for (const row of candidates) {
         try {
+          // KS-3791/KS-3792: пишем финальное событие и финализируем
+          // запись лекции ДО UPDATE LiveAnalysis и purgeRedisState —
+          // тот же порядок, что в closeBySlug. Так finalizer ещё
+          // успеет прочитать state hash и events list.
+          await this.recordLectureEvent(row.id, 'closed', { reason: 'inactivity' });
+          const binding = await this.getLectureBinding(row.id);
+          if (binding) {
+            await this.finalizeLectureRecording(row.id, binding, now);
+          }
           await this.prisma.liveAnalysis.update({
             where: { id: row.id },
             data: { status: 'closed', closedAt: now },
@@ -638,10 +785,6 @@ export class LiveAnalysisService implements OnModuleInit {
           this.authorMoveLimiter.reset(row.slug);
           this.authorStatePatchLimiter.reset(row.slug);
           await this.purgeRedisState(row.id);
-          // KS-3791: финальное событие записи лекции до изменения
-          // статуса самой лекции (после markLiveLectureEnded биндинг
-          // в кеше перестанет «находиться»).
-          await this.recordLectureEvent(row.id, 'closed', { reason: 'inactivity' });
           // KS-3785: тот же хук, что и в closeBySlug — endedAt для
           // связанной live-лекции.
           await this.markLiveLectureEnded(row.id, now);
