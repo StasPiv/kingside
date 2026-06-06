@@ -100,9 +100,17 @@ export type LiveAnalysisListItem = {
 /**
  * `subscribe` — присоединение к комнате трансляции. В ответ сервер
  * шлёт `sync` с полным состоянием.
+ *
+ * KS-3742 / ADR-111 §2.2. Опциональное поле `mode` зарезервировано
+ * для разделения подписчиков на полную (`'full'`) и облегчённую
+ * (`'board'`) ленту. На MVP сервер всегда отвечает `'full'`-snapshot'ом
+ * вне зависимости от значения; поле сохраняется как контракт для
+ * будущих ботов/виджетов вроде OBS-плагина стримера, которым PGN не
+ * нужен. Отсутствие поля трактуется как `'full'`.
  */
 export type LiveAnalysisSubscribePayload = {
   slug: string;
+  mode?: 'board' | 'full';
 };
 
 /** `unsubscribe` — выйти из комнаты (опционально, можно и просто disconnect'нуться). */
@@ -147,6 +155,42 @@ export type LiveAnalysisSyncRequestPayload = {
   slug: string;
 };
 
+/**
+ * KS-3742 / ADR-111 §2.2, §3. `state-patch` — автор обновил содержимое
+ * окна анализа: дерево вариантов, NAGs, комментарии, аннотации
+ * (`[%csl]`/`[%cal]`/`[%cvc]`), ориентацию доски или PGN-headers.
+ *
+ * Передаётся целиком annotated PGN — это и есть каноничное дерево
+ * анализа (см. ADR §2.1: «передаём PGN целиком, а не дельты»).
+ * Сервер на приёме валидирует длину (hard cap 256 KB → `pgn-too-large`)
+ * и грамматику через `chess.js.loadPgn`, дросселирует приём
+ * (5 патчей/сек, burst 10 — anti-abuse), затем публикует sync.
+ *
+ * Опциональные поля:
+ *   - `headers` — `Record<string,string>` со стандартными PGN-headers
+ *     (`Event`, `Site`, `Date`, `Round`, `White`, `Black`, `Result`,
+ *     `WhiteElo`, `BlackElo`, `WhiteTitle`, `BlackTitle`, `ECO`,
+ *     `Opening`). Дублирует headers из самого `pgn`, чтобы фронту не
+ *     парсить ради `GameMetaBar`. При расхождении побеждает `pgn`.
+ *   - `currentPly` — где сейчас стоит автор. Автор мог листать дерево
+ *     без совершения новых ходов — `move` тогда не эмитится, а зритель
+ *     должен синхронизировать `ReviewMoveList`.
+ *   - `orientation` — если автор перевернул доску.
+ *
+ * Owner-only. Аноним → `error { code: 'forbidden' }`.
+ */
+export type LiveAnalysisStatePatchPayload = {
+  slug: string;
+  /**
+   * Annotated PGN дерева анализа автора. Длина ≤ 256 KB
+   * (262 144 байт), иначе `error { code: 'pgn-too-large' }`.
+   */
+  pgn: string;
+  headers?: Record<string, string>;
+  currentPly?: number;
+  orientation?: LiveAnalysisOrientation;
+};
+
 // ─── WS payloads: server → client ───────────────────────────────────
 
 /**
@@ -165,6 +209,17 @@ export type LiveAnalysisMoveEvent = {
 /**
  * `sync` — полное состояние трансляции. Шлётся на `subscribe`, на
  * `reset` (всем) и явный `sync`-запрос от клиента.
+ *
+ * KS-3742 / ADR-111 §2.2, §2.3 расширил snapshot полями `currentPgn`
+ * и `headers`. Поля опциональные, чтобы старые клиенты ADR-110
+ * (которые ожидают только UCI-ленту) продолжали работать без правок.
+ *
+ * `currentPgn` — annotated PGN последнего state-patch автора. До
+ * первого `state-patch` за время трансляции поле отсутствует (или
+ * приходит пустой строкой) — фронт в этом случае строит дерево из
+ * `startingFen` + `moves`. `headers` — стандартные PGN-headers в виде
+ * мапы; при наличии расходятся с теми, что зашиты в `currentPgn`,
+ * побеждает `currentPgn` (см. ADR-111 §2.8.2).
  */
 export type LiveAnalysisSyncSnapshot = {
   slug: string;
@@ -173,6 +228,10 @@ export type LiveAnalysisSyncSnapshot = {
   currentFen: string;
   currentPly: number;
   orientation: LiveAnalysisOrientation;
+  /** KS-3742 / ADR-111: annotated PGN дерева анализа автора (опц.). */
+  currentPgn?: string;
+  /** KS-3742 / ADR-111: PGN-headers (Event, White, Black, ELO, …). */
+  headers?: Record<string, string>;
 };
 
 /**
@@ -197,11 +256,15 @@ export type LiveAnalysisClosedEvent = {
 /**
  * `error` — ошибки гейтвея. Коды:
  *   - `slug-not-found` — слаг неизвестен или трансляция уже closed.
- *   - `forbidden` — попытка `move`/`reset`/`close` не от owner'а.
+ *   - `forbidden` — попытка `move`/`reset`/`close`/`state-patch`
+ *      не от owner'а.
  *   - `illegal-move` — UCI не парсится или нелегален в currentFen.
  *   - `rate-limit` — превышен лимит на эмит (защита от автора-бота,
- *      ADR-110 §2.9.15).
+ *      ADR-110 §2.9.15; ADR-111 §2.4: 5 state-patch/сек, burst 10).
  *   - `invalid-payload` — payload не прошёл DTO-валидацию.
+ *   - KS-3742 / ADR-111 §2.3: `pgn-too-large` — длина annotated PGN
+ *      в `state-patch` или `reset` превысила hard cap 256 KB
+ *      (262 144 байт). Патч не применён, state не изменился.
  */
 export type LiveAnalysisErrorEvent = {
   code:
@@ -209,7 +272,8 @@ export type LiveAnalysisErrorEvent = {
     | 'forbidden'
     | 'illegal-move'
     | 'rate-limit'
-    | 'invalid-payload';
+    | 'invalid-payload'
+    | 'pgn-too-large';
   message: string;
 };
 
@@ -242,6 +306,14 @@ export const LiveAnalysisEvents = {
   RESET: 'live-analysis:reset',
   CLOSE: 'live-analysis:close',
   SYNC_REQUEST: 'live-analysis:sync',
+  /**
+   * KS-3742 / ADR-111 §2.2. Автор обновил содержимое окна анализа
+   * (дерево вариантов, NAGs, комментарии, аннотации, headers,
+   * orientation). Payload — `LiveAnalysisStatePatchPayload`. Owner-only,
+   * с дебаунсом 500 мс на стороне клиента и серверным дросселированием
+   * приёма 5/сек burst 10.
+   */
+  STATE_PATCH: 'live-analysis:state-patch',
 
   // server → client
   // NB: `MOVE` и `SYNC_REQUEST` — одно имя для client→server и server→client
