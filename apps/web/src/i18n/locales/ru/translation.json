@@ -728,7 +728,9 @@
     "apply": "Применить",
     "reset": "Сбросить",
     "clear": "Очистить",
-    "backToHome": "На главную"
+    "backToHome": "На главную",
+    "close": "Закрыть",
+    "optional": "необязательно"
   },
   "liveAnalysis": {
     "start": "Транслировать",
@@ -745,6 +747,19 @@
     "startMenuItem": "Начать трансляцию",
     "stopMenuItem": "Завершить трансляцию",
     "saveAndStartMenuItem": "Сохранить и начать трансляцию"
+  },
+  "lecture": {
+    "startMenuItem": "Начать лекцию",
+    "create": {
+      "title": "Создать новую лекцию",
+      "fieldTitle": "Название",
+      "fieldDescription": "Описание",
+      "titlePlaceholder": "Например: Каро-Канн для начинающих",
+      "descriptionPlaceholder": "Краткое описание, видно зрителям.",
+      "submit": "Начать лекцию",
+      "failed": "Не удалось запустить лекцию. Попробуйте ещё раз.",
+      "missingLiveSession": "Лекция создана, но сессия трансляции не получена. Попробуйте ещё раз."
+    }
   },
   "liveAnalysisViewer": {
     "defaultTitle": "Живой разбор",

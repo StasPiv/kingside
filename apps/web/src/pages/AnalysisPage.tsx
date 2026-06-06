@@ -76,6 +76,9 @@ import { AnalysisHeader } from './analysis/AnalysisHeader';
 // скопирована» / ошибки.
 import { LiveBroadcastBadge } from '../components/analysis/LiveBroadcastBadge';
 import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
+// KS-3789 / ADR-113 §4 эпик 1: модальное окно создания лекции
+// и мгновенного запуска live-сессии.
+import { CreateLectureModal } from '../components/analysis/CreateLectureModal';
 // KS-3747 / ADR-111 §7: проп `liveSession` — AnalysisPage становится
 // просмотрщиком трансляции (mode='viewer') или подключается к ней как
 // автор (mode='owner', фактическое использование — KS-3748). Хук тот же
@@ -319,6 +322,15 @@ type BuildItemsContext = {
   onLiveSaveAndStart: () => void;
   onLiveCopyLink: () => void | Promise<void>;
   onLiveStop: () => void;
+  /**
+   * KS-3789 / ADR-113 §4 эпик 1. Пункт «Начать лекцию» — оборачивает
+   * мгновенный POST /lectures с привязкой к analysisId. Видим только
+   * автору сохранённого анализа, при kind='analysis' и наличии
+   * `liveAnalysisId` (есть запись Analysis с id). Live-сессия лекции
+   * наследует трансляцию через `attachExistingSession`, отдельной
+   * страницы не требуется.
+   */
+  onStartLecture: () => void;
 };
 
 function buildAnalysisActionsItems(
@@ -362,6 +374,7 @@ function buildAnalysisActionsItems(
     onLiveSaveAndStart,
     onLiveCopyLink,
     onLiveStop,
+    onStartLecture,
   } = ctx;
 
   const isOwner =
@@ -605,12 +618,24 @@ function buildAnalysisActionsItems(
         disabled: liveIsStarting,
       });
     } else {
-      // Обычный flow: сохранённый анализ с id → просто start.
+      // Обычный путь: сохранённый анализ с id → просто start.
       items.push({
         id: 'broadcast-start',
         group: 'broadcast',
         label: t('liveAnalysis.startMenuItem', 'Start broadcast'),
         onClick: onLiveStart,
+        disabled: liveIsStarting,
+      });
+      // KS-3789 / ADR-113 §4 эпик 1. «Начать лекцию» — мгновенный
+      // live-режим с обёрткой Lecture (она появится в списке тренера
+      // на /coach/:username в секции «В эфире»). Доступен только при
+      // kind='analysis' (других веток выше) и сохранённом id анализа
+      // — backend требует `analysisId` для привязки сессии.
+      items.push({
+        id: 'lecture-start',
+        group: 'broadcast',
+        label: t('lecture.startMenuItem', 'Start lecture'),
+        onClick: onStartLecture,
         disabled: liveIsStarting,
       });
     }
@@ -2337,6 +2362,26 @@ function AnalysisPageInner({
   const handleLiveStop = useCallback(() => {
     liveBroadcast.stop();
   }, [liveBroadcast]);
+  // KS-3789 / ADR-113 §4 эпик 1. «Начать лекцию» из меню действий —
+  // открывает CreateLectureModal. Сам POST /lectures выполняется
+  // внутри модального окна; в onCreated мы только подключаемся к
+  // готовой live-сессии через `attachExistingSession` (никакого
+  // второго POST /live-analyses, всё уже сделал backend в одной
+  // транзакции).
+  const [showCreateLecture, setShowCreateLecture] = useState(false);
+  const handleStartLecture = useCallback(() => {
+    if (!analysisId) return;
+    setShowCreateLecture(true);
+  }, [analysisId]);
+  const handleLectureCreated = useCallback(
+    (session: { id: string; slug: string; url: string }) => {
+      liveBroadcast.attachExistingSession({
+        slug: session.slug,
+        url: session.url,
+      });
+    },
+    [liveBroadcast],
+  );
 
   // KS-3749 / ADR-111 §7. Авторский emit `state-patch`. Запускается на
   // любое изменение review-state (новые ходы, NAGs, комментарии,
@@ -3337,6 +3382,7 @@ function AnalysisPageInner({
                     onLiveSaveAndStart: handleLiveSaveAndStart,
                     onLiveCopyLink: handleLiveCopyLink,
                     onLiveStop: handleLiveStop,
+                    onStartLecture: handleStartLecture,
                   })}
                 />
               ) : (
@@ -3605,6 +3651,20 @@ function AnalysisPageInner({
           headers={pgnHeaders}
           onApply={(h) => setPgnHeaders(h)}
           onClose={() => setShowPgnHeaders(false)}
+        />
+      )}
+
+      {/* KS-3789 / ADR-113 §4 эпик 1: модальное окно «Начать лекцию».
+          Виден только автору сохранённого анализа (handleStartLecture
+          выходит рано без analysisId); внутри окна POST /lectures с
+          analysisId создаёт лекцию + LiveAnalysis за один запрос,
+          в onCreated подключаем готовую сессию к live-режиму. */}
+      {showCreateLecture && analysisId && (
+        <CreateLectureModal
+          analysisId={analysisId}
+          defaultTitle={analysisTitle}
+          onClose={() => setShowCreateLecture(false)}
+          onCreated={handleLectureCreated}
         />
       )}
 

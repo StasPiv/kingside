@@ -116,6 +116,19 @@ export interface UseAnalysisLiveBroadcastState {
   start: (analysisId: string) => Promise<LiveAnalysisResponse | null>;
   /** Завершить трансляцию (WS close). */
   stop: () => void;
+  /**
+   * KS-3789 / ADR-113 §4 эпик 1. Подключиться к уже созданной
+   * live-сессии (например, после `POST /lectures` с `analysisId`,
+   * который сам создал `LiveAnalysis` на стороне backend). Не делает
+   * REST-запросов — только обновляет локальное состояние, чтобы
+   * AnalysisPage переключился в режим автора активной трансляции.
+   * Idempotent: вызов с тем же slug — no-op.
+   */
+  attachExistingSession: (session: {
+    slug: string;
+    url: string;
+    viewerCount?: number;
+  }) => void;
   /** Эмит хода автора. Безопасно вызывать когда `isLive=false` — будет no-op. */
   emitMove: (uci: string) => void;
   /**
@@ -407,6 +420,21 @@ export function useAnalysisLiveBroadcast({
     [slug, socketEmitMove],
   );
 
+  const attachExistingSession = useCallback(
+    (session: { slug: string; url: string; viewerCount?: number }) => {
+      // KS-3789: на viewer-странице чужие сессии нам подключать
+      // нельзя — иначе у владельца запустится эмит state-patch
+      // из зрительского state. См. описание `disabled` в args выше.
+      if (disabled) return;
+      if (slug === session.slug) return;
+      setSlug(session.slug);
+      setPublicUrl(session.url);
+      setViewerCount(session.viewerCount ?? 0);
+      setError(null);
+    },
+    [disabled, slug],
+  );
+
   return {
     isLive: !!slug,
     isStarting,
@@ -418,5 +446,6 @@ export function useAnalysisLiveBroadcast({
     stop,
     emitMove,
     emitStatePatch,
+    attachExistingSession,
   };
 }

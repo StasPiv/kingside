@@ -718,7 +718,9 @@
     "apply": "Apply",
     "reset": "Reset",
     "clear": "Clear",
-    "backToHome": "Back to home"
+    "backToHome": "Back to home",
+    "close": "Close",
+    "optional": "optional"
   },
   "liveAnalysis": {
     "start": "Broadcast",
@@ -735,6 +737,19 @@
     "startMenuItem": "Start broadcast",
     "stopMenuItem": "Stop broadcast",
     "saveAndStartMenuItem": "Save and start broadcast"
+  },
+  "lecture": {
+    "startMenuItem": "Start lecture",
+    "create": {
+      "title": "Start a new lecture",
+      "fieldTitle": "Title",
+      "fieldDescription": "Description",
+      "titlePlaceholder": "e.g. Caro-Kann for beginners",
+      "descriptionPlaceholder": "Short summary visible to viewers.",
+      "submit": "Start lecture",
+      "failed": "Failed to start the lecture. Please try again.",
+      "missingLiveSession": "The lecture was created, but no live session was returned. Please try again."
+    }
   },
   "liveAnalysisViewer": {
     "defaultTitle": "Live analysis",
