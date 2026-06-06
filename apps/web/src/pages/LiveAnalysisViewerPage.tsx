@@ -1,55 +1,50 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Chess } from 'chess.js';
-import { Chessboard } from 'react-chessboard';
 import type {
   LiveAnalysisCloseReason,
-  LiveAnalysisOrientation,
   LiveAnalysisResponse,
 } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
-import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useLiveAnalysisSocket } from '../hooks/useLiveAnalysisSocket';
+import { AnalysisPage } from './AnalysisPage';
 
 /**
- * KS-3737 / ADR-110 §3, §6. Публичная страница зрителя живой
- * трансляции анализа партии.
+ * KS-3748 / ADR-111 §7. Тонкая обёртка над `AnalysisPage`,
+ * включающая режим `liveSession={mode:'viewer'}`. Вся «толстая»
+ * UI-механика (доска, дерево вариантов, Stockfish, AI, ArchiveTreePanel,
+ * локальная ветка зрителя, кнопка «Вернуться к трансляции», применение
+ * PGN из state-patch без сноса контекста — ADR-111 §2.8 п.5) теперь
+ * живёт в `AnalysisPage` (через проп `liveSession`, см. KS-3747).
+ * Виджет здесь занимается только тремя вещами:
  *
- * Жизненный цикл:
- *  1. На монт делаем `GET /live-analyses/:slug` — это primary source
- *     для первичной отрисовки доски ДО того как WS установит подписку
- *     (zero-flash при медленном соединении: рисуем сразу snapshot из
- *     REST, sync-event потом «догонит» с историей ходов).
- *  2. Подписываемся через `useLiveAnalysisSocket(slug)`. Без токена —
- *     анонимный viewer (ADR-110 §2.6). На каждый `connect` /
- *     reconnect хук сам шлёт `subscribe`, сервер возвращает
- *     `SyncSnapshot` (используем для апдейта authorFen).
- *  3. На `move`-event плавно применяем UCI к authorFen — анимация
- *     react-chessboard уже встроена в смену `position`.
- *  4. На `closed`-event замораживаем доску, показываем баннер с
- *     причиной (`by_owner` / `inactivity`).
+ *  1. Early-fetch `GET /live-analyses/:slug` — нужен чтобы:
+ *     - проверить что трансляция вообще существует (404 → отдельная
+ *       страница «not found», без подключения WS),
+ *     - получить мета-инфо (title, ownerUsername) для header'а
+ *       над AnalysisPage,
+ *     - засечь cold-открытие уже закрытой трансляции (status=closed
+ *       в REST до того как WS успеет прислать `closed`-event).
+ *  2. WS-подписка через `useLiveAnalysisSocket` — нужна минимально,
+ *     чтобы ловить `closed`-event и показывать баннер с reason.
+ *     Снапшоты/move'ы AnalysisPage съест сам через хук
+ *     `useLiveAnalysisBroadcast` внутри (KS-3746).
+ *  3. `<meta name="robots" content="noindex,nofollow">` —
+ *     эфемерный slug, ссылку приватно раздаёт автор, незачем светить
+ *     в SERP.
  *
- * Локальная ветка зрителя: react-chessboard оставлен с
- * `allowDragging: true`, поэтому зритель может перетаскивать фигуры
- * и отыгрывать свои варианты. Любое перетаскивание сначала
- * валидируется через chess.js (нелегальный ход — drop отменяется),
- * затем меняется ТОЛЬКО локальный `viewerFen`. На сокет ничего не
- * улетает. Когда `viewerFen !== authorFen` — у нас активна локальная
- * ветка, показываем кнопку «Вернуться к трансляции», по клику
- * `viewerFen = authorFen`. Пока зритель в локальной ветке, новые
- * ходы автора обновляют только `authorFen`, не перерисовывая доску —
- * иначе мы перебили бы анализ зрителя посреди разбора.
+ * Прежний UI (своя доска, счётчик зрителей в углу, react-chessboard)
+ * убран — он дублировал AnalysisPage и не имел доступа к PGN-дереву
+ * автора. Счётчик зрителей теперь покажется внутри AnalysisPage в
+ * статус-блоке live-трансляции (см. AnalysisPage owner-side
+ * LiveBroadcastControl + viewer-side индикатор; на момент KS-3748
+ * minimal — есть планы UI-улучшений в backlog).
  */
 
-/** Префикс `<meta name="robots">` ставим только нашим. */
 const ROBOTS_META_MARKER = 'data-kingside-live-analysis-robots';
 
 function useNoIndexMeta(): void {
-  // ADR-110 §6 / KS-3737 acceptance: страница зрителя не должна
-  // индексироваться (контент эфемерный, slug одноразовый, ссылка
-  // приватно делится автором — нет смысла светить её в SERP).
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const meta = document.createElement('meta');
@@ -63,40 +58,18 @@ function useNoIndexMeta(): void {
   }, []);
 }
 
-interface ViewerState {
-  authorFen: string;
-  authorPly: number;
-  orientation: LiveAnalysisOrientation;
-}
-
 export function LiveAnalysisViewerPage() {
   const { slug } = useParams<{ slug: string }>();
   const { t } = useTranslation();
-  const { customPieces } = useBoardTheme();
   useNoIndexMeta();
 
-  // ─── Loading / error state ────────────────────────────────────────
   const [snapshot, setSnapshot] = useState<LiveAnalysisResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // ─── Live state (обновляется через WS) ────────────────────────────
-  const [view, setView] = useState<ViewerState | null>(null);
-  const [viewerCount, setViewerCount] = useState(0);
+  const [error, setError] = useState<'not-found' | 'load-failed' | null>(null);
   const [closedReason, setClosedReason] =
     useState<LiveAnalysisCloseReason | null>(null);
 
-  // ─── Локальная ветка зрителя ──────────────────────────────────────
-  // viewerFen хранит то, что реально показывается на доске. Может
-  // отличаться от authorFen — это «локальная ветка». Кнопка
-  // «Вернуться к трансляции» возвращает viewerFen на authorFen.
-  const [viewerFen, setViewerFen] = useState<string | null>(null);
-  const isOnLocalBranch = useMemo(() => {
-    if (!view || !viewerFen) return false;
-    return viewerFen !== view.authorFen;
-  }, [view, viewerFen]);
-
-  // ─── REST snapshot для первичной отрисовки ────────────────────────
+  // ─── Early-fetch (existence-check + meta) ─────────────────────────
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
@@ -107,18 +80,11 @@ export function LiveAnalysisViewerPage() {
       .then((resp) => {
         if (cancelled) return;
         setSnapshot(resp);
-        setView({
-          authorFen: resp.currentFen,
-          authorPly: resp.currentPly,
-          orientation: resp.orientation,
-        });
-        setViewerFen(resp.currentFen);
-        setViewerCount(resp.viewerCount);
         if (resp.status === 'closed') {
-          // Уже закрытая трансляция — REST вернул финальную позицию.
-          // Считаем reason 'by_owner' по умолчанию (точный reason
-          // приходит только в WS-`closed`-event; для cold-старта без
-          // подписки на WS детализация не критична).
+          // Cold-открытие уже закрытой трансляции. Точный reason
+          // приходит только в WS-`closed`-event; здесь до подписки
+          // считаем `by_owner` (более частый сценарий — автор сам
+          // нажал «Завершить»).
           setClosedReason('by_owner');
         }
         setLoading(false);
@@ -128,8 +94,7 @@ export function LiveAnalysisViewerPage() {
         if (e instanceof ApiError && e.status === 404) {
           setError('not-found');
         } else {
-          const msg = e instanceof ApiError ? e.message : 'load-failed';
-          setError(msg);
+          setError('load-failed');
         }
         setLoading(false);
       });
@@ -138,122 +103,26 @@ export function LiveAnalysisViewerPage() {
     };
   }, [slug]);
 
-  // ─── WS подписка ──────────────────────────────────────────────────
-  // useLiveAnalysisSocket сам поднимает соединение, шлёт subscribe на
-  // каждый connect (включая reconnect), нам остаётся обработать
-  // payload'ы.
-  const handleSync = useCallback((payload: {
-    slug: string;
-    currentFen: string;
-    currentPly: number;
-    orientation: LiveAnalysisOrientation;
-  }) => {
-    setView((prev) => {
-      const next: ViewerState = {
-        authorFen: payload.currentFen,
-        authorPly: payload.currentPly,
-        orientation: payload.orientation,
-      };
-      // sync — это «авторитетный» snapshot. Если зритель НЕ в локальной
-      // ветке, синхронизируем viewerFen тоже. Иначе оставляем зрителя
-      // в его ветке — он сам нажмёт «Вернуться к трансляции», когда
-      // захочет.
-      setViewerFen((currentViewerFen) => {
-        if (!prev || currentViewerFen === prev.authorFen) {
-          return payload.currentFen;
-        }
-        return currentViewerFen;
-      });
-      return next;
-    });
-  }, []);
-
-  const handleMove = useCallback(
-    (payload: { slug: string; fen: string; ply: number; uci: string }) => {
-      setView((prev) => {
-        if (!prev) {
-          // Move прилетел раньше sync (или REST snapshot) — редкий race;
-          // принимаем как новую точку отсчёта.
-          setViewerFen((curr) => (curr === null ? payload.fen : curr));
-          return {
-            authorFen: payload.fen,
-            authorPly: payload.ply,
-            orientation: 'white',
-          };
-        }
-        // Защита от out-of-order: применяем только если ply строго
-        // больше предыдущего. На случай дубля или старого move-event'а.
-        if (payload.ply <= prev.authorPly) return prev;
-        setViewerFen((currentViewerFen) => {
-          // Если зритель НЕ в локальной ветке (его доска совпадала с
-          // прошлой позицией автора) — синхронно подтягиваем новый ход.
-          // Это даёт натуральную анимацию: react-chessboard анимирует
-          // переход к новому `position`.
-          if (currentViewerFen === prev.authorFen) {
-            return payload.fen;
-          }
-          return currentViewerFen;
-        });
-        return { ...prev, authorFen: payload.fen, authorPly: payload.ply };
-      });
-    },
-    [],
-  );
-
-  const handleViewers = useCallback((payload: { count: number }) => {
-    setViewerCount(payload.count);
-  }, []);
-
+  // ─── WS-подписка только под `closed`-event ────────────────────────
+  // AnalysisPage внутри подписывается сама через `useLiveAnalysisBroadcast`
+  // и применяет sync/move/state-patch к review-state. Здесь же нам
+  // нужен отдельный listener только чтобы показать баннер «Трансляция
+  // завершена» с правильным reason — на AnalysisPage этот баннер
+  // не выводится (она не знает, что её рисуют через `liveSession`).
   const handleClosed = useCallback(
-    (payload: { slug: string; reason: LiveAnalysisCloseReason }) => {
+    (payload: { reason: LiveAnalysisCloseReason }) => {
       setClosedReason(payload.reason);
     },
     [],
   );
-
   useLiveAnalysisSocket({
-    slug: closedReason ? null : slug ?? null,
-    onSync: handleSync,
-    onMove: handleMove,
-    onViewers: handleViewers,
+    // После closed подписка не нужна, иначе мы держим WS-комнату
+    // ради уже закрытой трансляции.
+    slug: !snapshot || closedReason ? null : slug ?? null,
     onClosed: handleClosed,
   });
 
-  // ─── Локальное движение фигурой ───────────────────────────────────
-  // chess.js валидирует ход на viewerFen. Если ход легален — обновляем
-  // viewerFen на новый. Никаких WS-эмитов: трансляция и другие зрители
-  // ничего не узнают.
-  const localChessRef = useRef<InstanceType<typeof Chess>>(new Chess());
-  const handlePieceDrop = useCallback(
-    (args: { sourceSquare: string; targetSquare: string | null }): boolean => {
-      if (!viewerFen) return false;
-      if (!args.targetSquare) return false;
-      const chess = localChessRef.current;
-      try {
-        chess.load(viewerFen);
-        const move = chess.move({
-          from: args.sourceSquare,
-          to: args.targetSquare,
-          // По умолчанию queen — для read-only UI выбор фигуры
-          // превращения не нужен (это локальная песочница зрителя).
-          promotion: 'q',
-        });
-        if (!move) return false;
-        setViewerFen(chess.fen());
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    [viewerFen],
-  );
-
-  const handleReturnToBroadcast = useCallback(() => {
-    if (!view) return;
-    setViewerFen(view.authorFen);
-  }, [view]);
-
-  // ─── Render ───────────────────────────────────────────────────────
+  // ─── Render: ранние ветки ─────────────────────────────────────────
 
   if (loading) {
     return (
@@ -283,7 +152,7 @@ export function LiveAnalysisViewerPage() {
     );
   }
 
-  if (error || !view || !snapshot) {
+  if (error || !snapshot || !slug) {
     return (
       <div
         className="live-analysis-viewer live-analysis-viewer--error"
@@ -294,11 +163,9 @@ export function LiveAnalysisViewerPage() {
     );
   }
 
+  // ─── Render: основная страница ────────────────────────────────────
   return (
-    <div
-      className="live-analysis-viewer"
-      data-testid="live-analysis-viewer"
-    >
+    <div className="live-analysis-viewer" data-testid="live-analysis-viewer">
       <header className="live-analysis-viewer__header">
         <h1 className="live-analysis-viewer__title">
           {snapshot.title ||
@@ -314,80 +181,14 @@ export function LiveAnalysisViewerPage() {
         )}
       </header>
 
-      <div className="live-analysis-viewer__board-wrap">
-        {/* Счётчик зрителей в углу. Скрываем при closed: финальный
-            счётчик из последнего viewers-event-а сохраняется в стейте,
-            но «X зрителей» как live-индикатор после конца теряет
-            смысл — заменяется баннером «Трансляция завершена». */}
-        {!closedReason && (
-          <div
-            className="live-analysis-viewer__viewers"
-            data-testid="live-analysis-viewer-viewers"
-            aria-label={t('liveAnalysisViewer.viewers', 'Viewers')}
-            style={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              padding: '4px 10px',
-              borderRadius: 12,
-              background: 'rgba(0,0,0,0.55)',
-              color: '#fff',
-              fontSize: 13,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              zIndex: 2,
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: '#e53935',
-                display: 'inline-block',
-              }}
-            />
-            {viewerCount}{' '}
-            {t('liveAnalysisViewer.viewersShort', 'viewers')}
-          </div>
-        )}
-
-        <div
-          className="live-analysis-viewer__board"
-          style={{ position: 'relative' }}
-        >
-          <Chessboard
-            options={{
-              position: viewerFen ?? view.authorFen,
-              boardOrientation: view.orientation,
-              // Локальная ветка: зритель может двигать фигуры. Валидация
-              // и обновление локального FEN — в handlePieceDrop, эмитов
-              // в сокет нет.
-              allowDragging: !closedReason,
-              showNotation: true,
-              animationDurationInMs: 200,
-              onPieceDrop: handlePieceDrop,
-              ...(customPieces && { pieces: customPieces }),
-            }}
-          />
-        </div>
-
-        {isOnLocalBranch && !closedReason && (
-          <button
-            type="button"
-            className="live-analysis-viewer__return"
-            data-testid="live-analysis-viewer-return"
-            onClick={handleReturnToBroadcast}
-          >
-            {t(
-              'liveAnalysisViewer.returnToBroadcast',
-              'Return to broadcast',
-            )}
-          </button>
-        )}
-      </div>
+      {/* Сама «толстая» страница анализа в зрительском режиме.
+          Внутри AnalysisPage:
+            - useLiveAnalysisBroadcast(slug, 'viewer') ставит подписку;
+            - sync/move/state-patch применяются к review-state с
+              сохранением позиции зрителя (ADR-111 §2.8 п.5);
+            - owner-only UI (autosave, Share, edit-title, Set Position,
+              «Транслировать») подавлен гейтом publicMode || isViewerLive. */}
+      <AnalysisPage liveSession={{ slug, mode: 'viewer' }} />
 
       {closedReason && (
         <div
@@ -397,10 +198,7 @@ export function LiveAnalysisViewerPage() {
           aria-live="polite"
         >
           <strong>
-            {t(
-              'liveAnalysisViewer.closedTitle',
-              'Broadcast ended',
-            )}
+            {t('liveAnalysisViewer.closedTitle', 'Broadcast ended')}
           </strong>
           <p>
             {closedReason === 'by_owner'
