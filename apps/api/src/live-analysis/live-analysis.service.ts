@@ -222,6 +222,10 @@ export class LiveAnalysisService {
       createdAt: row.createdAt.toISOString(),
       closedAt: row.closedAt ? row.closedAt.toISOString() : null,
       viewerPeak: row.viewerPeak,
+      // KS-3758 / ADR-112: binding к Analysis (`null` для исторических
+      // записей ADR-110). Бизнес-логика binding и валидация владельца
+      // анализа подключаются в KS-3759.
+      analysisId: row.analysisId,
     }));
   }
 
@@ -1055,6 +1059,9 @@ export class LiveAnalysisService {
       createdAt: Date;
       closedAt: Date | null;
       owner: { username: string | null };
+      // KS-3758 / ADR-112: nullable, заполняется бизнес-логикой
+      // KS-3759 при `create` (после проверки `Analysis.userId === ownerId`).
+      analysisId: string | null;
     },
     publicBaseUrl: string,
     extras: {
@@ -1082,6 +1089,8 @@ export class LiveAnalysisService {
       viewerCount: extras.viewerCount,
       createdAt: row.createdAt.toISOString(),
       closedAt: row.closedAt ? row.closedAt.toISOString() : null,
+      // KS-3758 / ADR-112: binding к Analysis.
+      analysisId: row.analysisId,
       ...(extras.currentPgn !== undefined && { currentPgn: extras.currentPgn }),
       ...(extras.headers !== undefined && { headers: extras.headers }),
     };

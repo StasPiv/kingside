@@ -40,11 +40,23 @@ export type LiveAnalysisCloseReason = 'by_owner' | 'inactivity';
 /**
  * `POST /live-analyses` — тело запроса.
  *
- * Все поля опциональны: без них стартует с initial position и без
- * заголовка. `startingFen` валидируется на сервере через chess.js;
+ * KS-3758 / ADR-112 §3, §4: `analysisId` обязателен — трансляция
+ * привязана к конкретному `Analysis`. Сервер проверяет, что владелец
+ * совпадает с автором анализа, и применяет partial-UNIQUE (один автор
+ * × один анализ = одна active-трансляция, см. KS-3757). До ADR-112
+ * поле отсутствовало; старые клиенты, не передающие его, получат
+ * `400 Bad Request` после раскатки KS-3759/KS-3761.
+ *
+ * Остальные поля опциональны: без них стартовая позиция — initial
+ * position. `startingFen` валидируется на сервере через chess.js;
  * невалидный FEN → 400.
  */
 export type CreateLiveAnalysisDto = {
+  /**
+   * KS-3758 / ADR-112: UUID `Analysis.id`. Обязателен.
+   * Сервер дополнительно проверяет, что `Analysis.userId === ownerId`.
+   */
+  analysisId: string;
   title?: string;
   startingFen?: string;
   orientation?: LiveAnalysisOrientation;
@@ -78,6 +90,14 @@ export type LiveAnalysisResponse = {
   /** ISO-8601 UTC. `null` если ещё active. */
   closedAt: string | null;
   /**
+   * KS-3758 / ADR-112 §3, §4. UUID `Analysis.id`, к которому привязана
+   * трансляция. `null` для исторических записей ADR-110, созданных до
+   * введения binding (миграция KS-3757 их не очищает по analysisId,
+   * только закрывает active без binding). У всех новых трансляций
+   * после KS-3759 поле всегда заполнено.
+   */
+  analysisId: string | null;
+  /**
    * KS-3743 / ADR-111: annotated PGN из последнего `state-patch`
    * автора. Поле опциональное: до первого state-patch отсутствует;
    * на трансляциях по контракту ADR-110 (без state-patch) не приходит
@@ -107,6 +127,11 @@ export type LiveAnalysisListItem = {
   closedAt: string | null;
   /** Пик числа одновременных зрителей за всю трансляцию (аналитика). */
   viewerPeak: number;
+  /**
+   * KS-3758 / ADR-112 §3. UUID `Analysis.id`, к которому привязана
+   * трансляция. `null` для исторических записей ADR-110 (без binding).
+   */
+  analysisId: string | null;
 };
 
 // ─── WS payloads: client → server ───────────────────────────────────

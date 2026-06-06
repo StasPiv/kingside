@@ -179,7 +179,13 @@ describe('LiveAnalysisService', () => {
         owner: { username: 'alice' },
       });
 
-      const resp = await service.create('u-1', {}, 'https://kingside.site');
+      const resp = await service.create(
+        'u-1',
+        // KS-3758: analysisId стал обязательным; реальная валидация
+        // владельца анализа подключится в KS-3759.
+        { analysisId: 'a-1' },
+        'https://kingside.site',
+      );
 
       expect(resp.slug).toBe('AbCdEfGhIj');
       expect(resp.url).toBe('https://kingside.site/live/AbCdEfGhIj');
@@ -198,7 +204,11 @@ describe('LiveAnalysisService', () => {
 
     it('бракует невалидный starting FEN', async () => {
       await expect(
-        service.create('u-1', { startingFen: 'garbage' }, 'https://k.s'),
+        service.create(
+          'u-1',
+          { analysisId: 'a-1', startingFen: 'garbage' },
+          'https://k.s',
+        ),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.liveAnalysis.create).not.toHaveBeenCalled();
     });
@@ -219,7 +229,7 @@ describe('LiveAnalysisService', () => {
         closedAt: null,
         owner: { username: 'a' },
       });
-      await service.create('u-1', {}, 'https://k.s');
+      await service.create('u-1', { analysisId: 'a-1' }, 'https://k.s');
       expect(prisma.liveAnalysis.create).toHaveBeenCalledTimes(2);
     });
   });
