@@ -76,6 +76,22 @@ export interface UseAnalysisLiveBroadcastArgs {
    * заблокирован (без analysisId сервер вернёт 400 после KS-3759).
    */
   analysisId: string | null;
+  /**
+   * KS-3770 / ADR-112: жёсткое отключение хука для viewer-режима.
+   * AnalysisPage на `/live/:slug` запускается с `liveSession.mode='viewer'`
+   * и одновременно вызывает `useLiveAnalysisBroadcast` (viewer-обвязка).
+   * Этот же хук-стартёр (`useAnalysisLiveBroadcast` — owner-side) на
+   * такой странице должен молчать: иначе у авторизованного владельца
+   * REST-restore по analysisId найдёт его собственную активную
+   * трансляцию, поднимет `isLive=true`, эффект эмита KS-3749 начнёт
+   * слать обратно state-patch'и с PGN, собранным из state'а самой
+   * `AnalysisPage` — а это уже зрительское состояние, не авторское.
+   * Получаем feedback-цикл и зритель видит «старый PGN».
+   *
+   * Чтобы не выкручивать условные вызовы хуков (правила React),
+   * передаём флаг и внутри гасим REST-restore + start.
+   */
+  disabled?: boolean;
 }
 
 export interface UseAnalysisLiveBroadcastState {
@@ -132,6 +148,7 @@ export function useAnalysisLiveBroadcast({
   title,
   userId,
   analysisId,
+  disabled = false,
 }: UseAnalysisLiveBroadcastArgs): UseAnalysisLiveBroadcastState {
   const [slug, setSlug] = useState<string | null>(null);
   const [publicUrl, setPublicUrl] = useState<string | null>(null);
@@ -164,6 +181,11 @@ export function useAnalysisLiveBroadcast({
   // active-трансляция, и фронт получает её адресно. Пересечения
   // «slug чужого анализа на этой странице» невозможны.
   useEffect(() => {
+    // KS-3770: на /live/:slug AnalysisPage запускает этот хук «вхолостую»
+    // (mode='viewer'). REST-restore делать нельзя — для авторизованного
+    // владельца это поднимет его же активную трансляцию и запустит
+    // feedback-цикл с эмитом state-patch (см. описание в args выше).
+    if (disabled) return;
     if (!analysisId || !userId) return;
     let cancelled = false;
     (async () => {
@@ -339,6 +361,8 @@ export function useAnalysisLiveBroadcast({
 
   const start = useCallback(
     async (startAnalysisId: string): Promise<LiveAnalysisResponse | null> => {
+      // KS-3770: на viewer-странице start() — no-op (см. описание disabled).
+      if (disabled) return null;
       if (!userId) {
         setError('not-authenticated');
         return null;
@@ -379,7 +403,7 @@ export function useAnalysisLiveBroadcast({
         setIsStarting(false);
       }
     },
-    [initialFen, orientation, slug, title, userId],
+    [disabled, initialFen, orientation, slug, title, userId],
   );
 
   const stop = useCallback(() => {

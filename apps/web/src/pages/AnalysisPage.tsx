@@ -1142,6 +1142,12 @@ function AnalysisPageInner({
     // GET /live-analyses/by-analysis/:id. На странице без id
     // (ad-hoc / kind='review' / 'puzzle') — null, хук «спит».
     analysisId: analysisId ?? null,
+    // KS-3770: на странице зрителя (/live/:slug → AnalysisPage с
+    // liveSession.mode='viewer') хук-стартёр должен молчать. Иначе у
+    // авторизованного владельца REST-restore поднимет его собственную
+    // трансляцию, эффект эмита KS-3749 начнёт слать обратно state-patch
+    // с PGN страницы (зрительский state) и отравит трансляцию.
+    disabled: isViewerLive,
   });
 
   // Обёртка над `rawMakeVariantMove`: пробрасываем UCI в live-трансляцию
@@ -1150,13 +1156,17 @@ function AnalysisPageInner({
   const makeVariantMove = useCallback(
     (from: string, to: string, promotion?: string): boolean => {
       const ok = rawMakeVariantMove(from, to, promotion);
-      if (ok) {
+      if (ok && !isViewerLive) {
+        // KS-3770: на странице зрителя ходы по доске — это локальные
+        // движения в своей ветке, в трансляцию автора их слать нельзя.
+        // Внутри emitMove дополнительный safety (slug=null в viewer
+        // → no-op), но явный гейт читается лучше.
         const uci = `${from}${to}${(promotion ?? '').toLowerCase()}`;
         liveBroadcast.emitMove(uci);
       }
       return ok;
     },
-    [rawMakeVariantMove, liveBroadcast],
+    [isViewerLive, rawMakeVariantMove, liveBroadcast],
   );
 
   const game = useMemo(() => new Chess(), []);
@@ -2334,6 +2344,13 @@ function AnalysisPageInner({
   // `liveBroadcast.emitMove(uci)` сразу после успешного хода — это
   // быстрая анимация у зрителей до прихода state-patch'а).
   useEffect(() => {
+    // KS-3770: на странице зрителя (/live/:slug → liveSession.mode='viewer')
+    // эмит state-patch'ей запрещён — это не наша трансляция, мы только
+    // её отображаем. У авторизованного владельца без этого гейта возник
+    // бы feedback-цикл: REST-restore поднимает его трансляцию (даже
+    // несмотря на disabled-флаг хука, береги и здесь явный гейт),
+    // и зрительский state улетал бы обратно как авторский patch.
+    if (isViewerLive) return;
     if (!liveBroadcast.isLive) return;
     // KS-3763 / ADR-112: «тихий» restore больше невозможен — slug
     // приходит только от REST-восстановления по analysisId, то есть
@@ -2349,6 +2366,7 @@ function AnalysisPageInner({
       orientation: boardOrientation,
     });
   }, [
+    isViewerLive,
     liveBroadcast,
     buildAnalysisPgn,
     pgnHeaders,
