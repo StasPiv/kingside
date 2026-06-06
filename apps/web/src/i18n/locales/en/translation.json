@@ -758,6 +758,16 @@
     "progressLabel": "Playback position",
     "breadcrumbsLabel": "Lecture"
   },
+  "lectureSchedule": {
+    "create": {
+      "button": "Schedule a lecture",
+      "title": "Schedule a lecture",
+      "fieldScheduledAt": "Start time",
+      "submit": "Schedule lecture",
+      "failed": "Failed to schedule the lecture. Please try again.",
+      "successToast": "«{{title}}» scheduled"
+    }
+  },
   "lecture": {
     "startMenuItem": "Start lecture",
     "unavailableTooltip": "Save to your workshop to start a lecture",

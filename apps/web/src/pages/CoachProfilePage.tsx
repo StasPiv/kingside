@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { PlayerProfileResponse } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
+import { useAuth } from '../context/AuthContext';
 import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
+import { ScheduleLectureModal } from '../components/profile/ScheduleLectureModal';
 
 /**
  * KS-3787 / ADR-113 §4 эпик 1. Публичная страница тренера.
@@ -149,6 +151,7 @@ function formatDuration(
 export function CoachProfilePage() {
   const { t, i18n } = useTranslation();
   const { username } = useParams<{ username: string }>();
+  const { user: currentUser } = useAuth();
 
   const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
   const [liveLectures, setLiveLectures] = useState<CoachLecture[]>([]);
@@ -157,6 +160,26 @@ export function CoachProfilePage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // KS-3802 / ADR-113 §4 крупная задача 3: модальное окно
+  // «Запланировать лекцию». Видимо только хозяину страницы; рендер
+  // ниже под гейтом `isOwnPage`.
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduleToast, setScheduleToast] = useState<string | null>(null);
+  const handleScheduleCreated = useCallback(
+    (lecture: { id: string; title: string; scheduledAt: string }) => {
+      // Секцию «Расписание» нарисует KS-3803 — там же будет
+      // рефреш списка scheduled-лекций. Сейчас минимально: показываем
+      // мгновенное всплывающее уведомление, чтобы автор видел, что
+      // запрос прошёл успешно.
+      setScheduleToast(
+        t('lectureSchedule.create.successToast', '«{{title}}» scheduled', {
+          title: lecture.title,
+        }),
+      );
+      window.setTimeout(() => setScheduleToast(null), 3500);
+    },
+    [t],
+  );
 
   useEffect(() => {
     if (!username) return;
@@ -253,6 +276,11 @@ export function CoachProfilePage() {
   }
 
   const flag = countryFlag(profile.country ?? null);
+  // KS-3802: кнопка «Запланировать лекцию» доступна только хозяину
+  // своей страницы. Сравнение по username (id у us тут нет с маршрута),
+  // currentUser.username совпадает с params.username — это его страница.
+  const isOwnPage =
+    !!currentUser && currentUser.username === profile.username;
 
   return (
     <div className="coach-profile-page" data-testid="coach-profile-page">
@@ -296,7 +324,15 @@ export function CoachProfilePage() {
               {t('coachProfile.badge', 'Coach')}
             </span>
           </h1>
-          <div className="player-profile-meta">
+          <div
+            className="player-profile-meta"
+            style={{
+              display: 'flex',
+              gap: 12,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
             {/* Ссылка на полноценный игровой профиль — на случай,
                 если зритель пришёл искать партии тренера, а не
                 образовательные материалы. */}
@@ -307,9 +343,63 @@ export function CoachProfilePage() {
             >
               {t('coachProfile.openPlayerProfile', 'Open player profile')}
             </Link>
+            {/* KS-3802: «Запланировать лекцию» — только на своей
+                странице. По клику открывается ScheduleLectureModal с
+                полями title/description/scheduledAt. */}
+            {isOwnPage && (
+              <button
+                type="button"
+                className="coach-profile-schedule-btn"
+                data-testid="coach-profile-schedule-btn"
+                onClick={() => setShowSchedule(true)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 6,
+                  border: '1px solid #1976d2',
+                  background: '#1976d2',
+                  color: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                {t('lectureSchedule.create.button', 'Schedule a lecture')}
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Toast «Лекция запланирована» — мгновенная обратная связь
+          без перезагрузки страницы. Секцию «Расписание» с реальными
+          scheduled-лекциями добавит KS-3803. */}
+      {scheduleToast && (
+        <div
+          className="coach-profile-toast"
+          data-testid="coach-profile-schedule-toast"
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            top: 72,
+            right: 16,
+            background: '#1976d2',
+            color: '#fff',
+            padding: '8px 14px',
+            borderRadius: 6,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            zIndex: 100,
+            maxWidth: 320,
+          }}
+        >
+          {scheduleToast}
+        </div>
+      )}
+
+      {showSchedule && (
+        <ScheduleLectureModal
+          onClose={() => setShowSchedule(false)}
+          onCreated={handleScheduleCreated}
+        />
+      )}
 
       {/* «В эфире» — карточки активных лекций. Скрываем секцию целиком,
           если активных нет — пустая секция «No live lectures» лишний шум

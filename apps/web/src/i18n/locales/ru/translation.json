@@ -768,6 +768,16 @@
     "progressLabel": "Позиция воспроизведения",
     "breadcrumbsLabel": "Лекция"
   },
+  "lectureSchedule": {
+    "create": {
+      "button": "Запланировать лекцию",
+      "title": "Запланировать лекцию",
+      "fieldScheduledAt": "Время начала",
+      "submit": "Запланировать",
+      "failed": "Не удалось запланировать лекцию. Попробуйте ещё раз.",
+      "successToast": "Лекция «{{title}}» запланирована"
+    }
+  },
   "lecture": {
     "startMenuItem": "Начать лекцию",
     "unavailableTooltip": "Сохраните анализ в мастерскую, чтобы начать лекцию",
