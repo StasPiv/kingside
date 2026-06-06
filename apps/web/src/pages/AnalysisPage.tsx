@@ -3441,25 +3441,31 @@ function AnalysisPageInner({
             {/* KS-2114: переключатель размера доски S/M/L. Значение
                 сохраняется в localStorage через BoardSettingsContext и
                 применяется к `.analysis-page .board-container` через
-                CSS-переменную `--analysis-board-size-scale`. */}
-            <div
-              className="analysis-board-size"
-              role="group"
-              aria-label={t('analysis.boardSize', 'Board size')}
-            >
-              {BOARD_SIZES.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={`analysis-board-size__btn${boardSize === preset.id ? ' is-active' : ''}`}
-                  onClick={() => setBoardSize(preset.id)}
-                  title={t('analysis.boardSize', 'Board size') + ': ' + preset.label}
-                  aria-pressed={boardSize === preset.id}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
+                CSS-переменную `--analysis-board-size-scale`.
+                KS-3799: в режиме replay (страница записи лекции
+                `/lectures/:id`) доска автоматически вписывается в
+                оставшуюся высоту контейнера (см. KS-3798), и
+                переключатель S/M/L теряет смысл — скрываем его. */}
+            {!isReplay && (
+              <div
+                className="analysis-board-size"
+                role="group"
+                aria-label={t('analysis.boardSize', 'Board size')}
+              >
+                {BOARD_SIZES.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`analysis-board-size__btn${boardSize === preset.id ? ' is-active' : ''}`}
+                    onClick={() => setBoardSize(preset.id)}
+                    title={t('analysis.boardSize', 'Board size') + ': ' + preset.label}
+                    aria-pressed={boardSize === preset.id}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Inline eval indicator - mobile only */}
             {topLine && analysisEnabled && sfState === 'analyzing' && (
               <span className="analysis-inline-eval">
