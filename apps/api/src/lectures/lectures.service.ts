@@ -283,6 +283,55 @@ export class LecturesService {
     return rows.map((row) => this.withLiveAnalysisBinding(row));
   }
 
+  /**
+   * KS-3801 / ADR-113 §4 крупная задача 3. Расписание тренера:
+   * предстоящие (`scheduled`) и идущие сейчас (`live`) лекции с
+   * `visibility='public'`, отсортированные по `scheduledAt` по
+   * возрастанию (ближайшие сверху). Эндпоинт публичный, 404 если
+   * тренера с таким `username` нет.
+   *
+   * `from` / `to` — необязательные ISO-8601 границы окна по
+   * `scheduledAt`. Без них — без ограничения по времени.
+   *
+   * Для `live`-лекций `scheduledAt` может быть `null` (immediate-live
+   * сценарий из `create`). Prisma по умолчанию ставит `null` в конец
+   * при ASC-сортировке — это устраивает: идущие сейчас без расписания
+   * показываются после ближайших запланированных, что соответствует
+   * UX расписания.
+   */
+  async scheduleByCoach(
+    username: string,
+    from?: string,
+    to?: string,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new NotFoundException(`Coach "${username}" not found`);
+    }
+    const scheduledAtFilter: { gte?: Date; lte?: Date } = {};
+    if (from) scheduledAtFilter.gte = new Date(from);
+    if (to) scheduledAtFilter.lte = new Date(to);
+    const rows = await this.prisma.lecture.findMany({
+      where: {
+        ownerId: user.id,
+        visibility: 'public',
+        status: { in: ['scheduled', 'live'] },
+        ...(Object.keys(scheduledAtFilter).length > 0 && {
+          scheduledAt: scheduledAtFilter,
+        }),
+      },
+      orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
+      take: 100,
+      include: {
+        liveAnalysis: { select: { id: true, slug: true } },
+      },
+    });
+    return rows.map((row) => this.withLiveAnalysisBinding(row));
+  }
+
   async getById(id: string) {
     const row = await this.prisma.lecture.findUnique({
       where: { id },

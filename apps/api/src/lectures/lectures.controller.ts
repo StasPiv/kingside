@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   CreateLectureDto,
+  ScheduleQueryDto,
   StartLectureDto,
   UpdateLectureDto,
 } from './dto/create-lecture.dto';
@@ -100,5 +101,18 @@ export class LecturesController {
     status?: 'scheduled' | 'live' | 'recorded' | 'cancelled',
   ) {
     return this.service.listByCoach(username, status);
+  }
+
+  /**
+   * KS-3801 / ADR-113 §4 крупная задача 3. Публичное расписание
+   * тренера: предстоящие и идущие сейчас лекции с visibility=public
+   * в окне `from`–`to` (обе границы опциональные).
+   */
+  @Get('coaches/:username/schedule')
+  scheduleByCoach(
+    @Param('username') username: string,
+    @Query() query: ScheduleQueryDto,
+  ) {
+    return this.service.scheduleByCoach(username, query.from, query.to);
   }
 }

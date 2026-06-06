@@ -97,3 +97,22 @@ export class UpdateLectureDto {
   @IsIn(['public', 'unlisted'])
   visibility?: 'public' | 'unlisted';
 }
+
+/**
+ * KS-3801 / ADR-113 §4 крупная задача 3. Query для
+ * `GET /coaches/:username/schedule?from&to`.
+ *
+ * `from` / `to` — ISO-8601 границы окна, обе опциональные. Без них
+ * выборка не ограничена по времени (вернёт все scheduled+live
+ * лекции тренера). Если задано только `from` — открытое окно вправо,
+ * если только `to` — открытое окно влево.
+ */
+export class ScheduleQueryDto {
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  to?: string;
+}

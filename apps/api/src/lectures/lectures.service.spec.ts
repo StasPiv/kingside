@@ -363,6 +363,100 @@ describe('LecturesService', () => {
     });
   });
 
+  // ─── KS-3801: scheduleByCoach ─────────────────────────────────────
+
+  describe('scheduleByCoach', () => {
+    it('404 если username не найден', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(null);
+      await expect(service.scheduleByCoach('ghost')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('фильтр: ownerId, visibility=public, status in [scheduled, live]', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ id: 'u-1' });
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      await service.scheduleByCoach('alice');
+      const args = prisma.lecture.findMany.mock.calls[0][0];
+      expect(args.where).toEqual({
+        ownerId: 'u-1',
+        visibility: 'public',
+        status: { in: ['scheduled', 'live'] },
+      });
+      // ASC по scheduledAt — ближайшие сверху.
+      expect(args.orderBy).toEqual([
+        { scheduledAt: 'asc' },
+        { createdAt: 'asc' },
+      ]);
+    });
+
+    it('from применяется как gte по scheduledAt', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ id: 'u-1' });
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      await service.scheduleByCoach('alice', '2026-06-06T00:00:00.000Z');
+      const args = prisma.lecture.findMany.mock.calls[0][0];
+      expect(args.where.scheduledAt.gte).toBeInstanceOf(Date);
+      expect(args.where.scheduledAt.lte).toBeUndefined();
+    });
+
+    it('to применяется как lte по scheduledAt', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ id: 'u-1' });
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      await service.scheduleByCoach('alice', undefined, '2026-07-01T00:00:00.000Z');
+      const args = prisma.lecture.findMany.mock.calls[0][0];
+      expect(args.where.scheduledAt.gte).toBeUndefined();
+      expect(args.where.scheduledAt.lte).toBeInstanceOf(Date);
+    });
+
+    it('from и to задают замкнутое окно', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ id: 'u-1' });
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      await service.scheduleByCoach(
+        'alice',
+        '2026-06-06T00:00:00.000Z',
+        '2026-07-01T00:00:00.000Z',
+      );
+      const args = prisma.lecture.findMany.mock.calls[0][0];
+      expect(args.where.scheduledAt.gte).toBeInstanceOf(Date);
+      expect(args.where.scheduledAt.lte).toBeInstanceOf(Date);
+    });
+
+    it('без from/to ключ scheduledAt в where отсутствует', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ id: 'u-1' });
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      await service.scheduleByCoach('alice');
+      const args = prisma.lecture.findMany.mock.calls[0][0];
+      expect(args.where.scheduledAt).toBeUndefined();
+    });
+
+    it('возвращает liveAnalysis { id, slug, url } для live и null для scheduled', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ id: 'u-1' });
+      prisma.lecture.findMany.mockResolvedValueOnce([
+        {
+          id: 'l-sched',
+          status: 'scheduled',
+          scheduledAt: new Date('2026-06-10T18:00:00Z'),
+          liveAnalysisId: null,
+          liveAnalysis: null,
+        },
+        {
+          id: 'l-live',
+          status: 'live',
+          scheduledAt: null,
+          liveAnalysisId: 'la-1',
+          liveAnalysis: { id: 'la-1', slug: 'SLUG000003' },
+        },
+      ]);
+      const r = await service.scheduleByCoach('alice');
+      expect(r[0].liveAnalysis).toBeNull();
+      expect(r[1].liveAnalysis).toEqual({
+        id: 'la-1',
+        slug: 'SLUG000003',
+        url: 'https://kingside.site/live/SLUG000003',
+      });
+    });
+  });
+
   // ─── getById ──────────────────────────────────────────────────────
 
   describe('getById', () => {
