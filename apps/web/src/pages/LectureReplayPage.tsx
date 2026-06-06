@@ -204,34 +204,13 @@ export function LectureReplayPage() {
     setCurrentTimeMs(Math.max(0, Math.min(durationMs, nextMs)));
   }, [durationMs]);
 
-  // KS-3798: динамическая высота плеера. Плеер «прилипает» к низу
-  // (`position: sticky; bottom: 0`) и при размере доски L
-  // перекрывал кнопки навигации под доской (стрелки шагов, табы
-  // «Ходы / Движок / Дерево / AI»). Решение — добавить контейнеру
-  // с AnalysisPage нижний отступ ровно по высоте плеера. ResizeObserver
-  // отслеживает перенос кнопок на мобильном (flex-wrap), чтобы
-  // отступ всегда совпадал с реальной высотой.
-  const playerRef = useRef<HTMLDivElement | null>(null);
-  const [playerHeight, setPlayerHeight] = useState<number>(0);
-  useEffect(() => {
-    const el = playerRef.current;
-    if (!el) return;
-    if (typeof ResizeObserver === 'undefined') {
-      // Старые браузеры — фиксируем 120px как разумный дефолт
-      // (range + строка с кнопками + padding с safe-area).
-      setPlayerHeight(120);
-      return;
-    }
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      setPlayerHeight(entry.contentRect.height);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-    // Перезапускаем наблюдение если плеер пересоздаётся (смена
-    // ready/no-recording — ref на другую ноду).
-  }, [state.kind]);
+  // KS-3798 (повторно): первая попытка с sticky-плеером + динамическим
+  // padding-bottom не сработала — плеер позиционировался относительно
+  // `.main` (overflow:hidden), а AnalysisPage внутри забирает всю
+  // высоту через flex:1 независимо от padding обёртки. Перешёл на
+  // flex-колоночный layout (см. JSX ниже): плеер — обычный flex-ребёнок
+  // c flex-shrink:0, AnalysisPage — flex:1; min-height:0. Доска
+  // пересчитывается сама.
 
   // ─── replay-проп для AnalysisPage ──────────────────────────────────
   const replay: ReplayLectureProps | null = useMemo(() => {
@@ -317,6 +296,23 @@ export function LectureReplayPage() {
     <div
       className="lecture-replay-page"
       data-testid="lecture-replay-page"
+      // KS-3798 (повторно): AnalysisPage снаружи `body.has-analysis-page
+      // .main` (см. layout.css §«Game/Analysis») — это flex-колонка с
+      // overflow:hidden, и `.analysis-page` тянет flex:1. Если оставить
+      // плеер sticky-блоком, он позиционируется относительно scrolling
+      // ancestor (`.main`), а AnalysisPage ВСЕГДА забирает всю высоту
+      // `.main` независимо от padding-bottom родителя — поэтому
+      // навигация под доской уходит за плеер. Решение — `.lecture-replay-
+      // page` сам flex-колонка: nav (auto) → AnalysisPage-wrapper
+      // (flex:1, min-height:0) → плеер (auto, обычный блок). Доска
+      // внутри AnalysisPage пересчитает свой размер от уменьшенной
+      // высоты родителя и навигация всегда поместится над плеером.
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
+      }}
     >
       {/* KS-3797: убрали большой `h1` и отдельную строку «by …» —
           они занимали вертикаль, из-за чего доска обрезалась снизу
@@ -377,28 +373,31 @@ export function LectureReplayPage() {
           {/* Сама «толстая» страница анализа в режиме replay.
               Внутри AnalysisPage на каждое изменение currentTimeMs
               пересчитывается review-state через applyReplayTree.
-              KS-3798: оборачиваем в контейнер с нижним отступом
-              `playerHeight + 16` — sticky-плеер ниже не перекрывает
-              навигационные кнопки под доской. Запас 16px нужен
-              чтобы между последним элементом AnalysisPage и краем
-              плеера оставался зазор. */}
+              KS-3798: обёртка — flex-ребёнок с flex:1; min-height:0.
+              Так AnalysisPage получает оставшуюся после плеера высоту,
+              а доска внутри пересчитает свой размер от реального
+              видимого пространства, не выезжая под плеер. */}
           <div
             data-testid="lecture-replay-analysis-wrapper"
-            style={{ paddingBottom: playerHeight + 16 }}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
           >
             {replay && <AnalysisPage replay={replay} />}
           </div>
 
-          {/* Плеер: progress + play/pause + скорость. Стили inline
-              чтобы не плодить отдельный CSS-файл под одну страницу;
-              layout-инженер позже причешет. */}
+          {/* Плеер: progress + play/pause + скорость. Обычный блок,
+              flex-shrink:0 — занимает свою высоту в нижней части
+              `.lecture-replay-page`. Sticky/fixed убраны: они
+              позиционировались относительно `.main` (overflow:hidden)
+              и перекрывали навигацию под доской AnalysisPage. */}
           <div
-            ref={playerRef}
             className="lecture-replay-player"
             data-testid="lecture-replay-player"
             style={{
-              position: 'sticky',
-              bottom: 0,
               background: '#fff',
               borderTop: '1px solid #ddd',
               // KS-3797: учитываем системные безопасные отступы
@@ -409,11 +408,7 @@ export function LectureReplayPage() {
               display: 'flex',
               flexDirection: 'column',
               gap: 8,
-              marginTop: 16,
-              // На мобильных браузерах с включённым нижним меню
-              // приложения z-index поднимаем чтобы плеер был выше
-              // элементов AnalysisPage.
-              zIndex: 5,
+              flexShrink: 0,
             }}
           >
             <input
