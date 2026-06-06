@@ -754,6 +754,18 @@
     "durMin": "m",
     "durSec": "s"
   },
+  "lectureReplay": {
+    "notFoundTitle": "Lecture not found",
+    "notFoundBody": "The lecture link is invalid or the lecture has been removed.",
+    "loadError": "Failed to load the lecture.",
+    "noRecordingBody": "This lecture has no recording yet. Please come back later.",
+    "truncatedNote": "Recording was truncated — only the first part is available.",
+    "emptyBody": "No content was recorded.",
+    "byOwner": "by",
+    "play": "Play",
+    "pause": "Pause",
+    "progressLabel": "Playback position"
+  },
   "lecture": {
     "startMenuItem": "Start lecture",
     "create": {

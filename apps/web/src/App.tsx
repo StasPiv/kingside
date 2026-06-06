@@ -29,6 +29,7 @@ import { BroadcastLiveGamePage } from './pages/BroadcastLiveGamePage';
 import { PlayersPage } from './pages/PlayersPage';
 import { PlayerProfilePage } from './pages/PlayerProfilePage';
 import { CoachProfilePage } from './pages/CoachProfilePage';
+import { LectureReplayPage } from './pages/LectureReplayPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { LiveGamesPage } from './pages/LiveGamesPage';
 import { WatchGamePage } from './pages/WatchGamePage';
@@ -795,6 +796,9 @@ export function App() {
         <Route path="/player/:username" element={<PlayerProfilePage />} />
         {/* KS-3787 / ADR-113 §4 эпик 1: публичная витрина тренера. */}
         <Route path="/coach/:username" element={<CoachProfilePage />} />
+        {/* KS-3794 / ADR-113 §4 крупная задача 2: воспроизведение
+            записи лекции с плеером (play/pause/seek/speed). */}
+        <Route path="/lectures/:id" element={<LectureReplayPage />} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />

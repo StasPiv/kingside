@@ -241,6 +241,75 @@ interface AnalysisPageProps {
    *    использование — KS-3748; здесь только готовится почва.
    */
   liveSession?: { slug: string; mode: 'viewer' | 'owner' };
+  /**
+   * KS-3794 / ADR-113 §4 крупная задача 2. Режим воспроизведения
+   * записи лекции. AnalysisPage становится «зрителем по таймеру»:
+   * вместо реальной WS-сессии источник событий — массив `events`
+   * из `GET /lectures/:id/recording`, а текущее положение в записи
+   * управляется через контролируемый `currentTimeMs` (мс от
+   * `lecture.startedAt`).
+   *
+   * Поведение:
+   *  - Owner-only UI подавлен (publicMode принудительно true).
+   *  - useAnalysisLiveBroadcast отключён через `disabled` —
+   *    REST-restore по `analysisId` и эмит state-patch'ей нам тут не
+   *    нужны.
+   *  - На каждый новый `currentTimeMs` пересчитываем состояние:
+   *    последний `reset` с `t ≤ currentTimeMs` задаёт initialFen;
+   *    последний `state-patch` с `t ≤ currentTimeMs` после этого
+   *    reset'а применяется через тот же `deserializeLiveTree`-путь,
+   *    что и в viewer-режиме (KS-3780). Move-события игнорируются —
+   *    после KS-3780 они не двигают курсор зрителя; реальное
+   *    состояние дерева приходит со state-patch'ем.
+   *  - Локальная навигация (стрелки, клик по ходу) работает как у
+   *    viewer-live: зритель может уйти в свою ветку, следующий
+   *    state-patch применяется через тот же `pending`-механизм.
+   */
+  replay?: ReplayLectureProps;
+}
+
+/**
+ * KS-3794: контракт пропа `replay`. Локальный тип `RecordedEvent`
+ * описан под KS-3793 backend и не выложен в shared — поднимем туда,
+ * как только потребуется второму потребителю.
+ */
+export type RecordedEvent =
+  | { t: number; type: 'move'; payload: { uci: string; ply: number } }
+  | {
+      t: number;
+      type: 'state-patch';
+      payload: {
+        tree: string;
+        currentGlobalIndex?: number;
+        orientation: 'white' | 'black';
+      };
+    }
+  | {
+      t: number;
+      type: 'reset';
+      payload: { fen: string; orientation: 'white' | 'black' };
+    }
+  | {
+      t: number;
+      type: 'closed';
+      payload: { reason: 'by_owner' | 'inactivity' };
+    };
+
+export interface ReplayLectureProps {
+  /** Идентификатор лекции — используется для `key` AnalysisPage. */
+  lectureId: string;
+  events: RecordedEvent[];
+  durationMs: number;
+  startingFen: string | null;
+  orientation: 'white' | 'black';
+  /**
+   * Текущее положение в записи (мс от `lecture.startedAt`). Меняется
+   * контейнером (LectureReplayPage) — таймером при play, slider'ом
+   * при seek. AnalysisPage сам не знает про play/pause и скорость;
+   * для неё «прыжок назад» — это просто новое значение `currentTimeMs`,
+   * меньшее предыдущего, и пересчёт состояния с нуля.
+   */
+  currentTimeMs: number;
 }
 
 /**
@@ -649,6 +718,7 @@ export function AnalysisPage({
   embedded = false,
   embeddedPgn,
   liveSession,
+  replay,
 }: AnalysisPageProps = {}) {
   const params = useParams<{
     id?: string;
@@ -661,11 +731,15 @@ export function AnalysisPage({
   // KS-3747: live-инстанс монтируется по slug — пересоздаём дерево
   // при смене slug/mode (но НЕ при каждом state-patch, иначе
   // потеряли бы контекст зрителя — см. ADR-111 §2.8 п.5).
+  // KS-3794: режим replay — key по lectureId. При переходе с одной
+  // записи на другую нужно полностью пересоздать review-state,
+  // иначе старое дерево лекции А «перетечёт» в лекцию B.
   const key =
     params.id ??
     params.gameId ??
     (embedded ? `embedded:${embeddedPgn ?? ''}` : null) ??
     (liveSession ? `live:${liveSession.slug}:${liveSession.mode}` : null) ??
+    (replay ? `replay:${replay.lectureId}` : null) ??
     '__none__';
   return (
     <AnalysisPageInner
@@ -674,6 +748,7 @@ export function AnalysisPage({
       embedded={embedded}
       embeddedPgn={embeddedPgn}
       liveSession={liveSession}
+      replay={replay}
     />
   );
 }
@@ -683,6 +758,7 @@ function AnalysisPageInner({
   embedded = false,
   embeddedPgn,
   liveSession,
+  replay,
 }: AnalysisPageProps) {
   // KS-3182: embedded === read-only во всех точках, где `publicMode`
   // используется как гейт мутаций (autosave, share, title-edit,
@@ -697,7 +773,11 @@ function AnalysisPageInner({
   // LiveBroadcastControl (KS-3736), который условие
   // `!embedded && !publicMode && user` уже учитывает.
   const isViewerLive = liveSession?.mode === 'viewer';
-  const publicMode = publicModeProp || embedded || isViewerLive;
+  // KS-3794: replay-режим — тоже read-only. Owner-only UI (autosave,
+  // share, edit-title, set-position, «Транслировать») подавлен через
+  // тот же publicMode-флаг, что и для viewer-live.
+  const isReplay = !!replay;
+  const publicMode = publicModeProp || embedded || isViewerLive || isReplay;
   // Add class to body/app for mobile layout (fallback for browsers without :has() support)
   useEffect(() => {
     // KS-3182: body-class `has-analysis-page` нужна mobile-layout'у
@@ -1030,6 +1110,123 @@ function AnalysisPageInner({
     [liveFull.currentGlobalIndex, loadFromPgn, gotoMove, gotoFirst],
   );
 
+  // KS-3794: applier для replay-режима. Логика та же, что и в
+  // applyLiveTree (десериализация + setInitialFen + loadFromPgn +
+  // gotoMove по currentGlobalIndex), но индекс берётся не из
+  // liveFull-хука (он отключён), а напрямую из state-patch'а
+  // recorded-события. Дублирование оправдано: applyLiveTree
+  // замыкает liveFull.currentGlobalIndex, а нам нужен явный
+  // параметр, чтобы пересчёт по таймеру был детерминированным.
+  const applyReplayTree = useCallback(
+    (nextTree: string, replayGlobalIndex: number | null) => {
+      try {
+        const parsed = deserializeLiveTree(nextTree);
+        if (parsed.initialFen) {
+          setInitialFen(parsed.initialFen);
+        }
+        loadFromPgn(parsed.history, parsed.initialAnnotations);
+        setPgnHeaders(parsed.headers ?? {});
+        if (typeof parsed.title === 'string') {
+          setAnalysisTitle(parsed.title);
+        }
+        if (typeof replayGlobalIndex === 'number') {
+          const target = searchInHistory(parsed.history, replayGlobalIndex) as
+            | ChessMove
+            | null;
+          if (target) {
+            gotoMove(target);
+          }
+        } else {
+          gotoFirst();
+        }
+      } catch {
+        /* битый JSON — оставляем дерево как есть */
+      }
+    },
+    [loadFromPgn, gotoMove, gotoFirst],
+  );
+
+  // KS-3794: пересчёт состояния replay на каждое изменение
+  // currentTimeMs. Стратегия:
+  //  1. Найти последний `reset` с t ≤ currentTimeMs — он задаёт
+  //     initialFen и orientation (если был).
+  //  2. Найти последний `state-patch` с t ≤ currentTimeMs И с
+  //     индексом ПОСЛЕ найденного reset'а — он несёт актуальное
+  //     дерево автора через `deserializeLiveTree` + currentGlobalIndex.
+  //  3. Если state-patch'а не нашлось — applied состояние: «пустое
+  //     дерево + initialFen из reset/recording.startingFen».
+  //  4. Move-события игнорируются (после KS-3780 они не двигают
+  //     курсор зрителя; реальное состояние всегда даёт state-patch).
+  //
+  // Поскольку каждый расчёт берёт состояние «с нуля», seek назад
+  // работает так же, как seek вперёд — никакого инкрементального
+  // накопления, никакого baseline-кэша.
+  const lastAppliedReplaySignatureRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!replay) return;
+    const { events, currentTimeMs, startingFen, orientation } = replay;
+    // Ищем индексы reset и state-patch с t ≤ currentTimeMs. events
+    // отсортирован по t (гарантирует backend, см. KS-3793).
+    let lastResetIdx = -1;
+    let lastStatePatchIdx = -1;
+    for (let i = 0; i < events.length; i += 1) {
+      const e = events[i];
+      if (e.t > currentTimeMs) break;
+      if (e.type === 'reset') {
+        lastResetIdx = i;
+        // Сбрасываем state-patch — после reset берётся только
+        // последующий state-patch.
+        lastStatePatchIdx = -1;
+      } else if (e.type === 'state-patch') {
+        lastStatePatchIdx = i;
+      }
+    }
+    // Сигнатура «что должно быть применено». Если она совпала с
+    // последней — ничего не делаем, не дёргаем reducer.
+    const signature = `${lastResetIdx}|${lastStatePatchIdx}`;
+    if (lastAppliedReplaySignatureRef.current === signature) return;
+    lastAppliedReplaySignatureRef.current = signature;
+
+    // 1) initialFen — из последнего reset или из recording.startingFen.
+    if (lastResetIdx >= 0) {
+      const resetEvent = events[lastResetIdx];
+      if (resetEvent.type === 'reset') {
+        setInitialFen(resetEvent.payload.fen);
+        setBoardOrientation(resetEvent.payload.orientation);
+      }
+    } else if (startingFen) {
+      setInitialFen(startingFen);
+      setBoardOrientation(orientation);
+    } else {
+      // Лекция началась со стандартной позиции и без reset'ов —
+      // сбрасываем дерево, оставляя текущий initialFen (default).
+      loadFromPgn([]);
+      setBoardOrientation(orientation);
+    }
+
+    // 2) state-patch — если есть, применяем дерево автора.
+    if (lastStatePatchIdx >= 0) {
+      const sp = events[lastStatePatchIdx];
+      if (sp.type === 'state-patch') {
+        applyReplayTree(
+          sp.payload.tree,
+          typeof sp.payload.currentGlobalIndex === 'number'
+            ? sp.payload.currentGlobalIndex
+            : null,
+        );
+        setBoardOrientation(sp.payload.orientation);
+      }
+    } else {
+      // 3) Нет state-patch'а в текущем интервале — показываем
+      // стартовую позицию (initialFen уже выставлен выше).
+      loadFromPgn([]);
+    }
+    // loadFromPgn / setInitialFen / setBoardOrientation /
+    // applyReplayTree стабильны (useCallback), но добавляем в deps
+    // только реально меняющиеся значения — события и текущее время.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replay?.events, replay?.currentTimeMs, applyReplayTree]);
+
   // Шлюз входящих state-patch'ей. Решаем: применить сразу или отложить.
   useEffect(() => {
     if (!isViewerLive) return;
@@ -1170,7 +1367,9 @@ function AnalysisPageInner({
     // авторизованного владельца REST-restore поднимет его собственную
     // трансляцию, эффект эмита KS-3749 начнёт слать обратно state-patch
     // с PGN страницы (зрительский state) и отравит трансляцию.
-    disabled: isViewerLive,
+    // KS-3794: replay-режим тоже глушит хук-стартёр трансляции —
+    // у нас нет реальной WS-сессии, эмитить state-patch некуда.
+    disabled: isViewerLive || isReplay,
   });
 
   // Обёртка над `rawMakeVariantMove`: пробрасываем UCI в live-трансляцию
