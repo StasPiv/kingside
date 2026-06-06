@@ -188,7 +188,11 @@ export function LiveAnalysisViewerPage() {
               сохранением позиции зрителя (ADR-111 §2.8 п.5);
             - owner-only UI (autosave, Share, edit-title, Set Position,
               «Транслировать») подавлен гейтом publicMode || isViewerLive. */}
-      <AnalysisPage liveSession={{ slug, mode: 'viewer' }} />
+      {/* KS-3779: key={slug} принудительно пересоздаёт всё дерево
+          AnalysisPage при смене slug — иначе при переходе зрителя с
+          трансляции A на B в том же окне в Movelist оставалось дерево
+          PGN от A (внутренний review-state не сбрасывался). */}
+      <AnalysisPage key={slug} liveSession={{ slug, mode: 'viewer' }} />
 
       {closedReason && (
         <div
