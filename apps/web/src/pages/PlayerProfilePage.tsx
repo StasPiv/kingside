@@ -7,6 +7,8 @@ import { RatingHistoryChart } from '../components/RatingHistoryChart';
 import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
 // KS-2236 (ADR-035 §7, E3): drill-статистика на собственном профиле.
 import { DrillStatsPanel } from '../components/drills';
+// KS-3738 (ADR-110 §8): секция «Мои live-трансляции» на собственном профиле.
+import { MyLiveAnalysesSection } from '../components/profile/MyLiveAnalysesSection';
 import { useFeatureFlag } from '../context/FeatureFlagsContext';
 import type { PlayerProfileResponse } from '@kingside/shared';
 
@@ -350,6 +352,15 @@ export function PlayerProfilePage() {
       {drillsEnabled && currentUser && currentUser.id === profile.id && (
         <div className="player-profile-section">
           <DrillStatsPanel />
+        </div>
+      )}
+
+      {/* KS-3738 (ADR-110 §8): «Мои live-трансляции» — только на своём
+          профиле. Backend-endpoint `/live-analyses/me` под JwtAuthGuard,
+          на чужом профиле эта секция не нужна. */}
+      {currentUser && currentUser.id === profile.id && (
+        <div className="player-profile-section">
+          <MyLiveAnalysesSection />
         </div>
       )}
 
