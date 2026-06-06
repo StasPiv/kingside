@@ -69,6 +69,18 @@ export interface UseLiveAnalysisSocketState {
   emitClose: () => void;
   /** Принудительный запрос snapshot-а (страховка при подозрении на рассинхрон). */
   requestSync: () => void;
+  /**
+   * KS-3742 / ADR-111 §2.2. Эмит `state-patch` (owner-only) —
+   * annotated PGN с опциональными headers/currentPly/orientation.
+   * Без дебаунса: дебаунс-логика — на стороне потребителя
+   * (`useLiveAnalysisBroadcast`), здесь только сырая отправка.
+   */
+  emitStatePatch: (params: {
+    pgn: string;
+    headers?: Record<string, string>;
+    currentPly?: number;
+    orientation?: 'white' | 'black';
+  }) => void;
 }
 
 export function useLiveAnalysisSocket({
@@ -206,5 +218,29 @@ export function useLiveAnalysisSocket({
     liveAnalysisSocket.emit(LiveAnalysisEvents.SYNC_REQUEST, { slug });
   }, [slug]);
 
-  return { connected, snapshot, emitMove, emitReset, emitClose, requestSync };
+  const emitStatePatch = useCallback(
+    (params: {
+      pgn: string;
+      headers?: Record<string, string>;
+      currentPly?: number;
+      orientation?: 'white' | 'black';
+    }) => {
+      if (!slug) return;
+      liveAnalysisSocket.emit(LiveAnalysisEvents.STATE_PATCH, {
+        slug,
+        ...params,
+      });
+    },
+    [slug],
+  );
+
+  return {
+    connected,
+    snapshot,
+    emitMove,
+    emitReset,
+    emitClose,
+    requestSync,
+    emitStatePatch,
+  };
 }
