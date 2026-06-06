@@ -6,6 +6,7 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Request,
@@ -13,14 +14,20 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
-import { CreateLectureDto, StartLectureDto } from './dto/create-lecture.dto';
+import {
+  CreateLectureDto,
+  StartLectureDto,
+  UpdateLectureDto,
+} from './dto/create-lecture.dto';
 import { LecturesService } from './lectures.service';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1: REST-эндпоинты лекций.
  *
  *   POST   /lectures                              — создать (Jwt-only).
+ *   PATCH  /lectures/:id                          — KS-3800: правки scheduled-лекции (Jwt-only, owner).
  *   POST   /lectures/:id/start                    — перевести в live (Jwt-only, owner).
+ *   POST   /lectures/:id/cancel                   — KS-3800: отменить scheduled-лекцию (Jwt-only, owner).
  *   GET    /lectures/:id                          — детали (публично, public + unlisted).
  *   GET    /lectures/:id/recording                — запись (KS-3793, immutable cache).
  *   GET    /coaches/:username/lectures            — список тренера (публично, public-only).
@@ -39,6 +46,16 @@ export class LecturesController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Patch('lectures/:id')
+  async update(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateLectureDto,
+  ) {
+    return this.service.update(id, req.user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('lectures/:id/start')
   @HttpCode(200)
   async start(
@@ -47,6 +64,16 @@ export class LecturesController {
     @Body() dto: StartLectureDto,
   ) {
     return this.service.start(id, req.user.id, { analysisId: dto.analysisId });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('lectures/:id/cancel')
+  @HttpCode(200)
+  async cancel(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.cancel(id, req.user.id);
   }
 
   @Get('lectures/:id')

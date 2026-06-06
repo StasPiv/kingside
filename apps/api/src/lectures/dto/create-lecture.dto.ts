@@ -64,3 +64,36 @@ export class StartLectureDto {
   @IsUUID('4')
   analysisId?: string;
 }
+
+/**
+ * KS-3800 / ADR-113 §4 крупная задача 3. Body для `PATCH /lectures/:id`.
+ *
+ * Все поля опциональные — PATCH-семантика: изменяется только то, что
+ * передано. Доступно только для лекции в статусе `scheduled`: сервис
+ * вернёт 400, если статус другой. `scheduledAt` нельзя двигать на
+ * already-live/recorded — то же правило.
+ *
+ * Поле `status` намеренно отсутствует: переход в `live` делает
+ * `POST /lectures/:id/start`, в `recorded` — финализатор записи, в
+ * `cancelled` — `POST /lectures/:id/cancel`.
+ */
+export class UpdateLectureDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string;
+
+  @IsOptional()
+  @IsIn(['public', 'unlisted'])
+  visibility?: 'public' | 'unlisted';
+}

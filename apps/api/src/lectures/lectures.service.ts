@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
-import { CreateLectureDto } from './dto/create-lecture.dto';
+import { CreateLectureDto, UpdateLectureDto } from './dto/create-lecture.dto';
 
 /**
  * KS-3785/KS-3789. Возвращаемое значение POST/start: запись Lecture
@@ -294,6 +294,81 @@ export class LecturesService {
       throw new NotFoundException(`Lecture "${id}" not found`);
     }
     return this.withLiveAnalysisBinding(row);
+  }
+
+  /**
+   * KS-3800 / ADR-113 §4 крупная задача 3. PATCH запланированной
+   * лекции. Доступно только для `status='scheduled'`; для любого
+   * другого статуса (live/recorded/cancelled) — 400. Передаваемые
+   * поля (title, description, scheduledAt, visibility) применяются
+   * выборочно (PATCH-семантика).
+   */
+  async update(id: string, ownerId: string, dto: UpdateLectureDto) {
+    const lecture = await this.prisma.lecture.findUnique({ where: { id } });
+    if (!lecture) {
+      throw new NotFoundException(`Lecture "${id}" not found`);
+    }
+    if (lecture.ownerId !== ownerId) {
+      throw new ForbiddenException('Only the owner can update this lecture');
+    }
+    if (lecture.status !== 'scheduled') {
+      throw new BadRequestException(
+        `Cannot update a lecture in status "${lecture.status}" — only scheduled lectures are editable`,
+      );
+    }
+    const data: {
+      title?: string;
+      description?: string | null;
+      scheduledAt?: Date;
+      visibility?: 'public' | 'unlisted';
+    } = {};
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.description !== undefined) {
+      data.description = dto.description === '' ? null : dto.description;
+    }
+    if (dto.scheduledAt !== undefined) data.scheduledAt = new Date(dto.scheduledAt);
+    if (dto.visibility !== undefined) data.visibility = dto.visibility;
+
+    const updated = await this.prisma.lecture.update({
+      where: { id },
+      data,
+      include: {
+        liveAnalysis: { select: { id: true, slug: true } },
+      },
+    });
+    this.logger.log(`Lecture updated: id=${id} owner=${ownerId} fields=${Object.keys(data).join(',') || '-'}`);
+    return this.withLiveAnalysisBinding(updated);
+  }
+
+  /**
+   * KS-3800 / ADR-113 §4 крупная задача 3. POST /lectures/:id/cancel
+   * — переводит запланированную лекцию в `cancelled`. Допустимо
+   * только для `status='scheduled'`. Идемпотентным НЕ делается:
+   * уже-cancelled → 400 (по описанию ADR — отдельная финальная
+   * стадия, повторная отмена это user-error).
+   */
+  async cancel(id: string, ownerId: string) {
+    const lecture = await this.prisma.lecture.findUnique({ where: { id } });
+    if (!lecture) {
+      throw new NotFoundException(`Lecture "${id}" not found`);
+    }
+    if (lecture.ownerId !== ownerId) {
+      throw new ForbiddenException('Only the owner can cancel this lecture');
+    }
+    if (lecture.status !== 'scheduled') {
+      throw new BadRequestException(
+        `Cannot cancel a lecture in status "${lecture.status}" — only scheduled lectures can be cancelled`,
+      );
+    }
+    const updated = await this.prisma.lecture.update({
+      where: { id },
+      data: { status: 'cancelled' },
+      include: {
+        liveAnalysis: { select: { id: true, slug: true } },
+      },
+    });
+    this.logger.log(`Lecture cancelled: id=${id} owner=${ownerId}`);
+    return this.withLiveAnalysisBinding(updated);
   }
 
   /**

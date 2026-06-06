@@ -411,6 +411,179 @@ describe('LecturesService', () => {
     });
   });
 
+  // ─── KS-3800: update (PATCH) ──────────────────────────────────────
+
+  describe('update', () => {
+    const scheduled = {
+      id: 'l-1',
+      ownerId: 'u-1',
+      status: 'scheduled' as const,
+    };
+
+    it('404 если лекции нет', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(null);
+      await expect(
+        service.update('missing', 'u-1', { title: 'x' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('403 если не владелец', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        ownerId: 'OTHER',
+      });
+      await expect(
+        service.update('l-1', 'u-1', { title: 'x' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('400 если статус не scheduled (например, live)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      await expect(
+        service.update('l-1', 'u-1', { scheduledAt: '2026-07-01T10:00:00Z' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
+    });
+
+    it('400 если статус recorded', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+      });
+      await expect(
+        service.update('l-1', 'u-1', { title: 'new' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('обновляет title/description/scheduledAt/visibility для scheduled', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        title: 'Новое название',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {
+        title: 'Новое название',
+        description: 'описание',
+        scheduledAt: '2026-07-01T10:00:00Z',
+        visibility: 'unlisted',
+      });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.where).toEqual({ id: 'l-1' });
+      expect(args.data.title).toBe('Новое название');
+      expect(args.data.description).toBe('описание');
+      expect(args.data.scheduledAt).toBeInstanceOf(Date);
+      expect(args.data.visibility).toBe('unlisted');
+    });
+
+    it('пустая строка description → null', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { description: '' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data.description).toBeNull();
+    });
+
+    it('PATCH без полей → пустой UPDATE data', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {});
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({});
+    });
+  });
+
+  // ─── KS-3800: cancel ──────────────────────────────────────────────
+
+  describe('cancel', () => {
+    const scheduled = {
+      id: 'l-1',
+      ownerId: 'u-1',
+      status: 'scheduled' as const,
+    };
+
+    it('404 если лекции нет', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(null);
+      await expect(service.cancel('missing', 'u-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('403 если не владелец', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        ownerId: 'OTHER',
+      });
+      await expect(service.cancel('l-1', 'u-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('400 если уже cancelled', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'cancelled',
+      });
+      await expect(service.cancel('l-1', 'u-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
+    });
+
+    it('400 если live (нельзя отменить идущую)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      await expect(service.cancel('l-1', 'u-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('400 если recorded', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+      });
+      await expect(service.cancel('l-1', 'u-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('scheduled → cancelled', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'cancelled',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      const r = await service.cancel('l-1', 'u-1');
+      expect(prisma.lecture.update).toHaveBeenCalledWith({
+        where: { id: 'l-1' },
+        data: { status: 'cancelled' },
+        include: { liveAnalysis: { select: { id: true, slug: true } } },
+      });
+      // service.cancel возвращает запись через withLiveAnalysisBinding —
+      // поля Lecture развёрнуты на верхнем уровне, liveAnalysis рядом.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((r as any).status).toBe('cancelled');
+      expect(r.liveAnalysis).toBeNull();
+    });
+  });
+
   // ─── KS-3793: getRecordingByLectureId ─────────────────────────────
 
   describe('getRecordingByLectureId', () => {
