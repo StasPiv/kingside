@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next';
 import type {
   LiveAnalysisCloseReason,
   LiveAnalysisResponse,
+  LiveAnalysisSyncSnapshot,
 } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
 import { useLiveAnalysisSocket } from '../hooks/useLiveAnalysisSocket';
+import { deserializeLiveTree } from '../review/utils/liveTreeCodec';
 import { AnalysisPage } from './AnalysisPage';
 
 /**
@@ -68,6 +70,11 @@ export function LiveAnalysisViewerPage() {
   const [error, setError] = useState<'not-found' | 'load-failed' | null>(null);
   const [closedReason, setClosedReason] =
     useState<LiveAnalysisCloseReason | null>(null);
+  // KS-3780 follow-up: живой заголовок анализа. REST-снимок отдаёт
+  // title только на момент создания трансляции, а автор может
+  // переименовать анализ позже — без подписки на sync такая правка
+  // у зрителя бы не отображалась.
+  const [liveTitle, setLiveTitle] = useState<string | null>(null);
 
   // ─── Early-fetch (existence-check + meta) ─────────────────────────
   useEffect(() => {
@@ -115,11 +122,27 @@ export function LiveAnalysisViewerPage() {
     },
     [],
   );
+  // KS-3780 follow-up: на каждый sync читаем `title` из дерева автора
+  // и обновляем заголовок над AnalysisPage. AnalysisPage внутри
+  // подписана сама и применяет дерево к review-state, мы же тут
+  // используем сокет только ради заголовка и события closed.
+  const handleSync = useCallback((payload: LiveAnalysisSyncSnapshot) => {
+    if (typeof payload.tree !== 'string') return;
+    try {
+      const parsed = deserializeLiveTree(payload.tree);
+      if (typeof parsed.title === 'string') {
+        setLiveTitle(parsed.title);
+      }
+    } catch {
+      /* неразборное дерево — заголовок просто не обновляем */
+    }
+  }, []);
   useLiveAnalysisSocket({
     // После closed подписка не нужна, иначе мы держим WS-комнату
     // ради уже закрытой трансляции.
     slug: !snapshot || closedReason ? null : slug ?? null,
     onClosed: handleClosed,
+    onSync: handleSync,
   });
 
   // ─── Render: ранние ветки ─────────────────────────────────────────
@@ -168,7 +191,8 @@ export function LiveAnalysisViewerPage() {
     <div className="live-analysis-viewer" data-testid="live-analysis-viewer">
       <header className="live-analysis-viewer__header">
         <h1 className="live-analysis-viewer__title">
-          {snapshot.title ||
+          {liveTitle ||
+            snapshot.title ||
             t('liveAnalysisViewer.defaultTitle', 'Live analysis')}
         </h1>
         {snapshot.ownerUsername && (
