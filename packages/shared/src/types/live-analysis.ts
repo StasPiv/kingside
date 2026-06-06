@@ -1,0 +1,257 @@
+/**
+ * KS-3731 / ADR-110: shared types для live-трансляции анализа партии.
+ *
+ * Контракт между `apps/api` (модуль `live-analysis`, namespace
+ * `/live-analysis`) и `apps/web` (страница автора `AnalysisPage` +
+ * страница зрителя `/live/:slug`). Импортируется обеими сторонами,
+ * локально не дублировать.
+ *
+ * Источник истины — `docs/adr/110-live-analysis-broadcast.md`:
+ *   §2.2 — транспорт и события WS.
+ *   §2.3 — жизненный цикл (создание REST, sync, close).
+ *   §2.6 — авторизация (анонимные зрители, owner-only действия).
+ */
+
+// ─── Domain primitives ──────────────────────────────────────────────
+
+/**
+ * Статус трансляции. Источник — enum `LiveAnalysisStatus` в Prisma
+ * (`packages/db/prisma/schema.prisma`).
+ *   - `active` — автор подключён или трансляция в окне неактивности
+ *     до 30 минут (см. cleanup-job, ADR-110 §2.3 B).
+ *   - `closed` — закрыта вручную автором (REST DELETE / WS `close`)
+ *     или по таймауту cleanup-job'ом. Финальное состояние, обратно
+ *     не оживает.
+ */
+export type LiveAnalysisStatus = 'active' | 'closed';
+
+/** Ориентация доски, сохранённая автором на момент старта трансляции. */
+export type LiveAnalysisOrientation = 'white' | 'black';
+
+/**
+ * Причина закрытия в `ClosedEvent`. `by_owner` — явное действие
+ * автора (WS `close` или REST DELETE). `inactivity` — cleanup-job
+ * по `lastActivityAt < NOW() - 30min`.
+ */
+export type LiveAnalysisCloseReason = 'by_owner' | 'inactivity';
+
+// ─── REST DTO ────────────────────────────────────────────────────────
+
+/**
+ * `POST /live-analyses` — тело запроса.
+ *
+ * Все поля опциональны: без них стартует с initial position и без
+ * заголовка. `startingFen` валидируется на сервере через chess.js;
+ * невалидный FEN → 400.
+ */
+export type CreateLiveAnalysisDto = {
+  title?: string;
+  startingFen?: string;
+  orientation?: LiveAnalysisOrientation;
+};
+
+/**
+ * `POST /live-analyses` 201 / `GET /live-analyses/:slug` 200.
+ *
+ * Полный snapshot трансляции для зрительской mount-фазы (фронт
+ * подтягивает это до открытия WS, чтобы заранее рендерить доску).
+ * Текущая позиция — `currentFen`, история ходов берётся отдельным
+ * `SyncSnapshot` после WS-`subscribe`.
+ */
+export type LiveAnalysisResponse = {
+  id: string;
+  slug: string;
+  /** Публичная ссылка вида `https://kingside.site/live/<slug>`. */
+  url: string;
+  ownerId: string;
+  ownerUsername: string | null;
+  title: string | null;
+  startingFen: string | null;
+  currentFen: string;
+  currentPly: number;
+  orientation: LiveAnalysisOrientation;
+  status: LiveAnalysisStatus;
+  /** Текущее число активных зрителей (snapshot на момент запроса). */
+  viewerCount: number;
+  /** ISO-8601 UTC. */
+  createdAt: string;
+  /** ISO-8601 UTC. `null` если ещё active. */
+  closedAt: string | null;
+};
+
+/**
+ * Элемент списка `GET /live-analyses?ownerId=...` (для секции «Мои
+ * трансляции» в профиле). Облегчённая форма без текущего FEN/ply —
+ * детали подтягиваются отдельным запросом по slug.
+ */
+export type LiveAnalysisListItem = {
+  id: string;
+  slug: string;
+  title: string | null;
+  status: LiveAnalysisStatus;
+  createdAt: string;
+  closedAt: string | null;
+  /** Пик числа одновременных зрителей за всю трансляцию (аналитика). */
+  viewerPeak: number;
+};
+
+// ─── WS payloads: client → server ───────────────────────────────────
+
+/**
+ * `subscribe` — присоединение к комнате трансляции. В ответ сервер
+ * шлёт `sync` с полным состоянием.
+ */
+export type LiveAnalysisSubscribePayload = {
+  slug: string;
+};
+
+/** `unsubscribe` — выйти из комнаты (опционально, можно и просто disconnect'нуться). */
+export type LiveAnalysisUnsubscribePayload = {
+  slug: string;
+};
+
+/**
+ * `move` — автор делает ход. Сервер валидирует JWT, ownerId-матч и
+ * легальность UCI в `currentFen` через chess.js. Невалидный ход →
+ * `error { code: 'illegal-move' }` только автору, state не меняется.
+ */
+export type LiveAnalysisMoveClientPayload = {
+  slug: string;
+  /** UCI: `e2e4`, `e7e8q` (promotion). */
+  uci: string;
+};
+
+/**
+ * `reset` — автор полностью сбрасывает позицию (например, перешёл на
+ * разбор другой партии). Опционально передаёт новый стартовый FEN
+ * или PGN; без них — стандартная initial. Сервер очищает историю
+ * ходов в Redis и пушит свежий `sync` всем подписанным.
+ */
+export type LiveAnalysisResetPayload = {
+  slug: string;
+  fen?: string;
+  pgn?: string;
+};
+
+/** `close` — автор завершает трансляцию. Эквивалент `DELETE /live-analyses/:id`. */
+export type LiveAnalysisClosePayload = {
+  slug: string;
+};
+
+/**
+ * `sync` — клиент явно запрашивает свежий snapshot (используется как
+ * страховка при подозрении на рассинхронизацию, см. ADR-110 §2.2:
+ * если применение UCI у зрителя дало другой FEN — re-subscribe).
+ */
+export type LiveAnalysisSyncRequestPayload = {
+  slug: string;
+};
+
+// ─── WS payloads: server → client ───────────────────────────────────
+
+/**
+ * `move` — broadcast хода автора всем подписанным зрителям. `fen`
+ * шлётся как self-check (зритель сверяет результат применения uci
+ * к своему current; рассинхрон → автоматический re-subscribe). `ply` —
+ * порядковый номер для idempotent применения.
+ */
+export type LiveAnalysisMoveEvent = {
+  slug: string;
+  uci: string;
+  fen: string;
+  ply: number;
+};
+
+/**
+ * `sync` — полное состояние трансляции. Шлётся на `subscribe`, на
+ * `reset` (всем) и явный `sync`-запрос от клиента.
+ */
+export type LiveAnalysisSyncSnapshot = {
+  slug: string;
+  startingFen: string;
+  moves: string[];
+  currentFen: string;
+  currentPly: number;
+  orientation: LiveAnalysisOrientation;
+};
+
+/**
+ * `viewers` — изменение числа зрителей. Эмит дросселирован (~раз в
+ * 2с при изменениях), не на каждый join/leave.
+ */
+export type LiveAnalysisViewersEvent = {
+  slug: string;
+  count: number;
+};
+
+/**
+ * `closed` — трансляция завершена. После этого события WS-комнату
+ * можно покидать, новых событий не будет. Зритель видит финальную
+ * позицию в read-only режиме.
+ */
+export type LiveAnalysisClosedEvent = {
+  slug: string;
+  reason: LiveAnalysisCloseReason;
+};
+
+/**
+ * `error` — ошибки гейтвея. Коды:
+ *   - `slug-not-found` — слаг неизвестен или трансляция уже closed.
+ *   - `forbidden` — попытка `move`/`reset`/`close` не от owner'а.
+ *   - `illegal-move` — UCI не парсится или нелегален в currentFen.
+ *   - `rate-limit` — превышен лимит на эмит (защита от автора-бота,
+ *      ADR-110 §2.9.15).
+ *   - `invalid-payload` — payload не прошёл DTO-валидацию.
+ */
+export type LiveAnalysisErrorEvent = {
+  code:
+    | 'slug-not-found'
+    | 'forbidden'
+    | 'illegal-move'
+    | 'rate-limit'
+    | 'invalid-payload';
+  message: string;
+};
+
+// ─── Удобные алиасы для совместимости с формулировками ADR ──────────
+
+/** Алиас `LiveAnalysisMoveEvent` под именем из ADR-110 §2 (payloads). */
+export type MoveEvent = LiveAnalysisMoveEvent;
+/** Алиас `LiveAnalysisSyncSnapshot` под именем из ADR-110 §2. */
+export type SyncSnapshot = LiveAnalysisSyncSnapshot;
+/** Алиас `LiveAnalysisViewersEvent` под именем из ADR-110 §2. */
+export type ViewersEvent = LiveAnalysisViewersEvent;
+/** Алиас `LiveAnalysisClosedEvent` под именем из ADR-110 §2. */
+export type ClosedEvent = LiveAnalysisClosedEvent;
+
+// ─── Имена событий WS namespace `/live-analysis` ────────────────────
+
+/**
+ * Имена событий socket.io namespace `/live-analysis`. Импортировать
+ * на backend (`@SubscribeMessage`/`emit`) и frontend (`on`/`emit`),
+ * чтобы исключить расхождения строк.
+ */
+export const LiveAnalysisEvents = {
+  /** Namespace path, передаётся в `io(<base>, { path: '/socket.io' })` через `Server`/`Namespace` ctor. */
+  NAMESPACE: '/live-analysis',
+
+  // client → server
+  SUBSCRIBE: 'live-analysis:subscribe',
+  UNSUBSCRIBE: 'live-analysis:unsubscribe',
+  MOVE: 'live-analysis:move',
+  RESET: 'live-analysis:reset',
+  CLOSE: 'live-analysis:close',
+  SYNC_REQUEST: 'live-analysis:sync',
+
+  // server → client
+  // NB: `MOVE` и `SYNC_REQUEST` — одно имя для client→server и server→client
+  // ходов / sync-запроса и sync-ответа соответственно. Socket.io это
+  // допускает (разные направления — разные обработчики).
+  SYNC: 'live-analysis:sync',
+  VIEWERS: 'live-analysis:viewers',
+  CLOSED: 'live-analysis:closed',
+  ERROR: 'live-analysis:error',
+} as const;
+
+export type LiveAnalysisEventName =
+  (typeof LiveAnalysisEvents)[keyof typeof LiveAnalysisEvents];

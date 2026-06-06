@@ -139,6 +139,8 @@ model User {
   // KS-3342 / ADR-079 §3.6.1: Precision-рейтинг (Glicko-1, отдельная
   // кривая от ratingPuzzle — precision имеет свою сложность).
   precisionRating          UserPrecisionRating?
+  // KS-3730 / ADR-110: live-трансляции анализа партии (owner-relation).
+  liveAnalyses             LiveAnalysis[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -2092,5 +2094,50 @@ model OpeningLineProgress {
   @@index([userId, repertoireId])
   @@index([userId, sm2DueAt])
   @@map("opening_line_progress")
+}
+
+/// KS-3730 / ADR-110: live-трансляция анализа партии.
+/// Эфемерная сущность: автор открывает анализ, зрители подключаются
+/// по публичной ссылке `kingside.site/live/<slug>` и видят ходы автора
+/// в реальном времени. После закрытия (вручную или по таймауту 30 мин
+/// неактивности) запись остаётся для аудита (status=closed), а Redis
+/// state с историей ходов протухает за 24 часа.
+///
+/// Метаданные хранятся здесь; текущая позиция и история ходов — в
+/// Redis (`live_analysis:<id>:state` hash, `live_analysis:<id>:moves`
+/// list). См. ADR-110 §2.1, §2.5.
+model LiveAnalysis {
+  id             String             @id @default(uuid()) @db.Uuid
+  /// nanoid(10), URL-safe alphabet. Защищён от коллизий UNIQUE-индексом.
+  slug           String             @unique
+  ownerId        String             @map("owner_id") @db.Uuid
+  owner          User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title          String?
+  /// null → стандартная начальная позиция.
+  startingFen    String?            @map("starting_fen")
+  status         LiveAnalysisStatus @default(active)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  closedAt       DateTime?          @map("closed_at")
+  /// Обновляется на каждый ход автора (с дросселированием раз в 10с
+  /// per-slug, см. ADR-110 §2.9.7). Используется cleanup-job'ом для
+  /// автозакрытия трансляций с lastActivityAt < NOW() - 30min.
+  lastActivityAt DateTime           @default(now()) @map("last_activity_at")
+  /// Пиковое число одновременных зрителей за время трансляции.
+  /// Аналитика; обновляется атомарно при росте viewers-counter.
+  viewerPeak     Int                @default(0) @map("viewer_peak")
+
+  /// «Мои активные трансляции» в профиле автора.
+  @@index([ownerId, status])
+  /// Cleanup-job отбирает по этому индексу:
+  /// WHERE status='active' AND last_activity_at < NOW() - INTERVAL '30 min'.
+  @@index([status, lastActivityAt])
+  @@map("live_analyses")
+}
+
+enum LiveAnalysisStatus {
+  active
+  closed
+
+  @@map("live_analysis_status")
 }
 

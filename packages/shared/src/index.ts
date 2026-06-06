@@ -13,6 +13,8 @@ export * from './types/tactic-drill.js';
 export * from './types/saved-filters.js';
 // KS-3269 (ADR-077): Opening Trainer.
 export * from './types/opening-trainer.js';
+// KS-3731 (ADR-110): live-трансляция анализа партии (events + DTO).
+export * from './types/live-analysis.js';
 export * from './synthetic-chat-phrases.js';
 export * from './constants.js';
 export * from './constants/archive.js';
