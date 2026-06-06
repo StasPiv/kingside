@@ -1011,13 +1011,15 @@ function AnalysisPageInner({
             | null;
           if (target) {
             gotoMove(target);
-          } else {
-            // Индекс не нашёлся в дереве — soft drift на root, чтобы
-            // зритель видел стартовую позицию, а не «застрял» на
-            // прошлом currentMove.
-            gotoFirst();
           }
+          // KS-3780: если узел не нашёлся (рассинхрон индексов
+          // автор/парсер) — НЕ делать gotoFirst. Зритель остаётся на
+          // текущей позиции. Прежний gotoFirst-фолбэк сбрасывал
+          // курсор на стартовую при любом ходе автора, если индекс
+          // расходился. Лучше мягкий промах: зритель видит то же
+          // дерево, никуда не уехал.
         } else {
+          // Автор на стартовой позиции — двигаем зрителя туда же.
           gotoFirst();
         }
         lastAppliedLivePgnRef.current = nextPgn;
@@ -2410,18 +2412,35 @@ function AnalysisPageInner({
     // backend гарантирует партицию (userId, analysisId).
     const pgn = buildAnalysisPgn();
     if (!pgn) return;
+    // KS-3780 второй симптом: globalIndex автора и globalIndex у
+    // зрителя могут расходиться. У автора индекс выдаёт reducer-
+    // счётчик `nextGlobalIndex` (растёт по мере добавления узлов).
+    // У зрителя индексы присваиваются `parseAnnotatedPgn` при DFS-
+    // обходе PGN. Эти два порядка не обязаны совпадать (особенно при
+    // добавлении ходов в боковую ветку). Чтобы они гарантированно
+    // совпали, перепарсиваем собранный PGN тем же `parseAnnotatedPgn`
+    // и ищем там узел по FEN текущей позиции автора. Берём оттуда
+    // «парсерный» globalIndex — он точно сойдётся с тем, что получит
+    // зритель.
+    let parserGlobalIndex: number | undefined;
+    if (currentMove) {
+      try {
+        const reparsed = parseAnnotatedPgn(pgn);
+        const idx = findGlobalIndexByFen(reparsed, currentMove.fen);
+        parserGlobalIndex = idx === null ? undefined : idx;
+      } catch {
+        parserGlobalIndex = undefined;
+      }
+    }
     liveBroadcast.emitStatePatch({
       pgn,
-      // KS-3775: точная позиция автора в дереве вариантов через
-      // уникальный сквозной индекс узла. Парсер
-      // `parseAnnotatedPgn` присваивает globalIndex детерминированно,
-      // и индекс автора совпадает с индексом того же узла у зрителя
-      // (после applyLivePgn). Это устойчиво к транспозициям, в
-      // отличие от FEN. Когда автор на стартовой позиции
-      // (currentMove=null) — индекс не определён, поле опускаем;
-      // зритель в этом случае останется на root.
+      // KS-3775 / KS-3780: точная позиция автора в дереве через
+      // «парсерный» globalIndex (см. выше). Если перепарс не нашёл
+      // узел — поле опускаем; у зрителя в этом случае
+      // searchInHistory вернёт null, и applyLivePgn оставит зрителя
+      // на его текущей позиции (мягкий промах вместо реверта).
       currentGlobalIndex: currentMove
-        ? currentGlobalIndex
+        ? parserGlobalIndex
         : undefined,
       orientation: boardOrientation,
     });
