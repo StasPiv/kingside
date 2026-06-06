@@ -141,6 +141,8 @@ model User {
   precisionRating          UserPrecisionRating?
   // KS-3730 / ADR-110: live-трансляции анализа партии (owner-relation).
   liveAnalyses             LiveAnalysis[]
+  // KS-3783 / ADR-113 §2: лекции тренера (owner-relation, onDelete: Cascade).
+  lectures                 Lecture[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -2141,6 +2143,9 @@ model LiveAnalysis {
   /// нет `@@unique`.
   analysisId     String?            @map("analysis_id") @db.Uuid
   analysis       Analysis?          @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  /// KS-3783 / ADR-113 §2: лекции, к которым привязана трансляция
+  /// (FK с onDelete: SetNull со стороны Lecture).
+  lectures       Lecture[]
 
   /// «Мои активные трансляции» в профиле автора.
   @@index([ownerId, status])
@@ -2155,5 +2160,70 @@ enum LiveAnalysisStatus {
   closed
 
   @@map("live_analysis_status")
+}
+
+/// KS-3783 / ADR-113 §2: Lecture — лекция тренера.
+///
+/// Базовая сущность страницы тренера: будущая лекция (`scheduled`),
+/// идущая в данный момент (`live` — обычно привязана к `LiveAnalysis`
+/// через `liveAnalysisId`), завершённая (`recorded`) или отменённая
+/// (`cancelled`). `courseId` намеренно отсутствует — связь с курсом
+/// откладывается на более поздний эпик (согласовано с пользователем).
+///
+/// Partial UNIQUE индекс `lecture_live_analysis_id_active_unique` на
+/// `liveAnalysisId WHERE status='live'` (одна активная лекция на одну
+/// live-сессию) выражен только в raw SQL миграции — в `schema.prisma`
+/// `@@unique` не использовать, иначе full-unique запретит «recorded»
+/// записи на ту же `liveAnalysisId`.
+model Lecture {
+  id             String             @id @default(uuid()) @db.Uuid
+  ownerId        String             @map("owner_id") @db.Uuid
+  owner          User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  scheduledAt    DateTime?          @map("scheduled_at")
+  startedAt      DateTime?          @map("started_at")
+  endedAt        DateTime?          @map("ended_at")
+  durationMs     Int?               @map("duration_ms")
+  status         LectureStatus      @default(scheduled)
+  visibility     LectureVisibility  @default(public)
+  /// KS-3783 / ADR-113: привязка к активной live-трансляции анализа.
+  /// При удалении / SetNull у самой `LiveAnalysis` ссылка обнуляется,
+  /// запись лекции сохраняется. Уникальность «один live = одна live-
+  /// лекция» — через partial UNIQUE в миграции.
+  liveAnalysisId String?            @map("live_analysis_id") @db.Uuid
+  liveAnalysis   LiveAnalysis?      @relation(fields: [liveAnalysisId], references: [id], onDelete: SetNull)
+  /// KS-3783 / ADR-113 §4 эпик 2: задел под запись лекции. FK будет
+  /// добавлен вместе с моделью Recording — сейчас просто nullable UUID.
+  recordingId    String?            @map("recording_id") @db.Uuid
+  /// KS-3783 / ADR-113 §4 эпик 4: задел под медиаконтент (внешняя ссылка
+  /// и тип источника — youtube / vk / mp4 / …).
+  mediaUrl       String?            @map("media_url")
+  mediaKind      String?            @map("media_kind")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  /// Фильтр на странице тренера: «мои <status>»-вкладки.
+  @@index([ownerId, status])
+  /// Список ближайших / будущих лекций (WHERE status='scheduled'
+  /// ORDER BY scheduled_at ASC).
+  @@index([status, scheduledAt])
+  @@map("lectures")
+}
+
+enum LectureStatus {
+  scheduled
+  live
+  recorded
+  cancelled
+
+  @@map("lecture_status")
+}
+
+enum LectureVisibility {
+  public
+  unlisted
+
+  @@map("lecture_visibility")
 }
 
