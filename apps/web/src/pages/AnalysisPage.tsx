@@ -938,6 +938,28 @@ function AnalysisPageInner({
   const lastAppliedLivePgnRef = useRef<string | null>(null);
   const [pendingLivePgn, setPendingLivePgn] = useState<string | null>(null);
 
+  // KS-3768 фикс KS-3750: предикат «зритель находится в дереве автора».
+  // Раньше критерием была равенство `viewerFen === liveFull.currentFen` —
+  // это ломалось на ПЕРВОМ sync: у зрителя currentMove=null,
+  // viewerFen=initialFen, а authorFen — позиция автора (обычно не
+  // initialFen), → условие давало false → весь первичный snapshot
+  // уходил в pending, висел «Применить», авто-применение никогда не
+  // срабатывало. Новый критерий: позиция зрителя «в дереве автора»,
+  // если она равна стартовой позиции (root) или существует в дереве
+  // ходов через findGlobalIndexByFen. Это покрывает:
+  //   - первый sync (зритель на root, дерево автора растёт от root);
+  //   - зрителя, листающего main-line / варианты автора (его FEN там есть);
+  //   - НЕ покрывает: зрителя, ушедшего в собственную ветку (FEN'а
+  //     нет в дереве автора) → попадает в pending, ждёт «Применить»
+  //     или возврата к main-line.
+  const isViewerFenInAuthorTree = useCallback(
+    (viewerFen: string, moves: ChessMove[]): boolean => {
+      if (viewerFen === initialFen) return true;
+      return findGlobalIndexByFen(moves, viewerFen) !== null;
+    },
+    [initialFen],
+  );
+
   // Стабильный applier — общий код для авто-apply и для клика по
   // кнопке «Применить» из badge'а.
   const applyLivePgn = useCallback(
@@ -947,20 +969,27 @@ function AnalysisPageInner({
         const moves = parseAnnotatedPgn(nextPgn);
         const initialAnn = extractInitialAnnotations(nextPgn);
         loadFromPgn(moves, initialAnn);
-        // Восстановление позиции зрителя (ADR-111 §2.8 п.5). Если в
-        // новом дереве нет узла с прежним fen — reducer оставит
-        // currentMove на последнем ходе (soft drift), это норма.
-        const idx = findGlobalIndexByFen(moves, preserveFen);
+        // KS-3768: при первом apply (зритель только открылся, его
+        // viewerFen=initialFen, currentMove=null) предпочитаем
+        // перевести его на позицию автора, а не оставить на root —
+        // зритель ожидает увидеть то, что разбирает автор. На
+        // последующих apply (currentMove есть) сохраняем позицию
+        // зрителя через findGlobalIndexByFen(preserveFen).
+        const targetFen =
+          !currentMove && liveFull.currentFen ? liveFull.currentFen : preserveFen;
+        const idx = findGlobalIndexByFen(moves, targetFen);
         if (idx !== null) {
           const target = searchInHistory(moves, idx);
           if (target) gotoMove(target);
         }
+        // Если узла нет — reducer оставит currentMove на последнем ходе
+        // (soft drift), это норма.
         lastAppliedLivePgnRef.current = nextPgn;
       } catch {
         /* битый PGN — оставляем дерево как есть, ждём следующего sync. */
       }
     },
-    [currentMove, initialFen, loadFromPgn, gotoMove],
+    [currentMove, initialFen, liveFull.currentFen, loadFromPgn, gotoMove],
   );
 
   // Шлюз входящих state-patch'ей. Решаем: применить сразу или отложить.
@@ -968,14 +997,17 @@ function AnalysisPageInner({
     if (!isViewerLive) return;
     if (!liveFull.pgn) return;
     if (lastAppliedLivePgnRef.current === liveFull.pgn) return;
-    // KS-3750: «локальная ветка» = currentFen зрителя не совпадает
-    // с известным FEN автора. liveFull.currentFen может быть null,
-    // если ни sync, ни move ещё не приходили — тогда применяем
-    // (стартуем с чистого листа), это первый patch.
     const viewerFen = currentMove?.fen ?? initialFen;
-    const authorFen = liveFull.currentFen;
-    const onMainLine = !authorFen || authorFen === viewerFen;
-    if (onMainLine) {
+    let inAuthorTree = true;
+    try {
+      const moves = parseAnnotatedPgn(liveFull.pgn);
+      inAuthorTree = isViewerFenInAuthorTree(viewerFen, moves);
+    } catch {
+      // Битый PGN — пусть applyLivePgn сам отбьётся, мы не хотим
+      // удерживать сломанный snapshot в pending'е.
+      inAuthorTree = true;
+    }
+    if (inAuthorTree) {
       applyLivePgn(liveFull.pgn);
       // Если что-то лежало в pending — теперь оно неактуально, очищаем.
       if (pendingLivePgn !== null) setPendingLivePgn(null);
@@ -985,32 +1017,38 @@ function AnalysisPageInner({
       // предыдущие, дельты не нужны).
       setPendingLivePgn(liveFull.pgn);
     }
-    // currentMove исключён из deps намеренно: на каждое переключение
-    // ходов зрителя — это норма, не сигнал «пришёл новый patch».
-    // Авто-apply pending на возврате к main-line обрабатывает соседний
+    // currentMove не в deps намеренно: на каждое переключение ходов
+    // зрителя — это норма, не сигнал «пришёл новый patch». Авто-apply
+    // pending при возврате к дереву автора обрабатывает соседний
     // useEffect ниже.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isViewerLive, liveFull.pgn, liveFull.currentFen, applyLivePgn]);
+  }, [isViewerLive, liveFull.pgn, applyLivePgn, isViewerFenInAuthorTree]);
 
-  // KS-3750: авто-apply pending когда зритель сам вернулся на main-line
-  // автора. Триггер — изменение currentMove (то есть зритель листает /
-  // ходит). При совпадении viewerFen с authorFen сразу применяем pending.
+  // KS-3750 (KS-3768 фикс): авто-apply pending когда зритель снова
+  // оказался в дереве автора. Триггер — изменение currentMove (зритель
+  // листает или сам делает ходы).
   useEffect(() => {
     if (!isViewerLive) return;
     if (!pendingLivePgn) return;
-    if (!liveFull.currentFen) return;
     const viewerFen = currentMove?.fen ?? initialFen;
-    if (viewerFen === liveFull.currentFen) {
+    let inAuthorTree = false;
+    try {
+      const moves = parseAnnotatedPgn(pendingLivePgn);
+      inAuthorTree = isViewerFenInAuthorTree(viewerFen, moves);
+    } catch {
+      inAuthorTree = false;
+    }
+    if (inAuthorTree) {
       applyLivePgn(pendingLivePgn);
       setPendingLivePgn(null);
     }
   }, [
     isViewerLive,
     pendingLivePgn,
-    liveFull.currentFen,
     currentMove,
     initialFen,
     applyLivePgn,
+    isViewerFenInAuthorTree,
   ]);
 
   const handleApplyPendingLive = useCallback(() => {
