@@ -2193,9 +2193,19 @@ model Lecture {
   /// лекция» — через partial UNIQUE в миграции.
   liveAnalysisId String?            @map("live_analysis_id") @db.Uuid
   liveAnalysis   LiveAnalysis?      @relation(fields: [liveAnalysisId], references: [id], onDelete: SetNull)
-  /// KS-3783 / ADR-113 §4 эпик 2: задел под запись лекции. FK будет
-  /// добавлен вместе с моделью Recording — сейчас просто nullable UUID.
+  /// KS-3783 / ADR-113 §4 эпик 2. «Текущая» запись лекции (один
+  /// `LectureRecording`). FK с `onDelete: SetNull` — удаление записи
+  /// не должно сносить саму лекцию, просто обнуляет ссылку.
+  /// Сам `LectureRecording.lectureId` имеет обратный FK на эту же
+  /// лекцию с `onDelete: Cascade` (см. модель LectureRecording),
+  /// поэтому связь именована — иначе Prisma не различит две стороны.
   recordingId    String?            @map("recording_id") @db.Uuid
+  recording      LectureRecording?  @relation("LectureCurrentRecording", fields: [recordingId], references: [id], onDelete: SetNull)
+  /// Обратный конец `LectureRecording.lecture` (см. relation
+  /// "LectureRecordings"). На практике сейчас одна запись на лекцию
+  /// (UNIQUE по `lectureId`), но прямой тип на стороне Prisma —
+  /// массив, иначе схема не валидна.
+  recordings     LectureRecording[] @relation("LectureRecordings")
   /// KS-3783 / ADR-113 §4 эпик 4: задел под медиаконтент (внешняя ссылка
   /// и тип источника — youtube / vk / mp4 / …).
   mediaUrl       String?            @map("media_url")
@@ -2209,6 +2219,54 @@ model Lecture {
   /// ORDER BY scheduled_at ASC).
   @@index([status, scheduledAt])
   @@map("lectures")
+}
+
+/// KS-3790 / ADR-113 §2.3.3, §4 крупная задача 2. Запись лекции —
+/// упорядоченный массив событий (move/state-patch/move/...) с временной
+/// меткой `t: number` относительно старта записи. Создаётся
+/// finalizer'ом при закрытии live-сессии.
+///
+/// Связь с `Lecture`: два FK, оба именованы.
+///   - `LectureRecording.lecture` (FK lectureId → lectures.id,
+///     ON DELETE CASCADE) — основная owner-связь. UNIQUE по
+///     `lectureId` гарантирует «одна запись на лекцию».
+///   - `Lecture.recording` (FK recordingId → lecture_recordings.id,
+///     ON DELETE SET NULL) — указатель на «текущую» запись лекции.
+///     Семантически избыточно при 1:1, но удобно для прямого
+///     access'а `prisma.lecture.include({recording})`.
+model LectureRecording {
+  id           String   @id @default(uuid()) @db.Uuid
+  lectureId    String   @unique @map("lecture_id") @db.Uuid
+  lecture      Lecture  @relation("LectureRecordings", fields: [lectureId], references: [id], onDelete: Cascade)
+  /// Обратный конец `Lecture.recording` (relation "LectureCurrentRecording").
+  asCurrentFor Lecture[] @relation("LectureCurrentRecording")
+
+  /// Стартовая позиция (от автора). `null` если автор начал с initial
+  /// position — то же поведение, что у `LiveAnalysis.startingFen`.
+  startingFen  String?  @map("starting_fen")
+  /// Ориентация доски при записи: `white` | `black`. Строка а не enum,
+  /// потому что у `LectureRecording` нет других значений и расширений
+  /// в обозримом будущем не планируется (см. ADR-113).
+  orientation  String?
+  /// Упорядоченный массив `RecordedEvent[]`. Каждое событие имеет:
+  ///   { t: number, type: 'move'|'state-patch'|..., payload: ... }
+  /// `t` — миллисекунды от начала записи.
+  events       Json
+  /// Общая длительность записи (мс), равна `t` последнего события или
+  /// больше — если автор смотрел на доску без действий после.
+  durationMs   Int      @map("duration_ms")
+  /// Денормализация `events.length` для быстрых выборок без парсинга JSON.
+  eventCount   Int      @map("event_count")
+  /// Размер сериализованного JSON в байтах (длина строки). Используется
+  /// для аналитики и для отсечения превышающих лимит 50 MB.
+  byteSize     Int      @map("byte_size")
+  /// true, если recorder дошёл до лимита 50 MB и хвост событий был
+  /// отброшен. Финализатор выставляет флаг, фронт показывает
+  /// предупреждение «запись усечена».
+  truncated    Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("lecture_recordings")
 }
 
 enum LectureStatus {
