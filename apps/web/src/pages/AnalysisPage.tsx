@@ -965,7 +965,6 @@ function AnalysisPageInner({
   // кнопке «Применить» из badge'а.
   const applyLivePgn = useCallback(
     (nextPgn: string) => {
-      const viewerGlobalIndex = currentMove?.globalIndex ?? null;
       const authorGlobalIndex = liveFull.currentGlobalIndex;
       try {
         const moves = parseAnnotatedPgn(nextPgn);
@@ -975,35 +974,34 @@ function AnalysisPageInner({
         // их больше не отдаёт отдельным полем). PGN — авторитетный
         // источник: при расхождении PGN всегда побеждает.
         setPgnHeaders(parsePgnHeaders(nextPgn));
-        // KS-3769 (на globalIndex): решение «куда перевести курсор».
-        //   - Первый apply (lastAppliedAuthorGlobalIndexRef.current === null) →
-        //     зритель только что открылся, ведём его на позицию автора.
-        //   - Зритель остался синхронизированным с автором
-        //     (viewerGlobalIndex === lastAppliedAuthorGlobalIndexRef.current) →
-        //     ведём за автором на новую позицию. Это покрывает основной
-        //     сценарий: зритель смотрит, автор делает ход, курсор
-        //     зрителя автоматически двигается.
-        //   - Зритель ушёл в листание дерева (несовпадение) →
-        //     сохраняем его позицию через findGlobalIndexByFen(viewerFen).
-        //     Не сбиваем зрителя посреди разбора.
-        const followAuthor =
-          lastAppliedAuthorGlobalIndexRef.current === null ||
-          viewerGlobalIndex === lastAppliedAuthorGlobalIndexRef.current;
-        let target: ChessMove | null = null;
-        if (followAuthor && typeof authorGlobalIndex === 'number') {
-          // KS-3775: единственный путь — поиск по уникальному индексу
-          // узла. Запасные варианты через FEN/ply убраны вместе с
-          // полями из контракта.
-          target = searchInHistory(moves, authorGlobalIndex) as ChessMove | null;
-        } else if (!followAuthor) {
-          // Зритель листает сам — сохраняем его позицию.
-          const viewerFen = currentMove?.fen ?? initialFen;
-          const idx = findGlobalIndexByFen(moves, viewerFen);
-          if (idx !== null) target = searchInHistory(moves, idx) as ChessMove | null;
+        // KS-3778: упрощённая модель «зритель следует за автором».
+        // Шлюз выше уже проверяет `isViewerFenInAuthorTree` — если
+        // зритель в своей локальной ветке, мы сюда не попадаем (state-
+        // patch уходит в pending + badge). Значит здесь зритель —
+        // в дереве автора, можно безусловно вести его на позицию
+        // автора. followAuthor-проверка через
+        // `lastAppliedAuthorGlobalIndexRef` убрана: она блокировала
+        // (а) добавление нового хода в боковой ветке (новый индекс
+        // не совпадал с прошлым applied), (б) переход автора на root
+        // после прежнего apply на каком-то ходу.
+        //   - authorGlobalIndex задан → ищем узел в дереве, gotoMove.
+        //   - authorGlobalIndex null (автор на стартовой позиции) →
+        //     gotoFirst.
+        if (typeof authorGlobalIndex === 'number') {
+          const target = searchInHistory(moves, authorGlobalIndex) as
+            | ChessMove
+            | null;
+          if (target) {
+            gotoMove(target);
+          } else {
+            // Индекс не нашёлся в дереве — soft drift на root, чтобы
+            // зритель видел стартовую позицию, а не «застрял» на
+            // прошлом currentMove.
+            gotoFirst();
+          }
+        } else {
+          gotoFirst();
         }
-        if (target) gotoMove(target);
-        // Если узла нет — reducer оставит currentMove на последнем ходе
-        // (soft drift), это норма.
         lastAppliedLivePgnRef.current = nextPgn;
         lastAppliedAuthorGlobalIndexRef.current =
           typeof authorGlobalIndex === 'number' ? authorGlobalIndex : null;
@@ -1012,11 +1010,10 @@ function AnalysisPageInner({
       }
     },
     [
-      currentMove,
-      initialFen,
       liveFull.currentGlobalIndex,
       loadFromPgn,
       gotoMove,
+      gotoFirst,
     ],
   );
 
@@ -1052,35 +1049,48 @@ function AnalysisPageInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isViewerLive, liveFull.pgn, applyLivePgn, isViewerFenInAuthorTree]);
 
-  // KS-3777: чистая навигация автора по дереву (стрелки назад/вперёд,
-  // клик по ходу) меняет только `currentGlobalIndex`, PGN остаётся
-  // прежним. Шлюз выше отбивает sync с `lastAppliedLivePgnRef.current
-  // === liveFull.pgn`, поэтому applyLivePgn в таком случае не зовётся —
-  // и без этого отдельного эффекта курсор зрителя стоял бы. Здесь
-  // двигаем `gotoMove` напрямую, без полного перепарсинга PGN.
+  // KS-3777/KS-3778: чистая навигация автора по дереву (стрелки
+  // назад/вперёд, клик по ходу, переход на стартовую позицию) меняет
+  // только `currentGlobalIndex`, PGN остаётся прежним. Шлюз выше
+  // отбивает sync с `lastAppliedLivePgnRef.current === liveFull.pgn`,
+  // поэтому applyLivePgn в таком случае не зовётся — и без этого
+  // отдельного эффекта курсор зрителя стоял бы. Здесь двигаем
+  // gotoMove (или gotoFirst) напрямую, без перепарсинга PGN.
+  //
+  // Защита от «зритель ушёл в свою локальную ветку»: проверяем
+  // `isViewerFenInAuthorTree` через текущее `history`. Если ушёл —
+  // не двигаем (state-patch в этом случае был отправлен в pending
+  // шлюзом выше, badge висит).
   useEffect(() => {
     if (!isViewerLive) return;
-    if (typeof liveFull.currentGlobalIndex !== 'number') return;
+    const viewerFen = currentMove?.fen ?? initialFen;
+    if (!isViewerFenInAuthorTree(viewerFen, history as ChessMove[])) return;
+    const authorGlobalIndex = liveFull.currentGlobalIndex;
     const viewerGlobalIndex = currentMove?.globalIndex ?? null;
-    // Если зритель не синхронизирован с автором (листает дерево сам) —
-    // не сбиваем его. `null` означает «ещё не было ни одного apply»
-    // (первый sync) — двигаем.
-    const followAuthor =
-      lastAppliedAuthorGlobalIndexRef.current === null ||
-      viewerGlobalIndex === lastAppliedAuthorGlobalIndexRef.current;
-    if (!followAuthor) return;
-    if (viewerGlobalIndex === liveFull.currentGlobalIndex) return;
-    const target = searchInHistory(history, liveFull.currentGlobalIndex);
+    if (typeof authorGlobalIndex !== 'number') {
+      // KS-3778: автор перешёл на стартовую позицию. Двигаем зрителя
+      // туда же, если он не там.
+      if (viewerGlobalIndex !== null) {
+        gotoFirst();
+        lastAppliedAuthorGlobalIndexRef.current = null;
+      }
+      return;
+    }
+    if (viewerGlobalIndex === authorGlobalIndex) return;
+    const target = searchInHistory(history, authorGlobalIndex);
     if (target) {
       gotoMove(target as ChessMove);
-      lastAppliedAuthorGlobalIndexRef.current = liveFull.currentGlobalIndex;
+      lastAppliedAuthorGlobalIndexRef.current = authorGlobalIndex;
     }
   }, [
     isViewerLive,
     liveFull.currentGlobalIndex,
     currentMove,
     history,
+    initialFen,
     gotoMove,
+    gotoFirst,
+    isViewerFenInAuthorTree,
   ]);
 
   // KS-3750 (KS-3768 фикс): авто-apply pending когда зритель снова
