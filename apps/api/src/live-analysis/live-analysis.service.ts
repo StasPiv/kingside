@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { Chess } from 'chess.js';
 import { customAlphabet } from 'nanoid';
@@ -46,7 +47,7 @@ import { TokenBucketLimiter } from './live-analysis-rate-limiter';
  *     per-slug; промахи копятся в `lastActivityCache`.
  */
 @Injectable()
-export class LiveAnalysisService {
+export class LiveAnalysisService implements OnModuleInit {
   private readonly logger = new Logger(LiveAnalysisService.name);
 
   /** Алфавит nanoid — URL-safe, без легко путающихся 0/O и 1/l. */
@@ -123,6 +124,36 @@ export class LiveAnalysisService {
     private readonly redis: RedisService,
     private readonly metrics: MetricsService,
   ) {}
+
+  /**
+   * KS-3762 / ADR-112 §8. На старте процесса один раз считаем число
+   * «зомби»-трансляций — закрытых data-cleanup-ом миграции KS-3757
+   * (исторические записи ADR-110 без `analysisId`). Маркером служит
+   * сочетание `status='closed' AND analysis_id IS NULL` — после
+   * KS-3759 закрытые трансляции c binding `analysisId IS NOT NULL`,
+   * закрытые без binding могут быть только из миграции.
+   *
+   * Значение — историческое (миграция применяется единожды), поэтому
+   * считаем один раз и проставляем `gauge.set`. Не пересчитываем в
+   * рантайме, чтобы не дёргать `COUNT(*)` на каждый scrape.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const count = await this.prisma.liveAnalysis.count({
+        where: { status: 'closed', analysisId: null },
+      });
+      this.metrics.setLiveAnalysisZombieClosedAtMigration(count);
+      if (count > 0) {
+        this.logger.log(
+          `live_analysis_zombie_closed_at_migration_total=${count}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `failed to init zombie-closed gauge: ${(e as Error).message}`,
+      );
+    }
+  }
 
   // ─── REST: CRUD ─────────────────────────────────────────────────────
 
@@ -224,6 +255,10 @@ export class LiveAnalysisService {
     await this.initRedisState(id, startingFen, orientation);
     this.slugToOwnerCache.set(created.slug, ownerId);
     this.metrics.incLiveAnalysisActive();
+    // KS-3762: `withAnalysisId=true` всегда после ADR-112 (DTO требует),
+    // но label оставлен на случай будущих внутренних путей создания
+    // (например, миграция / админ-инструмент) без binding.
+    this.metrics.incLiveAnalysisCreated(Boolean(dto.analysisId));
 
     this.logger.log(
       `Live analysis created: slug=${created.slug} owner=${ownerId} analysisId=${dto.analysisId}`,

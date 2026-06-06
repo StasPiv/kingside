@@ -84,6 +84,24 @@ export class MetricsService implements OnModuleInit {
   readonly liveAnalysisStatePatchBytesSum: Counter<string>;
   readonly liveAnalysisStatePatchRejectedTotal: Counter<'reason'>;
 
+  /**
+   * KS-3762 / ADR-112 §8. Метрики binding live-трансляции к Analysis.
+   *
+   * - `live_analysis_created_total{with_analysis_id="true|false"}`
+   *   (counter) — успешно созданные трансляции. Label `with_analysis_id`
+   *   позволяет отделить нормальный поток (`true`, после ADR-112) от
+   *   аномальных создаваемых без binding (`false` — должно стремиться
+   *   к нулю; рост сигнализирует о баге или regression).
+   * - `live_analysis_zombie_closed_at_migration_total` (gauge) —
+   *   сколько трансляций было закрыто data-cleanup'ом миграции KS-3757
+   *   (исторические записи ADR-110 без `analysisId`). Значение
+   *   проставляется один раз при инициализации модуля через
+   *   `SELECT COUNT(*) WHERE status='closed' AND analysis_id IS NULL`
+   *   и не меняется в рантайме (миграция применяется единожды).
+   */
+  readonly liveAnalysisCreatedTotal: Counter<'with_analysis_id'>;
+  readonly liveAnalysisZombieClosedAtMigrationTotal: Gauge<string>;
+
   constructor() {
     this.registry = new Registry();
 
@@ -199,6 +217,26 @@ export class MetricsService implements OnModuleInit {
       labelNames: ['reason'] as const,
       registers: [this.registry],
     });
+
+    // KS-3762 / ADR-112 §8: binding-метрики.
+    this.liveAnalysisCreatedTotal = new Counter({
+      name: 'live_analysis_created_total',
+      help:
+        'Количество созданных live-трансляций. Label with_analysis_id: ' +
+        '"true" — нормальный поток с binding к Analysis (ADR-112); ' +
+        '"false" — аномалия, должно стремиться к нулю.',
+      labelNames: ['with_analysis_id'] as const,
+      registers: [this.registry],
+    });
+    this.liveAnalysisZombieClosedAtMigrationTotal = new Gauge({
+      name: 'live_analysis_zombie_closed_at_migration_total',
+      help:
+        'Сколько живых трансляций без binding к Analysis было ' +
+        'принудительно закрыто data-cleanup-ом миграции KS-3757 (ADR-112 §6). ' +
+        'Значение проставляется при инициализации модуля и не меняется ' +
+        'в рантайме.',
+      registers: [this.registry],
+    });
   }
 
   async onModuleInit(): Promise<void> {
@@ -288,6 +326,20 @@ export class MetricsService implements OnModuleInit {
     reason: 'pgn_too_large' | 'invalid_pgn' | 'rate_limit' | 'forbidden',
   ): void {
     this.liveAnalysisStatePatchRejectedTotal.inc({ reason });
+  }
+
+  // ─── KS-3762 / ADR-112: binding metrics ───────────────────────────
+
+  /** Создана трансляция; `withAnalysisId=true` — есть binding к Analysis. */
+  incLiveAnalysisCreated(withAnalysisId: boolean): void {
+    this.liveAnalysisCreatedTotal.inc({
+      with_analysis_id: withAnalysisId ? 'true' : 'false',
+    });
+  }
+
+  /** Установить число «зомби», закрытых миграцией KS-3757 (вызывается единожды на старте). */
+  setLiveAnalysisZombieClosedAtMigration(count: number): void {
+    this.liveAnalysisZombieClosedAtMigrationTotal.set(count);
   }
 
   /**

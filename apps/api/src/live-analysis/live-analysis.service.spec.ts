@@ -160,6 +160,8 @@ describe('LiveAnalysisService', () => {
       incLiveAnalysisCleanupClosed: jest.fn(),
       incLiveAnalysisStatePatchAccepted: jest.fn(),
       incLiveAnalysisStatePatchRejected: jest.fn(),
+      incLiveAnalysisCreated: jest.fn(),
+      setLiveAnalysisZombieClosedAtMigration: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -869,6 +871,64 @@ describe('LiveAnalysisService', () => {
       await service.runCleanupTick(cutoffNow);
       const lock = await redis.get('cleanup:live-analysis:lock');
       expect(lock).toBeNull();
+    });
+  });
+
+  // ─── KS-3762 / ADR-112: binding metrics ───────────────────────────
+
+  describe('metrics: created_total{with_analysis_id} + zombie gauge', () => {
+    it('create инкрементит created_total с with_analysis_id=true', async () => {
+      prisma.liveAnalysis.create.mockResolvedValueOnce({ id: 'la-1' });
+      prisma.liveAnalysis.findUniqueOrThrow.mockResolvedValueOnce({
+        id: 'la-1',
+        slug: 'SLUG000000',
+        ownerId: 'u-1',
+        title: null,
+        startingFen: null,
+        status: 'active',
+        createdAt: new Date(),
+        closedAt: null,
+        analysisId: 'a-1',
+        owner: { username: 'alice' },
+      });
+      await service.create(
+        'u-1',
+        { analysisId: 'a-1' },
+        'https://kingside.site',
+      );
+      expect(metrics.incLiveAnalysisCreated).toHaveBeenCalledWith(true);
+    });
+
+    it('create НЕ инкрементит created_total при идемпотентном возврате existing', async () => {
+      prisma.liveAnalysis.findFirst.mockResolvedValueOnce({
+        id: 'la-existing',
+        slug: 'EXIST00000',
+        ownerId: 'u-1',
+        title: null,
+        startingFen: null,
+        status: 'active',
+        createdAt: new Date(),
+        closedAt: null,
+        analysisId: 'a-1',
+        owner: { username: 'alice' },
+      });
+      await service.create('u-1', { analysisId: 'a-1' }, 'https://k.s');
+      expect(metrics.incLiveAnalysisCreated).not.toHaveBeenCalled();
+    });
+
+    it('onModuleInit считает зомби из PG и проставляет gauge', async () => {
+      prisma.liveAnalysis.count.mockResolvedValueOnce(7);
+      await service.onModuleInit();
+      // фильтр: status='closed' AND analysisId IS NULL
+      const args = prisma.liveAnalysis.count.mock.calls[0][0];
+      expect(args.where).toEqual({ status: 'closed', analysisId: null });
+      expect(metrics.setLiveAnalysisZombieClosedAtMigration).toHaveBeenCalledWith(7);
+    });
+
+    it('onModuleInit не падает при ошибке COUNT', async () => {
+      prisma.liveAnalysis.count.mockRejectedValueOnce(new Error('boom'));
+      await expect(service.onModuleInit()).resolves.toBeUndefined();
+      expect(metrics.setLiveAnalysisZombieClosedAtMigration).not.toHaveBeenCalled();
     });
   });
 });
