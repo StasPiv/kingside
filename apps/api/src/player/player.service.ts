@@ -213,7 +213,7 @@ export class PlayerService {
       throw new NotFoundException(this.i18n.t('messages.user.notFound'));
     }
 
-    const [wins, losses, draws, recentGames, puzzleRush] = await Promise.all([
+    const [wins, losses, draws, recentGames, puzzleRush, isCoach] = await Promise.all([
       this.prisma.game.count({
         where: {
           status: 'finished',
@@ -260,6 +260,10 @@ export class PlayerService {
         },
       }),
       this.getPuzzleRushStatsForUser(user.id),
+      // KS-3786 / ADR-113 §1. isCoach = есть хотя бы одна публичная
+      // лекция или публичный курс. Делаем через два count'а — это
+      // дешёвый ответ, читаемость важнее микро-оптимизации EXISTS.
+      this.computeIsCoach(user.id),
     ]);
 
     const recentGamesData = recentGames.map((game) => {
@@ -314,7 +318,33 @@ export class PlayerService {
       lastSeenAt: user.lastSeenAt.toISOString(),
       recentGames: recentGamesData,
       puzzleRush,
+      isCoach,
     };
+  }
+
+  /**
+   * KS-3786 / ADR-113 §1. Считает, считается ли пользователь
+   * «тренером» — есть хотя бы одна публичная лекция или хотя бы
+   * один публичный курс.
+   *
+   * Реализовано как два `count({take:1})`: prisma при `take:1`
+   * прерывается на первой найденной записи, что эквивалентно EXISTS
+   * по индексу. Можно было бы заменить на `$queryRaw EXISTS(...)`
+   * для микро-оптимизации, но прирост незначителен, а явный код
+   * читаемее и не тянет ручной SQL за rename'ы колонок.
+   */
+  private async computeIsCoach(userId: string): Promise<boolean> {
+    const [lectureCount, courseCount] = await Promise.all([
+      this.prisma.lecture.count({
+        where: { ownerId: userId, visibility: 'public' },
+        take: 1,
+      }),
+      this.prisma.course.count({
+        where: { ownerId: userId, isPublic: true },
+        take: 1,
+      }),
+    ]);
+    return lectureCount > 0 || courseCount > 0;
   }
 
   /**

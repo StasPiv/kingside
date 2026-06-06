@@ -2219,6 +2219,14 @@ export type PlayerProfileResponse = {
   lastSeenAt: string;
   recentGames: PlayerRecentGame[];
   puzzleRush?: PuzzleRushStats;
+  /**
+   * KS-3786 / ADR-113 §1. Признак «тренер»: у пользователя есть хотя
+   * бы одна публичная лекция (`Lecture.visibility='public'`) или
+   * публичный курс (`Course.isPublic=true`). Frontend использует
+   * флаг для бейджа «Тренер» в карточке профиля и для редиректа на
+   * страницу тренера `/coach/:username`.
+   */
+  isCoach: boolean;
 };
 
 export type PlayerRecentGame = {

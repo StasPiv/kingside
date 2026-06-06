@@ -13,6 +13,8 @@ describe('PlayerService', () => {
     user: { findMany: jest.Mock; count: jest.Mock; findUnique: jest.Mock; findFirst: jest.Mock };
     game: { count: jest.Mock; findMany: jest.Mock };
     puzzleRushScore: { findFirst: jest.Mock; count: jest.Mock };
+    lecture: { count: jest.Mock };
+    course: { count: jest.Mock };
   };
   // KS-1914: PlayerService.getPublicCoursesByUsername делегирует
   // в UserCoursesService.listPublicByOwner — мокаем целиком метод.
@@ -34,6 +36,9 @@ describe('PlayerService', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         count: jest.fn().mockResolvedValue(0),
       },
+      // KS-3786: computeIsCoach делает count по lecture и course.
+      lecture: { count: jest.fn().mockResolvedValue(0) },
+      course: { count: jest.fn().mockResolvedValue(0) },
     };
     userCourses = {
       listPublicByOwner: jest.fn().mockResolvedValue({ data: [] }),
@@ -272,6 +277,81 @@ describe('PlayerService', () => {
         best5: 18,
         totalSessions: 5,
       });
+      // KS-3786: по умолчанию у пользователя нет публичных лекций и
+      // курсов → isCoach=false.
+      expect(result.isCoach).toBe(false);
+    });
+
+    // ─── KS-3786: isCoach ────────────────────────────────────────────
+
+    it('KS-3786: isCoach=true если есть публичная лекция', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'user-1',
+        username: 'coach',
+        ratingBullet: 1500,
+        ratingBlitz: 1500,
+        ratingRapid: 1500,
+        ratingClassical: 1500,
+        ratingPuzzle: 1500,
+        createdAt: new Date('2025-01-01'),
+        lastSeenAt: new Date(),
+      });
+      prisma.game.count.mockResolvedValue(0);
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.lecture.count.mockResolvedValueOnce(1);
+      prisma.course.count.mockResolvedValueOnce(0);
+
+      const result = await service.getPlayerProfile('coach');
+      expect(result.isCoach).toBe(true);
+      expect(prisma.lecture.count).toHaveBeenCalledWith({
+        where: { ownerId: 'user-1', visibility: 'public' },
+        take: 1,
+      });
+    });
+
+    it('KS-3786: isCoach=true если есть публичный курс', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'user-1',
+        username: 'author',
+        ratingBullet: 1500,
+        ratingBlitz: 1500,
+        ratingRapid: 1500,
+        ratingClassical: 1500,
+        ratingPuzzle: 1500,
+        createdAt: new Date('2025-01-01'),
+        lastSeenAt: new Date(),
+      });
+      prisma.game.count.mockResolvedValue(0);
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      prisma.course.count.mockResolvedValueOnce(1);
+
+      const result = await service.getPlayerProfile('author');
+      expect(result.isCoach).toBe(true);
+      expect(prisma.course.count).toHaveBeenCalledWith({
+        where: { ownerId: 'user-1', isPublic: true },
+        take: 1,
+      });
+    });
+
+    it('KS-3786: isCoach=false если ни лекций, ни публичных курсов', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'user-1',
+        username: 'player',
+        ratingBullet: 1500,
+        ratingBlitz: 1500,
+        ratingRapid: 1500,
+        ratingClassical: 1500,
+        ratingPuzzle: 1500,
+        createdAt: new Date('2025-01-01'),
+        lastSeenAt: new Date(),
+      });
+      prisma.game.count.mockResolvedValue(0);
+      prisma.game.findMany.mockResolvedValue([]);
+      // Оба count'а уже замоканы на 0 в beforeEach.
+
+      const result = await service.getPlayerProfile('player');
+      expect(result.isCoach).toBe(false);
     });
 
     it('should throw NotFoundException for non-existent user', async () => {
