@@ -958,6 +958,17 @@ function AnalysisPageInner({
       const authorGlobalIndex = liveFull.currentGlobalIndex;
       try {
         const parsed = deserializeLiveTree(nextTree);
+        // KS-3780 follow-up: стартовая позиция трансляции отличается
+        // от стандартной расстановки, если автор начинал с FEN. Без
+        // явного `setInitialFen` reducer `LOAD_FROM_PGN` оставляет
+        // прежнее значение `initialFen` (default), и зритель видит
+        // обычную начальную расстановку вместо позиции автора.
+        // Применяем initialFen ДО loadFromPgn — порядок важен, потому
+        // что SET_INITIAL_FEN сбрасывает history, а LOAD_FROM_PGN
+        // потом заполняет её заново.
+        if (parsed.initialFen) {
+          setInitialFen(parsed.initialFen);
+        }
         loadFromPgn(parsed.history, parsed.initialAnnotations);
         // KS-3780 follow-up: заголовки PGN и title анализа автор
         // прикладывает к дереву. Применяем их у зрителя, чтобы
