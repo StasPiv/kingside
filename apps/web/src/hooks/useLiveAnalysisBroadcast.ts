@@ -66,8 +66,18 @@ export interface UseLiveAnalysisBroadcastArgs {
 }
 
 export interface UseLiveAnalysisBroadcastState {
-  /** Текущий annotated PGN трансляции (из последнего `sync.currentPgn`). `null` пока не пришёл. */
-  pgn: string | null;
+  /**
+   * KS-3780. Сериализованное дерево анализа автора (см.
+   * `serializeLiveTree`/`deserializeLiveTree`). Содержимое
+   * непрозрачно для хука — потребитель сам разбирает строку
+   * через `deserializeLiveTree` и применяет к review-state.
+   * `null` пока не пришёл первый sync.
+   *
+   * Поле заменило прежний `pgn` — теперь у зрителя нет
+   * парсинга PGN-строки и переиндексации globalIndex, узлы
+   * получают индексы автора напрямую из дерева.
+   */
+  tree: string | null;
   /**
    * KS-3775. Уникальный сквозной индекс узла дерева автора
    * (включая боковые варианты). Берётся из `sync.currentGlobalIndex`,
@@ -94,13 +104,13 @@ export interface UseLiveAnalysisBroadcastState {
   closed: LiveAnalysisCloseReason | null;
   /**
    * Эмит `state-patch` с дебаунсом 500 мс (trailing-edge). Внутри
-   * запоминаются последние `pgn`/`headers`/`currentPly`/`orientation`,
+   * запоминается последний `tree`/`currentGlobalIndex`/`orientation`,
    * и таймер сбрасывается. По истечению дебаунса уходит ровно один
-   * патч. Без аргумента `pgn` ничего не отправляется — это безопасный
+   * патч. Без аргумента `tree` ничего не отправляется — это безопасный
    * no-op. Owner-only.
    */
   emitStatePatch: (
-    pgn: string,
+    tree: string,
     extras?: {
       currentGlobalIndex?: number;
       orientation?: LiveAnalysisOrientation;
@@ -122,7 +132,10 @@ export function useLiveAnalysisBroadcast({
   statePatchDebounceMs = DEFAULT_STATE_PATCH_DEBOUNCE_MS,
 }: UseLiveAnalysisBroadcastArgs): UseLiveAnalysisBroadcastState {
   // ─── State ────────────────────────────────────────────────────────
-  const [pgn, setPgn] = useState<string | null>(null);
+  // KS-3780: вместо PGN-строки храним сериализованное JSON-дерево
+  // автора. Содержимое непрозрачно для хука — потребитель сам
+  // разбирает через `deserializeLiveTree`.
+  const [tree, setTree] = useState<string | null>(null);
   // KS-3775: уникальный индекс узла дерева автора (см. описание поля
   // в `UseLiveAnalysisBroadcastState`).
   const [currentGlobalIndex, setCurrentGlobalIndex] =
@@ -146,13 +159,15 @@ export function useLiveAnalysisBroadcast({
     slug: closed ? null : slug ?? null,
     onSync: useCallback((payload: LiveAnalysisSyncSnapshot) => {
       // `sync` — авторитетный snapshot. Применяем полностью.
-      if (typeof payload.currentPgn === 'string') {
-        setPgn(payload.currentPgn);
+      // KS-3780: backend хранит дерево как непрозрачную строку и
+      // отдаёт обратно в `tree`. До первого state-patch поле может
+      // отсутствовать (трансляция только что создана и автор ещё
+      // ничего не правил) — оставляем null, потребитель покажет
+      // пустое дерево из startingFen.
+      if (typeof payload.tree === 'string') {
+        setTree(payload.tree);
       } else {
-        // Сервер не прислал currentPgn (старый snapshot без state-patch
-        // ещё ни разу не приходил, ADR-111 §2.3) — оставляем null,
-        // потребитель строит дерево из startingFen+moves.
-        setPgn(null);
+        setTree(null);
       }
       // KS-3775: backend сохраняет state-patch.currentGlobalIndex в
       // Redis и отдаёт его в snapshot. Поле опциональное — для старых
@@ -194,9 +209,8 @@ export function useLiveAnalysisBroadcast({
   // отправляем то, что лежит в pending. Это минимизирует трафик и
   // совпадает с серверным rate-limit'ом (ADR-111 §2.4).
   type PendingPatch = {
-    pgn: string;
-    headers?: Record<string, string>;
-    currentPly?: number;
+    tree: string;
+    currentGlobalIndex?: number;
     orientation?: LiveAnalysisOrientation;
   };
   const pendingRef = useRef<PendingPatch | null>(null);
@@ -227,13 +241,12 @@ export function useLiveAnalysisBroadcast({
   const emitStatePatch = useCallback<
     UseLiveAnalysisBroadcastState['emitStatePatch']
   >(
-    (nextPgn, extras) => {
+    (nextTree, extras) => {
       if (!isOwner) return;
-      if (!nextPgn) return;
+      if (!nextTree) return;
       pendingRef.current = {
-        pgn: nextPgn,
-        headers: extras?.headers,
-        currentPly: extras?.currentPly,
+        tree: nextTree,
+        currentGlobalIndex: extras?.currentGlobalIndex,
         orientation: extras?.orientation,
       };
       if (timerRef.current) {
@@ -282,7 +295,7 @@ export function useLiveAnalysisBroadcast({
 
   return useMemo(
     () => ({
-      pgn,
+      tree,
       currentGlobalIndex,
       orientation,
       viewerCount,
@@ -295,7 +308,7 @@ export function useLiveAnalysisBroadcast({
       emitClose,
     }),
     [
-      pgn,
+      tree,
       currentGlobalIndex,
       orientation,
       viewerCount,

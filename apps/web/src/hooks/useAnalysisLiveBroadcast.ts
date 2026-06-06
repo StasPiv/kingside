@@ -131,16 +131,17 @@ export interface UseAnalysisLiveBroadcastState {
    * секунду, лимит не пробивается даже при шквале правок.
    */
   emitStatePatch: (params: {
-    pgn: string;
     /**
-     * KS-3775: уникальный сквозной индекс узла дерева анализа автора
-     * (включая боковые варианты). Парсер `parseAnnotatedPgn`
-     * присваивает его детерминированно, поэтому индекс одного и того
-     * же узла у автора и у зрителя совпадает. Backend сохраняет его
-     * как авторитативный и отдаёт в sync; зритель находит узел через
-     * `searchInHistory(history, currentGlobalIndex)` — без поисков
-     * по FEN, что устойчиво к транспозициям. Поля `currentPly` и
-     * `headers` убраны из контракта (KS-3775 follow-up).
+     * KS-3780: JSON-сериализованное дерево автора
+     * (см. `serializeLiveTree`). Заменило `pgn` — теперь индексы
+     * узлов едут вместе с деревом, никакой переиндексации у зрителя.
+     */
+    tree: string;
+    /**
+     * KS-3775: уникальный сквозной индекс узла дерева анализа автора.
+     * После KS-3780 индекс берётся из reducer'а автора как есть —
+     * у зрителя `searchInHistory(history, currentGlobalIndex)` находит
+     * нужный узел гарантированно.
      */
     currentGlobalIndex?: number;
     orientation?: LiveAnalysisOrientation;
@@ -324,9 +325,9 @@ export function useAnalysisLiveBroadcast({
   >(
     (params) => {
       if (!slug) return;
-      if (!params.pgn) return;
+      if (!params.tree) return;
       const signature = JSON.stringify({
-        p: params.pgn,
+        t: params.tree,
         g: params.currentGlobalIndex ?? null,
         o: params.orientation ?? null,
       });

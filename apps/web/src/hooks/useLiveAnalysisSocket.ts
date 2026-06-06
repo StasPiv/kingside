@@ -76,17 +76,20 @@ export interface UseLiveAnalysisSocketState {
    * (`useLiveAnalysisBroadcast`), здесь только сырая отправка.
    */
   emitStatePatch: (params: {
-    pgn: string;
+    /**
+     * KS-3780: JSON-сериализованное дерево анализа автора
+     * (см. `serializeLiveTree`). Backend хранит как непрозрачную
+     * строку. Заменило поле `pgn` — теперь дерево с уже
+     * проставленными `globalIndex` едет как есть, без двойного
+     * разбора через парсер у зрителя.
+     */
+    tree: string;
     /**
      * KS-3775: уникальный сквозной индекс узла дерева анализа
-     * (включая боковые варианты). Парсер `parseAnnotatedPgn`
-     * присваивает его детерминированно, поэтому индекс автора и
-     * индекс зрителя для одного и того же узла идентичны. Решает
-     * проблему транспозиций (два разных узла дерева могут иметь
-     * один и тот же FEN), поэтому передаём именно индекс, а не
-     * FEN текущей позиции. Поля `currentPly` и `headers` убраны
-     * из контракта (KS-3775 follow-up): currentPly выводится из
-     * найденного узла, headers — из `parsePgnHeaders(pgn)`.
+     * (включая боковые варианты). После KS-3780 индекс берётся
+     * прямо из reducer'а автора — никакой переиндексации, у
+     * зрителя `searchInHistory(history, currentGlobalIndex)`
+     * всегда находит нужный узел.
      */
     currentGlobalIndex?: number;
     orientation?: 'white' | 'black';
@@ -230,8 +233,8 @@ export function useLiveAnalysisSocket({
 
   const emitStatePatch = useCallback(
     (params: {
-      pgn: string;
-      // KS-3775: см. описание в типе UseLiveAnalysisSocketState.
+      // KS-3780: см. описание в типе UseLiveAnalysisSocketState.
+      tree: string;
       currentGlobalIndex?: number;
       orientation?: 'white' | 'black';
     }) => {

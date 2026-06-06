@@ -58,6 +58,11 @@ import type {
 } from '@kingside/shared';
 import { ApiError as ApiErrorClass } from '../ApiError';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
+// KS-3780: контракт live-трансляции — JSON-дерево вместо PGN-строки.
+import {
+  serializeLiveTree,
+  deserializeLiveTree,
+} from '../review/utils/liveTreeCodec';
 // KS-2863 (ADR-060 §10.1 FR1): извлечённый header — workshop-shortcut +
 // breadcrumbs + inline-edit title. State (isEditingTitle, titleInput,
 // handlers) остаётся в AnalysisPage, передаётся через props.
@@ -902,75 +907,42 @@ function AnalysisPageInner({
     mode: liveSession?.mode ?? 'viewer',
   });
 
-  // KS-3747 / ADR-111 §2.8 п.5 — «применение PGN без сноса контекста».
-  // На каждый новый pgn из sync/state-patch:
-  //   1. Запоминаем FEN текущей позиции зрителя (currentMove?.fen или
-  //      initialFen для root).
-  //   2. Парсим новый PGN и грузим через loadFromPgn — это меняет
-  //      state.history целиком, но НЕ трогает initialFen (LOAD_FROM_PGN
-  //      reducer specifically оставляет initialFen как есть).
-  //   3. После apply ищем узел с тем же FEN в новом дереве. Если нашли —
-  //      gotoMove на него: зритель остаётся на той же позиции, не теряя
-  //      контекста. Stockfish (на currentFen), AI (тоже на currentFen),
-  //      ArchiveTreePanel — все они переживут без сброса.
-  //   4. Если узла нет (зритель ушёл в локальную ветку, которой не
-  //      существует в дереве автора, либо автор откатил свою линию) —
-  //      reducer уже выставил currentMove на последний ход, оставляем
-  //      как есть. Это «soft drift» вместо жёсткого сноса.
+  // KS-3780 / ADR-111 §2.8 п.5 — «применение дерева без сноса контекста».
+  // На каждый новый `tree` из sync/state-patch:
+  //   1. Десериализуем JSON-дерево автора (узлы уже несут авторские
+  //      `globalIndex` и аннотации — никакой переиндексации).
+  //   2. Грузим через `loadFromPgn(history, initialAnnotations)` —
+  //      reducer LOAD_FROM_PGN перезаписывает дерево и собирает
+  //      `annotationsByIndex` из `move.annotations` (которые мы
+  //      «впечатали» на стороне автора через `bakeAnnotations`).
+  //   3. По `liveFull.currentGlobalIndex` напрямую находим узел через
+  //      `searchInHistory(history, idx)` и ставим курсор. FEN-поиска
+  //      больше нет — индексы у автора и зрителя совпадают по
+  //      определению (см. KS-3780).
+  //   4. Если зритель ушёл в локальную ветку — `tree` уходит в
+  //      `pendingLiveTree`, висит badge «Получено обновление от
+  //      автора», авто-применяется при возврате на дерево автора.
   //
-  // Применяем только для viewer-режима. Owner-side state-patch будет
-  // обрабатываться в KS-3748 (там автор сам генерирует PGN из своего
-  // review-state и шлёт его наружу).
-  // KS-3750 / ADR-111 §2.8 риски: если зритель ушёл в локальную
-  // ветку (currentFen != authorFen из live-хука), новый state-patch
-  // не применяется автоматически — иначе мы перебьём разбор зрителя
-  // посреди работы. Вместо этого:
-  //   1. кладём свежий PGN в `pendingLivePgn`,
-  //   2. показываем badge «Получено обновление от автора» с кнопкой
-  //      «Применить» (ниже в JSX),
-  //   3. как только зритель сам вернулся на main-line автора (т.е.
-  //      `currentFen` совпал с `liveFull.currentFen`) — авто-применяем
-  //      pending (так требует acceptance: «возврат к трансляции не
-  //      теряет накопленные обновления»).
-  // Применённый PGN запоминаем в `lastAppliedLivePgnRef`, чтобы тот
-  // же snapshot не применился дважды.
-  const lastAppliedLivePgnRef = useRef<string | null>(null);
-  // KS-3775 follow-up: уникальный globalIndex узла автора на момент
-  // последнего apply. Используется чтобы отличить «зритель идёт за
-  // автором» (его currentMove.globalIndex === lastAppliedAuthorGlobalIndex)
-  // от «зритель листает дерево сам» (несовпадение). Null до первого
-  // apply — трактуется как «следовать за автором». Раньше сравнивали
-  // по FEN (lastAppliedAuthorFenRef), но FEN не уникален в дереве
-  // (транспозиции), поэтому переехали на globalIndex.
-  const lastAppliedAuthorGlobalIndexRef = useRef<number | null>(null);
-  const [pendingLivePgn, setPendingLivePgn] = useState<string | null>(null);
+  // Применённый `tree` запоминаем в `lastAppliedLiveTreeRef`, чтобы
+  // тот же snapshot не применился дважды.
+  const lastAppliedLiveTreeRef = useRef<string | null>(null);
+  const [pendingLiveTree, setPendingLiveTree] = useState<string | null>(null);
 
   // KS-3780: при смене slug у зрителя (переход с /live/A на /live/B
-  // в той же вкладке) фактически наблюдается, что дерево от A
-  // остаётся в Movelist. Это значит React по какой-то причине не
-  // пересоздаёт AnalysisPage целиком, несмотря на key={slug} в
-  // LiveAnalysisViewerPage (см. KS-3779). Жёстко сбрасываем review-
-  // state и все live-ref'ы по смене slug — это не зависит от
-  // reconciliation. Срабатывает только в viewer-режиме, авторскую
-  // страницу не трогаем (там slug приходит из start() и зрительского
-  // переключения нет).
+  // в той же вкладке) принудительно сбрасываем review-state и live-
+  // ref'ы — это не зависит от reconciliation. Только в viewer-режиме.
   useEffect(() => {
     if (!isViewerLive) return;
     if (!liveSession?.slug) return;
     loadFromPgn([]);
-    lastAppliedLivePgnRef.current = null;
-    lastAppliedAuthorGlobalIndexRef.current = null;
-    setPendingLivePgn(null);
+    lastAppliedLiveTreeRef.current = null;
+    setPendingLiveTree(null);
   }, [isViewerLive, liveSession?.slug, loadFromPgn]);
 
   // KS-3768 фикс KS-3750: предикат «зритель находится в дереве автора».
-  // Раньше критерием была равенство `viewerFen === liveFull.currentFen` —
-  // это ломалось на ПЕРВОМ sync: у зрителя currentMove=null,
-  // viewerFen=initialFen, а authorFen — позиция автора (обычно не
-  // initialFen), → условие давало false → весь первичный snapshot
-  // уходил в pending. Текущий критерий: позиция зрителя «в дереве
-  // автора», если она равна стартовой позиции (root) или существует в
-  // дереве ходов через findGlobalIndexByFen.
+  // Критерий: позиция зрителя «в дереве автора», если она равна
+  // стартовой позиции (root) или существует в дереве через
+  // `findGlobalIndexByFen`.
   const isViewerFenInAuthorTree = useCallback(
     (viewerFen: string, moves: ChessMove[]): boolean => {
       if (viewerFen === initialFen) return true;
@@ -981,106 +953,71 @@ function AnalysisPageInner({
 
   // Стабильный applier — общий код для авто-apply и для клика по
   // кнопке «Применить» из badge'а.
-  const applyLivePgn = useCallback(
-    (nextPgn: string) => {
+  const applyLiveTree = useCallback(
+    (nextTree: string) => {
       const authorGlobalIndex = liveFull.currentGlobalIndex;
       try {
-        const moves = parseAnnotatedPgn(nextPgn);
-        const initialAnn = extractInitialAnnotations(nextPgn);
-        loadFromPgn(moves, initialAnn);
-        // KS-3775 follow-up: headers вытаскиваем из самого PGN (backend
-        // их больше не отдаёт отдельным полем). PGN — авторитетный
-        // источник: при расхождении PGN всегда побеждает.
-        setPgnHeaders(parsePgnHeaders(nextPgn));
-        // KS-3778: упрощённая модель «зритель следует за автором».
-        // Шлюз выше уже проверяет `isViewerFenInAuthorTree` — если
-        // зритель в своей локальной ветке, мы сюда не попадаем (state-
-        // patch уходит в pending + badge). Значит здесь зритель —
-        // в дереве автора, можно безусловно вести его на позицию
-        // автора. followAuthor-проверка через
-        // `lastAppliedAuthorGlobalIndexRef` убрана: она блокировала
-        // (а) добавление нового хода в боковой ветке (новый индекс
-        // не совпадал с прошлым applied), (б) переход автора на root
-        // после прежнего apply на каком-то ходу.
-        //   - authorGlobalIndex задан → ищем узел в дереве, gotoMove.
-        //   - authorGlobalIndex null (автор на стартовой позиции) →
-        //     gotoFirst.
+        const parsed = deserializeLiveTree(nextTree);
+        loadFromPgn(parsed.history, parsed.initialAnnotations);
+        // KS-3780: индексы автора и зрителя теперь идентичны (узлы
+        // приехали из reducer'а автора как есть). Ставим курсор
+        // напрямую через `searchInHistory(history, authorGlobalIndex)`.
+        // Если автор на стартовой позиции (`authorGlobalIndex` null) —
+        // зритель тоже идёт на root.
         if (typeof authorGlobalIndex === 'number') {
-          const target = searchInHistory(moves, authorGlobalIndex) as
+          const target = searchInHistory(parsed.history, authorGlobalIndex) as
             | ChessMove
             | null;
           if (target) {
             gotoMove(target);
           }
-          // KS-3780: если узел не нашёлся (рассинхрон индексов
-          // автор/парсер) — НЕ делать gotoFirst. Зритель остаётся на
-          // текущей позиции. Прежний gotoFirst-фолбэк сбрасывал
-          // курсор на стартовую при любом ходе автора, если индекс
-          // расходился. Лучше мягкий промах: зритель видит то же
-          // дерево, никуда не уехал.
+          // Если узла нет — автор только что удалил линию, на которой
+          // стоял курсор. Reducer уже выставил currentMove на последний
+          // ход main-line; оставляем как есть (soft drift).
         } else {
-          // Автор на стартовой позиции — двигаем зрителя туда же.
           gotoFirst();
         }
-        lastAppliedLivePgnRef.current = nextPgn;
-        lastAppliedAuthorGlobalIndexRef.current =
-          typeof authorGlobalIndex === 'number' ? authorGlobalIndex : null;
+        lastAppliedLiveTreeRef.current = nextTree;
       } catch {
-        /* битый PGN — оставляем дерево как есть, ждём следующего sync. */
+        /* битый JSON — оставляем дерево как есть, ждём следующего sync. */
       }
     },
-    [
-      liveFull.currentGlobalIndex,
-      loadFromPgn,
-      gotoMove,
-      gotoFirst,
-    ],
+    [liveFull.currentGlobalIndex, loadFromPgn, gotoMove, gotoFirst],
   );
 
   // Шлюз входящих state-patch'ей. Решаем: применить сразу или отложить.
   useEffect(() => {
     if (!isViewerLive) return;
-    if (!liveFull.pgn) return;
-    if (lastAppliedLivePgnRef.current === liveFull.pgn) return;
+    if (!liveFull.tree) return;
+    if (lastAppliedLiveTreeRef.current === liveFull.tree) return;
     const viewerFen = currentMove?.fen ?? initialFen;
     let inAuthorTree = true;
     try {
-      const moves = parseAnnotatedPgn(liveFull.pgn);
-      inAuthorTree = isViewerFenInAuthorTree(viewerFen, moves);
+      const parsed = deserializeLiveTree(liveFull.tree);
+      inAuthorTree = isViewerFenInAuthorTree(viewerFen, parsed.history);
     } catch {
-      // Битый PGN — пусть applyLivePgn сам отбьётся, мы не хотим
-      // удерживать сломанный snapshot в pending'е.
+      // Битый JSON — пусть applyLiveTree сам отбьётся.
       inAuthorTree = true;
     }
     if (inAuthorTree) {
-      applyLivePgn(liveFull.pgn);
-      // Если что-то лежало в pending — теперь оно неактуально, очищаем.
-      if (pendingLivePgn !== null) setPendingLivePgn(null);
+      applyLiveTree(liveFull.tree);
+      if (pendingLiveTree !== null) setPendingLiveTree(null);
     } else {
-      // Локальная ветка: не применяем, держим последний свежий PGN в
-      // pending'е (только последний — новые патчи перезаписывают
-      // предыдущие, дельты не нужны).
-      setPendingLivePgn(liveFull.pgn);
+      // Локальная ветка: не применяем, держим последний свежий tree в
+      // pending'е.
+      setPendingLiveTree(liveFull.tree);
     }
-    // currentMove не в deps намеренно: на каждое переключение ходов
-    // зрителя — это норма, не сигнал «пришёл новый patch». Авто-apply
-    // pending при возврате к дереву автора обрабатывает соседний
-    // useEffect ниже.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isViewerLive, liveFull.pgn, applyLivePgn, isViewerFenInAuthorTree]);
+  }, [isViewerLive, liveFull.tree, applyLiveTree, isViewerFenInAuthorTree]);
 
   // KS-3777/KS-3778: чистая навигация автора по дереву (стрелки
   // назад/вперёд, клик по ходу, переход на стартовую позицию) меняет
-  // только `currentGlobalIndex`, PGN остаётся прежним. Шлюз выше
-  // отбивает sync с `lastAppliedLivePgnRef.current === liveFull.pgn`,
-  // поэтому applyLivePgn в таком случае не зовётся — и без этого
-  // отдельного эффекта курсор зрителя стоял бы. Здесь двигаем
-  // gotoMove (или gotoFirst) напрямую, без перепарсинга PGN.
+  // только `currentGlobalIndex`, дерево остаётся прежним. Шлюз выше
+  // отбивает повторный applyLiveTree (по `lastAppliedLiveTreeRef`),
+  // поэтому курсор зрителя двигаем тут — без перепарсинга дерева.
   //
-  // Защита от «зритель ушёл в свою локальную ветку»: проверяем
-  // `isViewerFenInAuthorTree` через текущее `history`. Если ушёл —
-  // не двигаем (state-patch в этом случае был отправлен в pending
-  // шлюзом выше, badge висит).
+  // Защита: если зритель ушёл в свою локальную ветку — не двигаем
+  // (state-patch уже улетел в pending шлюзом выше).
   useEffect(() => {
     if (!isViewerLive) return;
     const viewerFen = currentMove?.fen ?? initialFen;
@@ -1088,11 +1025,8 @@ function AnalysisPageInner({
     const authorGlobalIndex = liveFull.currentGlobalIndex;
     const viewerGlobalIndex = currentMove?.globalIndex ?? null;
     if (typeof authorGlobalIndex !== 'number') {
-      // KS-3778: автор перешёл на стартовую позицию. Двигаем зрителя
-      // туда же, если он не там.
       if (viewerGlobalIndex !== null) {
         gotoFirst();
-        lastAppliedAuthorGlobalIndexRef.current = null;
       }
       return;
     }
@@ -1100,7 +1034,6 @@ function AnalysisPageInner({
     const target = searchInHistory(history, authorGlobalIndex);
     if (target) {
       gotoMove(target as ChessMove);
-      lastAppliedAuthorGlobalIndexRef.current = authorGlobalIndex;
     }
   }, [
     isViewerLive,
@@ -1114,37 +1047,36 @@ function AnalysisPageInner({
   ]);
 
   // KS-3750 (KS-3768 фикс): авто-apply pending когда зритель снова
-  // оказался в дереве автора. Триггер — изменение currentMove (зритель
-  // листает или сам делает ходы).
+  // оказался в дереве автора. Триггер — изменение currentMove.
   useEffect(() => {
     if (!isViewerLive) return;
-    if (!pendingLivePgn) return;
+    if (!pendingLiveTree) return;
     const viewerFen = currentMove?.fen ?? initialFen;
     let inAuthorTree = false;
     try {
-      const moves = parseAnnotatedPgn(pendingLivePgn);
-      inAuthorTree = isViewerFenInAuthorTree(viewerFen, moves);
+      const parsed = deserializeLiveTree(pendingLiveTree);
+      inAuthorTree = isViewerFenInAuthorTree(viewerFen, parsed.history);
     } catch {
       inAuthorTree = false;
     }
     if (inAuthorTree) {
-      applyLivePgn(pendingLivePgn);
-      setPendingLivePgn(null);
+      applyLiveTree(pendingLiveTree);
+      setPendingLiveTree(null);
     }
   }, [
     isViewerLive,
-    pendingLivePgn,
+    pendingLiveTree,
     currentMove,
     initialFen,
-    applyLivePgn,
+    applyLiveTree,
     isViewerFenInAuthorTree,
   ]);
 
   const handleApplyPendingLive = useCallback(() => {
-    if (!pendingLivePgn) return;
-    applyLivePgn(pendingLivePgn);
-    setPendingLivePgn(null);
-  }, [applyLivePgn, pendingLivePgn]);
+    if (!pendingLiveTree) return;
+    applyLiveTree(pendingLiveTree);
+    setPendingLiveTree(null);
+  }, [applyLiveTree, pendingLiveTree]);
 
   // KS-3747: orientation из live перебивает локальный boardOrientation.
   // Зритель не должен сам переворачивать доску — автор задал ориентацию,
@@ -1158,10 +1090,11 @@ function AnalysisPageInner({
     );
   }, [liveSession, liveFull.orientation]);
 
-  // KS-3775 follow-up: headers больше не отдельное поле в sync —
-  // backend убрал его из snapshot. Headers извлекаются из PGN внутри
-  // applyLivePgn через `parsePgnHeaders(nextPgn)`, дублирующий эффект
-  // удалён.
+  // KS-3780: контракт sync теперь не несёт PGN-headers. Зритель
+  // живёт без них (титл трансляции приходит из REST-snapshot
+  // `/live-analyses/:slug` и рисуется обёрткой `LiveAnalysisViewerPage`,
+  // GameMetaBar внутри AnalysisPage в live-режиме скрыт через
+  // `publicMode||isViewerLive`-гейты).
 
   // KS-3747: в viewer-режиме нет id-based загрузки — стартуем сразу
   // готовыми к рендеру, спиннер не нужен. Загружаемое содержимое
@@ -2410,46 +2343,31 @@ function AnalysisPageInner({
     // ровно для этой страницы. Дополнительный гейт против отравления
     // чужой трансляции, добавленный в KS-3754, больше не нужен:
     // backend гарантирует партицию (userId, analysisId).
-    const pgn = buildAnalysisPgn();
-    if (!pgn) return;
-    // KS-3780 второй симптом: globalIndex автора и globalIndex у
-    // зрителя могут расходиться. У автора индекс выдаёт reducer-
-    // счётчик `nextGlobalIndex` (растёт по мере добавления узлов).
-    // У зрителя индексы присваиваются `parseAnnotatedPgn` при DFS-
-    // обходе PGN. Эти два порядка не обязаны совпадать (особенно при
-    // добавлении ходов в боковую ветку). Чтобы они гарантированно
-    // совпали, перепарсиваем собранный PGN тем же `parseAnnotatedPgn`
-    // и ищем там узел по FEN текущей позиции автора. Берём оттуда
-    // «парсерный» globalIndex — он точно сойдётся с тем, что получит
-    // зритель.
-    let parserGlobalIndex: number | undefined;
-    if (currentMove) {
-      try {
-        const reparsed = parseAnnotatedPgn(pgn);
-        const idx = findGlobalIndexByFen(reparsed, currentMove.fen);
-        parserGlobalIndex = idx === null ? undefined : idx;
-      } catch {
-        parserGlobalIndex = undefined;
-      }
-    }
+    if (history.length === 0) return;
+    // KS-3780: отправляем сериализованное JSON-дерево автора. Индексы
+    // узлов уже проставлены reducer'ом (nextGlobalIndex-счётчик), идут
+    // вместе с деревом без переиндексации у зрителя. currentGlobalIndex
+    // — прямой индекс из reducer'а; у зрителя `searchInHistory(history,
+    // idx)` всегда находит нужный узел.
+    const tree = serializeLiveTree({
+      history,
+      initialFen,
+      initialAnnotations,
+      annotationsByIndex,
+    });
     liveBroadcast.emitStatePatch({
-      pgn,
-      // KS-3775 / KS-3780: точная позиция автора в дереве через
-      // «парсерный» globalIndex (см. выше). Если перепарс не нашёл
-      // узел — поле опускаем; у зрителя в этом случае
-      // searchInHistory вернёт null, и applyLivePgn оставит зрителя
-      // на его текущей позиции (мягкий промах вместо реверта).
-      currentGlobalIndex: currentMove
-        ? parserGlobalIndex
-        : undefined,
+      tree,
+      currentGlobalIndex: currentMove ? currentMove.globalIndex : undefined,
       orientation: boardOrientation,
     });
   }, [
     isViewerLive,
     liveBroadcast,
-    buildAnalysisPgn,
+    history,
+    initialFen,
+    initialAnnotations,
+    annotationsByIndex,
     currentMove,
-    currentGlobalIndex,
     boardOrientation,
   ]);
 
@@ -3140,13 +3058,13 @@ function AnalysisPageInner({
         )}
         {/* KS-3750: badge «получено обновление от автора». Виден
             только в зрительском live-режиме и только когда зритель
-            находится в локальной ветке (`pendingLivePgn != null`). По
+            находится в локальной ветке (`pendingLiveTree != null`). По
             клику применяет накопленный pending к review-state
-            (`applyLivePgn` сохраняет позицию через findGlobalIndexByFen).
+            (`applyLiveTree` ставит курсор по `currentGlobalIndex` автора).
             Авто-применение при возврате на main-line автора уже
             обрабатывается соседним useEffect — badge нужен только пока
             зритель действительно в стороне. */}
-        {isViewerLive && pendingLivePgn && (
+        {isViewerLive && pendingLiveTree && (
           <div
             className="analysis-live-update-badge"
             data-testid="analysis-live-update-badge"
