@@ -134,8 +134,14 @@ describe('labelForSubtermId', () => {
       'изолированная пешка',
     );
     expect(labelForSubtermId('pawn_isolated', 'en')).toBe('isolated pawn');
-    expect(labelForSubtermId('bishop_pawns', 'ru')).toMatch(/плохой слон/);
-    expect(labelForSubtermId('bishop_pawns', 'en')).toMatch(/bad bishop/);
+    // Префикс «плохой слон» / «bad bishop» удалён — приводил к
+    // тавтологии «плохой слон у этого слона» в комментариях модели.
+    expect(labelForSubtermId('bishop_pawns', 'ru')).toMatch(
+      /пешек на цвете слона/,
+    );
+    expect(labelForSubtermId('bishop_pawns', 'en')).toMatch(
+      /pawns on the bishop's colour/,
+    );
     expect(labelForSubtermId('outpost_knight', 'ru')).toBe('конь на форпосте');
     expect(labelForSubtermId('outpost_knight', 'en')).toBe(
       'knight on an outpost',

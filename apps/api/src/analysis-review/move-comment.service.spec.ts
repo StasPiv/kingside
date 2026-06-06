@@ -176,7 +176,7 @@ describe('MoveCommentService', () => {
         ['outpost_knight', /конь на форпосте/],
         ['mobility_rook', /мобильность ладьи/],
         ['rook_on_open_file', /ладья на открытой или полу-открытой линии/],
-        ['bishop_pawns', /плохой слон/],
+        ['bishop_pawns', /много своих пешек на цвете слона/],
       ];
       for (const [id, ru] of sample) {
         expect(p).toMatch(new RegExp(`-\\s+${id}\\s+→\\s+${ru.source}`));
@@ -281,7 +281,7 @@ describe('MoveCommentService', () => {
         ['outpost_knight', /knight on an outpost/],
         ['mobility_rook', /rook mobility/],
         ['rook_on_open_file', /rook on \(semi-\)open file/],
-        ['bishop_pawns', /bad bishop/],
+        ['bishop_pawns', /many own pawns on the bishop's colour/],
       ];
       for (const [id, en] of sample) {
         expect(p).toMatch(new RegExp(`-\\s+${id}\\s+→\\s+${en.source}`));

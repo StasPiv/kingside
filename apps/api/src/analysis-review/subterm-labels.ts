@@ -27,8 +27,10 @@ export interface SubtermLabel {
 
 /**
  * Полная таблица человекочитаемых описаний (RU + EN). Каждое поле —
- * краткая фраза для подстановки в LLM-prompt («плохой слон», «конь
- * на форпосте», и т.д.).
+ * краткая фраза для подстановки в системную инструкцию модели
+ * («конь на форпосте», «изолированная пешка», и т.д.). Формулировки
+ * подбираются так, чтобы их можно было склеить с существительным
+ * в предложении без тавтологии (см. правку bishop_pawns 2026-06-06).
  */
 export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
   // ─── Pawns (pawns.cpp::evaluate, 7) ─────────────────────────────
@@ -117,8 +119,12 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     en: 'bishop far from own king (protector penalty)',
   },
   bishop_pawns: {
-    ru: 'плохой слон: много своих пешек на цвете слона',
-    en: "bad bishop: many own pawns on the bishop's color",
+    // Обратная связь пользователя (2026-06-06): прежний префикс «плохой
+    // слон:» приводил к тавтологии вида «плохой слон у этого слона
+    // остался» — модель цитировала префикс как самостоятельную фразу.
+    // Оставлено только описание самого фактора по Stockfish.
+    ru: 'много своих пешек на цвете слона',
+    en: "many own pawns on the bishop's colour",
   },
   bishop_xray_pawns: {
     ru: 'слон рентгенит чужие пешки сквозь свои',

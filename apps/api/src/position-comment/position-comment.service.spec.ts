@@ -145,7 +145,7 @@ describe('PositionCommentService', () => {
         ['king_attackers_count', /количество фигур, атакующих короля/],
         ['king_attackers_weight', /суммарный вес атакующих короля фигур/],
         ['rook_on_open_file', /ладья на открытой или полу-открытой линии/],
-        ['bishop_pawns', /плохой слон/],
+        ['bishop_pawns', /много своих пешек на цвете слона/],
       ];
       for (const [id, ru] of sample) {
         expect(p).toMatch(new RegExp(`-\\s+${id}\\s+→\\s+${ru.source}`));
@@ -244,7 +244,7 @@ describe('PositionCommentService', () => {
         ['king_attackers_count', /count of pieces attacking the king/],
         ['king_attackers_weight', /total weight of pieces attacking the king/],
         ['rook_on_open_file', /rook on \(semi-\)open file/],
-        ['bishop_pawns', /bad bishop/],
+        ['bishop_pawns', /many own pawns on the bishop's colour/],
       ];
       for (const [id, en] of sample) {
         expect(p).toMatch(new RegExp(`-\\s+${id}\\s+→\\s+${en.source}`));
