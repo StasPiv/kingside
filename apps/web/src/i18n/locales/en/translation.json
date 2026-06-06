@@ -738,6 +738,14 @@
     "stopMenuItem": "Stop broadcast",
     "saveAndStartMenuItem": "Save and start broadcast"
   },
+  "coachProfile": {
+    "badge": "Coach",
+    "liveTitle": "Live now",
+    "liveBadge": "LIVE",
+    "startedAt": "Started",
+    "openPlayerProfile": "Open player profile",
+    "loadError": "Failed to load coach profile."
+  },
   "lecture": {
     "startMenuItem": "Start lecture",
     "create": {

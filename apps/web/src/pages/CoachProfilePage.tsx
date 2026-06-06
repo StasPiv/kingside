@@ -1,0 +1,353 @@
+import { useEffect, useState } from 'react';
+import { Link, Navigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import type { PlayerProfileResponse } from '@kingside/shared';
+import { api } from '../api';
+import { ApiError } from '../ApiError';
+import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
+
+/**
+ * KS-3787 / ADR-113 §4 эпик 1. Публичная страница тренера.
+ *
+ * Маршрут: `/coach/:username`. Подключение: только пользователь, у
+ * которого backend выставил `PlayerProfileResponse.isCoach = true`
+ * (хотя бы один публичный курс или одна публичная лекция). Для всех
+ * остальных делаем `Navigate → /player/:username` (по сценарию из
+ * описания задачи — «редирект на /player/:username», менее
+ * агрессивный вариант чем 404).
+ *
+ * Структура:
+ *  - Header: имя, флаг страны (если задана), бейдж «Тренер».
+ *  - Секция «Курсы» — переиспользуем `AuthorCoursesBlock` (тот же
+ *    компонент, что и на странице обычного игрока, KS-1915). Блок
+ *    сам скрывается, если у тренера нет публичных курсов.
+ *  - Секция «В эфире» — `GET /coaches/:username/lectures?status=live`.
+ *    Карточка содержит title/description/время старта и ссылку на
+ *    `/live/<liveAnalysis.slug>` (KS-3784 backend кладёт liveAnalysis
+ *    рядом с лекцией, чтобы не делать второй REST-запрос).
+ *
+ * Если `isCoach=false` или username не найден — редирект на
+ * страницу обычного игрока. Cпециальной отдельной 404-страницы не
+ * рисуем: пользователю удобнее видеть профиль игрока, чем «не
+ * найдено».
+ */
+
+// Локальный тип лекции — пока shared-контракт не закрыт (KS-3787
+// зависит от мини-доработки backend по форме ответа listByCoach).
+// Поля совпадают с моделью Prisma, плюс вложенный liveAnalysis,
+// добавляемый backend follow-up'ом под этот frontend.
+type LectureStatus = 'scheduled' | 'live' | 'recorded' | 'cancelled';
+interface LectureLiveSession {
+  id: string;
+  slug: string;
+  url: string;
+}
+interface CoachLecture {
+  id: string;
+  title: string;
+  description: string | null;
+  status: LectureStatus;
+  visibility: 'public' | 'unlisted';
+  scheduledAt: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  liveAnalysisId: string | null;
+  liveAnalysis: LectureLiveSession | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function countryFlag(code: string | null | undefined): string | null {
+  if (!code || code.length !== 2) return null;
+  const A = 0x41;
+  const REGIONAL = 0x1f1e6;
+  const cc = code.toUpperCase();
+  const c0 = cc.charCodeAt(0);
+  const c1 = cc.charCodeAt(1);
+  if (c0 < A || c0 > A + 25 || c1 < A || c1 > A + 25) return null;
+  return (
+    String.fromCodePoint(REGIONAL + (c0 - A)) +
+    String.fromCodePoint(REGIONAL + (c1 - A))
+  );
+}
+
+function formatStartedAt(value: string | null, locale: string): string {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleString(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+export function CoachProfilePage() {
+  const { t, i18n } = useTranslation();
+  const { username } = useParams<{ username: string }>();
+
+  const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
+  const [lectures, setLectures] = useState<CoachLecture[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!username) return;
+    let cancelled = false;
+    setLoading(true);
+    setNotFound(false);
+    setError(null);
+    // Профиль и список live-лекций тянем параллельно. Если профиль
+    // 404 — показываем not-found без шанса для list-запроса перетереть
+    // состояние. Ошибка списка не должна сорвать рендер профиля —
+    // секция «В эфире» в этом случае просто не отрисуется.
+    Promise.all([
+      api.get<PlayerProfileResponse>(
+        `/players/${encodeURIComponent(username)}`,
+      ),
+      api
+        .get<CoachLecture[]>(
+          `/coaches/${encodeURIComponent(username)}/lectures?status=live`,
+        )
+        .catch(() => [] as CoachLecture[]),
+    ])
+      .then(([p, l]) => {
+        if (cancelled) return;
+        setProfile(p);
+        setLectures(l);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e instanceof ApiError && e.status === 404) {
+          setNotFound(true);
+        } else {
+          setError(
+            t('coachProfile.loadError', 'Failed to load coach profile.'),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [username, t]);
+
+  if (loading) {
+    return (
+      <div className="coach-profile-page">
+        <div className="loading">{t('common.loading', 'Loading...')}</div>
+      </div>
+    );
+  }
+
+  if (notFound) {
+    // Username нет в players — редирект на /players (та же страница,
+    // куда отправляет PlayerProfilePage в not-found ветке).
+    return (
+      <div className="coach-profile-page">
+        <div className="player-profile-not-found">
+          <h2>{t('playerProfile.notFound', 'Player not found')}</h2>
+          <Link to="/players" className="players-link">
+            {t('playerProfile.backToPlayers', 'Back to players')}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="coach-profile-page">
+        <div className="error">
+          {error || t('coachProfile.loadError', 'Failed to load coach profile.')}
+        </div>
+      </div>
+    );
+  }
+
+  // Не-тренер: профиль найден, но isCoach=false. По ТЗ редиректим на
+  // страницу обычного игрока, чтобы не путать пользователя 404-ой
+  // когда сам пользователь существует.
+  if (!profile.isCoach) {
+    return (
+      <Navigate
+        to={`/player/${encodeURIComponent(profile.username)}`}
+        replace
+      />
+    );
+  }
+
+  const flag = countryFlag(profile.country ?? null);
+  const liveLectures = (lectures ?? []).filter((l) => l.status === 'live');
+
+  return (
+    <div className="coach-profile-page" data-testid="coach-profile-page">
+      <Link to="/players" className="player-profile-back">
+        {t('playerProfile.backToPlayers', 'Back to players')}
+      </Link>
+
+      {/* Header — упрощённый по сравнению с PlayerProfilePage, без
+          блоков «друзья / сообщения / drill-статистика / рейтинг-
+          история»: страница тренера — публичная витрина, эти разделы
+          не относятся к преподавательской деятельности. */}
+      <div className="player-profile-header">
+        <div className="player-profile-avatar">
+          {profile.username[0].toUpperCase()}
+        </div>
+        <div className="player-profile-info">
+          <h1 className="player-profile-username">
+            {flag && (
+              <span
+                className="player-profile-flag"
+                title={profile.country ?? undefined}
+                style={{ marginRight: 6 }}
+              >
+                {flag}
+              </span>
+            )}
+            {profile.username}
+            <span
+              className="coach-profile-badge"
+              data-testid="coach-profile-badge"
+              style={{
+                marginLeft: 12,
+                padding: '2px 10px',
+                borderRadius: 12,
+                background: '#1976d2',
+                color: '#fff',
+                fontSize: 14,
+                verticalAlign: 'middle',
+              }}
+            >
+              {t('coachProfile.badge', 'Coach')}
+            </span>
+          </h1>
+          <div className="player-profile-meta">
+            {/* Ссылка на полноценный игровой профиль — на случай,
+                если зритель пришёл искать партии тренера, а не
+                образовательные материалы. */}
+            <Link
+              to={`/player/${encodeURIComponent(profile.username)}`}
+              className="coach-profile-player-link"
+              style={{ marginLeft: 0 }}
+            >
+              {t('coachProfile.openPlayerProfile', 'Open player profile')}
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* «В эфире» — карточки активных лекций. Скрываем секцию целиком,
+          если активных нет — пустая секция «No live lectures» лишний шум
+          для страницы, у которой могут быть только курсы. */}
+      {liveLectures.length > 0 && (
+        <section
+          className="coach-profile-section"
+          data-testid="coach-profile-live-section"
+          aria-label={t('coachProfile.liveTitle', 'Live now')}
+          style={{ marginTop: 24 }}
+        >
+          <h2>{t('coachProfile.liveTitle', 'Live now')}</h2>
+          <ul
+            className="coach-profile-live-grid"
+            data-testid="coach-profile-live-grid"
+            style={{
+              listStyle: 'none',
+              padding: 0,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: 16,
+            }}
+          >
+            {liveLectures.map((l) => {
+              const slug = l.liveAnalysis?.slug;
+              const startedLabel = formatStartedAt(l.startedAt, i18n.language);
+              const card = (
+                <>
+                  <header style={{ marginBottom: 6 }}>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        background: '#d32f2f',
+                        color: '#fff',
+                        fontSize: 12,
+                        marginRight: 8,
+                      }}
+                    >
+                      {t('coachProfile.liveBadge', 'LIVE')}
+                    </span>
+                    <strong>{l.title}</strong>
+                  </header>
+                  {l.description && (
+                    <p style={{ margin: '4px 0', fontSize: 14, opacity: 0.85 }}>
+                      {l.description}
+                    </p>
+                  )}
+                  {startedLabel && (
+                    <footer style={{ fontSize: 12, opacity: 0.6 }}>
+                      {t('coachProfile.startedAt', 'Started')}{' '}
+                      {startedLabel}
+                    </footer>
+                  )}
+                </>
+              );
+              return (
+                <li
+                  key={l.id}
+                  className="coach-profile-live-card"
+                  data-testid={`coach-profile-live-card-${l.id}`}
+                  style={{
+                    border: '1px solid #ddd',
+                    borderRadius: 8,
+                    padding: 12,
+                  }}
+                >
+                  {slug ? (
+                    <Link
+                      to={`/live/${slug}`}
+                      style={{
+                        textDecoration: 'none',
+                        color: 'inherit',
+                        display: 'block',
+                      }}
+                      data-testid={`coach-profile-live-link-${l.id}`}
+                    >
+                      {card}
+                    </Link>
+                  ) : (
+                    // У live-лекции должен быть liveAnalysis (KS-3784
+                    // backend кладёт ненулевой объект для статуса live);
+                    // запасная ветка на случай рассинхронизации статуса
+                    // и обнуления liveAnalysisId в момент закрытия —
+                    // показываем карточку без ссылки.
+                    card
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* «Курсы» — переиспользуем существующий компонент. Он сам
+          ходит за `/players/:username/courses` и тихо скрывается,
+          если у автора нет публичных курсов. */}
+      <section
+        className="coach-profile-section"
+        data-testid="coach-profile-courses-section"
+        style={{ marginTop: 24 }}
+      >
+        <AuthorCoursesBlock username={profile.username} />
+      </section>
+    </div>
+  );
+}

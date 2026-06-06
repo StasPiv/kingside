@@ -748,6 +748,14 @@
     "stopMenuItem": "Завершить трансляцию",
     "saveAndStartMenuItem": "Сохранить и начать трансляцию"
   },
+  "coachProfile": {
+    "badge": "Тренер",
+    "liveTitle": "В эфире",
+    "liveBadge": "ЭФИР",
+    "startedAt": "Начало",
+    "openPlayerProfile": "Открыть игровой профиль",
+    "loadError": "Не удалось загрузить страницу тренера."
+  },
   "lecture": {
     "startMenuItem": "Начать лекцию",
     "create": {

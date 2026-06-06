@@ -28,6 +28,7 @@ import { BroadcastRoundPage } from './pages/BroadcastRoundPage';
 import { BroadcastLiveGamePage } from './pages/BroadcastLiveGamePage';
 import { PlayersPage } from './pages/PlayersPage';
 import { PlayerProfilePage } from './pages/PlayerProfilePage';
+import { CoachProfilePage } from './pages/CoachProfilePage';
 import { MessagesPage } from './pages/MessagesPage';
 import { LiveGamesPage } from './pages/LiveGamesPage';
 import { WatchGamePage } from './pages/WatchGamePage';
@@ -792,6 +793,8 @@ export function App() {
         <Route path="/workshop/pgn-files/:fileId" element={<WorkshopPage />} />
         <Route path="/players" element={<PlayersPage />} />
         <Route path="/player/:username" element={<PlayerProfilePage />} />
+        {/* KS-3787 / ADR-113 §4 эпик 1: публичная витрина тренера. */}
+        <Route path="/coach/:username" element={<CoachProfilePage />} />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
