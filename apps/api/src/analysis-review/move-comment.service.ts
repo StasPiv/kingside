@@ -100,14 +100,39 @@ export class MoveCommentService {
    * KS-3711. Тот же словарь подкомпонент Stockfish-trace, что в
    * `position-comment` (см. `SUBTERM_LABELS`, KS-3689 / KS-3677).
    * Возвращает многострочный текст `- <id> → <человеческое имя>` для
-   * подстановки в инструкцию. Whitelist здесь не применяем — фронт
-   * может прислать `id`, которых ещё нет в словаре (фронт-форк WASM
-   * опережает бэк); модель сама проигнорирует неизвестные id.
+   * подстановки в инструкцию.
+   *
+   * KS-3813 (ADR-114 §3, KS-N05). При передаче `usedIds` словарь
+   * сжимается до пересечения с этим набором. Без аргумента — полный
+   * (для прямых вызовов `buildSystemPrompt` в тестах). Пустой Set
+   * даёт пустую строку: модели нечего расшифровывать.
    */
-  private buildSubtermGlossary(language: MoveCommentLanguage): string {
-    return Object.entries(SUBTERM_LABELS)
-      .map(([id, label]) => `- ${id} → ${label[language]}`)
-      .join('\n');
+  private buildSubtermGlossary(
+    language: MoveCommentLanguage,
+    usedIds?: ReadonlySet<string>,
+  ): string {
+    const entries = Object.entries(SUBTERM_LABELS);
+    const filtered = usedIds
+      ? entries.filter(([id]) => usedIds.has(id))
+      : entries;
+    return filtered.map(([id, label]) => `- ${id} → ${label[language]}`).join('\n');
+  }
+
+  /**
+   * KS-3813. Собирает множество id, реально пришедших в массив
+   * factors. Sentinel-факторы (`sf18_eval`, `sf18_pv`) и любые id вне
+   * `SUBTERM_LABELS` отсеются автоматически на пересечении в
+   * `buildSubtermGlossary`.
+   */
+  private extractUsedSubtermIds(factors: unknown[]): Set<string> {
+    const out = new Set<string>();
+    if (!Array.isArray(factors)) return out;
+    for (const f of factors) {
+      if (typeof f !== 'object' || f === null) continue;
+      const id = (f as { id?: unknown }).id;
+      if (typeof id === 'string') out.add(id);
+    }
+    return out;
   }
 
   // ─── Системная инструкция ───────────────────────────────────────────
@@ -128,8 +153,11 @@ export class MoveCommentService {
    * Запрет шаблонных зачинов «По форме», «На доске типичная» —
    * прямая просьба пользователя по KS-3710.
    */
-  buildSystemPrompt(language: MoveCommentLanguage = 'ru'): string {
-    const glossary = this.buildSubtermGlossary(language);
+  buildSystemPrompt(
+    language: MoveCommentLanguage = 'ru',
+    usedIds?: ReadonlySet<string>,
+  ): string {
+    const glossary = this.buildSubtermGlossary(language, usedIds);
     if (language === 'en') {
       return [
         'You comment on a single played chess move strictly based on the provided facts. Input is a played move plus TWO position snapshots — BEFORE the move and AFTER the move — in the same format as the static position-comment endpoint (FEN + an array of positional factors from Stockfish-trace, with an optional `eval` total).',
@@ -266,7 +294,6 @@ export class MoveCommentService {
     }
 
     const language = dto.language ?? 'ru';
-    const systemPrompt = this.buildSystemPrompt(language);
 
     // KS-3694: webhook сейчас переиспользует одну claude-сессию через
     // `claude --resume`, и системная инструкция в payload-поле
@@ -279,6 +306,13 @@ export class MoveCommentService {
     // несуществующих манёвров (повтор фикса KS-3721 для position-comment).
     const beforeFactors = this.stripPvFactor(dto.before.factors);
     const afterFactors = this.stripPvFactor(dto.after.factors);
+    // KS-3813: сжимаем словарь расшифровок до id, реально пришедших в
+    // оба снимка. Раньше отправлялись все 59 пар (~3 КБ), сейчас 0.5–1 КБ.
+    const usedIds = new Set<string>([
+      ...this.extractUsedSubtermIds(beforeFactors ?? []),
+      ...this.extractUsedSubtermIds(afterFactors ?? []),
+    ]);
+    const systemPrompt = this.buildSystemPrompt(language, usedIds);
     const dataJson = JSON.stringify({
       move: dto.move,
       before: {

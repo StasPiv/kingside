@@ -86,15 +86,51 @@ export class PositionCommentService {
    * `SUBTERM_LABELS` из analysis-review — там 59 ID синхронизированы
    * с `PositionalSubtermId` в shared. Возвращает многострочный текст
    * `- <id> → <человеческое имя>` для подстановки в инструкцию.
+   *
+   * KS-3813 (ADR-114 §3, KS-N05). Если передан `usedIds` — словарь
+   * сжимается до пересечения с этим набором. Без аргумента (или при
+   * `undefined`) возвращается полный словарь — это нужно для прямых
+   * вызовов `buildSystemPrompt` в тестах и для обратной совместимости.
+   * При пустом `usedIds` (Set без элементов) — возвращается пустая
+   * строка: в фактах нет ни одной стат-подкомпоненты, модели нечего
+   * расшифровывать.
    */
-  private buildSubtermGlossary(language: PositionCommentLanguage): string {
-    return Object.entries(SUBTERM_LABELS)
-      .map(([id, label]) => `- ${id} → ${label[language]}`)
-      .join('\n');
+  private buildSubtermGlossary(
+    language: PositionCommentLanguage,
+    usedIds?: ReadonlySet<string>,
+  ): string {
+    const entries = Object.entries(SUBTERM_LABELS);
+    const filtered = usedIds
+      ? entries.filter(([id]) => usedIds.has(id))
+      : entries;
+    return filtered.map(([id, label]) => `- ${id} → ${label[language]}`).join('\n');
   }
 
-  buildSystemPrompt(language: PositionCommentLanguage = 'ru'): string {
-    const glossary = this.buildSubtermGlossary(language);
+  /**
+   * KS-3813 (ADR-114 §3, KS-N05). Извлекает из массива `factors`
+   * множество id, реально присутствующих в запросе. Используется для
+   * сжатия словаря расшифровок до тех id, которые модель действительно
+   * увидит. Sentinel-факторы (`sf18_eval`, `sf18_pv`) и любые id вне
+   * `SUBTERM_LABELS` отсекаются автоматически на этапе пересечения в
+   * `buildSubtermGlossary`, поэтому здесь набираем все строковые id
+   * подряд — лишние не навредят.
+   */
+  private extractUsedSubtermIds(factors: unknown[]): Set<string> {
+    const out = new Set<string>();
+    if (!Array.isArray(factors)) return out;
+    for (const f of factors) {
+      if (typeof f !== 'object' || f === null) continue;
+      const id = (f as { id?: unknown }).id;
+      if (typeof id === 'string') out.add(id);
+    }
+    return out;
+  }
+
+  buildSystemPrompt(
+    language: PositionCommentLanguage = 'ru',
+    usedIds?: ReadonlySet<string>,
+  ): string {
+    const glossary = this.buildSubtermGlossary(language, usedIds);
     if (language === 'en') {
       return [
         'Please comment on this chess position in plain language using the given positional factors. This is a STATIC evaluation: describe only what is in the position right now and how factors shift by tendency. No predictions of concrete future moves, no manoeuvres, no plans by named pieces.',
@@ -249,10 +285,13 @@ export class PositionCommentService {
       return { ...EMPTY_RESPONSE };
     }
 
-    const systemPrompt = this.buildSystemPrompt(dto.language);
     // KS-3721: вырезаем sf18_pv до сериализации — модель не должна
     // получать UCI-линию как почву для выдумывания манёвров.
     const factorsForModel = this.stripPvFactor(dto.factors);
+    // KS-3813: сжимаем словарь расшифровок до id, реально пришедших в
+    // factors. Раньше отправлялись все 59 пар (~3 КБ), сейчас 0.5–1 КБ.
+    const usedIds = this.extractUsedSubtermIds(factorsForModel);
+    const systemPrompt = this.buildSystemPrompt(dto.language, usedIds);
     const dataJson = JSON.stringify({
       fen: dto.fen,
       factors: factorsForModel,

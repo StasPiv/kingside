@@ -489,6 +489,92 @@ describe('MoveCommentService', () => {
       expect(factorsJson).not.toContain('e5e6');
     });
 
+    it('KS-3813: в systemPrompt уходит словарь только из id, реально пришедших в before/after factors', async () => {
+      const svc = new MoveCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      const captured: { body?: string } = {};
+      global.fetch = jest.fn(async (_url: string, init: any) => {
+        captured.body = init.body;
+        return {
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            response: '{"comment":"ok","highlights":[],"arrows":[]}',
+          }),
+          text: async () => '',
+        };
+      }) as any;
+
+      const dto = makeDto({
+        before: {
+          fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          factors: [
+            { id: 'sf18_eval', score: { type: 'cp', value: 0 } },
+            { id: 'sf18_pv', moves: ['e2e4'] },
+            { id: 'material', value_mg: 0.3, value_eg: 0.2 },
+          ],
+        },
+        after: {
+          fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
+          factors: [
+            { id: 'sf18_eval', score: { type: 'cp', value: 18 } },
+            { id: 'space', value_mg: 0.05, value_eg: 0 },
+          ],
+        },
+      });
+      await svc.comment('user-1', dto);
+
+      const body = JSON.parse(captured.body!);
+      // Объединение пришедших id из SUBTERM_LABELS — material и space.
+      expect(body.systemPrompt).toMatch(/^-\s+material\s+→/m);
+      expect(body.systemPrompt).toMatch(/^-\s+space\s+→/m);
+      // Неиспользуемые id из SUBTERM_LABELS отсутствуют как строки словаря.
+      // Проверка по строке «- <id> →»: id могут встретиться в инструкции
+      // как пример запрета писать технические id в ответе.
+      expect(body.systemPrompt).not.toMatch(/^-\s+king_danger\s+→/m);
+      expect(body.systemPrompt).not.toMatch(/^-\s+outpost_knight\s+→/m);
+      expect(body.systemPrompt).not.toMatch(/^-\s+rook_on_open_file\s+→/m);
+      expect(body.systemPrompt).not.toMatch(/^-\s+bishop_pawns\s+→/m);
+      expect(body.systemPrompt).not.toMatch(/^-\s+passed_rank\s+→/m);
+      // sf18_eval / sf18_pv не из SUBTERM_LABELS — в словаре их нет.
+      expect(body.systemPrompt).not.toMatch(/^-\s+sf18_eval\s+→/m);
+      expect(body.systemPrompt).not.toMatch(/^-\s+sf18_pv\s+→/m);
+    });
+
+    it('KS-3813: buildSystemPrompt без usedIds — полный словарь (backward-compat)', () => {
+      const svc = new MoveCommentService(
+        makeConfigService({}),
+        makeRedisStub(),
+      );
+      const p = svc.buildSystemPrompt('ru');
+      // Полный словарь — все ключевые id видны как строки «- <id> →».
+      expect(p).toMatch(/^-\s+king_danger\s+→/m);
+      expect(p).toMatch(/^-\s+outpost_knight\s+→/m);
+      expect(p).toMatch(/^-\s+mobility_rook\s+→/m);
+      expect(p).toMatch(/^-\s+rook_on_open_file\s+→/m);
+      expect(p).toMatch(/^-\s+bishop_pawns\s+→/m);
+      expect(p).toMatch(/^-\s+material\s+→/m);
+    });
+
+    it('KS-3813: buildSystemPrompt с usedIds — только пересечение с SUBTERM_LABELS', () => {
+      const svc = new MoveCommentService(
+        makeConfigService({}),
+        makeRedisStub(),
+      );
+      const p = svc.buildSystemPrompt(
+        'ru',
+        new Set(['material', 'space', 'sf18_eval']),
+      );
+      expect(p).toMatch(/^-\s+material\s+→/m);
+      expect(p).toMatch(/^-\s+space\s+→/m);
+      expect(p).not.toMatch(/^-\s+king_danger\s+→/m);
+      expect(p).not.toMatch(/^-\s+outpost_knight\s+→/m);
+      // sf18_eval в SUBTERM_LABELS нет — в словаре отсутствует.
+      expect(p).not.toMatch(/^-\s+sf18_eval\s+→/m);
+    });
+
     it('language=en → инструкция на английском', async () => {
       const svc = new MoveCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),

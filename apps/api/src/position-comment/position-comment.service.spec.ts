@@ -595,6 +595,117 @@ describe('PositionCommentService', () => {
     });
   });
 
+  describe('KS-3813: сжатие словаря расшифровок до пришедших id', () => {
+    it('buildSystemPrompt без usedIds — словарь полный (backward-compat для прямых вызовов)', () => {
+      const svc = new PositionCommentService(
+        makeConfigService({}),
+        makeRedisStub(),
+      );
+      const p = svc.buildSystemPrompt('ru');
+      // Полный словарь содержит строки «- <id> →» для ключевых id.
+      expect(p).toMatch(/^-\s+king_danger\s+→/m);
+      expect(p).toMatch(/^-\s+outpost_knight\s+→/m);
+      expect(p).toMatch(/^-\s+mobility_rook\s+→/m);
+      expect(p).toMatch(/^-\s+rook_on_open_file\s+→/m);
+      expect(p).toMatch(/^-\s+bishop_pawns\s+→/m);
+      expect(p).toMatch(/^-\s+material\s+→/m);
+    });
+
+    it('buildSystemPrompt c usedIds — оставляет в словаре только пересечение с SUBTERM_LABELS', () => {
+      const svc = new PositionCommentService(
+        makeConfigService({}),
+        makeRedisStub(),
+      );
+      const used = new Set(['material', 'mobility_rook', 'sf18_eval']);
+      const p = svc.buildSystemPrompt('ru', used);
+      // Только material и mobility_rook — id из SUBTERM_LABELS,
+      // присутствующие в usedIds.
+      expect(p).toMatch(/^-\s+material\s+→/m);
+      expect(p).toMatch(/^-\s+mobility_rook\s+→/m);
+      // Остальные id из SUBTERM_LABELS отсутствуют в словаре.
+      // Проверка по строке «- <id> →»: id могут фигурировать в самой
+      // инструкции как пример запрета писать технические id в ответе.
+      expect(p).not.toMatch(/^-\s+king_danger\s+→/m);
+      expect(p).not.toMatch(/^-\s+outpost_knight\s+→/m);
+      expect(p).not.toMatch(/^-\s+rook_on_open_file\s+→/m);
+      expect(p).not.toMatch(/^-\s+bishop_pawns\s+→/m);
+      expect(p).not.toMatch(/^-\s+passed_rank\s+→/m);
+      // sf18_eval — не из SUBTERM_LABELS, в словаре его нет, но в
+      // инструкции он по-прежнему упоминается как «главный источник».
+      expect(p).not.toMatch(/^-\s+sf18_eval\s+→/m);
+      expect(p).toContain('sf18_eval');
+    });
+
+    it('comment(): в payload модели уходит только сжатый словарь — без неиспользуемых id', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      let captured: any = null;
+      global.fetch = jest.fn(async (_url: any, init: any) => {
+        captured = JSON.parse(init.body);
+        return new Response(
+          JSON.stringify({ response: JSON.stringify({ comment: 'ok' }) }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as any;
+
+      const dto = makeDto({
+        factors: [
+          { id: 'sf18_eval', score: { type: 'cp', value: 20 } },
+          { id: 'sf18_pv', moves: ['e2e4'] },
+          { id: 'material', color: 'w', value_mg: 0.3, value_eg: 0.2 },
+          { id: 'mobility_rook', value_mg: 0.1, value_eg: 0.05 },
+        ],
+      });
+      await svc.comment('user-1', dto);
+
+      // В systemPrompt — строки словаря только для material и mobility_rook.
+      expect(captured.systemPrompt).toMatch(/^-\s+material\s+→/m);
+      expect(captured.systemPrompt).toMatch(/^-\s+mobility_rook\s+→/m);
+      // Неиспользуемые id из SUBTERM_LABELS отсутствуют как строки словаря.
+      expect(captured.systemPrompt).not.toMatch(/^-\s+king_danger\s+→/m);
+      expect(captured.systemPrompt).not.toMatch(/^-\s+outpost_knight\s+→/m);
+      expect(captured.systemPrompt).not.toMatch(/^-\s+rook_on_open_file\s+→/m);
+      expect(captured.systemPrompt).not.toMatch(/^-\s+bishop_pawns\s+→/m);
+      expect(captured.systemPrompt).not.toMatch(/^-\s+passed_rank\s+→/m);
+      // То же — в message (KS-3694: инструкция дублируется в сообщении).
+      expect(captured.message).not.toMatch(/^-\s+king_danger\s+→/m);
+      expect(captured.message).not.toMatch(/^-\s+outpost_knight\s+→/m);
+    });
+
+    it('comment() со sf18_pv в factors не оставляет sf18_pv в словаре (он не из SUBTERM_LABELS)', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      let captured: any = null;
+      global.fetch = jest.fn(async (_url: any, init: any) => {
+        captured = JSON.parse(init.body);
+        return new Response(
+          JSON.stringify({ response: JSON.stringify({ comment: 'ok' }) }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as any;
+
+      await svc.comment(
+        'user-1',
+        makeDto({
+          factors: [
+            { id: 'sf18_eval', score: { type: 'cp', value: 0 } },
+            { id: 'sf18_pv', moves: ['e2e4'] },
+            { id: 'space', value_mg: 0.05, value_eg: 0 },
+          ],
+        }),
+      );
+
+      // space — единственная подкомпонента в словаре.
+      expect(captured.systemPrompt).toMatch(/^-\s+space\s+→/m);
+      // sf18_pv как строки «- sf18_pv →» в словаре нет.
+      expect(captured.systemPrompt).not.toMatch(/^-\s+sf18_pv\s+→/m);
+    });
+  });
+
   describe('comment — JSON-шейп с overlay (KS-3690)', () => {
     it('модель отдала JSON с highlights и arrows → распарсены и возвращены', async () => {
       const svc = new PositionCommentService(
