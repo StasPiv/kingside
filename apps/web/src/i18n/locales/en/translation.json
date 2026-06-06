@@ -745,7 +745,14 @@
     "startedAt": "Started",
     "openPlayerProfile": "Open player profile",
     "openCoachPage": "Open coach page",
-    "loadError": "Failed to load coach profile."
+    "loadError": "Failed to load coach profile.",
+    "recordingsTitle": "Recordings",
+    "finishedTitle": "Finished without recording",
+    "duration": "Duration",
+    "noRecordingNote": "no recording available",
+    "durHour": "h",
+    "durMin": "m",
+    "durSec": "s"
   },
   "lecture": {
     "startMenuItem": "Start lecture",

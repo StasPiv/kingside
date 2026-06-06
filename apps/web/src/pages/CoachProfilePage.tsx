@@ -51,8 +51,15 @@ interface CoachLecture {
   scheduledAt: string | null;
   startedAt: string | null;
   endedAt: string | null;
+  durationMs: number | null;
   liveAnalysisId: string | null;
   liveAnalysis: LectureLiveSession | null;
+  // KS-3795: финализатор записи (эпик 2) проставляет ссылку на
+  // готовый медиафайл. Поля могут быть пустыми, если запись ещё
+  // обрабатывается или вообще не велась.
+  recordingId: string | null;
+  mediaUrl: string | null;
+  mediaKind: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -86,12 +93,67 @@ function formatStartedAt(value: string | null, locale: string): string {
   }
 }
 
+function formatDate(value: string | null, locale: string): string {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleDateString(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Длительность для карточки записи: «1ч 23м» / «12м» / «35с».
+ * Берём `durationMs` если backend проставил (финализатор эпика 2),
+ * иначе вычисляем из пары `startedAt`/`endedAt`. Если ни того, ни
+ * другого — возвращаем пустую строку, потребитель скроет строчку.
+ */
+type TFn = (key: string, def?: string) => string;
+
+function formatDuration(
+  lecture: Pick<CoachLecture, 'durationMs' | 'startedAt' | 'endedAt'>,
+  t: TFn,
+): string {
+  let ms: number | null = lecture.durationMs ?? null;
+  if (ms === null && lecture.startedAt && lecture.endedAt) {
+    try {
+      const startMs = new Date(lecture.startedAt).getTime();
+      const endMs = new Date(lecture.endedAt).getTime();
+      if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+        ms = endMs - startMs;
+      }
+    } catch {
+      ms = null;
+    }
+  }
+  if (ms === null || ms <= 0) return '';
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) {
+    return `${hours}${t('coachProfile.durHour', 'h')} ${minutes
+      .toString()
+      .padStart(2, '0')}${t('coachProfile.durMin', 'm')}`;
+  }
+  if (minutes > 0) {
+    return `${minutes}${t('coachProfile.durMin', 'm')}`;
+  }
+  return `${seconds}${t('coachProfile.durSec', 's')}`;
+}
+
 export function CoachProfilePage() {
   const { t, i18n } = useTranslation();
   const { username } = useParams<{ username: string }>();
 
   const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
-  const [lectures, setLectures] = useState<CoachLecture[] | null>(null);
+  const [liveLectures, setLiveLectures] = useState<CoachLecture[]>([]);
+  const [recordedLectures, setRecordedLectures] = useState<CoachLecture[]>([]);
+  const [cancelledLectures, setCancelledLectures] = useState<CoachLecture[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,24 +164,30 @@ export function CoachProfilePage() {
     setLoading(true);
     setNotFound(false);
     setError(null);
-    // Профиль и список live-лекций тянем параллельно. Если профиль
+    // Профиль и три списка лекций тянем параллельно. Если профиль
     // 404 — показываем not-found без шанса для list-запроса перетереть
-    // состояние. Ошибка списка не должна сорвать рендер профиля —
-    // секция «В эфире» в этом случае просто не отрисуется.
+    // состояние. Ошибки списков не должны сорвать рендер профиля —
+    // соответствующие секции в этом случае просто не отрисуются.
+    const lecturesByStatus = (status: 'live' | 'recorded' | 'cancelled') =>
+      api
+        .get<CoachLecture[]>(
+          `/coaches/${encodeURIComponent(username)}/lectures?status=${status}`,
+        )
+        .catch(() => [] as CoachLecture[]);
     Promise.all([
       api.get<PlayerProfileResponse>(
         `/players/${encodeURIComponent(username)}`,
       ),
-      api
-        .get<CoachLecture[]>(
-          `/coaches/${encodeURIComponent(username)}/lectures?status=live`,
-        )
-        .catch(() => [] as CoachLecture[]),
+      lecturesByStatus('live'),
+      lecturesByStatus('recorded'),
+      lecturesByStatus('cancelled'),
     ])
-      .then(([p, l]) => {
+      .then(([p, live, recorded, cancelledList]) => {
         if (cancelled) return;
         setProfile(p);
-        setLectures(l);
+        setLiveLectures(live);
+        setRecordedLectures(recorded);
+        setCancelledLectures(cancelledList);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -185,7 +253,6 @@ export function CoachProfilePage() {
   }
 
   const flag = countryFlag(profile.country ?? null);
-  const liveLectures = (lectures ?? []).filter((l) => l.status === 'live');
 
   return (
     <div className="coach-profile-page" data-testid="coach-profile-page">
@@ -331,6 +398,173 @@ export function CoachProfilePage() {
                     // показываем карточку без ссылки.
                     card
                   )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* KS-3795: «Записи» — recorded-лекции. После эпика 2 backend
+          переводит статус в `recorded` финализатором и проставляет
+          `recordingId`/`mediaUrl`. Карточка ведёт на /lectures/:id —
+          там зритель смотрит запись (KS-3794, LectureReplayPage).
+          Скрываем секцию, если recorded-записей нет. */}
+      {recordedLectures.length > 0 && (
+        <section
+          className="coach-profile-section"
+          data-testid="coach-profile-recordings-section"
+          aria-label={t('coachProfile.recordingsTitle', 'Recordings')}
+          style={{ marginTop: 24 }}
+        >
+          <h2>{t('coachProfile.recordingsTitle', 'Recordings')}</h2>
+          <ul
+            className="coach-profile-cards-grid"
+            data-testid="coach-profile-recordings-grid"
+            style={{
+              listStyle: 'none',
+              padding: 0,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: 16,
+            }}
+          >
+            {recordedLectures.map((l) => {
+              const dateLabel = formatDate(l.endedAt, i18n.language);
+              const duration = formatDuration(l, t as unknown as TFn);
+              return (
+                <li
+                  key={l.id}
+                  className="coach-profile-recording-card"
+                  data-testid={`coach-profile-recording-card-${l.id}`}
+                  style={{
+                    border: '1px solid #ddd',
+                    borderRadius: 8,
+                    padding: 12,
+                  }}
+                >
+                  <Link
+                    to={`/lectures/${l.id}`}
+                    style={{
+                      textDecoration: 'none',
+                      color: 'inherit',
+                      display: 'block',
+                    }}
+                    data-testid={`coach-profile-recording-link-${l.id}`}
+                  >
+                    <header style={{ marginBottom: 6 }}>
+                      <strong>{l.title}</strong>
+                    </header>
+                    {l.description && (
+                      <p
+                        style={{
+                          margin: '4px 0',
+                          fontSize: 14,
+                          opacity: 0.85,
+                        }}
+                      >
+                        {l.description}
+                      </p>
+                    )}
+                    <footer
+                      style={{
+                        fontSize: 12,
+                        opacity: 0.6,
+                        display: 'flex',
+                        gap: 12,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      {duration && (
+                        <span>
+                          {t('coachProfile.duration', 'Duration')}{' '}
+                          {duration}
+                        </span>
+                      )}
+                      {dateLabel && <span>{dateLabel}</span>}
+                    </footer>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* KS-3795: «Завершённые без записи» — лекции в статусе
+          `cancelled` (трансляция закончилась, но финализатор не
+          сделал запись). Карточки информативные, без ссылки —
+          смотреть нечего. */}
+      {cancelledLectures.length > 0 && (
+        <section
+          className="coach-profile-section"
+          data-testid="coach-profile-finished-section"
+          aria-label={t('coachProfile.finishedTitle', 'Finished without recording')}
+          style={{ marginTop: 24 }}
+        >
+          <h2>
+            {t('coachProfile.finishedTitle', 'Finished without recording')}
+          </h2>
+          <ul
+            className="coach-profile-cards-grid"
+            data-testid="coach-profile-finished-grid"
+            style={{
+              listStyle: 'none',
+              padding: 0,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: 16,
+            }}
+          >
+            {cancelledLectures.map((l) => {
+              const dateLabel = formatDate(
+                l.endedAt ?? l.scheduledAt,
+                i18n.language,
+              );
+              const duration = formatDuration(l, t as unknown as TFn);
+              return (
+                <li
+                  key={l.id}
+                  className="coach-profile-finished-card"
+                  data-testid={`coach-profile-finished-card-${l.id}`}
+                  style={{
+                    border: '1px solid #ddd',
+                    borderRadius: 8,
+                    padding: 12,
+                    opacity: 0.85,
+                  }}
+                >
+                  <header style={{ marginBottom: 6 }}>
+                    <strong>{l.title}</strong>
+                  </header>
+                  {l.description && (
+                    <p style={{ margin: '4px 0', fontSize: 14, opacity: 0.85 }}>
+                      {l.description}
+                    </p>
+                  )}
+                  <footer
+                    style={{
+                      fontSize: 12,
+                      opacity: 0.6,
+                      display: 'flex',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    {duration && (
+                      <span>
+                        {t('coachProfile.duration', 'Duration')}{' '}
+                        {duration}
+                      </span>
+                    )}
+                    {dateLabel && <span>{dateLabel}</span>}
+                    <span>
+                      {t(
+                        'coachProfile.noRecordingNote',
+                        'no recording available',
+                      )}
+                    </span>
+                  </footer>
                 </li>
               );
             })}

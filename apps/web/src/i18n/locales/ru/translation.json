@@ -755,7 +755,14 @@
     "startedAt": "Начало",
     "openPlayerProfile": "Открыть игровой профиль",
     "openCoachPage": "Открыть страницу тренера",
-    "loadError": "Не удалось загрузить страницу тренера."
+    "loadError": "Не удалось загрузить страницу тренера.",
+    "recordingsTitle": "Записи",
+    "finishedTitle": "Завершённые без записи",
+    "duration": "Длительность",
+    "noRecordingNote": "запись недоступна",
+    "durHour": "ч",
+    "durMin": "м",
+    "durSec": "с"
   },
   "lecture": {
     "startMenuItem": "Начать лекцию",
