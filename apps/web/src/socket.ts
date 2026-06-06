@@ -120,6 +120,12 @@ export const broadcastSocket = withHandlers(io(BROADCAST_URL, SOCKET_OPTS));
 // API Service (API_URL) — messages
 export const messagesSocket = withHandlers(io(`${API_URL}/messages`, SOCKET_OPTS));
 
+// KS-3735 / ADR-110: live-трансляция анализа партии. Namespace `/live-analysis`
+// на API_URL (модуль `live-analysis` в apps/api, KS-3732). JWT в handshake —
+// опциональный: owner отправляет токен через `auth.token` при connect-е
+// (см. `useLiveAnalysisSocket`), анонимный зритель коннектится без auth.
+export const liveAnalysisSocket = withHandlers(io(`${API_URL}/live-analysis`, SOCKET_OPTS));
+
 // KS-2185 / dev-only: экспонируем matchmakingSocket в window для ручной
 // QA-проверки и Playwright-скриншотов сценария «No opponents online»
 // (без живого game-service). В прод-сборке (`import.meta.env.DEV === false`)
