@@ -263,7 +263,7 @@ export class LecturesService {
     if (!user) {
       throw new NotFoundException(`Coach "${username}" not found`);
     }
-    return this.prisma.lecture.findMany({
+    const rows = await this.prisma.lecture.findMany({
       where: {
         ownerId: user.id,
         visibility: 'public',
@@ -273,15 +273,51 @@ export class LecturesService {
       // прошедшие. Внутри каждой группы — свежие сверху.
       orderBy: [{ status: 'asc' }, { scheduledAt: 'desc' }, { createdAt: 'desc' }],
       take: 100,
+      include: {
+        // KS-3786 follow-up под KS-3787 (frontend): отдаём slug
+        // привязанной LiveAnalysis, чтобы CoachProfilePage могла
+        // построить ссылку /live/<slug> без второго REST-запроса.
+        liveAnalysis: { select: { id: true, slug: true } },
+      },
     });
+    return rows.map((row) => this.withLiveAnalysisBinding(row));
   }
 
   async getById(id: string) {
-    const lecture = await this.prisma.lecture.findUnique({ where: { id } });
-    if (!lecture) {
+    const row = await this.prisma.lecture.findUnique({
+      where: { id },
+      include: {
+        liveAnalysis: { select: { id: true, slug: true } },
+      },
+    });
+    if (!row) {
       throw new NotFoundException(`Lecture "${id}" not found`);
     }
-    return lecture;
+    return this.withLiveAnalysisBinding(row);
+  }
+
+  /**
+   * KS-3786 follow-up. Заменяет вложенный объект `liveAnalysis: { id,
+   * slug }` (из Prisma include) на `liveAnalysis: { id, slug, url }
+   * | null` — добавляет публичный URL `/live/<slug>` для фронта.
+   * Если у записи нет привязки (scheduled-лекция) — поле `null`.
+   */
+  private withLiveAnalysisBinding<T extends { liveAnalysis?: { id: string; slug: string } | null }>(
+    row: T,
+  ): Omit<T, 'liveAnalysis'> & { liveAnalysis: LectureLiveBinding } {
+    const { liveAnalysis, ...rest } = row;
+    if (!liveAnalysis) {
+      return { ...(rest as Omit<T, 'liveAnalysis'>), liveAnalysis: null };
+    }
+    const baseUrl = this.publicBaseUrl().replace(/\/$/, '');
+    return {
+      ...(rest as Omit<T, 'liveAnalysis'>),
+      liveAnalysis: {
+        id: liveAnalysis.id,
+        slug: liveAnalysis.slug,
+        url: `${baseUrl}/live/${liveAnalysis.slug}`,
+      },
+    };
   }
 
   // ─── Internals ────────────────────────────────────────────────────

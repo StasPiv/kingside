@@ -331,6 +331,36 @@ describe('LecturesService', () => {
         visibility: 'public',
       });
     });
+
+    it('KS-3787: для live-лекций отдаёт liveAnalysis { id, slug, url }', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ id: 'u-1' });
+      prisma.lecture.findMany.mockResolvedValueOnce([
+        {
+          id: 'l-live',
+          status: 'live',
+          liveAnalysisId: 'la-1',
+          liveAnalysis: { id: 'la-1', slug: 'SLUG000001' },
+        },
+        {
+          id: 'l-scheduled',
+          status: 'scheduled',
+          liveAnalysisId: null,
+          liveAnalysis: null,
+        },
+      ]);
+      const result = await service.listByCoach('alice');
+      expect(result[0].liveAnalysis).toEqual({
+        id: 'la-1',
+        slug: 'SLUG000001',
+        url: 'https://kingside.site/live/SLUG000001',
+      });
+      expect(result[1].liveAnalysis).toBeNull();
+      // include передан в findMany.
+      const args = prisma.lecture.findMany.mock.calls[0][0];
+      expect(args.include).toEqual({
+        liveAnalysis: { select: { id: true, slug: true } },
+      });
+    });
   });
 
   // ─── getById ──────────────────────────────────────────────────────
@@ -341,22 +371,43 @@ describe('LecturesService', () => {
       await expect(service.getById('missing')).rejects.toThrow(NotFoundException);
     });
 
-    it('возвращает public', async () => {
+    it('возвращает public и liveAnalysis=null если нет привязки', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         id: 'l-1',
         visibility: 'public',
+        liveAnalysisId: null,
+        liveAnalysis: null,
       });
       const r = await service.getById('l-1');
       expect(r.visibility).toBe('public');
+      expect(r.liveAnalysis).toBeNull();
     });
 
     it('возвращает unlisted (доступ по прямой ссылке)', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         id: 'l-1',
         visibility: 'unlisted',
+        liveAnalysisId: null,
+        liveAnalysis: null,
       });
       const r = await service.getById('l-1');
       expect(r.visibility).toBe('unlisted');
+    });
+
+    it('KS-3787: live-лекция отдаёт liveAnalysis с id, slug, url', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-2',
+        visibility: 'public',
+        status: 'live',
+        liveAnalysisId: 'la-1',
+        liveAnalysis: { id: 'la-1', slug: 'SLUG000002' },
+      });
+      const r = await service.getById('l-2');
+      expect(r.liveAnalysis).toEqual({
+        id: 'la-1',
+        slug: 'SLUG000002',
+        url: 'https://kingside.site/live/SLUG000002',
+      });
     });
   });
 });
