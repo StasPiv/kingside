@@ -411,6 +411,84 @@ describe('MoveCommentService', () => {
       expect(body.message).toContain('blunder');
     });
 
+    it('KS-3809: sf18_pv вырезается из before.factors и after.factors перед отправкой модели; остальные факторы и terminal_value_* сохраняются', async () => {
+      const svc = new MoveCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      const captured: { body?: string } = {};
+      global.fetch = jest.fn(async (_url: string, init: any) => {
+        captured.body = init.body;
+        return {
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            response: '{"comment":"ok","highlights":[],"arrows":[]}',
+          }),
+          text: async () => '',
+        };
+      }) as any;
+
+      const dto = makeDto({
+        before: {
+          fen: 'r1bqkb1r/ppp2ppp/2n2n2/3PQ3/4P3/8/PPP2PPP/RNB1KBNR b KQkq - 1 5',
+          factors: [
+            { id: 'sf18_eval', score: { type: 'cp', value: 25 } },
+            { id: 'sf18_pv', moves: ['c8e6', 'd5e6', 'f7e6'] },
+            { id: 'material', value_mg: 0.5, value_eg: 0.5 },
+            {
+              id: 'mobility_rook',
+              value_mg: 0.1,
+              value_eg: 0.05,
+              terminal_value_mg: 0.3,
+              terminal_value_eg: 0.2,
+            },
+          ],
+        },
+        after: {
+          fen: 'r2qkb1r/ppp2ppp/2n1bn2/3PQ3/4P3/8/PPP2PPP/RNB1KBNR w KQkq - 2 6',
+          factors: [
+            { id: 'sf18_eval', score: { type: 'cp', value: 320 } },
+            { id: 'sf18_pv', moves: ['d5e6', 'f7e6', 'e5e6'] },
+            { id: 'material', value_mg: 0.5, value_eg: 0.5 },
+          ],
+        },
+      });
+      await svc.comment('user-1', dto);
+
+      const body = JSON.parse(captured.body!);
+      const m = String(body.message).match(
+        /Исходные данные \(JSON\):\n([\s\S]+)$/,
+      );
+      expect(m).not.toBeNull();
+      const data = JSON.parse((m as RegExpMatchArray)[1]);
+
+      // sf18_pv вырезан в обоих снимках, порядок остальных сохранён.
+      const beforeIds = (data.before.factors as Array<{ id: string }>).map(
+        (f) => f.id,
+      );
+      const afterIds = (data.after.factors as Array<{ id: string }>).map(
+        (f) => f.id,
+      );
+      expect(beforeIds).toEqual(['sf18_eval', 'material', 'mobility_rook']);
+      expect(afterIds).toEqual(['sf18_eval', 'material']);
+
+      // terminal_value_* у статической подкомпоненты сохраняется —
+      // тенденция остаётся доступной модели без знания самой линии.
+      expect(JSON.stringify(data.before.factors)).toContain('terminal_value_mg');
+
+      // В подаваемых данных от модели sf18_pv нет полностью —
+      // ни id, ни UCI-ходов из ни одного снимка.
+      const factorsJson =
+        JSON.stringify(data.before.factors) +
+        JSON.stringify(data.after.factors);
+      expect(factorsJson).not.toContain('sf18_pv');
+      expect(factorsJson).not.toContain('c8e6');
+      expect(factorsJson).not.toContain('d5e6');
+      expect(factorsJson).not.toContain('f7e6');
+      expect(factorsJson).not.toContain('e5e6');
+    });
+
     it('language=en → инструкция на английском', async () => {
       const svc = new MoveCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),

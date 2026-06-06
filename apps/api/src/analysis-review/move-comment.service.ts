@@ -236,6 +236,24 @@ export class MoveCommentService {
 
   // ─── Главный метод ──────────────────────────────────────────────────
 
+  /**
+   * KS-3809 (ADR-114 §4, KS-N01). Повтор KS-3721 для move-comment:
+   * `sf18_pv` — массив UCI-ходов рекомендуемой линии Stockfish; модель
+   * использует его как затравку для реконструкции манёвров и
+   * выдумывает прорывы/диагонали/переводы фигур, которых в данных нет.
+   * Перед сериализацией payload вырезаем `sf18_pv` из обоих снимков
+   * (before и after). Терминальные значения `terminal_value_*` у
+   * статических подкомпонент остаются: тенденция (value → terminal)
+   * доступна без знания самой линии.
+   */
+  private stripPvFactor(factors: unknown[] | undefined): unknown[] | undefined {
+    if (!Array.isArray(factors)) return factors;
+    return factors.filter((f) => {
+      if (typeof f !== 'object' || f === null) return true;
+      return (f as { id?: unknown }).id !== 'sf18_pv';
+    });
+  }
+
   async comment(
     userId: string,
     dto: MoveCommentDto,
@@ -255,16 +273,22 @@ export class MoveCommentService {
     // `systemPrompt` применяется только при создании сессии. Поэтому
     // дублируем инструкцию в самом сообщении — единственный надёжный
     // способ донести наш свежий prompt на каждом запросе.
+    //
+    // KS-3809: `sf18_pv` вырезается из обоих снимков до сериализации —
+    // модель не должна получать UCI-линию как почву для выдумывания
+    // несуществующих манёвров (повтор фикса KS-3721 для position-comment).
+    const beforeFactors = this.stripPvFactor(dto.before.factors);
+    const afterFactors = this.stripPvFactor(dto.after.factors);
     const dataJson = JSON.stringify({
       move: dto.move,
       before: {
         fen: dto.before.fen,
-        factors: dto.before.factors,
+        factors: beforeFactors,
         ...(dto.before.eval ? { eval: dto.before.eval } : {}),
       },
       after: {
         fen: dto.after.fen,
-        factors: dto.after.factors,
+        factors: afterFactors,
         ...(dto.after.eval ? { eval: dto.after.eval } : {}),
       },
     });
