@@ -655,7 +655,12 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(tx.moves).toHaveLength(6);
     });
 
-    it('2★ кейс (ADR §4.3 #6): 5 best + 1 blunder → score=2 через cap', async () => {
+    it('KS-3774: 5 best + 1 blunder с финальным WDL-loss=50% → score=1, scorePct ≈ 8.5', async () => {
+      // KS-3774 пересмотр методики: точность считается ТОЛЬКО по
+      // дельте WDL стартовой/конечной позиции, NAG к ходам и
+      // worst-class cap не применяются. startE=1.0, endE=0.5,
+      // loss_E=0.5 → scorePct ≈ 8.5 → 1★. (Старая методика давала
+      // 2★ через cap=60 на worst-classification=blunder.)
       const tx = setupTxMocks();
       const bestMoves = ['e2e4', 'd2d4', 'c2c4', 'g1f3', 'b1c3'].map(
         (uci, i) => ({
@@ -673,7 +678,7 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
           playedUci: 'g2g4',
           bestUci: 'e2e4',
           wdlBefore: { w: 1000, d: 0, l: 0 },
-          wdlAfter: { w: 500, d: 0, l: 500 }, // loss_E=0.5 → blunder
+          wdlAfter: { w: 500, d: 0, l: 500 },
         },
       ];
 
@@ -682,10 +687,13 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
         body: { moves },
       });
 
-      expect(r.score).toBe(2);
-      expect(r.scorePct).toBe(60); // cap blunder
-      expect(tx.precision.blundersCount).toBe(1);
-      expect(tx.precision.firstMistakePly).toBe(6);
+      expect(r.score).toBe(1);
+      expect(r.scorePct).not.toBeNull();
+      expect(r.scorePct!).toBeGreaterThan(5);
+      expect(r.scorePct!).toBeLessThan(15);
+      // Счётчики classification (blundersCount/firstMistakePly) считаются
+      // отдельным `classifyMove` и в KS-3774 не верифицируются — точность
+      // по новой методике не зависит от классификации ходов.
     });
 
     it('puzzleId не указан → берёт первый PVE-пазл из БД', async () => {

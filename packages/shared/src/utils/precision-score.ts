@@ -1,37 +1,43 @@
 /**
- * KS-2997 / ADR-065 §3.4. 5-балльная оценка решения precision-задачи.
+ * KS-2997 / KS-3774. Оценка решения precision-задачи (5 звёзд).
  *
- * Чистая функция расчёта без side-effects. Используется:
- *  - сервером при создании `precision_attempts` (заполняет `score` /
- *    `scorePct` колонки, KS-2998 / B3 KS-2999);
- *  - бэкфилом legacy-attempt'ов (B5);
- *  - frontend'ом для предпросмотра (опционально, fallback на серверный).
+ * KS-3774 (ADR-067 §3.4-bis): методика расчёта переписана на чистую
+ * WDL-дельту между стартовой и конечной позициями. Прежний композит
+ * по per-move accuracy (mean+min) с cap по worst-classification
+ * (NAG ?, ??, ! …) удалён по явной формулировке пользователя:
  *
- * Алгоритм (ADR-065 §3.4):
+ *   «точность должна полностью опираться на изменения показателей
+ *    победа-ничья-поражение. NAG к конкретным ходам ставить не
+ *    нужно. достаточно сравнить оценки перед решением и после
+ *    решения и на основании них сделать вывод».
  *
- *   1. Per-move accuracy → Lichess exponential formula:
- *      `103.1668 * exp(-0.04354 * loss_pct) - 3.1669`, clamp [0..100].
- *      Аргумент `loss_pct`:
- *        - Если есть `wdlBefore`/`wdlAfter`: `E = (w + d/2) / 1000`,
- *          `loss_pct = max(0, E_before - E_after) * 100` (ADR §2.1-2.3).
- *        - Если есть `cpBefore`/`cpAfter`: Lichess CP→Win формула
- *          `50 + 50 * (2 / (1 + exp(-0.00368208 * cp)) - 1)` (§2.4.1).
- *        - Иначе fallback по classification (§2.4.2).
- *   2. Worst classification определяется по всем ходам с
- *      непустой `classification` (best < good < inaccuracy < mistake <
- *      blunder).
- *   3. Композит: `score_pct = 0.7 * mean(acc) + 0.3 * min(acc)`
- *      (§3.1, веса именованные для калибровки A1).
- *   4. Worst-class cap (§3.3): blunder → ≤ 60, mistake → ≤ 80.
- *   5. Star-mapping (§4): 95+ → 5★, 85+ → 4★, 70+ → 3★, 50+ → 2★, иначе 1★.
+ * Алгоритм:
+ *   1. `startE` = expected-score POV игрока ПЕРЕД его первым ходом
+ *      (`E = (w + d/2) / 1000` от `wdlBefore` первого хода с WDL,
+ *      fallback на `winPctFromCp(cpBefore) / 100`).
+ *   2. `endE` = expected-score ПОСЛЕ его последнего хода (`wdlAfter`
+ *      последнего хода с WDL, fallback `winPctFromCp(cpAfter) / 100`).
+ *   3. `loss_E = max(0, startE - endE)` — улучшения не штрафуем
+ *      (если игрок сохранил/нарастил перевес — точность 100%).
+ *   4. `scorePct = clamp(103.1668 * exp(-0.04354 * loss_E * 100) - 3.1669, 0, 100)`
+ *      (та же Lichess-style exp-кривая, что у Per-move accuracy ранее,
+ *      но применённая к ОБЩЕЙ дельте — без учёта формы пути).
+ *   5. `stars = mapToStars(scorePct)`.
  *
- * Спец-кейсы (§3.4):
- *  - `moves.length < 2` → `{stars: null, scorePct: null}` (слишком
- *    короткая попытка).
- *  - data-points < 50% от moves → `null` (>50% gaps).
+ * Контрольные точки (см. тесты):
+ *   - 1.00 → 0.62 (W 100→24, D 0→76 — задача #b846db34): loss_E ≈ 0.38,
+ *     scorePct ≈ 16 → 1★.
+ *   - 1.00 → 1.00 (идеальное сохранение): 100% → 5★.
+ *   - 1.00 → 0.40 (полный blunder): loss_E ≈ 0.60, scorePct ≈ 4 → 1★.
  *
- * Контрольные кейсы — `precision-score.test.ts`, 9 синтетических
- * сценариев из §4.3 + edge cases.
+ * Спец-кейсы:
+ *   - `moves.length < MIN_HALF_MOVES_FOR_SCORE` (1) → `null`.
+ *   - Нет ни WDL, ни cp ни на старте, ни в конце → `null`.
+ *
+ * Per-move helpers (`accuracyMove`, `aggregateAccuracies`,
+ * `worstClassification`) сохранены для совместимости (используются в
+ * NAG-разметке обзоров партий), но в `computePrecisionScore` БОЛЬШЕ
+ * НЕ ВЫЗЫВАЮТСЯ.
  */
 import type { Wdl } from './wdl.js';
 
@@ -288,15 +294,84 @@ export function aggregateAccuracies(
 }
 
 /**
- * KS-2997 / ADR-065 §3.4. Главная функция: вход — массив user-полуходов
- * (минимальный набор полей `PrecisionMoveInput`), выход — `{stars, scorePct}`.
+ * KS-3774. Стартовая expected-score POV игрока перед его первым ходом.
  *
- * Чистая (без side-effects, без I/O, deterministic), легко тестируется.
+ * Приоритет источников:
+ *   1. Первый `wdlBefore` в `moves` → `(w + d/2) / 1000`.
+ *   2. Fallback на `cpBefore` → `winPctFromCp(cp) / 100`.
+ *
+ * `null` если оба источника пусты для всей серии.
+ */
+export function computeStartExpectedScore(
+  moves: PrecisionMoveInput[],
+): number | null {
+  for (const m of moves) {
+    if (m.wdlBefore) {
+      return (m.wdlBefore.w + m.wdlBefore.d / 2) / 1000;
+    }
+  }
+  for (const m of moves) {
+    if (typeof m.cpBefore === 'number' && Number.isFinite(m.cpBefore)) {
+      return winPctFromCp(m.cpBefore) / 100;
+    }
+  }
+  return null;
+}
+
+/**
+ * KS-3774. Конечная expected-score POV игрока после его последнего хода.
+ *
+ * Симметрично `computeStartExpectedScore` — приоритет WDL, fallback на cp,
+ * берётся ПОСЛЕДНИЙ элемент с непустыми данными.
+ */
+export function computeEndExpectedScore(
+  moves: PrecisionMoveInput[],
+): number | null {
+  for (let i = moves.length - 1; i >= 0; i--) {
+    const wdlAfter = moves[i].wdlAfter;
+    if (wdlAfter) {
+      return (wdlAfter.w + wdlAfter.d / 2) / 1000;
+    }
+  }
+  for (let i = moves.length - 1; i >= 0; i--) {
+    const cpAfter = moves[i].cpAfter;
+    if (typeof cpAfter === 'number' && Number.isFinite(cpAfter)) {
+      return winPctFromCp(cpAfter) / 100;
+    }
+  }
+  return null;
+}
+
+/**
+ * KS-3774. Точность от WDL-дельты. Чистая функция от пары
+ * `(startE, endE)`. Подсчёт стандартной Lichess-style exp-кривой,
+ * применённой к ОБЩЕЙ потере expected-score (не к per-move).
+ *
+ * `loss_E = max(0, startE - endE)` — улучшения и удержания дают 100%.
+ * `loss_pct = loss_E * 100` ∈ [0..100].
+ * `scorePct = clamp(103.1668 * exp(-0.04354 * loss_pct) - 3.1669, 0, 100)`.
+ */
+export function precisionFromExpectedScoreDelta(
+  startE: number,
+  endE: number,
+): number {
+  const lossE = Math.max(0, startE - endE);
+  const lossPct = lossE * 100;
+  return clamp(ACC_A * Math.exp(ACC_B * lossPct) + ACC_C, 0, 100);
+}
+
+/**
+ * KS-2997 / KS-3774. Главная функция: вход — массив user-полуходов,
+ * выход — `{stars, scorePct}`.
+ *
+ * Опирается ТОЛЬКО на изменение WDL (или cp как fallback) между
+ * первым `wdlBefore` и последним `wdlAfter`. Per-move classification
+ * (NAG !, ??, …) и form-факторы пути полностью игнорируются.
  *
  * Возвращает `{stars: null, scorePct: null}` если:
- *  - `moves.length < MIN_HALF_MOVES_FOR_SCORE` (§3.2);
- *  - менее `MIN_DATA_FRACTION` ходов имеют данные для расчёта (§3.4
- *    «>50% gaps» case).
+ *  - `moves.length < MIN_HALF_MOVES_FOR_SCORE`;
+ *  - нет ни одного `wdlBefore`/`cpBefore` на старте;
+ *  - нет ни одного `wdlAfter`/`cpAfter` в конце.
  */
 export function computePrecisionScore(
   moves: PrecisionMoveInput[],
@@ -304,15 +379,13 @@ export function computePrecisionScore(
   if (moves.length < MIN_HALF_MOVES_FOR_SCORE) {
     return { stars: null, scorePct: null };
   }
-  const accuracies: number[] = [];
-  for (const m of moves) {
-    const a = accuracyMove(m);
-    if (a !== null) accuracies.push(a);
-  }
-  if (accuracies.length < moves.length * MIN_DATA_FRACTION) {
+  const startE = computeStartExpectedScore(moves);
+  const endE = computeEndExpectedScore(moves);
+  if (startE === null || endE === null) {
     return { stars: null, scorePct: null };
   }
-  return aggregateAccuracies(accuracies, worstClassification(moves));
+  const scorePct = precisionFromExpectedScoreDelta(startE, endE);
+  return { stars: mapToStars(scorePct), scorePct };
 }
 
 // ─── KS-3246: цель пазла + ось goal_achieved ──────────────────────
