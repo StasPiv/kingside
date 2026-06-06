@@ -698,6 +698,162 @@ describe('MoveCommentService', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────
+  describe('Обратная связь по KS-3814: фильтр king-факторов и правило про материал', () => {
+    it('из before/after факторов вырезаются все king-связанные id кроме king_danger', async () => {
+      const svc = new MoveCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      const captured: { body?: string } = {};
+      global.fetch = jest.fn(async (_url: string, init: any) => {
+        captured.body = init.body;
+        return {
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({
+            response: '{"comment":"ok","highlights":[],"arrows":[]}',
+          }),
+          text: async () => '',
+        };
+      }) as any;
+
+      const noisyFactors = [
+        { id: 'sf18_eval', score: { type: 'cp', value: 0 } },
+        { id: 'king_danger', color: 'b', value_mg: 0.4, value_eg: 0.1 },
+        { id: 'king_attackers_count', value_mg: 0.2, value_eg: 0.1 },
+        { id: 'king_attackers_weight', value_mg: 0.3, value_eg: 0.15 },
+        { id: 'king_flank_attacks', value_mg: 0.25, value_eg: 0.1 },
+        { id: 'king_safe_check_queen', value_mg: 0.3 },
+        { id: 'king_safe_check_rook', value_mg: 0.2 },
+        { id: 'king_safe_check_bishop', value_mg: 0.1 },
+        { id: 'king_safe_check_knight', value_mg: 0.15 },
+        { id: 'king_safety_pawn', value_mg: 0.5, value_eg: 0.3 },
+        { id: 'king_pawnless_flank', value_mg: 0.1 },
+        { id: 'king_shelter_strength', value_mg: 0.6 },
+        { id: 'king_blocked_storm', value_mg: 0.1 },
+        { id: 'king_unblocked_storm', value_mg: 0.1 },
+        { id: 'king_on_file', value_mg: 0.05 },
+        { id: 'rook_on_king_ring', value_mg: 0.2 },
+        { id: 'bishop_on_king_ring', value_mg: 0.15 },
+        { id: 'knight_king_protector_distance', value_mg: 0.1 },
+        { id: 'bishop_king_protector_distance', value_mg: 0.1 },
+        { id: 'material', value_mg: 0.5, value_eg: 0.5 },
+        { id: 'mobility_rook', value_mg: 0.3, value_eg: 0.2 },
+      ];
+      const dto = makeDto({
+        before: { fen: 'fen-before', factors: noisyFactors },
+        after: { fen: 'fen-after', factors: [...noisyFactors] },
+      });
+      await svc.comment('user-1', dto);
+
+      const body = JSON.parse(captured.body!);
+      const m = String(body.message).match(
+        /Исходные данные \(JSON\):\n([\s\S]+)$/,
+      );
+      expect(m).not.toBeNull();
+      const data = JSON.parse((m as RegExpMatchArray)[1]);
+      const beforeIds = (data.before.factors as Array<{ id: string }>).map(
+        (f) => f.id,
+      );
+      const afterIds = (data.after.factors as Array<{ id: string }>).map(
+        (f) => f.id,
+      );
+      // king_danger остался, остальные king-связанные вырезаны, нек-king
+      // факторы сохранились в исходном порядке.
+      expect(beforeIds).toEqual([
+        'sf18_eval',
+        'king_danger',
+        'material',
+        'mobility_rook',
+      ]);
+      expect(afterIds).toEqual([
+        'sf18_eval',
+        'king_danger',
+        'material',
+        'mobility_rook',
+      ]);
+      // Несколько конкретных id из вырезанных — не должны встречаться
+      // ни в before, ни в after.
+      const allFactorsJson =
+        JSON.stringify(data.before.factors) + JSON.stringify(data.after.factors);
+      for (const removed of [
+        'king_attackers_count',
+        'king_attackers_weight',
+        'king_flank_attacks',
+        'king_safe_check_queen',
+        'king_safe_check_rook',
+        'king_safe_check_bishop',
+        'king_safe_check_knight',
+        'king_safety_pawn',
+        'king_pawnless_flank',
+        'king_shelter_strength',
+        'king_blocked_storm',
+        'king_unblocked_storm',
+        'king_on_file',
+        'rook_on_king_ring',
+        'bishop_on_king_ring',
+        'knight_king_protector_distance',
+        'bishop_king_protector_distance',
+      ]) {
+        expect(allFactorsJson).not.toContain(`"${removed}"`);
+      }
+    });
+
+    it('пустой before.factors не падает (king-фильтр терпит undefined и пустой массив)', async () => {
+      const svc = new MoveCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      global.fetch = jest.fn(async () => ({
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({
+          response: '{"comment":"ok","highlights":[],"arrows":[]}',
+        }),
+        text: async () => '',
+      })) as any;
+
+      const dto = makeDto({
+        before: { fen: 'fen-b', factors: [] },
+        after: { fen: 'fen-a', factors: [] },
+      });
+      const result = await svc.comment('user-1', dto);
+      expect(result.comment).toBe('ok');
+    });
+
+    it('короткая инструкция содержит правило про материал и sf18_eval (RU)', () => {
+      const svc = new MoveCommentService(
+        makeConfigService({}), // short
+        makeRedisStub(),
+      );
+      const p = svc.buildSystemPrompt('ru');
+      // Маркеры нового правила: упоминание материала и сверки с sf18_eval.
+      expect(p).toMatch(/Материал и взятия/);
+      expect(p).toMatch(/половина размена/);
+      expect(p).toContain('material');
+      expect(p).toContain('imbalance');
+      expect(p).toMatch(/sf18_eval НЕ сдвинулся/);
+      expect(p).toMatch(/соперник возьмёт в ответ ближайшим ходом/);
+      expect(p).toMatch(/КАКОЙ фигурой возьмёт — не пиши/);
+    });
+
+    it('короткая инструкция содержит правило про материал и sf18_eval (EN)', () => {
+      const svc = new MoveCommentService(
+        makeConfigService({}),
+        makeRedisStub(),
+      );
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(/Material \/ capture handling/);
+      expect(p).toMatch(/half of an exchange/);
+      expect(p).toContain('material');
+      expect(p).toContain('imbalance');
+      expect(p).toMatch(/sf18_eval did NOT move/);
+      expect(p).toMatch(/the opponent recaptures next move/);
+      expect(p).toMatch(/Do NOT spell out which piece recaptures/);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
   describe('Rate-limit (KS-3711 — отдельные ключи review-move:rate:*)', () => {
     it('checkRateLimit использует ключи review-move:rate:* и не бросает при пустом счётчике', async () => {
       const redis = makeRedisStub();

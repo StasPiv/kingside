@@ -209,6 +209,8 @@ export class MoveCommentService {
         '- mate ±N → "mate in N for White/Black" (per sign).',
         'FORBIDDEN — claiming any edge / advantage for White when sf18_eval.cp < 0 or mate with negative N. Symmetric ban for Black when sf18_eval.cp > 0.',
         '',
+        'Material / capture handling — CRITICAL. The AFTER snapshot reflects the position right after the played move, BEFORE the opponent recaptures. Therefore a jump in `material` / `imbalance` between BEFORE and AFTER is NOT proof of a real material gain — it may be one half of an exchange. Compare it against sf18_eval: if sf18_eval did NOT move in favour of the side whose material grew, the recapture is coming and the engine already accounts for it. In that case phrase it as: "nominally Side X has captured material, but Stockfish does not see this as a gain — the opponent recaptures next move". Do NOT spell out which piece recaptures. Treat `material`/`imbalance` shifts in AFTER as real ONLY when sf18_eval shifts in the same direction.',
+        '',
         'Hierarchy: 1) sf18_eval — verdict; 2) factor trend (value → terminal_value); 3) static factors — present state. Static subterms may carry value_mg/value_eg (now) and terminal_value_mg/terminal_value_eg (≈10 moves per side later). Either pair may be missing. Describe the trend; never quote the numbers.',
         '',
         'Commenting the played move:',
@@ -253,6 +255,8 @@ export class MoveCommentService {
       '- 100 < |cp| ≤ 300 → «заметное преимущество белых/чёрных»; |cp| ≥ 300 → «решающее преимущество белых/чёрных»;',
       '- mate ±N → «мат в N за белых/чёрных» (по знаку).',
       'ЗАПРЕЩЕНО писать «у белых перевес/преимущество/лучше», когда sf18_eval.cp < 0 или mate с N<0. Симметричный запрет для чёрных при cp>0.',
+      '',
+      'Материал и взятия — КРИТИЧЕСКИ важно. Снимок ПОСЛЕ отражает позицию сразу после сыгранного хода, ДО того, как соперник возьмёт в ответ. Поэтому скачок `material`/`imbalance` между ДО и ПОСЛЕ НЕ означает реального материального плюса — это может быть половина размена. Сверяй с sf18_eval: если sf18_eval НЕ сдвинулся в сторону той стороны, у которой материал «вырос», — значит соперник возьмёт в ответ ближайшим ходом и движок это уже учёл. В таком случае пиши так: «формально <сторона> забрала фигуру, но Stockfish не считает это перевесом — соперник возьмёт в ответ ближайшим ходом». КАКОЙ фигурой возьмёт — не пиши. Сдвиги `material`/`imbalance` в ПОСЛЕ называй реальным плюсом ТОЛЬКО когда sf18_eval сдвинулся в ту же сторону.',
       '',
       'Иерархия: 1) sf18_eval — вердикт; 2) тенденция факторов (value → terminal_value); 3) статические факторы — что есть сейчас. У статических подкомпонент могут быть value_mg/value_eg (сейчас) и terminal_value_mg/terminal_value_eg (через ≈10 ходов каждой стороны). Любая пара может отсутствовать. Описывай тенденцию, числа не упоминай.',
       '',
@@ -427,6 +431,50 @@ export class MoveCommentService {
     });
   }
 
+  /**
+   * Обратная связь от пользователя по KS-3814 (2026-06-06). Модель в
+   * move-comment расходовала бюджет внимания на семь-восемь мелких
+   * признаков опасности короля (`king_safe_check_*`, `king_attackers_*`,
+   * `king_flank_attacks`, `king_shelter_*`, `king_*_storm`,
+   * `*_on_king_ring`, `*_king_protector_distance`) и переписывала их
+   * по очереди в комментарии («угроза шаха ферзём растворилась…
+   * атаки по флангу выросли…»). Это перегружало текст и размывало
+   * картину.
+   *
+   * Решение: на стороне сервера оставляем только агрегированный
+   * фактор `king_danger` (общая оценка опасности королю стороны), все
+   * остальные «связанные с королём» подкомпоненты вырезаем перед
+   * сериализацией. По духу совпадает с `stripPvFactor` (KS-3809):
+   * убираем шум на входе, не на выходе.
+   *
+   * Список вырезаемых id — все имена из SUBTERM_LABELS, в которых есть
+   * `king` (по подстроке), кроме `king_danger`. Это покрывает:
+   *   king_shelter_strength, king_blocked_storm, king_unblocked_storm,
+   *   king_on_file, king_safety_pawn, king_safe_check_rook,
+   *   king_safe_check_queen, king_safe_check_bishop,
+   *   king_safe_check_knight, king_pawnless_flank,
+   *   king_flank_attacks, king_attackers_count, king_attackers_weight,
+   *   rook_on_king_ring, bishop_on_king_ring,
+   *   knight_king_protector_distance, bishop_king_protector_distance.
+   *
+   * Касается только move-comment (комментарий хода в разборе партии).
+   * Position-comment оставлен как есть — там семантика «опиши всё, что
+   * есть в позиции», и детальные king-факторы дают модели контекст для
+   * статической оценки.
+   */
+  private stripRedundantKingFactors(
+    factors: unknown[] | undefined,
+  ): unknown[] | undefined {
+    if (!Array.isArray(factors)) return factors;
+    return factors.filter((f) => {
+      if (typeof f !== 'object' || f === null) return true;
+      const id = (f as { id?: unknown }).id;
+      if (typeof id !== 'string') return true;
+      if (id === 'king_danger') return true;
+      return !id.includes('king');
+    });
+  }
+
   async comment(
     userId: string,
     dto: MoveCommentDto,
@@ -449,8 +497,15 @@ export class MoveCommentService {
     // KS-3809: `sf18_pv` вырезается из обоих снимков до сериализации —
     // модель не должна получать UCI-линию как почву для выдумывания
     // несуществующих манёвров (повтор фикса KS-3721 для position-comment).
-    const beforeFactors = this.stripPvFactor(dto.before.factors);
-    const afterFactors = this.stripPvFactor(dto.after.factors);
+    // Обратная связь по KS-3814 (2026-06-06): вырезаем также все мелкие
+    // king-факторы кроме агрегата `king_danger` — модель расходовала на
+    // них бюджет внимания и переписывала каждый признак отдельно.
+    const beforeFactors = this.stripRedundantKingFactors(
+      this.stripPvFactor(dto.before.factors),
+    );
+    const afterFactors = this.stripRedundantKingFactors(
+      this.stripPvFactor(dto.after.factors),
+    );
     // KS-3813: сжимаем словарь расшифровок до id, реально пришедших в
     // оба снимка. Раньше отправлялись все 59 пар (~3 КБ), сейчас 0.5–1 КБ.
     const usedIds = new Set<string>([
