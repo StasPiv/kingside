@@ -727,7 +727,47 @@
     "dismiss": "Скрыть",
     "apply": "Применить",
     "reset": "Сбросить",
-    "clear": "Очистить"
+    "clear": "Очистить",
+    "backToHome": "На главную"
+  },
+  "liveAnalysis": {
+    "start": "Транслировать",
+    "starting": "Запуск…",
+    "stop": "Завершить",
+    "onAir": "В эфире",
+    "viewers": "Зрители",
+    "viewersShort": "зрителей",
+    "copyLink": "Скопировать ссылку",
+    "linkCopied": "Ссылка скопирована"
+  },
+  "liveAnalysisViewer": {
+    "defaultTitle": "Живой разбор",
+    "byOwner": "автор:",
+    "viewers": "Зрители",
+    "viewersShort": "зрителей",
+    "returnToBroadcast": "Вернуться к трансляции",
+    "closedTitle": "Трансляция завершена",
+    "closedByOwner": "Автор завершил трансляцию.",
+    "closedByInactivity": "Трансляция закрыта из-за бездействия.",
+    "notFoundTitle": "Трансляция не найдена",
+    "notFoundBody": "Ссылка недействительна или трансляция удалена.",
+    "loadError": "Не удалось загрузить трансляцию."
+  },
+  "myLiveAnalyses": {
+    "title": "Мои live-трансляции",
+    "activeHeading": "Активные",
+    "closedHeading": "Завершённые",
+    "emptyActive": "У вас нет активных трансляций.",
+    "emptyClosed": "Завершённых трансляций пока нет.",
+    "copyLink": "Скопировать ссылку",
+    "copied": "Скопировано",
+    "stop": "Завершить",
+    "stopping": "Завершение…",
+    "stopConfirm": "Завершить эту трансляцию?",
+    "startedAt": "Начало",
+    "closedAt": "Завершено",
+    "viewerPeak": "Пик зрителей",
+    "loadError": "Не удалось загрузить ваши трансляции."
   },
   "auth": {
     "login": {

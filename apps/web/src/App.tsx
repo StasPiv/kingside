@@ -86,6 +86,15 @@ import { OpeningTrainerReviewsPage } from './pages/openingTrainer/OpeningTrainer
 // KS-3320: страница атрибуции открытых ассетов (piece-sets).
 import { CreditsPage } from './pages/CreditsPage';
 import { OpeningTrainerStatsPage } from './pages/openingTrainer/OpeningTrainerStatsPage';
+// KS-3737 (ADR-110 §3, §6): публичная страница зрителя live-трансляции
+// анализа. Lazy-чанк — страница содержит chess.js + react-chessboard,
+// которые уже подгружены на смежных маршрутах (анализ/архив), но при
+// заходе по прямой ссылке на /live/:slug это всё равно отдельный чанк.
+const LiveAnalysisViewerPage = lazy(() =>
+  import('./pages/LiveAnalysisViewerPage').then((m) => ({
+    default: m.LiveAnalysisViewerPage,
+  })),
+);
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag, useFeatureFlags } from './context/FeatureFlagsContext';
@@ -711,6 +720,17 @@ export function App() {
             }
           />
         )}
+        {/* KS-3737 (ADR-110): публичная страница зрителя — без auth-guard,
+            анонимы тоже могут смотреть. noindex выставляется самой
+            страницей через useEffect → <meta name="robots">. */}
+        <Route
+          path="/live/:slug"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <LiveAnalysisViewerPage />
+            </Suspense>
+          }
+        />
         <Route path="/feedback" element={<FeedbackBoardPage />} />
         <Route path="/feedback/:id" element={<FeedbackDetailPage />} />
         {/* KS-2218: `/puzzle` и `/puzzle/:id` перенесены в puzzle-блок выше,

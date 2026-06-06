@@ -717,7 +717,47 @@
     "dismiss": "Dismiss",
     "apply": "Apply",
     "reset": "Reset",
-    "clear": "Clear"
+    "clear": "Clear",
+    "backToHome": "Back to home"
+  },
+  "liveAnalysis": {
+    "start": "Broadcast",
+    "starting": "Starting…",
+    "stop": "Stop",
+    "onAir": "On air",
+    "viewers": "Viewers",
+    "viewersShort": "viewers",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied"
+  },
+  "liveAnalysisViewer": {
+    "defaultTitle": "Live analysis",
+    "byOwner": "by",
+    "viewers": "Viewers",
+    "viewersShort": "viewers",
+    "returnToBroadcast": "Return to broadcast",
+    "closedTitle": "Broadcast ended",
+    "closedByOwner": "The author has ended the broadcast.",
+    "closedByInactivity": "The broadcast was closed due to inactivity.",
+    "notFoundTitle": "Broadcast not found",
+    "notFoundBody": "The broadcast link is invalid or the broadcast has been removed.",
+    "loadError": "Failed to load broadcast."
+  },
+  "myLiveAnalyses": {
+    "title": "My live broadcasts",
+    "activeHeading": "Active",
+    "closedHeading": "Recent",
+    "emptyActive": "You have no active broadcasts.",
+    "emptyClosed": "No past broadcasts yet.",
+    "copyLink": "Copy link",
+    "copied": "Copied",
+    "stop": "Stop",
+    "stopping": "Stopping…",
+    "stopConfirm": "Stop this broadcast?",
+    "startedAt": "Started",
+    "closedAt": "Closed",
+    "viewerPeak": "Peak viewers",
+    "loadError": "Failed to load your broadcasts."
   },
   "auth": {
     "login": {
