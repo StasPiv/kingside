@@ -841,15 +841,17 @@ describe('LiveAnalysisService', () => {
     });
 
     it('KS-3775: невалидные значения currentGlobalIndex (отрицательное / нецелое) игнорируются', async () => {
+      // Тип number формально допускает любые числа; защита сервиса
+      // дополнительно отбрасывает отрицательные и нецелые значения,
+      // которые могли прийти от устаревшего клиента или из мусорного
+      // payload-а в обход DTO-валидации.
       const snap = await service.applyStatePatch('s', 'u-1', {
         pgn: tinyPgn,
-        // @ts-expect-error: проверка защиты сервиса от мусорных payload-ов
         currentGlobalIndex: -3,
       });
       expect(snap.currentGlobalIndex).toBeUndefined();
       const snap2 = await service.applyStatePatch('s', 'u-1', {
         pgn: tinyPgn,
-        // @ts-expect-error
         currentGlobalIndex: 1.5,
       });
       expect(snap2.currentGlobalIndex).toBeUndefined();
