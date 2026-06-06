@@ -4160,3 +4160,14 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   }
 }
 
+/* KS-3806: на мобильном заголовок страницы (крошки «автор / название
+   лекции» + плашка «truncated») съедает вертикальный бюджет — из-за
+   этого проигрыватель снизу частично уходит под `MobileBottomBar`.
+   По требованию пользователя на mobile прячем крошки целиком. На
+   desktop заголовок остаётся как есть. */
+@media (max-width: 768px) {
+  .lecture-replay-breadcrumbs {
+    display: none !important;
+  }
+}
+
