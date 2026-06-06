@@ -12,6 +12,7 @@ import {
   type LiveAnalysisMoveEvent,
   type LiveAnalysisOrientation,
   type LiveAnalysisResponse,
+  type LiveAnalysisStatePatchPayload,
   type LiveAnalysisSyncSnapshot,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -83,6 +84,22 @@ export class LiveAnalysisService {
 
   /** KS-3734 / ADR §2.9.15. Token-bucket автора: 30 ходов/мин с burst 10. */
   private readonly authorMoveLimiter = new TokenBucketLimiter(10, 0.5);
+
+  /**
+   * KS-3743 / ADR-111 §2.4. Отдельный token-bucket на state-patch:
+   * 5 в секунду с пиковым 10. Отдельный от move-лимита — дебаунс
+   * фронта (500 мс) уже отсеивает основную часть, бакет — защита от
+   * багов клиента (например, патч на каждый keystroke в комментарии).
+   */
+  private readonly authorStatePatchLimiter = new TokenBucketLimiter(10, 5);
+
+  /**
+   * KS-3743 / ADR-111 §2.3. Hard cap длины annotated PGN в state-patch
+   * и в reset (256 KB = 262 144 байт). При превышении сервер кидает
+   * `BadRequestException('pgn-too-large')` — gateway мапит в
+   * `error { code: 'pgn-too-large' }`.
+   */
+  static readonly STATE_PATCH_PGN_HARD_CAP_BYTES = 256 * 1024;
 
   private readonly nanoid = customAlphabet(
     LiveAnalysisService.SLUG_ALPHABET,
@@ -178,6 +195,11 @@ export class LiveAnalysisService {
       currentPly: state?.currentPly ?? 0,
       orientation: state?.orientation ?? 'white',
       viewerCount,
+      // KS-3743 / ADR-111: для зрителя, который опрашивает snapshot
+      // REST'ом до WS-subscribe, отдаём текущий PGN и headers если
+      // автор уже присылал state-patch.
+      currentPgn: state?.currentPgn,
+      headers: state?.headers,
     });
   }
 
@@ -235,6 +257,7 @@ export class LiveAnalysisService {
     this.slugToOwnerCache.delete(slug);
     this.lastActivityCache.delete(slug);
     this.authorMoveLimiter.reset(slug);
+    this.authorStatePatchLimiter.reset(slug);
     this.metrics.decLiveAnalysisActive();
     await this.purgeRedisState(found.id);
 
@@ -295,6 +318,7 @@ export class LiveAnalysisService {
           this.slugToOwnerCache.delete(row.slug);
           this.lastActivityCache.delete(row.slug);
           this.authorMoveLimiter.reset(row.slug);
+          this.authorStatePatchLimiter.reset(row.slug);
           await this.purgeRedisState(row.id);
           await this.publish(LiveAnalysisService.CHANNEL_CLOSED, {
             slug: row.slug,
@@ -366,6 +390,10 @@ export class LiveAnalysisService {
       currentFen: state?.currentFen ?? row.startingFen ?? LiveAnalysisService.INITIAL_FEN,
       currentPly: state?.currentPly ?? moves.length,
       orientation: state?.orientation ?? 'white',
+      // KS-3743 / ADR-111: annotated PGN автора и headers — опциональны
+      // (на трансляции, где автор ещё не присылал state-patch, их нет).
+      ...(state?.currentPgn !== undefined && { currentPgn: state.currentPgn }),
+      ...(state?.headers !== undefined && { headers: state.headers }),
     };
   }
 
@@ -435,6 +463,195 @@ export class LiveAnalysisService {
       await this.publish(LiveAnalysisService.CHANNEL_MOVE, payload);
       return payload;
     });
+  }
+
+  /**
+   * KS-3743 / ADR-111 §2.2, §2.3. Применить state-patch от автора —
+   * содержимое окна анализа (annotated PGN, headers, currentPly,
+   * orientation).
+   *
+   * Шаги (внутри `runExclusive` — тот же mutex per-slug, что и `move`,
+   * для борьбы с race из ADR-111 §2.8 п.4):
+   *   1. assertOwnerAndActive.
+   *   2. Hard cap длины PGN ≤ `STATE_PATCH_PGN_HARD_CAP_BYTES`
+   *      (256 KB). Превышение → `BadRequestException('pgn-too-large')`.
+   *   3. Rate-limit per-slug через `authorStatePatchLimiter`
+   *      (5/сек, burst 10). Перебор → `BadRequestException('Rate
+   *      limit exceeded (state-patch)')`.
+   *   4. Валидация PGN: `chess.loadPgn(pgn)`. Невалидный → `BadRequest
+   *      ('Invalid PGN')`.
+   *   5. Извлечение `startingFen` (из заголовков SetUp/FEN или
+   *      `chess.fen()` если PGN пустой) и main-line UCI-истории
+   *      (`chess.history({verbose:true})` → `from+to+promotion`).
+   *   6. `currentPly`: использовать переданный (если 0..uci.length),
+   *      иначе длина истории. Это даёт автору возможность листать
+   *      назад без совершения новых ходов.
+   *   7. `currentFen` — пересобираем заново из `startingFen` +
+   *      первых `currentPly` UCI (это надёжнее, чем верить переданному).
+   *   8. HSET state hash: startingFen, currentFen, currentPly,
+   *      orientation, currentPgn, headersJson, lastPatchAt.
+   *      DEL :moves; RPUSH :moves все UCI main-line — **критично**
+   *      для acceptance KS-3743: «при reconnect зрителя moves-list
+   *      совпадает с main-line PGN». ADR-111 §2.7 (3).
+   *   9. throttled `touchLastActivity`.
+   *  10. `publish` в `live-analysis:sync` полный snapshot — gateway
+   *      разошлёт в комнату; отдельного канала state-patch ADR §2.3
+   *      не вводит.
+   */
+  async applyStatePatch(
+    slug: string,
+    actingUserId: string,
+    payload: Omit<LiveAnalysisStatePatchPayload, 'slug'>,
+  ): Promise<LiveAnalysisSyncSnapshot> {
+    return this.runExclusive(slug, async () => {
+      const meta = await this.assertOwnerAndActive(slug, actingUserId);
+
+      // (2) hard cap. Считаем длину строки PGN. JS string.length — это
+      // UTF-16 code units, что для ASCII-PGN совпадает с байтами; для
+      // кириллических комментариев overhead вдвое, но на верхнюю
+      // границу абуза 256 KB строки в любом случае хватает с запасом.
+      if (
+        payload.pgn.length > LiveAnalysisService.STATE_PATCH_PGN_HARD_CAP_BYTES
+      ) {
+        this.metrics.incLiveAnalysisRateLimited('author_moves');
+        this.logger.warn(
+          `state-patch rejected (pgn too large) slug=${slug} bytes=${payload.pgn.length}`,
+        );
+        throw new BadRequestException('pgn-too-large');
+      }
+
+      // (3) rate-limit. Отдельный bucket от move — у них разные пороги.
+      if (!this.authorStatePatchLimiter.tryConsume(slug)) {
+        this.metrics.incLiveAnalysisRateLimited('author_moves');
+        this.logger.warn(
+          `rate-limit drop state-patch slug=${slug} owner=${actingUserId}`,
+        );
+        throw new BadRequestException('Rate limit exceeded (state-patch)');
+      }
+
+      // (4) валидация PGN.
+      const chess = new Chess();
+      try {
+        chess.loadPgn(payload.pgn);
+      } catch (e) {
+        this.logger.warn(
+          `state-patch invalid PGN slug=${slug}: ${(e as Error).message}`,
+        );
+        throw new BadRequestException('Invalid PGN');
+      }
+
+      // (5) main-line UCI и стартовый FEN из PGN-headers SetUp/FEN.
+      const verbose = chess.history({ verbose: true }) as Array<{
+        from: string;
+        to: string;
+        promotion?: string;
+        before?: string;
+      }>;
+      const headersFromPgn = this.extractPgnHeaders(chess);
+      const startingFen =
+        verbose[0]?.before ??
+        // Если ходов нет — chess.fen() это и есть стартовая позиция
+        // (либо initial, либо то, что было задано через [SetUp/FEN]).
+        chess.fen();
+      const uciHistory = verbose.map(
+        (m) => `${m.from}${m.to}${m.promotion ?? ''}`,
+      );
+
+      // (6) currentPly: переданный приоритетнее, но обязан быть в [0..N].
+      let currentPly = uciHistory.length;
+      if (
+        typeof payload.currentPly === 'number' &&
+        Number.isInteger(payload.currentPly) &&
+        payload.currentPly >= 0 &&
+        payload.currentPly <= uciHistory.length
+      ) {
+        currentPly = payload.currentPly;
+      }
+
+      // (7) currentFen — пересобираем заново независимо от переданного.
+      const replay = new Chess(startingFen);
+      for (let i = 0; i < currentPly; i++) {
+        const uci = uciHistory[i];
+        const from = uci.slice(0, 2);
+        const to = uci.slice(2, 4);
+        const promotion = uci.length === 5 ? uci.slice(4, 5) : undefined;
+        replay.move({ from, to, promotion });
+      }
+      const currentFen = replay.fen();
+
+      const orientation: LiveAnalysisOrientation =
+        payload.orientation ??
+        (await this.readRedisState(meta.id))?.orientation ??
+        'white';
+
+      // headers: предпочитаем явные из payload, иначе извлечённые из PGN.
+      const headers = payload.headers ?? headersFromPgn;
+      const headersJson =
+        headers && Object.keys(headers).length > 0
+          ? JSON.stringify(headers)
+          : '';
+
+      // (8) HSET state + замена moves-list по main-line.
+      const stateKey = this.stateKey(meta.id);
+      const movesKey = this.movesKey(meta.id);
+      const pipeline = this.redis
+        .multi()
+        .hset(stateKey, {
+          startingFen,
+          currentFen,
+          currentPly: String(currentPly),
+          orientation,
+          currentPgn: payload.pgn,
+          headersJson,
+          lastPatchAt: String(Date.now()),
+        })
+        .del(movesKey);
+      // RPUSH с многими аргументами — ioredis принимает variadic;
+      // если main-line пустая (свежий PGN c одной headers-секцией) —
+      // RPUSH не зовём, иначе попадёт пустая команда.
+      if (uciHistory.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (pipeline as any).rpush(movesKey, ...uciHistory);
+      }
+      pipeline
+        .expire(stateKey, LiveAnalysisService.STATE_TTL_SEC)
+        .expire(movesKey, LiveAnalysisService.STATE_TTL_SEC);
+      await pipeline.exec();
+
+      // (9) throttled lastActivityAt.
+      await this.touchLastActivity(slug, meta.id);
+
+      // (10) publish full sync — gateway разошлёт в комнату.
+      const snapshot: LiveAnalysisSyncSnapshot = {
+        slug,
+        startingFen,
+        moves: uciHistory,
+        currentFen,
+        currentPly,
+        orientation,
+        currentPgn: payload.pgn,
+        ...(Object.keys(headers ?? {}).length > 0 && { headers }),
+      };
+      this.metrics.incLiveAnalysisMoveAccepted();
+      await this.publish(LiveAnalysisService.CHANNEL_SYNC, snapshot);
+      return snapshot;
+    });
+  }
+
+  /**
+   * Извлечь PGN-headers через `chess.header()`. Возвращает копию
+   * объекта (мутации не утекут в chess instance).
+   */
+  private extractPgnHeaders(chess: Chess): Record<string, string> {
+    // chess.js 1.4 .header() — `getHeaders` без аргументов.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = (chess as any).getHeaders?.() ?? (chess as any).header?.();
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string' && v.length > 0) out[k] = v;
+    }
+    return out;
   }
 
   /**
@@ -721,16 +938,33 @@ export class LiveAnalysisService {
         currentFen: string;
         currentPly: number;
         orientation: LiveAnalysisOrientation;
+        /** KS-3743 / ADR-111: annotated PGN последнего state-patch (опц.). */
+        currentPgn?: string;
+        /** KS-3743 / ADR-111: распарсенный JSON `headersJson` (опц.). */
+        headers?: Record<string, string>;
       }
     | null
   > {
     const raw = await this.redis.hgetall(this.stateKey(id));
     if (!raw || !raw.currentFen) return null;
+    let headers: Record<string, string> | undefined;
+    if (raw.headersJson) {
+      try {
+        const parsed = JSON.parse(raw.headersJson);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          headers = parsed as Record<string, string>;
+        }
+      } catch {
+        // Битый JSON в hash — игнорируем, фронт всё равно читает headers из PGN.
+      }
+    }
     return {
       startingFen: raw.startingFen ?? LiveAnalysisService.INITIAL_FEN,
       currentFen: raw.currentFen,
       currentPly: Number(raw.currentPly ?? '0') || 0,
       orientation: (raw.orientation as LiveAnalysisOrientation) ?? 'white',
+      currentPgn: raw.currentPgn && raw.currentPgn.length > 0 ? raw.currentPgn : undefined,
+      headers,
     };
   }
 
@@ -814,6 +1048,9 @@ export class LiveAnalysisService {
       currentPly: number;
       orientation: LiveAnalysisOrientation;
       viewerCount: number;
+      /** KS-3743 / ADR-111: опц., если автор уже присылал state-patch. */
+      currentPgn?: string;
+      headers?: Record<string, string>;
     },
   ): LiveAnalysisResponse {
     return {
@@ -831,6 +1068,8 @@ export class LiveAnalysisService {
       viewerCount: extras.viewerCount,
       createdAt: row.createdAt.toISOString(),
       closedAt: row.closedAt ? row.closedAt.toISOString() : null,
+      ...(extras.currentPgn !== undefined && { currentPgn: extras.currentPgn }),
+      ...(extras.headers !== undefined && { headers: extras.headers }),
     };
   }
 

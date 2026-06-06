@@ -77,6 +77,20 @@ export type LiveAnalysisResponse = {
   createdAt: string;
   /** ISO-8601 UTC. `null` если ещё active. */
   closedAt: string | null;
+  /**
+   * KS-3743 / ADR-111: annotated PGN из последнего `state-patch`
+   * автора. Поле опциональное: до первого state-patch отсутствует;
+   * на трансляциях по контракту ADR-110 (без state-patch) не приходит
+   * никогда. Фронт может прочитать дерево варинатов/комментариев из
+   * него вместо своего REST-фолбэка на `/analyses/public/:id`.
+   */
+  currentPgn?: string;
+  /**
+   * KS-3743 / ADR-111: PGN-headers, продублированные мапой для
+   * `GameMetaBar`. Опциональны; при расхождении с `currentPgn`
+   * побеждает PGN.
+   */
+  headers?: Record<string, string>;
 };
 
 /**

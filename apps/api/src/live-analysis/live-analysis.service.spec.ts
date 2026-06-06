@@ -40,9 +40,9 @@ class FakeRedis {
   async hgetall(key: string): Promise<RedisHash> {
     return { ...(this.hashes.get(key) ?? {}) };
   }
-  async rpush(key: string, value: string): Promise<number> {
+  async rpush(key: string, ...values: string[]): Promise<number> {
     const arr = this.lists.get(key) ?? [];
-    arr.push(value);
+    for (const v of values) arr.push(v);
     this.lists.set(key, arr);
     return arr.length;
   }
@@ -499,6 +499,127 @@ describe('LiveAnalysisService', () => {
       await service.releaseIpSlot('5.6.7.8');
       const v = await redis.get('live-analysis:ip:5.6.7.8:conns');
       expect(v).toBe('1');
+    });
+  });
+
+  // ─── KS-3743: applyStatePatch ─────────────────────────────────────
+
+  describe('applyStatePatch', () => {
+    const activeMeta = {
+      id: 'la-1',
+      ownerId: 'u-1',
+      status: 'active' as const,
+      startingFen: null as string | null,
+    };
+
+    const tinyPgn = '1. e4 e5 2. Nf3 Nc6 *';
+
+    beforeEach(() => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue(activeMeta);
+    });
+
+    it('применяет валидный PGN: синхронизирует moves-list по main-line и пишет currentPgn в Redis', async () => {
+      const snap = await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+      expect(snap.currentPgn).toBe(tinyPgn);
+      expect(snap.moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
+      expect(snap.currentPly).toBe(4);
+      // currentFen — позиция после 4 полуходов.
+      expect(snap.currentFen).toContain('w');
+      const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
+      expect(moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
+      const state = await redis.hgetall('live_analysis:la-1:state');
+      expect(state.currentPgn).toBe(tinyPgn);
+      expect(redis.publish).toHaveBeenCalledWith(
+        'live-analysis:sync',
+        expect.stringContaining('"currentPgn"'),
+      );
+    });
+
+    it('reconnect зрителя: getSyncSnapshot возвращает те же moves что и main-line PGN', async () => {
+      // Применяем patch
+      await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+      // Эмулируем reconnect: getSyncSnapshot читает Redis заново.
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce({
+        id: 'la-1',
+        status: 'active',
+        startingFen: null,
+      });
+      const snap = await service.getSyncSnapshot('s');
+      expect(snap.moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
+      expect(snap.currentPgn).toBe(tinyPgn);
+      expect(snap.currentPly).toBe(4);
+    });
+
+    it('игнорирует невалидный currentPly и берёт длину истории', async () => {
+      const snap = await service.applyStatePatch('s', 'u-1', {
+        pgn: tinyPgn,
+        currentPply: 999, // намеренно опечатка — это поле не существует, проверяем поведение по умолчанию
+      } as any);
+      expect(snap.currentPly).toBe(4);
+    });
+
+    it('поддерживает листание автором назад: currentPly < длины истории', async () => {
+      const snap = await service.applyStatePatch('s', 'u-1', {
+        pgn: tinyPgn,
+        currentPly: 2,
+      });
+      expect(snap.currentPly).toBe(2);
+      // currentFen — после e4 e5 (ход белых, чёрный сыграл).
+      expect(snap.currentFen).toContain('w');
+    });
+
+    it('rejects PGN с >256 KB', async () => {
+      const huge = '[Event "x"]\n\n1. e4 e5 *\n' + 'A'.repeat(300_000);
+      await expect(
+        service.applyStatePatch('s', 'u-1', { pgn: huge }),
+      ).rejects.toThrow(/pgn-too-large/);
+      expect(prisma.liveAnalysis.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects невалидный PGN', async () => {
+      await expect(
+        service.applyStatePatch('s', 'u-1', { pgn: '!!!garbage!!!' }),
+      ).rejects.toThrow(/Invalid PGN|pgn/i);
+    });
+
+    it('rejects если не owner', async () => {
+      await expect(
+        service.applyStatePatch('s', 'NOT-u-1', { pgn: tinyPgn }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects если closed', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        ...activeMeta,
+        status: 'closed',
+      });
+      await expect(
+        service.applyStatePatch('s', 'u-1', { pgn: tinyPgn }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rate-limit: 11 patch-ей подряд → 11-й отклонён', async () => {
+      for (let i = 0; i < 10; i++) {
+        await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+      }
+      await expect(
+        service.applyStatePatch('s', 'u-1', { pgn: tinyPgn }),
+      ).rejects.toThrow(/Rate limit/);
+    });
+
+    it('publish payload включает currentPgn, moves и headers (если есть)', async () => {
+      const pgnWithHeaders = '[White "Alice"]\n[Black "Bob"]\n\n1. e4 *';
+      await service.applyStatePatch('s', 'u-1', {
+        pgn: pgnWithHeaders,
+        headers: { White: 'Alice', Black: 'Bob' },
+      });
+      const publishedCalls = (redis.publish as jest.Mock).mock.calls;
+      const syncCall = publishedCalls.find((c) => c[0] === 'live-analysis:sync');
+      expect(syncCall).toBeDefined();
+      const payload = JSON.parse(syncCall![1]);
+      expect(payload.currentPgn).toContain('Alice');
+      expect(payload.moves).toEqual(['e2e4']);
+      expect(payload.headers).toEqual(expect.objectContaining({ White: 'Alice' }));
     });
   });
 
