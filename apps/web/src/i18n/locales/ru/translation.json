@@ -738,7 +738,10 @@
     "viewers": "Зрители",
     "viewersShort": "зрителей",
     "copyLink": "Скопировать ссылку",
-    "linkCopied": "Ссылка скопирована"
+    "linkCopied": "Ссылка скопирована",
+    "saveAndStart": "Сохранить и транслировать",
+    "saveAndStartTooltip": "Сохраняет анализ в мастерскую и сразу запускает трансляцию",
+    "unavailableTooltip": "Сохраните в мастерскую, чтобы транслировать"
   },
   "liveAnalysisViewer": {
     "defaultTitle": "Живой разбор",

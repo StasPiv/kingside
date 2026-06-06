@@ -16,6 +16,20 @@ import { useTranslation } from 'react-i18next';
  * скринридер сообщал об изменении числа зрителей не агрессивно.
  */
 
+/**
+ * KS-3764 / ADR-112 §4. Контекст анализа, в котором рендерится кнопка.
+ *  - `analysis` — обычная страница анализа (свой или ad-hoc):
+ *      • если `analysisId` есть → flow «Транслировать»;
+ *      • если `analysisId === null` → flow «Сохранить и транслировать»:
+ *        сначала autosave создаёт запись в БД, потом запускается
+ *        трансляция с уже валидным id (ADR-112: трансляция привязана
+ *        к конкретному `Analysis`).
+ *  - `review` (`/game/:id/review`) и `puzzle` — анализ чужой партии /
+ *    пазла. Трансляция не имеет смысла без отдельного «своего» анализа.
+ *    Кнопка disabled + тултип-подсказка «Сохраните в мастерскую».
+ */
+export type LiveBroadcastKind = 'analysis' | 'review' | 'puzzle';
+
 export interface LiveBroadcastControlProps {
   isLive: boolean;
   isStarting: boolean;
@@ -24,7 +38,25 @@ export interface LiveBroadcastControlProps {
   publicUrl: string | null;
   /** Сервер-ошибка (для inline-тоста). */
   errorMessage: string | null;
+  /** KS-3764 / ADR-112: контекст анализа, см. `LiveBroadcastKind`. */
+  kind: LiveBroadcastKind;
+  /**
+   * KS-3764 / ADR-112: ID сохранённого анализа. Если `null` для
+   * `kind='analysis'` — это ad-hoc-сессия без записи в БД; кнопка
+   * превратится в «Сохранить и транслировать».
+   */
+  analysisId: string | null;
+  /** Обычный «Транслировать» — когда `kind='analysis'` и есть `analysisId`. */
   onStart: () => void;
+  /**
+   * KS-3764: ad-hoc «Сохранить и транслировать». Родитель должен:
+   *  1) вызвать autosave (POST /analyses), дождаться entry.id,
+   *  2) вызвать `start(entry.id)` хука.
+   * Если флоу не передан (компонент рендерится без `analysisId`) — для
+   * безопасности кнопка disabled (но это не штатный сценарий — родитель
+   * обязан либо иметь analysisId, либо передать onSaveAndStart).
+   */
+  onSaveAndStart?: () => void;
   onStop: () => void;
 }
 
@@ -34,7 +66,10 @@ export function LiveBroadcastControl({
   viewerCount,
   publicUrl,
   errorMessage,
+  kind,
+  analysisId,
   onStart,
+  onSaveAndStart,
   onStop,
 }: LiveBroadcastControlProps) {
   const { t } = useTranslation();
@@ -75,18 +110,57 @@ export function LiveBroadcastControl({
       data-testid="analysis-live-broadcast"
     >
       {!isLive ? (
-        <button
-          type="button"
-          className="analysis-live-broadcast__start"
-          data-testid="analysis-live-start"
-          onClick={onStart}
-          disabled={isStarting}
-          title={t('liveAnalysis.start', 'Start live broadcast')}
-        >
-          {isStarting
-            ? t('liveAnalysis.starting', 'Starting…')
-            : t('liveAnalysis.start', 'Broadcast')}
-        </button>
+        // KS-3764 / ADR-112 §4: kind-aware кнопка.
+        // 1) review/puzzle — disabled + тултип «Сохраните в мастерскую».
+        // 2) analysis без analysisId — «Сохранить и транслировать».
+        // 3) analysis с analysisId — обычный «Транслировать».
+        kind !== 'analysis' ? (
+          <button
+            type="button"
+            className="analysis-live-broadcast__start analysis-live-broadcast__start--disabled"
+            data-testid="analysis-live-start-disabled"
+            disabled
+            title={t(
+              'liveAnalysis.unavailableTooltip',
+              'Save to your workshop to start broadcasting',
+            )}
+            aria-label={t(
+              'liveAnalysis.unavailableTooltip',
+              'Save to your workshop to start broadcasting',
+            )}
+          >
+            {t('liveAnalysis.start', 'Broadcast')}
+          </button>
+        ) : !analysisId ? (
+          <button
+            type="button"
+            className="analysis-live-broadcast__start"
+            data-testid="analysis-live-save-and-start"
+            onClick={onSaveAndStart}
+            disabled={isStarting || !onSaveAndStart}
+            title={t(
+              'liveAnalysis.saveAndStartTooltip',
+              'Saves the analysis to your workshop, then starts the broadcast',
+            )}
+          >
+            {isStarting
+              ? t('liveAnalysis.starting', 'Starting…')
+              : t('liveAnalysis.saveAndStart', 'Save and broadcast')}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="analysis-live-broadcast__start"
+            data-testid="analysis-live-start"
+            onClick={onStart}
+            disabled={isStarting}
+            title={t('liveAnalysis.start', 'Start live broadcast')}
+          >
+            {isStarting
+              ? t('liveAnalysis.starting', 'Starting…')
+              : t('liveAnalysis.start', 'Broadcast')}
+          </button>
+        )
       ) : (
         <div
           className="analysis-live-broadcast__active"

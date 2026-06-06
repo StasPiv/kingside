@@ -2797,6 +2797,14 @@ function AnalysisPageInner({
             viewerCount={liveBroadcast.viewerCount}
             publicUrl={liveBroadcast.publicUrl}
             errorMessage={liveBroadcast.error}
+            // KS-3764 / ADR-112: kind-aware кнопка. Источник — kind из
+            // AnalysisContext: для /game/:id/review это 'review',
+            // для пазловых страниц — 'puzzle', иначе 'analysis'.
+            kind={ctx.kind}
+            // analysisId === undefined трактуем как «нет сохранёнки»
+            // (ad-hoc сессия). Локальный (только-что-созданный) id
+            // живёт в `localIdRef.current` и подхватится в обработчиках.
+            analysisId={analysisId ?? null}
             onStart={() => {
               // KS-3763 / ADR-112: трансляция привязана к конкретному
               // анализу. Без analysisId backend вернёт 400 — отбиваем
@@ -2806,6 +2814,49 @@ function AnalysisPageInner({
               // делает сам компонент в useEffect при переходе
               // publicUrl null → string. Здесь только запускаем start.
               void liveBroadcast.start(analysisId);
+            }}
+            // KS-3764 / ADR-112: «Сохранить и транслировать» для
+            // ad-hoc-сессий (kind='analysis' без analysisId). Поток
+            // повторяет существующий autosave-flow (см. createAnalysis
+            // вызов выше), только триггерится явно по клику —
+            // дожидаемся entry.id и сразу же стартуем трансляцию.
+            onSaveAndStart={() => {
+              if (liveBroadcast.isStarting) return;
+              // Race-condition: autosave мог успеть создать запись
+              // раньше клика — тогда сразу запускаем по существующему id.
+              const existingId = localIdRef.current;
+              if (existingId) {
+                void liveBroadcast.start(existingId);
+                return;
+              }
+              const pgn = buildAnalysisPgn() ?? '';
+              const category =
+                gameId ? 'game_review' : puzzleFen ? 'puzzle' : 'analysis';
+              const hasCustomFen = initialFen !== DEFAULT_FEN;
+              void (async () => {
+                try {
+                  const entry = await createAnalysis(
+                    pgn,
+                    analysisTitle,
+                    category,
+                    hasCustomFen ? initialFen : undefined,
+                  );
+                  localIdRef.current = entry.id;
+                  window.history.replaceState(
+                    null,
+                    '',
+                    '/analysis/' + entry.id,
+                  );
+                  if (entry.userId) setSavedOwnerId(entry.userId);
+                  setSavedIsPublic(
+                    Boolean((entry as { isPublic?: boolean }).isPublic),
+                  );
+                  void liveBroadcast.start(entry.id);
+                } catch {
+                  /* error попадёт в liveBroadcast.error через хук
+                     либо тихо игнорируется — alert-pop'апов не делаем */
+                }
+              })();
             }}
             onStop={liveBroadcast.stop}
           />

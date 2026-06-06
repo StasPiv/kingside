@@ -728,7 +728,10 @@
     "viewers": "Viewers",
     "viewersShort": "viewers",
     "copyLink": "Copy link",
-    "linkCopied": "Link copied"
+    "linkCopied": "Link copied",
+    "saveAndStart": "Save and broadcast",
+    "saveAndStartTooltip": "Saves the analysis to your workshop, then starts the broadcast",
+    "unavailableTooltip": "Save to your workshop to start broadcasting"
   },
   "liveAnalysisViewer": {
     "defaultTitle": "Live analysis",
