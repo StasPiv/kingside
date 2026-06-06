@@ -4005,3 +4005,104 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
     min-height: 48px;
   }
 }
+
+/* KS-3772: обёртка зрительской страницы live-анализа.
+   `<div class="live-analysis-viewer">` оборачивает header (title +
+   автор) и встроенный `<AnalysisPage liveSession={...} />`. Без
+   собственного flex-контекста обёртка ломала вертикальный layout
+   AnalysisPage: `.analysis-page` с `flex: 1; min-height: 0` не
+   получала высоты от не-flex родителя, и на mobile (где
+   `body.has-analysis-page .main` фиксирует высоту = 100dvh с
+   `overflow: hidden`) контент перерастал видимую область — header
+   занимал верх, доска уезжала вниз и обрезалась сверху на
+   горизонтали 5-6. Решение — сделать обёртку flex-column,
+   наследующей высоту от `.main`, чтобы внутренняя `.analysis-page`
+   занимала всё пространство ниже компактного header'а. */
+.live-analysis-viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.live-analysis-viewer__header {
+  flex: 0 0 auto;
+  padding: 8px 16px 4px;
+}
+
+.live-analysis-viewer__title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--c-fff, #fff);
+}
+
+.live-analysis-viewer__owner {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.live-analysis-viewer__owner a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.live-analysis-viewer__owner a:hover {
+  text-decoration: underline;
+}
+
+.live-analysis-viewer__closed-banner {
+  flex: 0 0 auto;
+  margin: 8px 16px;
+  padding: 10px 14px;
+  background: var(--c-1e293b, #1e293b);
+  border: 1px solid var(--c-7c83ff-30, rgba(124, 131, 255, 0.3));
+  border-left: 3px solid var(--accent-primary, #7c83ff);
+  border-radius: 6px;
+  color: var(--c-e2e8f0, #e2e8f0);
+}
+
+.live-analysis-viewer__closed-banner strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.live-analysis-viewer__closed-banner p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+@media (max-width: 768px) {
+  /* KS-3772: на мобильном вертикальная высота — дефицитный ресурс
+     (на 390×844 после top-bar и mobile-bottom-bar остаётся ~720px,
+     доска aspect-ratio 1/1 шириной 100vw-16 = 374px). Делаем header
+     компактным (одной строкой), чтобы оставить максимум высоты
+     для доски + nav-controls + mobile-panel. */
+  .live-analysis-viewer__header {
+    padding: 4px 8px 2px;
+  }
+  .live-analysis-viewer__title {
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .live-analysis-viewer__owner {
+    font-size: 11px;
+    line-height: 1.2;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .live-analysis-viewer__closed-banner {
+    margin: 6px 8px;
+    padding: 8px 12px;
+  }
+}
+
