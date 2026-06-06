@@ -134,6 +134,16 @@ export interface UseAnalysisLiveBroadcastState {
     pgn: string;
     headers?: Record<string, string>;
     currentPly?: number;
+    /**
+     * KS-3775: уникальный сквозной индекс узла дерева анализа автора
+     * (включая боковые варианты). Парсер `parseAnnotatedPgn`
+     * присваивает его детерминированно, поэтому индекс одного и того
+     * же узла у автора и у зрителя совпадает. Backend сохраняет его
+     * как авторитативный и отдаёт в sync; зритель находит узел через
+     * `searchInHistory(history, currentGlobalIndex)` — без поисков
+     * по FEN, что устойчиво к транспозициям.
+     */
+    currentGlobalIndex?: number;
     orientation?: LiveAnalysisOrientation;
   }) => void;
 }
@@ -293,6 +303,9 @@ export function useAnalysisLiveBroadcast({
     pgn: string;
     headers?: Record<string, string>;
     currentPly?: number;
+    // KS-3775: точная позиция автора в дереве вариантов через
+    // уникальный индекс узла (см. описание в типе выше).
+    currentGlobalIndex?: number;
     orientation?: LiveAnalysisOrientation;
   } | null>(null);
   const lastSentSignatureRef = useRef<string | null>(null);
@@ -333,6 +346,7 @@ export function useAnalysisLiveBroadcast({
         p: params.pgn,
         h: params.headers ?? null,
         c: params.currentPly ?? null,
+        g: params.currentGlobalIndex ?? null,
         o: params.orientation ?? null,
       });
       if (signature === lastSentSignatureRef.current) return;
@@ -350,6 +364,7 @@ export function useAnalysisLiveBroadcast({
           p: payload.pgn,
           h: payload.headers ?? null,
           c: payload.currentPly ?? null,
+          g: payload.currentGlobalIndex ?? null,
           o: payload.orientation ?? null,
         });
       }, STATE_PATCH_DEBOUNCE_MS);

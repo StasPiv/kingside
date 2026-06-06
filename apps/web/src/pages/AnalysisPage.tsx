@@ -970,6 +970,7 @@ function AnalysisPageInner({
     (nextPgn: string) => {
       const viewerFen = currentMove?.fen ?? initialFen;
       const authorFen = liveFull.currentFen;
+      const authorGlobalIndex = liveFull.currentGlobalIndex;
       try {
         const moves = parseAnnotatedPgn(nextPgn);
         const initialAnn = extractInitialAnnotations(nextPgn);
@@ -990,11 +991,20 @@ function AnalysisPageInner({
           !lastAppliedAuthorFenRef.current ||
           viewerFen === lastAppliedAuthorFenRef.current;
         let target: ChessMove | null = null;
-        if (followAuthor && authorFen) {
-          const idx = findGlobalIndexByFen(moves, authorFen);
-          if (idx !== null) target = searchInHistory(moves, idx) as ChessMove | null;
-          // Fallback по currentPly, если точный FEN не нашёлся
-          // (расхождение нормализации FEN, exotic вариант, …).
+        if (followAuthor) {
+          // KS-3775: основной путь — поиск по уникальному индексу узла.
+          // Это устойчиво к транспозициям (две позиции с одинаковым
+          // FEN, но разными узлами в дереве) и не требует FEN-сравнений.
+          if (typeof authorGlobalIndex === 'number') {
+            target = searchInHistory(moves, authorGlobalIndex) as ChessMove | null;
+          }
+          // Fallback на старый поиск по FEN (для совместимости со
+          // старыми клиентами / сервером без поля currentGlobalIndex).
+          if (!target && authorFen) {
+            const idx = findGlobalIndexByFen(moves, authorFen);
+            if (idx !== null) target = searchInHistory(moves, idx) as ChessMove | null;
+          }
+          // Fallback по currentPly (если ни индекс, ни FEN не сработали).
           if (!target && liveFull.currentPly > 0) {
             for (const m of moves) {
               if (m.ply === liveFull.currentPly) {
@@ -1006,7 +1016,10 @@ function AnalysisPageInner({
             }
           }
         } else {
-          // Зритель листает сам — сохраняем его позицию.
+          // Зритель листает сам — сохраняем его позицию по FEN
+          // (`viewerFen` — это `currentMove?.fen` зрителя; здесь FEN
+          // подходит, потому что мы ищем узел зрителя в новом дереве
+          // автора, индекса у нас на него нет).
           const idx = findGlobalIndexByFen(moves, viewerFen);
           if (idx !== null) target = searchInHistory(moves, idx) as ChessMove | null;
         }
@@ -1023,6 +1036,7 @@ function AnalysisPageInner({
       currentMove,
       initialFen,
       liveFull.currentFen,
+      liveFull.currentGlobalIndex,
       liveFull.currentPly,
       loadFromPgn,
       gotoMove,
@@ -2362,6 +2376,17 @@ function AnalysisPageInner({
       pgn,
       headers: pgnHeaders,
       currentPly: currentMove?.ply ?? 0,
+      // KS-3775: точная позиция автора в дереве вариантов через
+      // уникальный сквозной индекс узла. Парсер
+      // `parseAnnotatedPgn` присваивает globalIndex детерминированно,
+      // и индекс автора совпадает с индексом того же узла у зрителя
+      // (после applyLivePgn). Это устойчиво к транспозициям, в
+      // отличие от FEN. Когда автор на стартовой позиции
+      // (currentMove=null) — индекс не определён, поле опускаем;
+      // зритель в этом случае останется на root через soft drift.
+      currentGlobalIndex: currentMove
+        ? currentGlobalIndex
+        : undefined,
       orientation: boardOrientation,
     });
   }, [
@@ -2370,6 +2395,7 @@ function AnalysisPageInner({
     buildAnalysisPgn,
     pgnHeaders,
     currentMove,
+    currentGlobalIndex,
     boardOrientation,
   ]);
 

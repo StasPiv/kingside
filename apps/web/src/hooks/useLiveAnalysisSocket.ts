@@ -79,6 +79,16 @@ export interface UseLiveAnalysisSocketState {
     pgn: string;
     headers?: Record<string, string>;
     currentPly?: number;
+    /**
+     * KS-3775: уникальный сквозной индекс узла дерева анализа
+     * (включая боковые варианты). Парсер `parseAnnotatedPgn`
+     * присваивает его детерминированно, поэтому индекс автора и
+     * индекс зрителя для одного и того же узла идентичны. Решает
+     * проблему транспозиций (два разных узла дерева могут иметь
+     * один и тот же FEN), поэтому передаём именно индекс, а не
+     * FEN текущей позиции.
+     */
+    currentGlobalIndex?: number;
     orientation?: 'white' | 'black';
   }) => void;
 }
@@ -223,6 +233,8 @@ export function useLiveAnalysisSocket({
       pgn: string;
       headers?: Record<string, string>;
       currentPly?: number;
+      // KS-3775: см. описание в типе UseLiveAnalysisSocketState.
+      currentGlobalIndex?: number;
       orientation?: 'white' | 'black';
     }) => {
       if (!slug) return;
