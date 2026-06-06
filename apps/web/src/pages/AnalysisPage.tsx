@@ -1052,6 +1052,37 @@ function AnalysisPageInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isViewerLive, liveFull.pgn, applyLivePgn, isViewerFenInAuthorTree]);
 
+  // KS-3777: чистая навигация автора по дереву (стрелки назад/вперёд,
+  // клик по ходу) меняет только `currentGlobalIndex`, PGN остаётся
+  // прежним. Шлюз выше отбивает sync с `lastAppliedLivePgnRef.current
+  // === liveFull.pgn`, поэтому applyLivePgn в таком случае не зовётся —
+  // и без этого отдельного эффекта курсор зрителя стоял бы. Здесь
+  // двигаем `gotoMove` напрямую, без полного перепарсинга PGN.
+  useEffect(() => {
+    if (!isViewerLive) return;
+    if (typeof liveFull.currentGlobalIndex !== 'number') return;
+    const viewerGlobalIndex = currentMove?.globalIndex ?? null;
+    // Если зритель не синхронизирован с автором (листает дерево сам) —
+    // не сбиваем его. `null` означает «ещё не было ни одного apply»
+    // (первый sync) — двигаем.
+    const followAuthor =
+      lastAppliedAuthorGlobalIndexRef.current === null ||
+      viewerGlobalIndex === lastAppliedAuthorGlobalIndexRef.current;
+    if (!followAuthor) return;
+    if (viewerGlobalIndex === liveFull.currentGlobalIndex) return;
+    const target = searchInHistory(history, liveFull.currentGlobalIndex);
+    if (target) {
+      gotoMove(target as ChessMove);
+      lastAppliedAuthorGlobalIndexRef.current = liveFull.currentGlobalIndex;
+    }
+  }, [
+    isViewerLive,
+    liveFull.currentGlobalIndex,
+    currentMove,
+    history,
+    gotoMove,
+  ]);
+
   // KS-3750 (KS-3768 фикс): авто-apply pending когда зритель снова
   // оказался в дереве автора. Триггер — изменение currentMove (зритель
   // листает или сам делает ходы).
