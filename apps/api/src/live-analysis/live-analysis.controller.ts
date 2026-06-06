@@ -4,7 +4,9 @@ import {
   Delete,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
+  ParseUUIDPipe,
   Post,
   Request,
   UseGuards,
@@ -24,13 +26,15 @@ import { LiveAnalysisGateway } from './live-analysis.gateway';
  * KS-3732 / ADR-110 §2.3, §2.6: REST-эндпоинты live-трансляции анализа.
  *
  * Маршруты:
- *   POST   /live-analyses           — создать (Jwt-only).
- *   GET    /live-analyses/me        — список своих (Jwt-only).
- *   GET    /live-analyses/:slug     — snapshot (анонимный доступ).
- *   DELETE /live-analyses/:slug     — закрыть, только owner.
+ *   POST   /live-analyses                                  — создать (Jwt-only).
+ *   GET    /live-analyses/me                               — список своих (Jwt-only).
+ *   GET    /live-analyses/by-analysis/:analysisId          — KS-3760: active по analysisId (Jwt-only, owner).
+ *   GET    /live-analyses/:slug                            — snapshot (анонимный доступ).
+ *   DELETE /live-analyses/:slug                            — закрыть, только owner.
  *
- * ВАЖНО: `/me` объявлен раньше `/:slug` — иначе Nest-роутер съест
- * статический сегмент динамическим параметром.
+ * ВАЖНО: статические сегменты (`/me`, `/by-analysis/...`) объявлены
+ * раньше `/:slug` — иначе Nest-роутер съел бы их динамическим
+ * параметром.
  */
 @Controller('live-analyses')
 export class LiveAnalysisController {
@@ -53,6 +57,39 @@ export class LiveAnalysisController {
   @Get('me')
   listMine(@Request() req: AuthenticatedRequest): Promise<LiveAnalysisListItem[]> {
     return this.service.listForOwner(req.user.id);
+  }
+
+  /**
+   * KS-3760 / ADR-112 §3. Поиск активной трансляции автора по
+   * `analysisId`. Используется фронтом перед нажатием «Транслировать»,
+   * чтобы понять, идёт ли уже трансляция на этот анализ, и при
+   * необходимости подцепиться к существующей вместо создания дубля.
+   *
+   * Owner-only по построению: сервис ищет `findFirst({ ownerId,
+   * analysisId, status: 'active' })`. Чужие записи отсеиваются
+   * фильтром `ownerId = req.user.id`. 404 если у запрашивающего нет
+   * активной трансляции на этот анализ.
+   *
+   * `ParseUUIDPipe` гарантирует, что `:analysisId` — UUID; иначе 400
+   * без обращения к сервису.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('by-analysis/:analysisId')
+  async getActiveByAnalysisId(
+    @Request() req: AuthenticatedRequest,
+    @Param('analysisId', ParseUUIDPipe) analysisId: string,
+  ): Promise<LiveAnalysisResponse> {
+    const found = await this.service.findActiveByAnalysisId(
+      req.user.id,
+      analysisId,
+      this.publicBaseUrl(),
+    );
+    if (!found) {
+      throw new NotFoundException(
+        `No active live analysis for analysisId="${analysisId}"`,
+      );
+    }
+    return found;
   }
 
   @Get(':slug')
