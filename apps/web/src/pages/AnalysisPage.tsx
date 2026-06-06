@@ -945,6 +945,24 @@ function AnalysisPageInner({
   const lastAppliedAuthorGlobalIndexRef = useRef<number | null>(null);
   const [pendingLivePgn, setPendingLivePgn] = useState<string | null>(null);
 
+  // KS-3780: при смене slug у зрителя (переход с /live/A на /live/B
+  // в той же вкладке) фактически наблюдается, что дерево от A
+  // остаётся в Movelist. Это значит React по какой-то причине не
+  // пересоздаёт AnalysisPage целиком, несмотря на key={slug} в
+  // LiveAnalysisViewerPage (см. KS-3779). Жёстко сбрасываем review-
+  // state и все live-ref'ы по смене slug — это не зависит от
+  // reconciliation. Срабатывает только в viewer-режиме, авторскую
+  // страницу не трогаем (там slug приходит из start() и зрительского
+  // переключения нет).
+  useEffect(() => {
+    if (!isViewerLive) return;
+    if (!liveSession?.slug) return;
+    loadFromPgn([]);
+    lastAppliedLivePgnRef.current = null;
+    lastAppliedAuthorGlobalIndexRef.current = null;
+    setPendingLivePgn(null);
+  }, [isViewerLive, liveSession?.slug, loadFromPgn]);
+
   // KS-3768 фикс KS-3750: предикат «зритель находится в дереве автора».
   // Раньше критерием была равенство `viewerFen === liveFull.currentFen` —
   // это ломалось на ПЕРВОМ sync: у зрителя currentMove=null,
