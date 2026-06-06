@@ -204,6 +204,35 @@ export function LectureReplayPage() {
     setCurrentTimeMs(Math.max(0, Math.min(durationMs, nextMs)));
   }, [durationMs]);
 
+  // KS-3798: динамическая высота плеера. Плеер «прилипает» к низу
+  // (`position: sticky; bottom: 0`) и при размере доски L
+  // перекрывал кнопки навигации под доской (стрелки шагов, табы
+  // «Ходы / Движок / Дерево / AI»). Решение — добавить контейнеру
+  // с AnalysisPage нижний отступ ровно по высоте плеера. ResizeObserver
+  // отслеживает перенос кнопок на мобильном (flex-wrap), чтобы
+  // отступ всегда совпадал с реальной высотой.
+  const playerRef = useRef<HTMLDivElement | null>(null);
+  const [playerHeight, setPlayerHeight] = useState<number>(0);
+  useEffect(() => {
+    const el = playerRef.current;
+    if (!el) return;
+    if (typeof ResizeObserver === 'undefined') {
+      // Старые браузеры — фиксируем 120px как разумный дефолт
+      // (range + строка с кнопками + padding с safe-area).
+      setPlayerHeight(120);
+      return;
+    }
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setPlayerHeight(entry.contentRect.height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // Перезапускаем наблюдение если плеер пересоздаётся (смена
+    // ready/no-recording — ref на другую ноду).
+  }, [state.kind]);
+
   // ─── replay-проп для AnalysisPage ──────────────────────────────────
   const replay: ReplayLectureProps | null = useMemo(() => {
     if (state.kind !== 'ready') return null;
@@ -347,13 +376,24 @@ export function LectureReplayPage() {
         <>
           {/* Сама «толстая» страница анализа в режиме replay.
               Внутри AnalysisPage на каждое изменение currentTimeMs
-              пересчитывается review-state через applyReplayTree. */}
-          {replay && <AnalysisPage replay={replay} />}
+              пересчитывается review-state через applyReplayTree.
+              KS-3798: оборачиваем в контейнер с нижним отступом
+              `playerHeight + 16` — sticky-плеер ниже не перекрывает
+              навигационные кнопки под доской. Запас 16px нужен
+              чтобы между последним элементом AnalysisPage и краем
+              плеера оставался зазор. */}
+          <div
+            data-testid="lecture-replay-analysis-wrapper"
+            style={{ paddingBottom: playerHeight + 16 }}
+          >
+            {replay && <AnalysisPage replay={replay} />}
+          </div>
 
           {/* Плеер: progress + play/pause + скорость. Стили inline
               чтобы не плодить отдельный CSS-файл под одну страницу;
               layout-инженер позже причешет. */}
           <div
+            ref={playerRef}
             className="lecture-replay-player"
             data-testid="lecture-replay-player"
             style={{
