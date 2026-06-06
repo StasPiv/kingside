@@ -125,4 +125,15 @@ export class StatePatchPayloadDto {
   @IsOptional()
   @IsIn(['white', 'black'])
   orientation?: 'white' | 'black';
+
+  /**
+   * KS-3775. Сквозной индекс узла дерева автора (`parseAnnotatedPgn`
+   * присваивает детерминированно). Однозначно покрывает транспозиции,
+   * где FEN не уникален. Сервер записывает в state hash как есть и
+   * отдаёт в SyncSnapshot. Шахматной валидации нет — только integer ≥ 0.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  currentGlobalIndex?: number;
 }

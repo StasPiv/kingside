@@ -819,6 +819,41 @@ describe('LiveAnalysisService', () => {
       expect(payload.moves).toEqual(['e2e4']);
       expect(payload.headers).toEqual(expect.objectContaining({ White: 'Alice' }));
     });
+
+    it('KS-3775: пробрасывает currentGlobalIndex в snapshot и Redis', async () => {
+      const snap = await service.applyStatePatch('s', 'u-1', {
+        pgn: tinyPgn,
+        currentGlobalIndex: 7,
+      });
+      expect(snap.currentGlobalIndex).toBe(7);
+      const state = await redis.hgetall('live_analysis:la-1:state');
+      expect(state.currentGlobalIndex).toBe('7');
+      const publishedCalls = (redis.publish as jest.Mock).mock.calls;
+      const syncCall = publishedCalls.find((c) => c[0] === 'live-analysis:sync');
+      expect(syncCall).toBeDefined();
+      const payload = JSON.parse(syncCall![1]);
+      expect(payload.currentGlobalIndex).toBe(7);
+    });
+
+    it('KS-3775: без currentGlobalIndex поле не появляется в snapshot', async () => {
+      const snap = await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+      expect(snap.currentGlobalIndex).toBeUndefined();
+    });
+
+    it('KS-3775: невалидные значения currentGlobalIndex (отрицательное / нецелое) игнорируются', async () => {
+      const snap = await service.applyStatePatch('s', 'u-1', {
+        pgn: tinyPgn,
+        // @ts-expect-error: проверка защиты сервиса от мусорных payload-ов
+        currentGlobalIndex: -3,
+      });
+      expect(snap.currentGlobalIndex).toBeUndefined();
+      const snap2 = await service.applyStatePatch('s', 'u-1', {
+        pgn: tinyPgn,
+        // @ts-expect-error
+        currentGlobalIndex: 1.5,
+      });
+      expect(snap2.currentGlobalIndex).toBeUndefined();
+    });
   });
 
   // ─── KS-3733: cleanup-job + Redis lock ────────────────────────────

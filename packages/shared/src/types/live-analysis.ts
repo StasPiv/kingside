@@ -228,6 +228,23 @@ export type LiveAnalysisStatePatchPayload = {
   headers?: Record<string, string>;
   currentPly?: number;
   orientation?: LiveAnalysisOrientation;
+  /**
+   * KS-3775 / ADR-111 (доп). Сквозной индекс узла дерева, на котором
+   * автор стоит в данный момент. Парсер `parseAnnotatedPgn` присваивает
+   * `globalIndex` каждому узлу детерминированно при обходе, и поэтому
+   * однозначно идентифицирует позицию даже в случае транспозиций (FEN
+   * не уникален в дереве, два узла с одинаковой позицией дают разный
+   * `globalIndex`).
+   *
+   * Сервер записывает поле в state hash как есть и отдаёт его в
+   * `SyncSnapshot.currentGlobalIndex`. Никакой валидации шахматной
+   * семантики не делает — это чистый идентификатор узла, проверка
+   * только на целостность типа (`integer ≥ 0`).
+   *
+   * Опционально: старые клиенты, шлющие только `currentPly`,
+   * продолжают работать как раньше — viewer попадёт в main-line.
+   */
+  currentGlobalIndex?: number;
 };
 
 // ─── WS payloads: server → client ───────────────────────────────────
@@ -271,6 +288,14 @@ export type LiveAnalysisSyncSnapshot = {
   currentPgn?: string;
   /** KS-3742 / ADR-111: PGN-headers (Event, White, Black, ELO, …). */
   headers?: Record<string, string>;
+  /**
+   * KS-3775. Сквозной индекс узла дерева, на котором автор стоит.
+   * Передаётся, если автор прислал его в `state-patch`. Зритель
+   * использует для прямого позиционирования курсора в `ReviewMoveList`
+   * (через `searchInHistory`). FEN остаётся как fallback на случай
+   * старых клиентов.
+   */
+  currentGlobalIndex?: number;
 };
 
 /**

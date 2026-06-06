@@ -540,6 +540,10 @@ export class LiveAnalysisService implements OnModuleInit {
       // (на трансляции, где автор ещё не присылал state-patch, их нет).
       ...(state?.currentPgn !== undefined && { currentPgn: state.currentPgn }),
       ...(state?.headers !== undefined && { headers: state.headers }),
+      // KS-3775: сквозной индекс узла дерева автора.
+      ...(state?.currentGlobalIndex !== undefined && {
+        currentGlobalIndex: state.currentGlobalIndex,
+      }),
     };
   }
 
@@ -750,6 +754,18 @@ export class LiveAnalysisService implements OnModuleInit {
           ? JSON.stringify(headers)
           : '';
 
+      // KS-3775: сквозной индекс узла дерева автора. Никакой шахматной
+      // валидации — это идентификатор узла из parseAnnotatedPgn; в
+      // частности однозначно покрывает транспозиции, где FEN не уникален.
+      // Записываем строкой; если payload не прислал — поле не трогаем
+      // (старые клиенты).
+      const currentGlobalIndexValue =
+        typeof payload.currentGlobalIndex === 'number' &&
+        Number.isInteger(payload.currentGlobalIndex) &&
+        payload.currentGlobalIndex >= 0
+          ? payload.currentGlobalIndex
+          : undefined;
+
       // (8) HSET state + замена moves-list по main-line.
       const stateKey = this.stateKey(meta.id);
       const movesKey = this.movesKey(meta.id);
@@ -763,6 +779,9 @@ export class LiveAnalysisService implements OnModuleInit {
           currentPgn: payload.pgn,
           headersJson,
           lastPatchAt: String(Date.now()),
+          ...(currentGlobalIndexValue !== undefined && {
+            currentGlobalIndex: String(currentGlobalIndexValue),
+          }),
         })
         .del(movesKey);
       // RPUSH с многими аргументами — ioredis принимает variadic;
@@ -790,6 +809,10 @@ export class LiveAnalysisService implements OnModuleInit {
         orientation,
         currentPgn: payload.pgn,
         ...(Object.keys(headers ?? {}).length > 0 && { headers }),
+        // KS-3775: пробрасываем индекс узла автора в snapshot.
+        ...(currentGlobalIndexValue !== undefined && {
+          currentGlobalIndex: currentGlobalIndexValue,
+        }),
       };
       // KS-3745: counter принятых патчей + bytes_sum по длине payload.
       this.metrics.incLiveAnalysisStatePatchAccepted(payload.pgn.length);
@@ -1143,6 +1166,8 @@ export class LiveAnalysisService implements OnModuleInit {
         currentPgn?: string;
         /** KS-3743 / ADR-111: распарсенный JSON `headersJson` (опц.). */
         headers?: Record<string, string>;
+        /** KS-3775: сквозной индекс узла, на котором стоит автор. */
+        currentGlobalIndex?: number;
       }
     | null
   > {
@@ -1159,6 +1184,13 @@ export class LiveAnalysisService implements OnModuleInit {
         // Битый JSON в hash — игнорируем, фронт всё равно читает headers из PGN.
       }
     }
+    let currentGlobalIndex: number | undefined;
+    if (typeof raw.currentGlobalIndex === 'string' && raw.currentGlobalIndex.length > 0) {
+      const n = Number(raw.currentGlobalIndex);
+      if (Number.isInteger(n) && n >= 0) {
+        currentGlobalIndex = n;
+      }
+    }
     return {
       startingFen: raw.startingFen ?? LiveAnalysisService.INITIAL_FEN,
       currentFen: raw.currentFen,
@@ -1166,6 +1198,7 @@ export class LiveAnalysisService implements OnModuleInit {
       orientation: (raw.orientation as LiveAnalysisOrientation) ?? 'white',
       currentPgn: raw.currentPgn && raw.currentPgn.length > 0 ? raw.currentPgn : undefined,
       headers,
+      currentGlobalIndex,
     };
   }
 
