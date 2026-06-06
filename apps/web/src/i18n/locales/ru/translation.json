@@ -733,20 +733,11 @@
     "optional": "необязательно"
   },
   "liveAnalysis": {
-    "start": "Транслировать",
-    "starting": "Запуск…",
     "stop": "Завершить",
     "onAir": "В эфире",
-    "viewers": "Зрители",
-    "viewersShort": "зрителей",
     "copyLink": "Скопировать ссылку",
     "linkCopied": "Ссылка скопирована",
-    "saveAndStart": "Сохранить и транслировать",
-    "saveAndStartTooltip": "Сохраняет анализ в мастерскую и сразу запускает трансляцию",
-    "unavailableTooltip": "Сохраните в мастерскую, чтобы транслировать",
-    "startMenuItem": "Начать трансляцию",
-    "stopMenuItem": "Завершить трансляцию",
-    "saveAndStartMenuItem": "Сохранить и начать трансляцию"
+    "stopMenuItem": "Завершить трансляцию"
   },
   "coachProfile": {
     "badge": "Тренер",
@@ -779,6 +770,7 @@
   },
   "lecture": {
     "startMenuItem": "Начать лекцию",
+    "unavailableTooltip": "Сохраните анализ в мастерскую, чтобы начать лекцию",
     "create": {
       "title": "Создать новую лекцию",
       "fieldTitle": "Название",

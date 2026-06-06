@@ -387,8 +387,9 @@ type BuildItemsContext = {
   liveIsStarting: boolean;
   // KS-3771: счётчик зрителей убран из UI (см. broadcast-status пункт).
   livePublicUrl: string | null;
-  onLiveStart: () => void;
-  onLiveSaveAndStart: () => void;
+  // KS-3805: onLiveStart/onLiveSaveAndStart удалены — кнопки
+  // «Начать трансляцию» / «Сохранить и начать трансляцию» больше
+  // нет, их функционал покрыт пунктом «Начать лекцию».
   onLiveCopyLink: () => void | Promise<void>;
   onLiveStop: () => void;
   /**
@@ -439,8 +440,6 @@ function buildAnalysisActionsItems(
     liveIsLive,
     liveIsStarting,
     livePublicUrl,
-    onLiveStart,
-    onLiveSaveAndStart,
     onLiveCopyLink,
     onLiveStop,
     onStartLecture,
@@ -661,45 +660,43 @@ function buildAnalysisActionsItems(
         onClick: onLiveStop,
       });
     } else if (kind !== 'analysis') {
-      // review / puzzle — анализ чужой партии или пазла, транслировать
-      // нечего. Пункт disabled + tooltip-подсказка.
+      // review / puzzle — нет сохранённого анализа, лекцию не
+      // запустить (backend требует analysisId). Disabled + подсказка.
+      // KS-3805: пункт «Начать трансляцию» убран — функционал покрыт
+      // лекцией, дублирующая кнопка не нужна.
       items.push({
-        id: 'broadcast-start',
+        id: 'lecture-start',
         group: 'broadcast',
-        label: t('liveAnalysis.startMenuItem', 'Start broadcast'),
+        label: t('lecture.startMenuItem', 'Start lecture'),
         onClick: () => {},
         disabled: true,
         disabledHint: t(
-          'liveAnalysis.unavailableTooltip',
-          'Save to your workshop to start broadcasting',
+          'lecture.unavailableTooltip',
+          'Save to your workshop to start a lecture',
         ),
       });
     } else if (!liveAnalysisId) {
-      // Ad-hoc сессия без id — «Сохранить и начать трансляцию».
+      // Ad-hoc сессия без id — лекцию пока не запускаем, чтобы не
+      // плодить дополнительный «Сохранить и начать лекцию»-handler.
+      // Просим автора сохранить анализ.
       items.push({
-        id: 'broadcast-save-and-start',
+        id: 'lecture-start',
         group: 'broadcast',
-        label: t(
-          'liveAnalysis.saveAndStartMenuItem',
-          'Save and start broadcast',
+        label: t('lecture.startMenuItem', 'Start lecture'),
+        onClick: () => {},
+        disabled: true,
+        disabledHint: t(
+          'lecture.unavailableTooltip',
+          'Save to your workshop to start a lecture',
         ),
-        onClick: onLiveSaveAndStart,
-        disabled: liveIsStarting,
       });
     } else {
-      // Обычный путь: сохранённый анализ с id → просто start.
-      items.push({
-        id: 'broadcast-start',
-        group: 'broadcast',
-        label: t('liveAnalysis.startMenuItem', 'Start broadcast'),
-        onClick: onLiveStart,
-        disabled: liveIsStarting,
-      });
-      // KS-3789 / ADR-113 §4 эпик 1. «Начать лекцию» — мгновенный
-      // live-режим с обёрткой Lecture (она появится в списке тренера
-      // на /coach/:username в секции «В эфире»). Доступен только при
-      // kind='analysis' (других веток выше) и сохранённом id анализа
-      // — backend требует `analysisId` для привязки сессии.
+      // Обычный путь: сохранённый анализ с id → запуск лекции.
+      // KS-3789: «Начать лекцию» создаёт Lecture + LiveAnalysis за
+      // один запрос (POST /lectures с analysisId), идемпотентно по
+      // (ownerId, analysisId). KS-3805: дублирующий пункт
+      // «Начать трансляцию» удалён — у лекции тот же live-режим
+      // плюс публичная запись на странице тренера.
       items.push({
         id: 'lecture-start',
         group: 'broadcast',
@@ -2503,53 +2500,10 @@ function AnalysisPageInner({
   }, [history, analysisTitle, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex]);
 
   // KS-3755 / ADR-112: обработчики управления трансляцией. Переехали из
-  // верхнего LiveBroadcastControl-блока в пункты AnalysisActionsMenu —
-  // выносим в стабильные useCallback'и, чтобы передавать в
-  // buildAnalysisActionsItems без перерасчёта items на каждый рендер.
-  const handleLiveStart = useCallback(() => {
-    if (!analysisId) return;
-    void liveBroadcast.start(analysisId);
-  }, [analysisId, liveBroadcast]);
-  const handleLiveSaveAndStart = useCallback(() => {
-    if (liveBroadcast.isStarting) return;
-    // Race: autosave мог успеть создать запись раньше клика.
-    const existingId = localIdRef.current;
-    if (existingId) {
-      void liveBroadcast.start(existingId);
-      return;
-    }
-    const pgn = buildAnalysisPgn() ?? '';
-    const category =
-      gameId ? 'game_review' : puzzleFen ? 'puzzle' : 'analysis';
-    const hasCustomFen = initialFen !== DEFAULT_FEN;
-    void (async () => {
-      try {
-        const entry = await createAnalysis(
-          pgn,
-          analysisTitle,
-          category,
-          hasCustomFen ? initialFen : undefined,
-        );
-        localIdRef.current = entry.id;
-        window.history.replaceState(null, '', '/analysis/' + entry.id);
-        if (entry.userId) setSavedOwnerId(entry.userId);
-        setSavedIsPublic(
-          Boolean((entry as { isPublic?: boolean }).isPublic),
-        );
-        void liveBroadcast.start(entry.id);
-      } catch {
-        /* error попадёт в liveBroadcast.error через хук */
-      }
-    })();
-  }, [
-    analysisTitle,
-    buildAnalysisPgn,
-    createAnalysis,
-    gameId,
-    initialFen,
-    liveBroadcast,
-    puzzleFen,
-  ]);
+  // верхнего LiveBroadcastControl-блока в пункты AnalysisActionsMenu.
+  // KS-3805: пункты «Начать трансляцию» и «Сохранить и начать
+  // трансляцию» удалены — лекция покрывает их функционал. Остались
+  // copy-link / stop для уже активной сессии.
   const handleLiveCopyLink = useCallback(async () => {
     if (!liveBroadcast.publicUrl) return;
     try {
@@ -3583,8 +3537,6 @@ function AnalysisPageInner({
                     liveIsLive: liveBroadcast.isLive,
                     liveIsStarting: liveBroadcast.isStarting,
                     livePublicUrl: liveBroadcast.publicUrl,
-                    onLiveStart: handleLiveStart,
-                    onLiveSaveAndStart: handleLiveSaveAndStart,
                     onLiveCopyLink: handleLiveCopyLink,
                     onLiveStop: handleLiveStop,
                     onStartLecture: handleStartLecture,

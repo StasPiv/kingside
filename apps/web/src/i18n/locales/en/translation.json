@@ -723,20 +723,11 @@
     "optional": "optional"
   },
   "liveAnalysis": {
-    "start": "Broadcast",
-    "starting": "Starting…",
     "stop": "Stop",
     "onAir": "On air",
-    "viewers": "Viewers",
-    "viewersShort": "viewers",
     "copyLink": "Copy link",
     "linkCopied": "Link copied",
-    "saveAndStart": "Save and broadcast",
-    "saveAndStartTooltip": "Saves the analysis to your workshop, then starts the broadcast",
-    "unavailableTooltip": "Save to your workshop to start broadcasting",
-    "startMenuItem": "Start broadcast",
-    "stopMenuItem": "Stop broadcast",
-    "saveAndStartMenuItem": "Save and start broadcast"
+    "stopMenuItem": "Stop broadcast"
   },
   "coachProfile": {
     "badge": "Coach",
@@ -769,6 +760,7 @@
   },
   "lecture": {
     "startMenuItem": "Start lecture",
+    "unavailableTooltip": "Save to your workshop to start a lecture",
     "create": {
       "title": "Start a new lecture",
       "fieldTitle": "Title",
