@@ -959,11 +959,20 @@ function AnalysisPageInner({
       try {
         const parsed = deserializeLiveTree(nextTree);
         loadFromPgn(parsed.history, parsed.initialAnnotations);
+        // KS-3780 follow-up: заголовки PGN и title анализа автор
+        // прикладывает к дереву. Применяем их у зрителя, чтобы
+        // GameMetaBar и AnalysisHeader показывали актуальные
+        // значения. Если автор их не задал — оставляем пустые
+        // (`setPgnHeaders({})`) / прежний title.
+        setPgnHeaders(parsed.headers ?? {});
+        if (typeof parsed.title === 'string') {
+          setAnalysisTitle(parsed.title);
+        }
         // KS-3780: индексы автора и зрителя теперь идентичны (узлы
         // приехали из reducer'а автора как есть). Ставим курсор
         // напрямую через `searchInHistory(history, authorGlobalIndex)`.
         // Если автор на стартовой позиции (`authorGlobalIndex` null) —
-        // зритель тоже идёт на root.
+        // зритель тоже идёт на корень.
         if (typeof authorGlobalIndex === 'number') {
           const target = searchInHistory(parsed.history, authorGlobalIndex) as
             | ChessMove
@@ -2354,6 +2363,8 @@ function AnalysisPageInner({
       initialFen,
       initialAnnotations,
       annotationsByIndex,
+      headers: pgnHeaders,
+      title: analysisTitle,
     });
     liveBroadcast.emitStatePatch({
       tree,
@@ -2367,6 +2378,8 @@ function AnalysisPageInner({
     initialFen,
     initialAnnotations,
     annotationsByIndex,
+    pgnHeaders,
+    analysisTitle,
     currentMove,
     boardOrientation,
   ]);

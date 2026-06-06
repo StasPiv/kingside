@@ -24,6 +24,21 @@ export interface LiveAnalysisTreePayload {
   history: ChessMove[];
   initialFen?: string;
   initialAnnotations?: NodeAnnotations;
+  /**
+   * Заголовки PGN автора (`Event`/`White`/`Black`/`Result`/`WhiteElo`/...).
+   * Backend хранит `tree` как непрозрачную строку, поэтому заголовки
+   * едут внутри самого дерева — отдельного поля в контракте
+   * `state-patch` для них нет. У зрителя `applyLiveTree` зовёт
+   * `setPgnHeaders(parsed.headers ?? {})`.
+   */
+  headers?: Record<string, string>;
+  /**
+   * Заголовок анализа (по умолчанию «New analysis», редактируется
+   * автором через `AnalysisHeader`). Передаём вместе с деревом, чтобы
+   * у зрителя обновлялось в реальном времени без перезапроса REST-
+   * снимка `/live-analyses/:slug`.
+   */
+  title?: string;
 }
 
 export interface SerializeLiveTreeArgs {
@@ -38,6 +53,10 @@ export interface SerializeLiveTreeArgs {
    * `nags`/`comment`, которые reducer хранит непосредственно в узлах.
    */
   annotationsByIndex?: Record<number, NodeAnnotations>;
+  /** Заголовки PGN автора (см. описание поля в `LiveAnalysisTreePayload`). */
+  headers?: Record<string, string>;
+  /** Заголовок анализа (см. описание поля в `LiveAnalysisTreePayload`). */
+  title?: string;
 }
 
 /**
@@ -75,6 +94,8 @@ export function serializeLiveTree(args: SerializeLiveTreeArgs): string {
     history: clone,
     initialFen: args.initialFen,
     initialAnnotations: args.initialAnnotations,
+    headers: args.headers,
+    title: args.title,
   });
 }
 
@@ -99,5 +120,7 @@ export function deserializeLiveTree(tree: string): LiveAnalysisTreePayload {
     history: parsed.history,
     initialFen: parsed.initialFen,
     initialAnnotations: parsed.initialAnnotations,
+    headers: parsed.headers,
+    title: parsed.title,
   };
 }
