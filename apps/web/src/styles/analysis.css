@@ -4106,3 +4106,57 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   }
 }
 
+/* KS-3798: страница `/lectures/:id` (LectureReplayPage) оборачивает
+   AnalysisPage в flex-column, под которым flex-ребёнком сидит
+   проигрыватель (~80-100px). Глобальная формула
+   `.analysis-page .board-container { max-width: calc((100vh - 240) * scale) }`
+   не учитывает эту вычитаемую высоту: на размере доски L
+   `scale = 1`, и при `100vh ≈ 720` доска получала width=480 →
+   квадратная высота 480. Доступная высота `.analysis-board-area`
+   в replay-режиме на ~80px меньше (проигрыватель отъедает) — но
+   `.analysis-eval-board-row` имеет `flex: 0 1 auto`, а внутренний
+   react-chessboard держит aspect-ratio через width. В итоге row не
+   сжимался, а `.analysis-board-controls` (`flex-shrink: 0`) уезжал
+   вверх в overflow — визуально кнопки навигации (стрелки, S/M/L,
+   flip) ложились на нижние горизонтали доски.
+
+   Решение — для контекста `.lecture-replay-page` переключить доску
+   на height-driven sizing: `max-height: 100%` + `aspect-ratio: 1/1`
+   + `width: auto`. Тогда квадрат вписывается в реально доступную
+   высоту `.analysis-board-area` (= page минус controls), и width
+   подстраивается через aspect-ratio. На S/M/L одинаково корректно:
+   формула «100vh-240» больше не диктует размер.
+
+   Только desktop: на mobile `.analysis-page .board-container` уже
+   считается через `100vw - 16px !important` (responsive.css), там
+   проблема не воспроизводится (плеер в JSX учитывает safe-area). */
+@media (min-width: 769px) {
+  .lecture-replay-page .analysis-page .board-container {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    aspect-ratio: 1 / 1;
+    align-self: center;
+  }
+
+  /* `.analysis-eval-board-row` должен ужаться вместе с доской,
+     иначе controls остаётся внизу board-area, а row выпирает
+     над ним. `flex: 1 1 auto` + `min-height: 0` позволяют row
+     забрать всю свободную высоту минус controls и быть якорем
+     для доски, которая считает height через aspect-ratio от row. */
+  .lecture-replay-page .analysis-eval-board-row {
+    flex: 1 1 auto;
+    min-height: 0;
+    justify-content: center;
+  }
+
+  /* board-area по умолчанию `flex: 0 0 auto; max-width: 65%` — в
+     replay контейнере оставляем тот же max-width, но даём ей
+     возможность расти по width до квадрата доски. */
+  .lecture-replay-page .analysis-board-area {
+    align-items: center;
+  }
+}
+
