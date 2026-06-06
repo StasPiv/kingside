@@ -23,6 +23,7 @@ import { AnalysisReviewModule } from './analysis-review/analysis-review.module';
 import { PositionCommentModule } from './position-comment/position-comment.module';
 import { WorkshopModule } from './workshop/workshop.module';
 import { LiveTournamentModule } from './live-tournament/live-tournament.module';
+import { LiveAnalysisModule } from './live-analysis/live-analysis.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
 import { PlayerModule } from './player/player.module';
 import { MessageModule } from './message/message.module';
@@ -96,6 +97,9 @@ import { HealthController } from './health.controller';
     PositionCommentModule,
     WorkshopModule,
     LiveTournamentModule,
+    // KS-3732 / ADR-110: live-трансляция анализа партии
+    // (REST /live-analyses + WS namespace /live-analysis).
+    LiveAnalysisModule,
     ClientLogsModule,
     PlayerModule,
     MessageModule,
