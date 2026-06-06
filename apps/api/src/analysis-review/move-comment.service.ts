@@ -58,6 +58,13 @@ export class MoveCommentService {
   private readonly webhookUrl: string;
   private readonly webhookSecret: string;
   private readonly fetchTimeoutMs: number;
+  /**
+   * KS-3814 (ADR-114 §3, KS-N06). Версия системной инструкции —
+   * см. одноимённое поле в `PositionCommentService`. По умолчанию
+   * `short` (≤80 строк); переключается на `long` через ENV
+   * `AI_PROMPT_VARIANT=long`.
+   */
+  private readonly promptVariant: 'short' | 'long';
 
   readonly rateLimitPerMin: number;
   readonly rateLimitPerDay: number;
@@ -73,6 +80,8 @@ export class MoveCommentService {
       this.config.get<string>('MOVE_COMMENT_FETCH_TIMEOUT_MS', '180000'),
       10,
     );
+    const variant = this.config.get<string>('AI_PROMPT_VARIANT', 'short');
+    this.promptVariant = variant === 'long' ? 'long' : 'short';
 
     // KS-3711: лимиты по частоте подняты по сравнению с пакетным
     // эндпоинтом — здесь один запрос = один ход, и партия может дать
@@ -153,8 +162,144 @@ export class MoveCommentService {
    * Запрет шаблонных зачинов «По форме», «На доске типичная» —
    * прямая просьба пользователя по KS-3710.
    */
+  /**
+   * KS-3814. Выбор сжатой или расширенной версии инструкции по ENV
+   * `AI_PROMPT_VARIANT`. По умолчанию — `short` (≤80 строк, без
+   * упоминаний sf18_pv и обучающих примеров). При значении `long` —
+   * прежняя расширенная (страховка на случай регрессии стиля).
+   */
   buildSystemPrompt(
     language: MoveCommentLanguage = 'ru',
+    usedIds?: ReadonlySet<string>,
+  ): string {
+    return this.promptVariant === 'long'
+      ? this.buildSystemPromptLong(language, usedIds)
+      : this.buildSystemPromptShort(language, usedIds);
+  }
+
+  /**
+   * KS-3814. Сжатая системная инструкция для move-comment: ≤80 строк
+   * (плюс словарь подкомпонент, сжатый KS-3813 до пришедших id).
+   * Сохранены: соответствие cp→вердикт, иерархия достоверности,
+   * правила комментирования хода (когда обязательна констатация
+   * ошибки), запреты, формат JSON. `sf18_pv` в инструкции не
+   * упоминается — он вырезан из подаваемых модели факторов в
+   * `stripPvFactor` (KS-3809), упоминание его в инструкции лишь
+   * сбивает модель и даёт повод для выдумывания манёвров.
+   */
+  private buildSystemPromptShort(
+    language: MoveCommentLanguage,
+    usedIds?: ReadonlySet<string>,
+  ): string {
+    const glossary = this.buildSubtermGlossary(language, usedIds);
+    if (language === 'en') {
+      return [
+        'You comment on a single played chess move strictly from the provided facts. Input: the played move plus TWO position snapshots — BEFORE and AFTER — in the same format as the static position-comment endpoint (FEN + factors + optional `eval`).',
+        '',
+        'Compare BEFORE vs AFTER: which factors grew, which dissolved, how sf18_eval changed. The played move is the reason for the change — comment on the move through this lens.',
+        '',
+        'Source of truth — sf18_eval (Stockfish 18), sign always from White:',
+        '- score.type="cp" — centipawns; positive: White better, negative: Black better.',
+        '- score.type="mate" — mate in N half-moves; positive N: White mates, negative N: Black mates.',
+        'The verdict on who stands better ALWAYS follows the sign of sf18_eval.',
+        '',
+        'Mapping sf18_eval → verdict (mandatory):',
+        '- |cp| ≤ 30 → "roughly equal"; 30 < |cp| ≤ 100 → "slight edge for White/Black";',
+        '- 100 < |cp| ≤ 300 → "clear advantage for White/Black"; |cp| ≥ 300 → "decisive advantage for White/Black";',
+        '- mate ±N → "mate in N for White/Black" (per sign).',
+        'FORBIDDEN — claiming any edge / advantage for White when sf18_eval.cp < 0 or mate with negative N. Symmetric ban for Black when sf18_eval.cp > 0.',
+        '',
+        'Hierarchy: 1) sf18_eval — verdict; 2) factor trend (value → terminal_value); 3) static factors — present state. Static subterms may carry value_mg/value_eg (now) and terminal_value_mg/terminal_value_eg (≈10 moves per side later). Either pair may be missing. Describe the trend; never quote the numbers.',
+        '',
+        'Commenting the played move:',
+        '1. If `classification` is mistake/blunder/inaccuracy, OR a hanging piece of the side that just moved appears in AFTER, OR sf18_eval in AFTER is sharply worse for that side than in BEFORE — the comment MUST open with a clear statement of the mistake (what was given up / missed) and the point of the best move (per `sf_best` / `threats_missed` if present), without literally enumerating moves.',
+        '2. If the move is a capture / check / mate / castling / promotion / creation of a threat (`threats_created`, `mate_threat_after`) / notable `material_change` or shift in static factors — describe what the move did and its idea (improving a piece, occupying a square, opening a file, creating a passed pawn, etc.).',
+        '3. If the move is quiet and evaluation/factors barely change — give a brief position evaluation; you may skip commenting on the move itself.',
+        '4. Compare BEFORE / AFTER whenever the change is visible — name the factors that grew or dissolved and how the evaluation moved.',
+        '',
+        'Concrete squares are allowed ONLY if they come from the square field of a glossary subterm. Concrete moves (e2-e4, Nf3, Bxc7), diagonals/files as planned lines of action — forbidden. Forbidden phrasings: "transferring the knight to …", "pawn break …", "strike along the … diagonal", "opening the … file", "pin along …", "attack on …", "sacrifice …".',
+        '',
+        'Hard constraints:',
+        '- Rely ONLY on the provided facts. Do not assert anything not in the snapshots.',
+        '- Never quote raw numbers: not value_mg/value_eg/value/0.323; not "+0.8", "cp", "centipawns", "score 23". Use words: "roughly equal", "slight edge", "clear advantage", "decisive advantage", "mate in N"; "barely noticeable", "noticeable", "sharply increased", "dropped", "the highest", "the lowest", "moderate".',
+        '- Forbidden words: "slider", "sliders", "sliding piece(s)". Use "long-range pieces" (rook, bishop, queen), "major pieces", "minor pieces".',
+        '- Forbidden template openings: "By the form of the position", "A typical position" and similar generic phrases. Open with concrete content tied to THIS move and THIS change.',
+        '- If there is nothing to say based on the snapshots — return an empty `comment`.',
+        '',
+        'Do NOT put a technical id (king_danger, outpost_knight, mobility_rook, etc.) in the answer — translate via the glossary:',
+        glossary,
+        '',
+        'Output format — ONE JSON object:',
+        '{ "comment": "<text>", "highlights": [...], "arrows": [...] }',
+        '- comment — your commentary (rules above);',
+        '- highlights — 0–4 items of shape { "square": "e4", "color": "red" };',
+        '- arrows — 0–2 items of shape { "from": "e2", "to": "e4", "color": "green" }.',
+        '',
+        'Colors: red — weakness/threat; green — recommended plan or best move; yellow — key idea; blue — reserved for the user, do not use. Highlight at most 1–2 factors in total. Do not wrap the JSON in code fences. Do not add text outside the JSON object.',
+      ].join('\n');
+    }
+    return [
+      'Ты комментируешь ОДИН сыгранный шахматный ход строго по поданным фактам. На вход — сыгранный ход и ДВА снимка позиции (ДО и ПОСЛЕ) в том же формате, что в статическом эндпоинте оценки позиции (FEN + факторы + опциональный `eval`).',
+      '',
+      'Сравни ДО и ПОСЛЕ: какие факторы выросли, какие растворились, как поменялся sf18_eval. Сыгранный ход — причина этого изменения; комментируй ход через эту призму.',
+      '',
+      'Источник истины — sf18_eval (Stockfish 18), знак всегда от белых:',
+      '- score.type="cp" — сантипешки; «+» — лучше у белых, «−» — у чёрных.',
+      '- score.type="mate" — мат за N полуходов; положительное N — мат объявляют белые, отрицательное N — чёрные.',
+      'Вердикт о перевесе ВСЕГДА следует за знаком sf18_eval.',
+      '',
+      'Соответствие cp → вердикт (обязательно):',
+      '- |cp| ≤ 30 → «примерное равенство»; 30 < |cp| ≤ 100 → «небольшой перевес белых/чёрных»;',
+      '- 100 < |cp| ≤ 300 → «заметное преимущество белых/чёрных»; |cp| ≥ 300 → «решающее преимущество белых/чёрных»;',
+      '- mate ±N → «мат в N за белых/чёрных» (по знаку).',
+      'ЗАПРЕЩЕНО писать «у белых перевес/преимущество/лучше», когда sf18_eval.cp < 0 или mate с N<0. Симметричный запрет для чёрных при cp>0.',
+      '',
+      'Иерархия: 1) sf18_eval — вердикт; 2) тенденция факторов (value → terminal_value); 3) статические факторы — что есть сейчас. У статических подкомпонент могут быть value_mg/value_eg (сейчас) и terminal_value_mg/terminal_value_eg (через ≈10 ходов каждой стороны). Любая пара может отсутствовать. Описывай тенденцию, числа не упоминай.',
+      '',
+      'Как комментировать сам сыгранный ход:',
+      '1. Если `classification` = mistake/blunder/inaccuracy, ИЛИ в снимке ПОСЛЕ появилась висящая фигура у стороны, только что сделавшей ход, ИЛИ sf18_eval в ПОСЛЕ резко хуже для этой стороны, чем в ДО — комментарий ОБЯЗАН открываться чёткой констатацией ошибки (что подставлено, что упущено) и приводить смысл лучшего хода (по `sf_best` / `threats_missed`, если есть, без буквального пересказа ходов).',
+      '2. Если ход — взятие / шах / мат / рокировка / превращение / создание угрозы (`threats_created`, `mate_threat_after`) / заметный `material_change` или сдвиг в статических факторах — опиши, что ход сделал и какую идею воплотил (улучшение фигуры, захват пункта, открытие линии, появление проходной и т. п.).',
+      '3. Если ход тихий и оценка с факторами заметно не меняются — дай краткую оценку позиции; про сам ход можно не упоминать.',
+      '4. Сравнение ДО / ПОСЛЕ обязательно везде, где изменение видно: укажи факторы, которые выросли или растворились, и как сдвинулась оценка.',
+      '',
+      'Конкретные клетки разрешены ТОЛЬКО если пришли из поля square самой подкомпоненты словаря. Конкретные ходы (e2-e4, Кf3, С:c7), диагонали и линии как «линии действия» или планируемые прорывы — запрещены. Запрещённые формулировки: «перевод коня на …», «прорыв пешкой …», «удар по диагонали …», «вскрытие линии …», «связка …», «нападение …», «жертва …».',
+      '',
+      'Жёсткие ограничения:',
+      '- Опирайся ТОЛЬКО на поданные снимки и сыгранный ход. Не утверждай ничего, чего нет в фактах.',
+      '- Не приводи численные значения: ни value_mg/value_eg/value/0.323; ни «+0.8», ни «23 cp», ни «сантипешки», ни «оценка 23». Только слова: «примерное равенство», «небольшой перевес», «заметное преимущество», «решающее преимущество», «мат в N»; «едва заметно», «заметно», «резко вырос», «упал», «максимальный», «минимальный», «средне».',
+      '- Запрещённые слова: «слайдер», «слайдеры», «слайдинг». Замена: «фигуры дальнего боя» (ладья, слон, ферзь), «тяжёлые фигуры», «лёгкие фигуры».',
+      '- Запрещённые шаблонные зачины: «По форме позиции», «На доске типичная», «По форме» — и похожие общие фразы. Открывай конкретикой по ЭТОМУ ходу и ЭТОМУ изменению.',
+      '- Если по фактам сказать нечего — верни пустой `comment`.',
+      '',
+      'Технический id (king_danger, outpost_knight, mobility_rook и т.п.) в ответ НЕ пиши — переводи через словарь:',
+      glossary,
+      '',
+      'Формат ответа — ОДИН JSON-объект:',
+      '{ "comment": "<текст>", "highlights": [...], "arrows": [...] }',
+      '- comment — комментарий по правилам выше;',
+      '- highlights — 0–4 элемента вида { "square": "e4", "color": "red" };',
+      '- arrows — 0–2 элемента вида { "from": "e2", "to": "e4", "color": "green" }.',
+      '',
+      'Цвета: red — слабость/угроза; green — рекомендуемый план или лучший ход; yellow — ключевая идея; blue — резерв пользователя, не используй. Выдели максимум 1–2 фактора суммарно. Не оборачивай в код-блоки, не пиши текст вне JSON.',
+    ].join('\n');
+  }
+
+  /**
+   * KS-3814. Прежняя расширенная инструкция, оставлена под ENV
+   * `AI_PROMPT_VARIANT=long` как страховка на случай регрессии стиля
+   * после раскат сжатой версии. Эталонный текст KS-3711 / KS-3697 /
+   * KS-3700 / KS-3710 без изменений.
+   *
+   * Обучающий контекст (для разработчика, не для модели):
+   *   Кейс KS-3727 «cp=-665, у белых лишняя фигура». Длинная
+   *   инструкция содержала развёрнутую разбор-вставку: «вердикт —
+   *   решающее преимущество чёрных, а не у белых лучше; материал как
+   *   факт, нарратив за sf18_eval». В сжатой версии (KS-3814) этот
+   *   разбор заменён сухим запретом «у белых перевес/преимущество при
+   *   cp<0» без обучающей развёртки.
+   */
+  private buildSystemPromptLong(
+    language: MoveCommentLanguage,
     usedIds?: ReadonlySet<string>,
   ): string {
     const glossary = this.buildSubtermGlossary(language, usedIds);

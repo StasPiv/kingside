@@ -56,8 +56,12 @@ describe('PositionCommentService', () => {
   });
 
   describe('buildSystemPrompt (KS-3681 / ADR-108 §8.2 + KS-3686)', () => {
+    // KS-3814: эти проверки заточены под расширенную (long) версию
+    // инструкции с эталонными KS-3686/KS-3697/KS-3700/KS-3727
+    // формулировками. Long-вариант оставлен под ENV
+    // `AI_PROMPT_VARIANT=long` как страховка стиля.
     const svc = new PositionCommentService(
-      makeConfigService({}),
+      makeConfigService({ AI_PROMPT_VARIANT: 'long' }),
       makeRedisStub(),
     );
 
@@ -439,8 +443,10 @@ describe('PositionCommentService', () => {
         highlights: [],
         arrows: [],
       });
+      // KS-3814: дефолт — short-вариант, начинается с
+      // «Comment on this chess position from the given facts».
       expect(captured.systemPrompt).toMatch(
-        /^Please comment on this chess position in plain language/,
+        /^Comment on this chess position from the given facts/,
       );
       expect(captured.systemPrompt).toContain('sf18_eval');
       // KS-3721: sf18_pv больше не упоминается в инструкции модели.
@@ -467,8 +473,9 @@ describe('PositionCommentService', () => {
       }) as any;
 
       await svc.comment('user-1', makeDto({ language: 'ru' }));
+      // KS-3814: short-вариант начинается с «Прокомментируй позицию по фактам».
       expect(captured.systemPrompt).toMatch(
-        /^Прокомментируй пожалуйста позицию человеческим языком/,
+        /^Прокомментируй позицию по фактам/,
       );
       expect(captured.systemPrompt).toContain('sf18_eval');
       // KS-3721: sf18_pv больше не упоминается в инструкции модели.
@@ -497,8 +504,10 @@ describe('PositionCommentService', () => {
       const dto = makeDto();
       delete dto.language;
       await svc.comment('user-1', dto);
+      // KS-3814: дефолт по языку — RU, short-вариант начинается
+      // с «Прокомментируй позицию по фактам».
       expect(captured.systemPrompt).toMatch(
-        /^Прокомментируй пожалуйста позицию человеческим языком/,
+        /^Прокомментируй позицию по фактам/,
       );
     });
 
@@ -790,8 +799,10 @@ describe('PositionCommentService', () => {
   });
 
   describe('buildSystemPrompt (KS-3690 ADR-108b §5.1) — JSON-формат ответа', () => {
+    // KS-3814: тесты заточены под long-вариант — там цветовая
+    // конвенция вынесена отдельным заголовком и пробелами вокруг «/».
     const svc = new PositionCommentService(
-      makeConfigService({}),
+      makeConfigService({ AI_PROMPT_VARIANT: 'long' }),
       makeRedisStub(),
     );
 
@@ -825,6 +836,82 @@ describe('PositionCommentService', () => {
       expect(p).toContain('yellow — key idea');
       expect(p).toContain('blue — reserved for the user');
       expect(p).toContain('Do not wrap the JSON in code fences');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  describe('KS-3814: сжатая (short) системная инструкция — по умолчанию', () => {
+    const svc = new PositionCommentService(
+      makeConfigService({}), // без переменной → short
+      makeRedisStub(),
+    );
+
+    it('short — ≤80 строк после join (без словаря)', () => {
+      const empty = new Set<string>();
+      const ru = svc.buildSystemPrompt('ru', empty);
+      const en = svc.buildSystemPrompt('en', empty);
+      expect(ru.split('\n').length).toBeLessThanOrEqual(80);
+      expect(en.split('\n').length).toBeLessThanOrEqual(80);
+    });
+
+    it('short — RU содержит все обязательные блоки (cp→вердикт, иерархия, запреты, JSON)', () => {
+      const p = svc.buildSystemPrompt('ru');
+      // Соответствие cp → вердикт.
+      expect(p).toMatch(/Соответствие cp → вердикт/);
+      expect(p).toMatch(/равенство/);
+      expect(p).toMatch(/небольшой перевес/);
+      expect(p).toMatch(/заметное преимущество/);
+      expect(p).toMatch(/решающее преимущество/);
+      expect(p).toMatch(/мат в N/);
+      // Иерархия достоверности.
+      expect(p).toMatch(/Иерархия/);
+      expect(p).toContain('sf18_eval');
+      expect(p).toContain('terminal_value');
+      // Запреты.
+      expect(p).toMatch(/ЗАПРЕЩЕНО/);
+      expect(p).toContain('перевод коня на');
+      expect(p).toContain('слайдер');
+      expect(p).toContain('фигуры дальнего боя');
+      // Формат JSON.
+      expect(p).toContain('Формат ответа — ОДИН JSON-объект');
+      expect(p).toContain('"comment"');
+      expect(p).toContain('"highlights"');
+      expect(p).toContain('"arrows"');
+    });
+
+    it('short — EN содержит mapping, hierarchy, forbidden, JSON', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(/Mapping sf18_eval → verdict/);
+      expect(p).toMatch(/roughly equal/);
+      expect(p).toMatch(/slight edge/);
+      expect(p).toMatch(/clear advantage/);
+      expect(p).toMatch(/decisive advantage/);
+      expect(p).toMatch(/mate in N/);
+      expect(p).toMatch(/Hierarchy/);
+      expect(p).toMatch(/FORBIDDEN/);
+      expect(p).toContain('long-range pieces');
+      expect(p).toContain('Output format — ONE JSON object');
+    });
+
+    it('short — не содержит обучающий пример cp=-665 (он перенесён в JSDoc)', () => {
+      const ru = svc.buildSystemPrompt('ru');
+      const en = svc.buildSystemPrompt('en');
+      for (const p of [ru, en]) {
+        expect(p).not.toContain('cp=-665');
+        expect(p).not.toContain('лишняя фигура');
+        expect(p).not.toContain('extra piece');
+      }
+    });
+
+    it('AI_PROMPT_VARIANT=long → возвращается прежняя расширенная инструкция', () => {
+      const longSvc = new PositionCommentService(
+        makeConfigService({ AI_PROMPT_VARIANT: 'long' }),
+        makeRedisStub(),
+      );
+      const p = longSvc.buildSystemPrompt('ru');
+      expect(p).toContain('Цветовая конвенция');
+      expect(p).toContain('Прокомментируй пожалуйста позицию человеческим языком');
+      expect(p).toContain('Соответствие sf18_eval → вердикт');
     });
   });
 

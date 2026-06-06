@@ -83,8 +83,10 @@ describe('MoveCommentService', () => {
 
   // ─────────────────────────────────────────────────────────────────
   describe('buildSystemPrompt — RU', () => {
+    // KS-3814: проверки полной инструкции — на long-варианте, который
+    // оставлен под ENV `AI_PROMPT_VARIANT=long` как страховка стиля.
     const svc = new MoveCommentService(
-      makeConfigService({}),
+      makeConfigService({ AI_PROMPT_VARIANT: 'long' }),
       makeRedisStub(),
     );
 
@@ -200,7 +202,7 @@ describe('MoveCommentService', () => {
   // ─────────────────────────────────────────────────────────────────
   describe('buildSystemPrompt — EN', () => {
     const svc = new MoveCommentService(
-      makeConfigService({}),
+      makeConfigService({ AI_PROMPT_VARIANT: 'long' }),
       makeRedisStub(),
     );
 
@@ -301,7 +303,7 @@ describe('MoveCommentService', () => {
   // ─────────────────────────────────────────────────────────────────
   describe('buildSystemPrompt — общие проверки', () => {
     const svc = new MoveCommentService(
-      makeConfigService({}),
+      makeConfigService({ AI_PROMPT_VARIANT: 'long' }),
       makeRedisStub(),
     );
 
@@ -318,6 +320,101 @@ describe('MoveCommentService', () => {
         // с запасом.
         expect(p.length).toBeLessThan(12000);
       }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  describe('KS-3814: сжатая (short) системная инструкция — по умолчанию', () => {
+    const svc = new MoveCommentService(
+      makeConfigService({}), // без переменной → short
+      makeRedisStub(),
+    );
+
+    it('short — ≤80 строк после join (без словаря)', () => {
+      // Считаем строки на пустом словаре — usedIds=пустой Set даёт
+      // glossary='', чтобы измерить именно текст инструкции.
+      const empty = new Set<string>();
+      const ru = svc.buildSystemPrompt('ru', empty);
+      const en = svc.buildSystemPrompt('en', empty);
+      // Каждая строка после join = строка инструкции (включая пустые
+      // разделители). Цель KS-3814 — ≤80 строк инструкции.
+      expect(ru.split('\n').length).toBeLessThanOrEqual(80);
+      expect(en.split('\n').length).toBeLessThanOrEqual(80);
+    });
+
+    it('short — содержит все обязательные блоки (cp→вердикт, иерархия, запреты, JSON)', () => {
+      const p = svc.buildSystemPrompt('ru');
+      // Соответствие cp → вердикт.
+      expect(p).toMatch(/Соответствие cp → вердикт/);
+      expect(p).toMatch(/равенство/);
+      expect(p).toMatch(/небольшой перевес/);
+      expect(p).toMatch(/заметное преимущество/);
+      expect(p).toMatch(/решающее преимущество/);
+      expect(p).toMatch(/мат в N/);
+      // Иерархия.
+      expect(p).toMatch(/Иерархия/);
+      expect(p).toContain('sf18_eval');
+      // Запреты.
+      expect(p).toMatch(/ЗАПРЕЩЕНО/);
+      expect(p).toContain('перевод коня на');
+      expect(p).toContain('слайдер');
+      expect(p).toMatch(/По форме позиции/);
+      // Блок про комментирование хода — обязательная констатация ошибки.
+      expect(p).toContain('classification` = mistake/blunder/inaccuracy');
+      expect(p).toContain('висящая фигура');
+      expect(p).toContain('ОБЯЗАН открываться');
+      // Формат JSON.
+      expect(p).toContain('Формат ответа — ОДИН JSON-объект');
+      expect(p).toContain('"comment"');
+      expect(p).toContain('"highlights"');
+      expect(p).toContain('"arrows"');
+    });
+
+    it('short EN — содержит соответствие cp→verdict, иерархию, запреты, JSON', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(/Mapping sf18_eval → verdict/);
+      expect(p).toMatch(/roughly equal/);
+      expect(p).toMatch(/slight edge/);
+      expect(p).toMatch(/clear advantage/);
+      expect(p).toMatch(/decisive advantage/);
+      expect(p).toMatch(/mate in N/);
+      expect(p).toMatch(/Hierarchy/);
+      expect(p).toMatch(/FORBIDDEN/);
+      expect(p).toContain("classification` is mistake/blunder/inaccuracy");
+      expect(p).toContain('hanging piece');
+      expect(p).toContain('MUST open with a clear statement');
+      expect(p).toContain('Output format — ONE JSON object');
+    });
+
+    it('short — не содержит обучающий пример cp=-665 (он в JSDoc, не в инструкции для модели)', () => {
+      const ru = svc.buildSystemPrompt('ru');
+      const en = svc.buildSystemPrompt('en');
+      for (const p of [ru, en]) {
+        expect(p).not.toContain('cp=-665');
+        expect(p).not.toContain('лишняя фигура');
+        expect(p).not.toContain('extra piece');
+      }
+    });
+
+    it('short — sf18_pv в инструкции не упоминается (фактор вырезан в payload, KS-3809)', () => {
+      const ru = svc.buildSystemPrompt('ru');
+      const en = svc.buildSystemPrompt('en');
+      for (const p of [ru, en]) {
+        expect(p).not.toContain('sf18_pv');
+      }
+    });
+
+    it('AI_PROMPT_VARIANT=long → возвращается прежняя расширенная инструкция', () => {
+      const longSvc = new MoveCommentService(
+        makeConfigService({ AI_PROMPT_VARIANT: 'long' }),
+        makeRedisStub(),
+      );
+      const p = longSvc.buildSystemPrompt('ru');
+      // Long-вариант сохранил блок «Иерархия достоверности» и
+      // эталонные KS-3711 формулировки про sf18_pv (он там был).
+      expect(p).toContain('Иерархия достоверности');
+      expect(p).toContain('sf18_pv');
+      expect(p).toContain('Порядок приоритетов');
     });
   });
 

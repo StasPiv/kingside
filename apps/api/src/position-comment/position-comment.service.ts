@@ -28,6 +28,16 @@ export class PositionCommentService {
   private readonly webhookSecret: string;
   private readonly fetchTimeoutMs: number;
   private readonly debug: boolean;
+  /**
+   * KS-3814 (ADR-114 §3, KS-N06). Версия системной инструкции,
+   * подаваемой модели. `short` — компактная (≤80 строк), активная по
+   * умолчанию: содержит mapping cp→вердикт, иерархию достоверности,
+   * запреты, формат JSON. `long` — прежняя расширенная (с обучающими
+   * примерами и подробными формулировками), оставлена как страховка
+   * на случай регрессии стиля; переключается через ENV
+   * `AI_PROMPT_VARIANT=long`.
+   */
+  private readonly promptVariant: 'short' | 'long';
 
   readonly rateLimitPerMin: number;
   readonly rateLimitPerDay: number;
@@ -64,6 +74,8 @@ export class PositionCommentService {
       this.config.get<string>('POSITION_COMMENT_GLOBAL_DAILY_LIMIT', '2000'),
       10,
     );
+    const variant = this.config.get<string>('AI_PROMPT_VARIANT', 'short');
+    this.promptVariant = variant === 'long' ? 'long' : 'short';
   }
 
   /**
@@ -126,8 +138,145 @@ export class PositionCommentService {
     return out;
   }
 
+  /**
+   * KS-3814. Выбор сжатой или расширенной версии инструкции по ENV
+   * `AI_PROMPT_VARIANT`. По умолчанию — `short` (компактная, ≤80
+   * строк, без обучающих примеров). При значении `long` — прежняя
+   * расширенная (страховка на случай регрессии стиля после раскат).
+   */
   buildSystemPrompt(
     language: PositionCommentLanguage = 'ru',
+    usedIds?: ReadonlySet<string>,
+  ): string {
+    return this.promptVariant === 'long'
+      ? this.buildSystemPromptLong(language, usedIds)
+      : this.buildSystemPromptShort(language, usedIds);
+  }
+
+  /**
+   * KS-3814. Сжатая системная инструкция: ≤80 строк (плюс словарь
+   * подкомпонент, сжатый KS-3813 до пришедших id). Сохранены все
+   * обязательные блоки: соответствие cp→вердикт, иерархия
+   * достоверности, запреты (числа, конкретные ходы, шаблонные
+   * формулировки), словарь, формат JSON. Длинные обучающие примеры
+   * (кейс cp=-665) вынесены в JSDoc к `buildSystemPromptLong`.
+   */
+  private buildSystemPromptShort(
+    language: PositionCommentLanguage,
+    usedIds?: ReadonlySet<string>,
+  ): string {
+    const glossary = this.buildSubtermGlossary(language, usedIds);
+    if (language === 'en') {
+      return [
+        'Comment on this chess position from the given facts. This is a STATIC evaluation: describe what is on the board now and how factors shift by tendency. No predictions of concrete future moves, manoeuvres or plans by named pieces.',
+        '',
+        'Source of truth — sf18_eval (Stockfish 18), sign always from White:',
+        '- score.type="cp" — centipawns; positive: White better, negative: Black better.',
+        '- score.type="mate" — mate in N half-moves; positive N: White mates, negative N: Black mates.',
+        'The verdict on who stands better ALWAYS follows the sign of sf18_eval.',
+        '',
+        'Mapping sf18_eval → verdict (mandatory):',
+        '- |cp| ≤ 30 → "roughly equal";',
+        '- 30 < |cp| ≤ 100 → "slight edge for White/Black" (per sign);',
+        '- 100 < |cp| ≤ 300 → "clear advantage for White/Black" (per sign);',
+        '- |cp| ≥ 300 → "decisive advantage for White/Black" (per sign);',
+        '- mate ±N → "mate in N for White/Black" (per sign).',
+        'FORBIDDEN — claiming any edge / advantage for White when sf18_eval.cp < 0 or mate with negative N. Symmetric ban for Black when sf18_eval.cp > 0. Extra material, a strong knight, a passed pawn, an open file — facts, NOT a reason to override the sign of sf18_eval.',
+        '',
+        'Hierarchy:',
+        '1) sf18_eval — who stands better (the verdict);',
+        '2) factor trend (value → terminal_value) — which subterms are reinforced, which dissolve;',
+        '3) static factors — what is there right now.',
+        'If sf18_eval points one way and static factors stack up the other — the static factor dissolves soon, Stockfish already accounts for it. Phrase it: "Nominally Side X has Y, but Stockfish does not see this as an advantage — the factor dissolves soon." Do NOT spell out HOW.',
+        '',
+        'Trend: subterms may carry value_mg/value_eg (now) and terminal_value_mg/terminal_value_eg (≈10 moves per side later). Either pair may be missing: no initial — appears by the end; no terminal — dissolves. Describe the trend, never the numbers.',
+        '',
+        'Concrete squares are allowed ONLY if they come from the square field of a glossary subterm (e.g. outpost_knight → "knight on the outpost at e5"). Concrete moves (e2-e4, Nf3, Bxc7), diagonals/files as planned lines of action — forbidden. Forbidden phrasings: "transferring the knight to …", "pawn break …", "strike along the … diagonal", "opening the … file", "pin along …", "attack on …", "sacrifice …".',
+        '',
+        'Never quote raw numbers: not "+0.8", "cp", "centipawns", "score 23"; not value_mg/value_eg/value/0.323. Use words only: "roughly equal", "slight edge for White/Black", "clear advantage for White/Black", "decisive advantage for White/Black", "mate in N"; "barely noticeable", "noticeable", "sharply increased", "dropped", "the highest", "the lowest", "moderate".',
+        '',
+        'Forbidden words: "slider", "sliders", "sliding piece(s)". Use "long-range pieces" (rook, bishop, queen), "major pieces" (rook, queen), "minor pieces" (knight, bishop).',
+        '',
+        'Do NOT put a technical id in the answer — translate via the glossary:',
+        glossary,
+        '',
+        'Output format — ONE JSON object:',
+        '{ "comment": "<text>", "highlights": [...], "arrows": [...] }',
+        '- comment — your commentary (rules above);',
+        '- highlights — 0–4 items of shape { "square": "e4", "color": "red" };',
+        '- arrows — 0–2 items of shape { "from": "e2", "to": "e4", "color": "green" }.',
+        '',
+        'Colors: red — weakness/threat; green — recommended plan or best move; yellow — key idea; blue — reserved for the user, do not use.',
+        '',
+        'Arrows — ONLY from an attacker to its target tied to a glossary subterm. Arrows as "manoeuvre plan" or "pawn break" — forbidden. If no such pairing exists in the facts — arrows is empty. Highlight at most 1–2 factors in total. Do not wrap the JSON in code fences. Do not add text outside the JSON object.',
+      ].join('\n');
+    }
+    return [
+      'Прокомментируй позицию по фактам. Это СТАТИЧЕСКАЯ оценка: только то, что сейчас на доске и как факторы меняются по тенденции. Запрещены прогнозы конкретных ходов, манёвров и планов конкретными фигурами.',
+      '',
+      'Источник истины — sf18_eval (Stockfish 18), знак всегда от белых:',
+      '- score.type="cp" — сантипешки; «+» — лучше у белых, «−» — у чёрных.',
+      '- score.type="mate" — мат за N полуходов; положительное N — мат объявляют белые, отрицательное N — чёрные.',
+      'Вердикт о перевесе ВСЕГДА следует за знаком sf18_eval.',
+      '',
+      'Соответствие cp → вердикт (обязательно):',
+      '- |cp| ≤ 30 → «примерное равенство»;',
+      '- 30 < |cp| ≤ 100 → «небольшой перевес белых/чёрных» (по знаку);',
+      '- 100 < |cp| ≤ 300 → «заметное преимущество белых/чёрных» (по знаку);',
+      '- |cp| ≥ 300 → «решающее преимущество белых/чёрных» (по знаку);',
+      '- mate ±N → «мат в N за белых/чёрных» (по знаку).',
+      'ЗАПРЕЩЕНО писать «у белых перевес/преимущество/лучше», когда sf18_eval.cp < 0 или mate с N<0. Симметричный запрет для чёрных при cp>0. Лишний материал, сильный конь, проходная, открытая линия — это факты, они НЕ отменяют знак sf18_eval.',
+      '',
+      'Иерархия достоверности:',
+      '1) sf18_eval — кто стоит лучше (вердикт);',
+      '2) тенденция факторов value → terminal_value — что усиливается, что растворяется;',
+      '3) статические факторы — что есть прямо сейчас.',
+      'Если sf18_eval за одну сторону, а статика за другую — статика ликвидируется ближайшими ходами, Stockfish это уже учёл. Описывай так: «формально у X есть Y, но Stockfish не считает это преимуществом — фактор скоро исчезает». КАК именно — не пиши.',
+      '',
+      'Тенденция: у подкомпонент могут быть value_mg/value_eg (сейчас) и terminal_value_mg/terminal_value_eg (через ≈10 ходов каждой стороны). Любая пара может отсутствовать: нет исходной — фактор появляется к концу; нет терминальной — растворяется. Описывай тенденцию, числа не упоминай.',
+      '',
+      'Конкретные клетки разрешены ТОЛЬКО если пришли из поля square самой подкомпоненты словаря (например, outpost_knight → «конь на форпосте e5»). Конкретные ходы (e2-e4, Кf3, С:c7), диагонали и линии как «линии действия» или планируемые прорывы — запрещены. Запрещённые формулировки: «перевод коня на …», «прорыв пешкой …», «удар по диагонали …», «вскрытие линии …», «связка …», «нападение …», «жертва …».',
+      '',
+      'Не приводи численные значения: ни «+0.8», ни «23 cp», ни «сантипешки», ни «оценка 23»; не пиши value_mg/value_eg/value/0.323. Только слова: «примерное равенство», «небольшой перевес», «заметное преимущество», «решающее преимущество», «мат в N»; «едва заметно», «заметно», «резко вырос», «упал», «максимальный», «минимальный», «средне», «больше/меньше всего».',
+      '',
+      'Запрещённые слова: «слайдер», «слайдеры», «слайдинг». Замена: «фигуры дальнего боя» (ладья, слон, ферзь), «тяжёлые фигуры» (ладья, ферзь), «лёгкие фигуры» (конь, слон).',
+      '',
+      'Технический id в ответ НЕ пиши — переводи через словарь:',
+      glossary,
+      '',
+      'Формат ответа — ОДИН JSON-объект:',
+      '{ "comment": "<текст>", "highlights": [...], "arrows": [...] }',
+      '- comment — комментарий по правилам выше;',
+      '- highlights — 0–4 элемента вида { "square": "e4", "color": "red" };',
+      '- arrows — 0–2 элемента вида { "from": "e2", "to": "e4", "color": "green" }.',
+      '',
+      'Цвета: red — слабость/угроза; green — рекомендуемый план или лучший ход; yellow — ключевая идея; blue — резерв пользователя, не используй.',
+      '',
+      'Стрелки — ТОЛЬКО от атакующей фигуры к её цели на основе подкомпоненты из словаря. Стрелки как «план манёвра» или «прорыв» — нельзя. Если связки в фактах нет — arrows пустой. Выдели максимум 1–2 фактора суммарно. Не оборачивай в код-блоки, не пиши текст вне JSON.',
+    ].join('\n');
+  }
+
+  /**
+   * KS-3814. Прежняя расширенная инструкция, оставлена под ENV
+   * `AI_PROMPT_VARIANT=long` как страховка на случай регрессии стиля
+   * после раскат сжатой версии. Длинные блоки переносов от прежних
+   * правок KS-3686 / KS-3697 / KS-3700 / KS-3721 / KS-3727 сохранены
+   * дословно — это эталонный текст, на котором калибровался стиль
+   * комментариев модели до KS-3814.
+   *
+   * Обучающий пример (для разработчика, не для модели):
+   *   Кейс KS-3727 «cp=-665, у белых лишняя фигура». Вердикт —
+   *   «решающее преимущество чёрных», а не «у белых перевес». Материал
+   *   упоминается как факт («формально у белых лишняя фигура»), но
+   *   вердикт и нарратив следуют за sf18_eval — продвинутые пешки или
+   *   атака чёрных реализуют позицию. КАК именно — не пишется.
+   *
+   * Этот пример раньше был внутри инструкции для модели; в сжатой
+   * версии (KS-3814) он заменён жёстким запретом «у белых
+   * перевес/преимущество/лучше при cp<0» без обучающей развёртки.
+   */
+  private buildSystemPromptLong(
+    language: PositionCommentLanguage,
     usedIds?: ReadonlySet<string>,
   ): string {
     const glossary = this.buildSubtermGlossary(language, usedIds);
