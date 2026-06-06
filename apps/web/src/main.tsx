@@ -20,6 +20,21 @@ initClientLogger();
 initGA4();
 attachLessonsResourceLoader();
 
+// KS-3766 / ADR-112: разовая чистка легаси-ключа localStorage, в котором
+// прошлая версия (KS-3736 → KS-3754) хранила slug активной трансляции
+// анализа. Модель в ADR-112 пересмотрена: восстановление идёт через REST
+// (`GET /live-analyses/by-analysis/:analysisId`), браузерный кэш не
+// используется. Старый ключ у пользователей мог остаться с предыдущих
+// сессий — однострочник чистит его при загрузке приложения, чтобы
+// гарантированно не оставлять «висящих» данных от снятой модели.
+// try/catch — защита от Safari Private Mode, где доступ к localStorage
+// может бросать `SecurityError`. Удалить через 2-3 релиза.
+try {
+  localStorage.removeItem('live-analysis:active-slug');
+} catch {
+  /* localStorage недоступен — нечего и чистить */
+}
+
 // Hide mobile browser address bar by triggering a minimal scroll.
 // Only on touch devices, after first load.
 if ('ontouchstart' in window && !window.matchMedia('(display-mode: standalone)').matches) {
