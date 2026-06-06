@@ -774,7 +774,8 @@
     "byOwner": "автор:",
     "play": "Воспроизвести",
     "pause": "Пауза",
-    "progressLabel": "Позиция воспроизведения"
+    "progressLabel": "Позиция воспроизведения",
+    "breadcrumbsLabel": "Лекция"
   },
   "lecture": {
     "startMenuItem": "Начать лекцию",

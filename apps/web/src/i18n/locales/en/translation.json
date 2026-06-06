@@ -764,7 +764,8 @@
     "byOwner": "by",
     "play": "Play",
     "pause": "Pause",
-    "progressLabel": "Playback position"
+    "progressLabel": "Playback position",
+    "breadcrumbsLabel": "Lecture"
   },
   "lecture": {
     "startMenuItem": "Start lecture",

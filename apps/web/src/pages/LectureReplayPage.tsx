@@ -289,42 +289,55 @@ export function LectureReplayPage() {
       className="lecture-replay-page"
       data-testid="lecture-replay-page"
     >
-      <header
-        className="lecture-replay-header"
-        style={{ marginBottom: 16 }}
+      {/* KS-3797: убрали большой `h1` и отдельную строку «by …» —
+          они занимали вертикаль, из-за чего доска обрезалась снизу
+          на десктопе и плеер уходил под нижнее меню на мобильном.
+          Название и автор теперь живут в компактной строке-крошках
+          одной строкой над AnalysisPage. */}
+      <nav
+        className="lecture-replay-breadcrumbs"
+        data-testid="lecture-replay-breadcrumbs"
+        aria-label={t('lectureReplay.breadcrumbsLabel', 'Lecture')}
+        style={{
+          margin: '4px 0 8px',
+          fontSize: 13,
+          opacity: 0.85,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 6,
+        }}
       >
-        <h1 style={{ margin: 0 }}>{lecture.title}</h1>
         {lecture.ownerUsername && (
-          <p style={{ margin: '4px 0' }}>
-            {t('lectureReplay.byOwner', 'by')}{' '}
+          <>
             <Link
               to={`/coach/${encodeURIComponent(lecture.ownerUsername)}`}
+              data-testid="lecture-replay-owner-link"
             >
               {lecture.ownerUsername}
             </Link>
-          </p>
+            <span aria-hidden="true">/</span>
+          </>
         )}
-        {lecture.description && (
-          <p style={{ margin: '4px 0', opacity: 0.85 }}>
-            {lecture.description}
-          </p>
-        )}
+        <span
+          data-testid="lecture-replay-title"
+          title={lecture.description ?? undefined}
+          style={{ fontWeight: 600 }}
+        >
+          {lecture.title}
+        </span>
         {recording.truncated && (
-          <p
-            style={{
-              margin: '4px 0',
-              fontSize: 12,
-              color: '#b26a00',
-            }}
+          <span
             data-testid="lecture-replay-truncated-note"
+            style={{ marginLeft: 8, color: '#b26a00', fontSize: 12 }}
           >
             {t(
               'lectureReplay.truncatedNote',
               'Recording was truncated — only the first part is available.',
             )}
-          </p>
+          </span>
         )}
-      </header>
+      </nav>
 
       {eventsEmpty ? (
         <p data-testid="lecture-replay-empty">
@@ -348,11 +361,19 @@ export function LectureReplayPage() {
               bottom: 0,
               background: '#fff',
               borderTop: '1px solid #ddd',
-              padding: '12px 16px',
+              // KS-3797: учитываем системные безопасные отступы
+              // (iOS home-indicator, Android nav-bar), чтобы плеер
+              // не уходил под нижнюю системную панель.
+              padding:
+                '12px 16px calc(12px + env(safe-area-inset-bottom)) 16px',
               display: 'flex',
               flexDirection: 'column',
               gap: 8,
               marginTop: 16,
+              // На мобильных браузерах с включённым нижним меню
+              // приложения z-index поднимаем чтобы плеер был выше
+              // элементов AnalysisPage.
+              zIndex: 5,
             }}
           >
             <input
