@@ -24,6 +24,7 @@ import { PositionCommentModule } from './position-comment/position-comment.modul
 import { WorkshopModule } from './workshop/workshop.module';
 import { LiveTournamentModule } from './live-tournament/live-tournament.module';
 import { LiveAnalysisModule } from './live-analysis/live-analysis.module';
+import { LecturesModule } from './lectures/lectures.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
 import { PlayerModule } from './player/player.module';
 import { MessageModule } from './message/message.module';
@@ -100,6 +101,9 @@ import { HealthController } from './health.controller';
     // KS-3732 / ADR-110: live-трансляция анализа партии
     // (REST /live-analyses + WS namespace /live-analysis).
     LiveAnalysisModule,
+    // KS-3784 / ADR-113 §4 эпик 1: лекции тренера
+    // (REST /lectures, /coaches/:username/lectures).
+    LecturesModule,
     ClientLogsModule,
     PlayerModule,
     MessageModule,

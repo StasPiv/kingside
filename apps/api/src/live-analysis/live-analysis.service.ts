@@ -273,6 +273,47 @@ export class LiveAnalysisService implements OnModuleInit {
   }
 
   /**
+   * KS-3784 / ADR-113 §4 (эпик 1). Создать «голую» live-сессию для
+   * лекции тренера. В отличие от `create()`, не требует `analysisId`
+   * (у лекции нет привязанного `Analysis`) и не проходит проверку
+   * владельца анализа. Используется только из `LecturesService`
+   * (POST /lectures, POST /lectures/:id/start), внешним клиентам
+   * этот путь не экспонируется.
+   *
+   * Возвращает `{ id, slug }` — этого хватает, чтобы привязать
+   * запись `Lecture` к новой `LiveAnalysis` и сгенерировать ссылку
+   * на зрительскую страницу.
+   */
+  async createBareLiveSession(
+    ownerId: string,
+    options: { title?: string | null; orientation?: LiveAnalysisOrientation } = {},
+  ): Promise<{ id: string; slug: string }> {
+    const startingFen = LiveAnalysisService.INITIAL_FEN;
+    const orientation: LiveAnalysisOrientation = options.orientation ?? 'white';
+    const id = await this.tryInsertWithUniqueSlug(
+      ownerId,
+      options.title ?? null,
+      startingFen,
+      null,
+    );
+    const created = await this.prisma.liveAnalysis.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, slug: true },
+    });
+    await this.initRedisState(id, startingFen, orientation);
+    this.slugToOwnerCache.set(created.slug, ownerId);
+    this.metrics.incLiveAnalysisActive();
+    // Label `with_analysis_id=false` — отдельный кейс «лекция без
+    // привязки к Analysis», виден на дашборде рядом с обычными
+    // создаваемыми трансляциями.
+    this.metrics.incLiveAnalysisCreated(false);
+    this.logger.log(
+      `Live analysis (bare, lecture) created: slug=${created.slug} owner=${ownerId}`,
+    );
+    return created;
+  }
+
+  /**
    * KS-3759 / ADR-112 §3. Поиск активной трансляции по `(ownerId,
    * analysisId)`. Возвращает полностью сформированный `LiveAnalysisResponse`
    * (с актуальным `currentFen`/`viewerCount`/`currentPgn` из Redis)
@@ -962,7 +1003,7 @@ export class LiveAnalysisService implements OnModuleInit {
     ownerId: string,
     title: string | null,
     startingFen: string,
-    analysisId: string,
+    analysisId: string | null,
   ): Promise<string> {
     for (let attempt = 0; attempt < LiveAnalysisService.SLUG_GEN_MAX_ATTEMPTS; attempt++) {
       const slug = this.nanoid();
