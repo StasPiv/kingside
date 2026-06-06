@@ -386,7 +386,7 @@ describe('LiveAnalysisService', () => {
     });
   });
 
-  // ─── applyMove: chess.js валидация + owner-check ──────────────────
+  // ─── applyMove (KS-3780+: ретранслятор, без chess.js валидации) ───
 
   describe('applyMove', () => {
     const baseRow = {
@@ -396,12 +396,14 @@ describe('LiveAnalysisService', () => {
       startingFen: null as string | null,
     };
 
-    it('применяет легальный e2e4 и пишет в Redis', async () => {
+    it('публикует MoveEvent с UCI и ply, без вычисления FEN на backend', async () => {
       prisma.liveAnalysis.findUnique.mockResolvedValue(baseRow);
       const ev = await service.applyMove('s', 'u-1', 'e2e4');
       expect(ev.uci).toBe('e2e4');
       expect(ev.ply).toBe(1);
-      expect(ev.fen).toContain('PPPP');
+      // KS-3780+: backend больше не вычисляет FEN, поле отсутствует
+      // в payload (тип сделал его опциональным).
+      expect(ev.fen).toBeUndefined();
       const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
       expect(moves).toEqual(['e2e4']);
       expect(redis.publish).toHaveBeenCalledWith(
@@ -410,18 +412,15 @@ describe('LiveAnalysisService', () => {
       );
     });
 
-    it('кидает 400 на нелегальный UCI', async () => {
+    it('принимает любой UCI без шахматной валидации (KS-3780+)', async () => {
+      // Нелегальный по правилам шахмат UCI (e2e5 — двойной шаг через
+      // занятую клетку, zzzz — несуществующие клетки) уже не валидируется
+      // backend'ом. Источником истины является tree от автора.
       prisma.liveAnalysis.findUnique.mockResolvedValue(baseRow);
-      await expect(service.applyMove('s', 'u-1', 'e2e5')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('кидает 400 на синтаксически невалидный UCI', async () => {
-      prisma.liveAnalysis.findUnique.mockResolvedValue(baseRow);
-      await expect(service.applyMove('s', 'u-1', 'zzzz')).rejects.toThrow(
-        BadRequestException,
-      );
+      const ev1 = await service.applyMove('s', 'u-1', 'e2e5');
+      expect(ev1.uci).toBe('e2e5');
+      const ev2 = await service.applyMove('s', 'u-1', 'zzzz');
+      expect(ev2.uci).toBe('zzzz');
     });
 
     it('кидает 403 если не owner', async () => {

@@ -549,7 +549,18 @@ export class LiveAnalysisService implements OnModuleInit {
    * Ошибки:
    *   - 404 — slug неизвестен или closed.
    *   - 403 — userId не совпадает с ownerId.
-   *   - 400 — UCI невалиден или нелегален в текущем FEN.
+   *   - 429 — рейт-лимит автора по `authorMoveLimiter`.
+   *
+   * KS-3780+: chess.js валидация UCI убрана. После перехода на
+   * непрозрачное дерево автор знает свою позицию сам, server-side
+   * `currentFen` неизбежно расходится при листании по веткам —
+   * любая проверка по нему даст ложные `illegal-move`, на которые
+   * фронт автоматически шлёт `reset`, и дерево зрителя сбрасывается.
+   *
+   * Теперь applyMove — лёгкий ретранслятор: рейт-лимит, RPUSH ходов
+   * для аудита, инкремент `currentPly`, publish MoveEvent. Поле
+   * `fen` в MoveEvent не вычисляется — frontend применяет ход к
+   * своему дереву по UCI.
    */
   async applyMove(
     slug: string,
@@ -567,28 +578,17 @@ export class LiveAnalysisService implements OnModuleInit {
         throw new BadRequestException('Rate limit exceeded (author moves)');
       }
       const state = await this.readRedisState(meta.id);
-      const currentFen =
-        state?.currentFen ?? meta.startingFen ?? LiveAnalysisService.INITIAL_FEN;
       const currentPly = state?.currentPly ?? 0;
-
-      const chess = new Chess(currentFen);
-      const move = this.tryUciMove(chess, uci);
-      if (!move) {
-        this.metrics.incLiveAnalysisMoveIllegal();
-        throw new BadRequestException(`Illegal UCI move "${uci}"`);
-      }
-      const newFen = chess.fen();
       const newPly = currentPly + 1;
 
       const stateKey = this.stateKey(meta.id);
       const movesKey = this.movesKey(meta.id);
       await this.redis
         .multi()
+        // currentFen не вычисляем — backend не парсит шахматную позицию.
+        // Инкрементируем только currentPly для счётчика и обновляем TTL.
         .hset(stateKey, {
-          startingFen: state?.startingFen ?? meta.startingFen ?? LiveAnalysisService.INITIAL_FEN,
-          currentFen: newFen,
           currentPly: String(newPly),
-          orientation: state?.orientation ?? 'white',
         })
         .rpush(movesKey, uci)
         .expire(stateKey, LiveAnalysisService.STATE_TTL_SEC)
@@ -600,7 +600,6 @@ export class LiveAnalysisService implements OnModuleInit {
       const payload: LiveAnalysisMoveEvent = {
         slug,
         uci,
-        fen: newFen,
         ply: newPly,
       };
       this.metrics.incLiveAnalysisMoveAccepted();

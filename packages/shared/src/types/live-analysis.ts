@@ -258,7 +258,14 @@ export type LiveAnalysisStatePatchPayload = {
 export type LiveAnalysisMoveEvent = {
   slug: string;
   uci: string;
-  fen: string;
+  /**
+   * KS-3780: backend больше не вычисляет FEN на стороне сервера —
+   * содержимое трансляции непрозрачно (см. контракт state-patch с
+   * `tree`). Поле сохранено опциональным для совместимости и для
+   * случая, когда автор сам прислал бы FEN; в текущем потоке
+   * отсутствует.
+   */
+  fen?: string;
   ply: number;
 };
 
