@@ -62,6 +62,10 @@ import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 // breadcrumbs + inline-edit title. State (isEditingTitle, titleInput,
 // handlers) остаётся в AnalysisPage, передаётся через props.
 import { AnalysisHeader } from './analysis/AnalysisHeader';
+// KS-3736 / ADR-110: live-трансляция анализа партии — кнопка «Транслировать»,
+// индикатор статуса, восстановление режима при reload.
+import { LiveBroadcastControl } from '../components/analysis/LiveBroadcastControl';
+import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
 // KS-2958: переиспользуем основной `PuzzleGeneratorModal` с пропами
 // `initialPgn` + `autoStart` — то же окно с прогрессом и пост-flow
 // (My drafts / Publish all), что и в разделе «Тренировка точности».
@@ -713,13 +717,44 @@ function AnalysisPageInner({
   const {
     history, currentMove, currentGlobalIndex, currentFen, initialFen,
     loadMoves, loadFromPgn, setInitialFen, gotoMove, gotoFirst, gotoLast,
-    gotoPrevious, gotoNext, makeVariantMove, removeVariation,
+    gotoPrevious, gotoNext,
+    // KS-3736: оборачиваем makeVariantMove (см. ниже), чтобы каждый ход
+    // автора в live-трансляции ретранслировался зрителям через WS.
+    makeVariantMove: rawMakeVariantMove,
+    removeVariation,
     truncateRemaining, promoteVariation, setNag, setComment,
     // KS-2287 (ADR-038): variation-color через reducer.
     setVariationColor,
     // KS-2152
     currentAnnotations, initialAnnotations, annotationsByIndex, setAnnotationsForCurrent,
   } = useReviewState();
+
+  // KS-3736 / ADR-110: state-автомат live-трансляции анализа. Хук сам
+  // делает REST POST/GET, держит WS-подписку, восстанавливает slug из
+  // localStorage при reload и обрабатывает серверные ошибки (incl.
+  // self-heal через `reset` при `illegal-move`).
+  const liveBroadcast = useAnalysisLiveBroadcast({
+    currentFen,
+    initialFen,
+    orientation: boardOrientation,
+    title: analysisTitle,
+    userId: user?.id ?? null,
+  });
+
+  // Обёртка над `rawMakeVariantMove`: пробрасываем UCI в live-трансляцию
+  // после успешно применённого хода. Если трансляция не активна — внутри
+  // хука это no-op, лишних эмитов не будет.
+  const makeVariantMove = useCallback(
+    (from: string, to: string, promotion?: string): boolean => {
+      const ok = rawMakeVariantMove(from, to, promotion);
+      if (ok) {
+        const uci = `${from}${to}${(promotion ?? '').toLowerCase()}`;
+        liveBroadcast.emitMove(uci);
+      }
+      return ok;
+    },
+    [rawMakeVariantMove, liveBroadcast],
+  );
 
   const game = useMemo(() => new Chess(), []);
 
@@ -2495,6 +2530,26 @@ function AnalysisPageInner({
             onTitleSave={handleTitleSave}
             onTitleKeyDown={handleTitleKeyDown}
             onTitleClick={handleTitleClick}
+          />
+        )}
+        {/* KS-3736 / ADR-110: блок управления live-трансляцией.
+            Виден только авторизованному пользователю и только в обычном
+            (не embedded / не publicMode) режиме страницы — это инструмент
+            автора, не зрителя и не ученика урока. */}
+        {!embedded && !publicMode && user && (
+          <LiveBroadcastControl
+            isLive={liveBroadcast.isLive}
+            isStarting={liveBroadcast.isStarting}
+            viewerCount={liveBroadcast.viewerCount}
+            publicUrl={liveBroadcast.publicUrl}
+            errorMessage={liveBroadcast.error}
+            onStart={() => {
+              // Авто-копирование ссылки и тост «Ссылка скопирована»
+              // делает сам компонент в useEffect при переходе
+              // publicUrl null → string. Здесь только запускаем start.
+              void liveBroadcast.start();
+            }}
+            onStop={liveBroadcast.stop}
           />
         )}
         {/* KS-3261: toast «Открыли существующий анализ» — показывается
