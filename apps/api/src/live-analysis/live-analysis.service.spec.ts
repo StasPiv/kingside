@@ -139,6 +139,7 @@ describe('LiveAnalysisService', () => {
     };
     lecture: {
       updateMany: jest.Mock;
+      findFirst: jest.Mock;
     };
   };
   let redis: FakeRedis;
@@ -167,6 +168,9 @@ describe('LiveAnalysisService', () => {
         // lectures для проставления endedAt. По умолчанию нет
         // связанных лекций (count=0).
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        // KS-3791: getLectureBinding зовёт findFirst. По умолчанию
+        // лекции под трансляцией нет — recordLectureEvent no-op.
+        findFirst: jest.fn().mockResolvedValue(null),
       },
     };
     redis = new FakeRedis();
@@ -983,6 +987,118 @@ describe('LiveAnalysisService', () => {
       prisma.liveAnalysis.count.mockRejectedValueOnce(new Error('boom'));
       await expect(service.onModuleInit()).resolves.toBeUndefined();
       expect(metrics.setLiveAnalysisZombieClosedAtMigration).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── KS-3791 / ADR-113 §2.3: recorder событий в Redis ─────────────
+
+  describe('KS-3791: recordLectureEvent через RPUSH', () => {
+    const activeRow = {
+      id: 'la-1',
+      ownerId: 'u-1',
+      status: 'active' as const,
+      startingFen: null as string | null,
+    };
+
+    /**
+     * Прочитать длину списка lecture_recording:<id>:events через
+     * FakeRedis (внутри он держит lists.get(key)).
+     */
+    function readRecordedEvents(liveAnalysisId: string): string[] {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lists = (redis as any).lists as Map<string, string[]>;
+      return lists.get(`lecture_recording:${liveAnalysisId}:events`) ?? [];
+    }
+
+    it('пишет событие move при applyMove если есть связанная live-лекция', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue(activeRow);
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        id: 'l-1',
+        startedAt: new Date(Date.now() - 1234),
+      });
+      await service.applyMove('s', 'u-1', 'e2e4');
+      const recorded = readRecordedEvents('la-1');
+      expect(recorded).toHaveLength(1);
+      const event = JSON.parse(recorded[0]);
+      expect(event.type).toBe('move');
+      expect(event.payload).toEqual({ uci: 'e2e4', ply: 1 });
+      expect(event.t).toBeGreaterThanOrEqual(0);
+    });
+
+    it('кеширует биндинг: повторный applyMove не делает второй findFirst', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue(activeRow);
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        id: 'l-1',
+        startedAt: new Date(Date.now() - 100),
+      });
+      await service.applyMove('s', 'u-1', 'e2e4');
+      await service.applyMove('s', 'u-1', 'e2e5');
+      expect(prisma.lecture.findFirst).toHaveBeenCalledTimes(1);
+    });
+
+    it('кеширует "лекции нет" — второй ход не дёргает PG повторно', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue(activeRow);
+      // findFirst по умолчанию возвращает null — лекции нет.
+      await service.applyMove('s', 'u-1', 'e2e4');
+      await service.applyMove('s', 'u-1', 'e2e5');
+      expect(prisma.lecture.findFirst).toHaveBeenCalledTimes(1);
+      expect(readRecordedEvents('la-1')).toEqual([]);
+    });
+
+    it('пишет событие state-patch при applyStatePatch', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue(activeRow);
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        id: 'l-1',
+        startedAt: new Date(Date.now() - 500),
+      });
+      await service.applyStatePatch('s', 'u-1', {
+        tree: '{"history":[{"uci":"e2e4"}]}',
+        currentGlobalIndex: 1,
+      });
+      const recorded = readRecordedEvents('la-1');
+      expect(recorded).toHaveLength(1);
+      const event = JSON.parse(recorded[0]);
+      expect(event.type).toBe('state-patch');
+      expect(event.payload.tree).toBe('{"history":[{"uci":"e2e4"}]}');
+      expect(event.payload.currentGlobalIndex).toBe(1);
+      expect(event.payload.orientation).toBe('white');
+    });
+
+    it('пишет событие reset при applyReset', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue(activeRow);
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        id: 'l-1',
+        startedAt: new Date(Date.now() - 100),
+      });
+      await service.applyReset('s', 'u-1');
+      const recorded = readRecordedEvents('la-1');
+      const types = recorded.map((s) => JSON.parse(s).type);
+      expect(types).toContain('reset');
+    });
+
+    it('пишет событие closed при closeBySlug и очищает кеш биндинга', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        ownerId: 'u-1',
+        status: 'active',
+      });
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        id: 'l-1',
+        startedAt: new Date(Date.now() - 100),
+      });
+      await service.closeBySlug('s', 'u-1');
+      const recorded = readRecordedEvents('la-1');
+      const last = JSON.parse(recorded[recorded.length - 1]);
+      expect(last.type).toBe('closed');
+      expect(last.payload).toEqual({ reason: 'by_owner' });
+    });
+
+    it('ошибка findFirst не валит applyMove — событие просто не пишется', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue(activeRow);
+      prisma.lecture.findFirst.mockRejectedValueOnce(new Error('boom'));
+      const ev = await service.applyMove('s', 'u-1', 'e2e4');
+      expect(ev.uci).toBe('e2e4');
+      expect(readRecordedEvents('la-1')).toEqual([]);
     });
   });
 });

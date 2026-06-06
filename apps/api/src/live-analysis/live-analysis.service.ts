@@ -119,6 +119,23 @@ export class LiveAnalysisService implements OnModuleInit {
    *  живёт ровно пока трансляция active. */
   private readonly slugToOwnerCache = new Map<string, string>();
 
+  /**
+   * KS-3791 / ADR-113 §2.3, §4 крупная задача 2. In-memory кеш привязки
+   * `liveAnalysisId → { lectureId, startedAt(ms) } | null`. Заполняется
+   * при первом вызове `recordLectureEvent` для конкретной трансляции
+   * (одно `prisma.lecture.findFirst`). Значение `null` означает «уже
+   * проверили, лекции под этой трансляцией нет» — не делаем повторных
+   * запросов. Очищается при закрытии трансляции (closeBySlug и
+   * cleanup-tick).
+   */
+  private readonly lectureBindingCache = new Map<
+    string,
+    { lectureId: string; startedAt: number } | null
+  >();
+
+  /** KS-3791. TTL ключа `lecture_recording:<liveAnalysisId>:events` (сек). */
+  static readonly LECTURE_RECORDING_TTL_SEC = 26 * 3600;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -448,10 +465,16 @@ export class LiveAnalysisService implements OnModuleInit {
     this.metrics.decLiveAnalysisActive();
     await this.purgeRedisState(found.id);
 
+    // KS-3791: финальное событие записи лекции — до markLiveLectureEnded,
+    // потому что после изменения статуса лекции на не-`live` биндинг
+    // в getLectureBinding может перестать находиться. Очистка кеша —
+    // после всех записей.
+    await this.recordLectureEvent(found.id, 'closed', { reason });
     // KS-3785 / ADR-113 §4 эпик 1: проставить endedAt связанной
     // live-лекции (если есть). Статус Lecture не меняем — переход в
     // recorded/cancelled будет в эпике 2 после финализатора записи.
     await this.markLiveLectureEnded(found.id, closedAt);
+    this.lectureBindingCache.delete(found.id);
 
     await this.publish(LiveAnalysisService.CHANNEL_CLOSED, { slug, reason });
 
@@ -486,6 +509,78 @@ export class LiveAnalysisService implements OnModuleInit {
       // регулярная финализация эпика 2 закроет позже.
       this.logger.warn(
         `markLiveLectureEnded failed: liveAnalysisId=${liveAnalysisId} ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * KS-3791 / ADR-113 §2.3, §4 крупная задача 2. Найти связанную live-
+   * лекцию для трансляции и закешировать результат. Возвращает
+   * `null` если лекции нет — кеш на это значение тоже работает,
+   * чтобы не дёргать PG на каждый ход «обычной» трансляции без лекции.
+   */
+  private async getLectureBinding(
+    liveAnalysisId: string,
+  ): Promise<{ lectureId: string; startedAt: number } | null> {
+    if (this.lectureBindingCache.has(liveAnalysisId)) {
+      return this.lectureBindingCache.get(liveAnalysisId) ?? null;
+    }
+    let binding: { lectureId: string; startedAt: number } | null = null;
+    try {
+      const lecture = await this.prisma.lecture.findFirst({
+        where: { liveAnalysisId, status: 'live' },
+        select: { id: true, startedAt: true },
+      });
+      if (lecture && lecture.startedAt) {
+        binding = {
+          lectureId: lecture.id,
+          startedAt: lecture.startedAt.getTime(),
+        };
+      }
+    } catch (e) {
+      this.logger.warn(
+        `getLectureBinding failed liveAnalysisId=${liveAnalysisId}: ${(e as Error).message}`,
+      );
+      // На ошибке БД не кешируем — следующий вызов попробует снова.
+      return null;
+    }
+    this.lectureBindingCache.set(liveAnalysisId, binding);
+    return binding;
+  }
+
+  /**
+   * KS-3791. Дописать событие записи лекции в Redis-список
+   * `lecture_recording:<liveAnalysisId>:events` (упорядоченно через
+   * RPUSH) и продлить TTL до 26ч. Если у трансляции нет связанной
+   * live-лекции — no-op. Ошибки логируются warn и не валят основной
+   * поток обработки события автора.
+   *
+   * `t` — миллисекунды от `lecture.startedAt`; `type` — один из
+   * `move | state-patch | reset | closed`; `payload` — произвольная
+   * JSON-сериализуемая структура (для воспроизведения финализатором).
+   */
+  private async recordLectureEvent(
+    liveAnalysisId: string,
+    type: 'move' | 'state-patch' | 'reset' | 'closed',
+    payload: unknown,
+  ): Promise<void> {
+    try {
+      const binding = await this.getLectureBinding(liveAnalysisId);
+      if (!binding) return;
+      const event = {
+        t: Math.max(0, Date.now() - binding.startedAt),
+        type,
+        payload,
+      };
+      const key = `lecture_recording:${liveAnalysisId}:events`;
+      await this.redis
+        .multi()
+        .rpush(key, JSON.stringify(event))
+        .expire(key, LiveAnalysisService.LECTURE_RECORDING_TTL_SEC)
+        .exec();
+    } catch (e) {
+      this.logger.warn(
+        `recordLectureEvent failed liveAnalysisId=${liveAnalysisId} type=${type}: ${(e as Error).message}`,
       );
     }
   }
@@ -543,9 +638,14 @@ export class LiveAnalysisService implements OnModuleInit {
           this.authorMoveLimiter.reset(row.slug);
           this.authorStatePatchLimiter.reset(row.slug);
           await this.purgeRedisState(row.id);
+          // KS-3791: финальное событие записи лекции до изменения
+          // статуса самой лекции (после markLiveLectureEnded биндинг
+          // в кеше перестанет «находиться»).
+          await this.recordLectureEvent(row.id, 'closed', { reason: 'inactivity' });
           // KS-3785: тот же хук, что и в closeBySlug — endedAt для
           // связанной live-лекции.
           await this.markLiveLectureEnded(row.id, now);
+          this.lectureBindingCache.delete(row.id);
           await this.publish(LiveAnalysisService.CHANNEL_CLOSED, {
             slug: row.slug,
             reason: 'inactivity',
@@ -685,6 +785,11 @@ export class LiveAnalysisService implements OnModuleInit {
       };
       this.metrics.incLiveAnalysisMoveAccepted();
       await this.publish(LiveAnalysisService.CHANNEL_MOVE, payload);
+      // KS-3791: пишем событие в Redis-список для финализатора лекции.
+      await this.recordLectureEvent(meta.id, 'move', {
+        uci,
+        ply: newPly,
+      });
       return payload;
     });
   }
@@ -820,6 +925,16 @@ export class LiveAnalysisService implements OnModuleInit {
       // KS-3780: длина считается по новому полю tree вместо pgn.
       this.metrics.incLiveAnalysisStatePatchAccepted(payload.tree.length);
       await this.publish(LiveAnalysisService.CHANNEL_SYNC, snapshot);
+      // KS-3791: пишем событие в Redis-список финализатора лекции.
+      // tree кладём как есть — финализатор уже разберёт его при
+      // восстановлении полного состояния воспроизведения.
+      await this.recordLectureEvent(meta.id, 'state-patch', {
+        tree: payload.tree,
+        ...(currentGlobalIndexValue !== undefined && {
+          currentGlobalIndex: currentGlobalIndexValue,
+        }),
+        orientation,
+      });
       return snapshot;
     });
   }
@@ -881,6 +996,11 @@ export class LiveAnalysisService implements OnModuleInit {
       // state hash выше; в snapshot не отдаётся.
       void currentFen;
       await this.publish(LiveAnalysisService.CHANNEL_SYNC, snapshot);
+      // KS-3791: пишем reset в Redis-список финализатора лекции.
+      await this.recordLectureEvent(meta.id, 'reset', {
+        fen: newStartingFen,
+        orientation,
+      });
       return snapshot;
     });
   }
