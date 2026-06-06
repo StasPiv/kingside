@@ -68,17 +68,20 @@ export interface UseLiveAnalysisBroadcastArgs {
 export interface UseLiveAnalysisBroadcastState {
   /** Текущий annotated PGN трансляции (из последнего `sync.currentPgn`). `null` пока не пришёл. */
   pgn: string | null;
-  /** PGN-headers (из `sync.headers`). `null` пока не пришли. */
-  headers: Record<string, string> | null;
-  /** Текущая позиция автора в дереве (из `sync.currentPly` или последнего `move.ply`). */
-  currentPly: number;
   /**
-   * KS-3750 / ADR-111 §7. Текущий FEN автора (из `sync.currentFen` или
-   * последнего `move.fen`). Нужен зрителю чтобы понять, находится ли он
-   * на main-line автора или в локальной ветке. `null` пока не пришёл
-   * первый sync/move.
+   * KS-3775. Уникальный сквозной индекс узла дерева автора
+   * (включая боковые варианты). Берётся из `sync.currentGlobalIndex`,
+   * куда backend пишет значение `state-patch.currentGlobalIndex`.
+   * Используется зрителем для прямого поиска узла через
+   * `searchInHistory(history, currentGlobalIndex)` — без проблем
+   * транспозиций (когда несколько узлов имеют одинаковый FEN).
+   * `null` пока не пришёл первый sync.
+   *
+   * Поля `currentFen`, `currentPly`, `headers` убраны из контракта
+   * (KS-3775 follow-up). Эти данные выводятся из самого PGN /
+   * найденного узла по globalIndex.
    */
-  currentFen: string | null;
+  currentGlobalIndex: number | null;
   /** Ориентация доски, как её сохранил автор. */
   orientation: LiveAnalysisOrientation;
   /** Текущее число зрителей (по `viewers`-event). */
@@ -99,8 +102,7 @@ export interface UseLiveAnalysisBroadcastState {
   emitStatePatch: (
     pgn: string,
     extras?: {
-      headers?: Record<string, string>;
-      currentPly?: number;
+      currentGlobalIndex?: number;
       orientation?: LiveAnalysisOrientation;
     },
   ) => void;
@@ -121,9 +123,10 @@ export function useLiveAnalysisBroadcast({
 }: UseLiveAnalysisBroadcastArgs): UseLiveAnalysisBroadcastState {
   // ─── State ────────────────────────────────────────────────────────
   const [pgn, setPgn] = useState<string | null>(null);
-  const [headers, setHeaders] = useState<Record<string, string> | null>(null);
-  const [currentPly, setCurrentPly] = useState(0);
-  const [currentFen, setCurrentFen] = useState<string | null>(null);
+  // KS-3775: уникальный индекс узла дерева автора (см. описание поля
+  // в `UseLiveAnalysisBroadcastState`).
+  const [currentGlobalIndex, setCurrentGlobalIndex] =
+    useState<number | null>(null);
   const [orientation, setOrientation] =
     useState<LiveAnalysisOrientation>('white');
   const [viewerCount, setViewerCount] = useState(0);
@@ -151,28 +154,28 @@ export function useLiveAnalysisBroadcast({
         // потребитель строит дерево из startingFen+moves.
         setPgn(null);
       }
-      setHeaders(payload.headers ?? null);
-      setCurrentPly(payload.currentPly);
-      setCurrentFen(payload.currentFen);
+      // KS-3775: backend сохраняет state-patch.currentGlobalIndex в
+      // Redis и отдаёт его в snapshot. Поле опциональное — для старых
+      // трансляций (до KS-3775) приходит undefined, viewer оставляет
+      // курсор у себя без сдвига на позицию автора.
+      setCurrentGlobalIndex(
+        typeof payload.currentGlobalIndex === 'number'
+          ? payload.currentGlobalIndex
+          : null,
+      );
       setOrientation(payload.orientation);
       // На приход sync сбрасываем последнюю ошибку — текущее состояние
       // снова консистентно с сервером.
       setError(null);
     }, []),
-    onMove: useCallback((payload: LiveAnalysisMoveEvent) => {
-      // На голый `move` сервер не пересылает PGN целиком (см. ADR-111
-      // §2.2: «move» — это лёгкий апдейт). Поэтому здесь только сдвигаем
-      // currentPly + currentFen. PGN-дерево обновится на следующем
-      // `state-patch` от автора (либо потребитель сам применяет UCI
-      // поверх локального PGN). Защита от out-of-order: применяем
-      // только если ply вырос.
-      setCurrentPly((prev) => {
-        if (payload.ply > prev) {
-          setCurrentFen(payload.fen);
-          return payload.ply;
-        }
-        return prev;
-      });
+    onMove: useCallback((_payload: LiveAnalysisMoveEvent) => {
+      // KS-3775 follow-up: `move`-event теперь не двигает локального
+      // курсора зрителя — позицию автора отражает только следующий
+      // `state-patch` с currentGlobalIndex. Между move и state-patch
+      // (debounce 500 мс у автора) зритель видит прежнюю позицию
+      // дерева. Это компромисс контракта; альтернатива — слать
+      // globalIndex в move-event тоже — потребует расширения
+      // payload-а и не покрывает кейс «автор листает без хода».
     }, []),
     onViewers: useCallback((payload: LiveAnalysisViewersEvent) => {
       setViewerCount(payload.count);
@@ -280,9 +283,7 @@ export function useLiveAnalysisBroadcast({
   return useMemo(
     () => ({
       pgn,
-      headers,
-      currentPly,
-      currentFen,
+      currentGlobalIndex,
       orientation,
       viewerCount,
       connected,
@@ -295,9 +296,7 @@ export function useLiveAnalysisBroadcast({
     }),
     [
       pgn,
-      headers,
-      currentPly,
-      currentFen,
+      currentGlobalIndex,
       orientation,
       viewerCount,
       connected,

@@ -935,11 +935,14 @@ function AnalysisPageInner({
   // Применённый PGN запоминаем в `lastAppliedLivePgnRef`, чтобы тот
   // же snapshot не применился дважды.
   const lastAppliedLivePgnRef = useRef<string | null>(null);
-  // KS-3769: FEN автора на момент последнего apply. Используется чтобы
-  // отличить «зритель идёт за автором» (viewerFen === lastAppliedAuthorFen)
-  // от «зритель листает дерево сам» (viewerFen ≠ lastAppliedAuthorFen).
-  // Null до первого apply — трактуется как «следовать за автором».
-  const lastAppliedAuthorFenRef = useRef<string | null>(null);
+  // KS-3775 follow-up: уникальный globalIndex узла автора на момент
+  // последнего apply. Используется чтобы отличить «зритель идёт за
+  // автором» (его currentMove.globalIndex === lastAppliedAuthorGlobalIndex)
+  // от «зритель листает дерево сам» (несовпадение). Null до первого
+  // apply — трактуется как «следовать за автором». Раньше сравнивали
+  // по FEN (lastAppliedAuthorFenRef), но FEN не уникален в дереве
+  // (транспозиции), поэтому переехали на globalIndex.
+  const lastAppliedAuthorGlobalIndexRef = useRef<number | null>(null);
   const [pendingLivePgn, setPendingLivePgn] = useState<string | null>(null);
 
   // KS-3768 фикс KS-3750: предикат «зритель находится в дереве автора».
@@ -947,15 +950,9 @@ function AnalysisPageInner({
   // это ломалось на ПЕРВОМ sync: у зрителя currentMove=null,
   // viewerFen=initialFen, а authorFen — позиция автора (обычно не
   // initialFen), → условие давало false → весь первичный snapshot
-  // уходил в pending, висел «Применить», авто-применение никогда не
-  // срабатывало. Новый критерий: позиция зрителя «в дереве автора»,
-  // если она равна стартовой позиции (root) или существует в дереве
-  // ходов через findGlobalIndexByFen. Это покрывает:
-  //   - первый sync (зритель на root, дерево автора растёт от root);
-  //   - зрителя, листающего main-line / варианты автора (его FEN там есть);
-  //   - НЕ покрывает: зрителя, ушедшего в собственную ветку (FEN'а
-  //     нет в дереве автора) → попадает в pending, ждёт «Применить»
-  //     или возврата к main-line.
+  // уходил в pending. Текущий критерий: позиция зрителя «в дереве
+  // автора», если она равна стартовой позиции (root) или существует в
+  // дереве ходов через findGlobalIndexByFen.
   const isViewerFenInAuthorTree = useCallback(
     (viewerFen: string, moves: ChessMove[]): boolean => {
       if (viewerFen === initialFen) return true;
@@ -968,58 +965,39 @@ function AnalysisPageInner({
   // кнопке «Применить» из badge'а.
   const applyLivePgn = useCallback(
     (nextPgn: string) => {
-      const viewerFen = currentMove?.fen ?? initialFen;
-      const authorFen = liveFull.currentFen;
+      const viewerGlobalIndex = currentMove?.globalIndex ?? null;
       const authorGlobalIndex = liveFull.currentGlobalIndex;
       try {
         const moves = parseAnnotatedPgn(nextPgn);
         const initialAnn = extractInitialAnnotations(nextPgn);
         loadFromPgn(moves, initialAnn);
-        // KS-3769: ключевое решение «куда перевести курсор».
-        //   - Первый apply (lastAppliedAuthorFenRef.current === null) →
+        // KS-3775 follow-up: headers вытаскиваем из самого PGN (backend
+        // их больше не отдаёт отдельным полем). PGN — авторитетный
+        // источник: при расхождении PGN всегда побеждает.
+        setPgnHeaders(parsePgnHeaders(nextPgn));
+        // KS-3769 (на globalIndex): решение «куда перевести курсор».
+        //   - Первый apply (lastAppliedAuthorGlobalIndexRef.current === null) →
         //     зритель только что открылся, ведём его на позицию автора.
         //   - Зритель остался синхронизированным с автором
-        //     (viewerFen === lastAppliedAuthorFenRef.current) → ведём за
-        //     автором на новую позицию. Это покрывает основной сценарий
-        //     KS-3769: зритель смотрит, автор делает ход, курсор зрителя
-        //     автоматически двигается.
-        //   - Зритель ушёл в листание дерева (viewerFen ≠
-        //     lastAppliedAuthorFenRef) → сохраняем его позицию через
-        //     findGlobalIndexByFen(viewerFen). Не сбиваем зрителя
-        //     посреди разбора.
+        //     (viewerGlobalIndex === lastAppliedAuthorGlobalIndexRef.current) →
+        //     ведём за автором на новую позицию. Это покрывает основной
+        //     сценарий: зритель смотрит, автор делает ход, курсор
+        //     зрителя автоматически двигается.
+        //   - Зритель ушёл в листание дерева (несовпадение) →
+        //     сохраняем его позицию через findGlobalIndexByFen(viewerFen).
+        //     Не сбиваем зрителя посреди разбора.
         const followAuthor =
-          !lastAppliedAuthorFenRef.current ||
-          viewerFen === lastAppliedAuthorFenRef.current;
+          lastAppliedAuthorGlobalIndexRef.current === null ||
+          viewerGlobalIndex === lastAppliedAuthorGlobalIndexRef.current;
         let target: ChessMove | null = null;
-        if (followAuthor) {
-          // KS-3775: основной путь — поиск по уникальному индексу узла.
-          // Это устойчиво к транспозициям (две позиции с одинаковым
-          // FEN, но разными узлами в дереве) и не требует FEN-сравнений.
-          if (typeof authorGlobalIndex === 'number') {
-            target = searchInHistory(moves, authorGlobalIndex) as ChessMove | null;
-          }
-          // Fallback на старый поиск по FEN (для совместимости со
-          // старыми клиентами / сервером без поля currentGlobalIndex).
-          if (!target && authorFen) {
-            const idx = findGlobalIndexByFen(moves, authorFen);
-            if (idx !== null) target = searchInHistory(moves, idx) as ChessMove | null;
-          }
-          // Fallback по currentPly (если ни индекс, ни FEN не сработали).
-          if (!target && liveFull.currentPly > 0) {
-            for (const m of moves) {
-              if (m.ply === liveFull.currentPly) {
-                target = m;
-                break;
-              }
-              if (m.ply > liveFull.currentPly) break;
-              target = m;
-            }
-          }
-        } else {
-          // Зритель листает сам — сохраняем его позицию по FEN
-          // (`viewerFen` — это `currentMove?.fen` зрителя; здесь FEN
-          // подходит, потому что мы ищем узел зрителя в новом дереве
-          // автора, индекса у нас на него нет).
+        if (followAuthor && typeof authorGlobalIndex === 'number') {
+          // KS-3775: единственный путь — поиск по уникальному индексу
+          // узла. Запасные варианты через FEN/ply убраны вместе с
+          // полями из контракта.
+          target = searchInHistory(moves, authorGlobalIndex) as ChessMove | null;
+        } else if (!followAuthor) {
+          // Зритель листает сам — сохраняем его позицию.
+          const viewerFen = currentMove?.fen ?? initialFen;
           const idx = findGlobalIndexByFen(moves, viewerFen);
           if (idx !== null) target = searchInHistory(moves, idx) as ChessMove | null;
         }
@@ -1027,7 +1005,8 @@ function AnalysisPageInner({
         // Если узла нет — reducer оставит currentMove на последнем ходе
         // (soft drift), это норма.
         lastAppliedLivePgnRef.current = nextPgn;
-        lastAppliedAuthorFenRef.current = authorFen;
+        lastAppliedAuthorGlobalIndexRef.current =
+          typeof authorGlobalIndex === 'number' ? authorGlobalIndex : null;
       } catch {
         /* битый PGN — оставляем дерево как есть, ждём следующего sync. */
       }
@@ -1035,9 +1014,7 @@ function AnalysisPageInner({
     [
       currentMove,
       initialFen,
-      liveFull.currentFen,
       liveFull.currentGlobalIndex,
-      liveFull.currentPly,
       loadFromPgn,
       gotoMove,
     ],
@@ -1120,16 +1097,10 @@ function AnalysisPageInner({
     );
   }, [liveSession, liveFull.orientation]);
 
-  // KS-3747: headers из live — обновляем locale-state. По ADR-111 §2.8.2
-  // «при расхождении побеждает PGN», но и `headers` поле служит хинтом
-  // для зрительского `GameMetaBar`. Подменяем только если оно реально
-  // пришло; пустого объекта/null reducer'ом не трогаем — иначе один
-  // sync без headers перетёр бы валидные значения.
-  useEffect(() => {
-    if (!isViewerLive) return;
-    if (!liveFull.headers) return;
-    setPgnHeaders(liveFull.headers);
-  }, [isViewerLive, liveFull.headers]);
+  // KS-3775 follow-up: headers больше не отдельное поле в sync —
+  // backend убрал его из snapshot. Headers извлекаются из PGN внутри
+  // applyLivePgn через `parsePgnHeaders(nextPgn)`, дублирующий эффект
+  // удалён.
 
   // KS-3747: в viewer-режиме нет id-based загрузки — стартуем сразу
   // готовыми к рендеру, спиннер не нужен. Загружаемое содержимое
@@ -2374,8 +2345,6 @@ function AnalysisPageInner({
     if (!pgn) return;
     liveBroadcast.emitStatePatch({
       pgn,
-      headers: pgnHeaders,
-      currentPly: currentMove?.ply ?? 0,
       // KS-3775: точная позиция автора в дереве вариантов через
       // уникальный сквозной индекс узла. Парсер
       // `parseAnnotatedPgn` присваивает globalIndex детерминированно,
@@ -2383,7 +2352,7 @@ function AnalysisPageInner({
       // (после applyLivePgn). Это устойчиво к транспозициям, в
       // отличие от FEN. Когда автор на стартовой позиции
       // (currentMove=null) — индекс не определён, поле опускаем;
-      // зритель в этом случае останется на root через soft drift.
+      // зритель в этом случае останется на root.
       currentGlobalIndex: currentMove
         ? currentGlobalIndex
         : undefined,
@@ -2393,7 +2362,6 @@ function AnalysisPageInner({
     isViewerLive,
     liveBroadcast,
     buildAnalysisPgn,
-    pgnHeaders,
     currentMove,
     currentGlobalIndex,
     boardOrientation,

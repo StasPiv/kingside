@@ -132,8 +132,6 @@ export interface UseAnalysisLiveBroadcastState {
    */
   emitStatePatch: (params: {
     pgn: string;
-    headers?: Record<string, string>;
-    currentPly?: number;
     /**
      * KS-3775: уникальный сквозной индекс узла дерева анализа автора
      * (включая боковые варианты). Парсер `parseAnnotatedPgn`
@@ -141,7 +139,8 @@ export interface UseAnalysisLiveBroadcastState {
      * же узла у автора и у зрителя совпадает. Backend сохраняет его
      * как авторитативный и отдаёт в sync; зритель находит узел через
      * `searchInHistory(history, currentGlobalIndex)` — без поисков
-     * по FEN, что устойчиво к транспозициям.
+     * по FEN, что устойчиво к транспозициям. Поля `currentPly` и
+     * `headers` убраны из контракта (KS-3775 follow-up).
      */
     currentGlobalIndex?: number;
     orientation?: LiveAnalysisOrientation;
@@ -301,8 +300,6 @@ export function useAnalysisLiveBroadcast({
   const statePatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingStatePatchRef = useRef<{
     pgn: string;
-    headers?: Record<string, string>;
-    currentPly?: number;
     // KS-3775: точная позиция автора в дереве вариантов через
     // уникальный индекс узла (см. описание в типе выше).
     currentGlobalIndex?: number;
@@ -344,8 +341,6 @@ export function useAnalysisLiveBroadcast({
       if (!params.pgn) return;
       const signature = JSON.stringify({
         p: params.pgn,
-        h: params.headers ?? null,
-        c: params.currentPly ?? null,
         g: params.currentGlobalIndex ?? null,
         o: params.orientation ?? null,
       });
@@ -362,8 +357,6 @@ export function useAnalysisLiveBroadcast({
         socketEmitStatePatchRef.current(payload);
         lastSentSignatureRef.current = JSON.stringify({
           p: payload.pgn,
-          h: payload.headers ?? null,
-          c: payload.currentPly ?? null,
           g: payload.currentGlobalIndex ?? null,
           o: payload.orientation ?? null,
         });

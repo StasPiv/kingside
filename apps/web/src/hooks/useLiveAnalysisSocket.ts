@@ -77,8 +77,6 @@ export interface UseLiveAnalysisSocketState {
    */
   emitStatePatch: (params: {
     pgn: string;
-    headers?: Record<string, string>;
-    currentPly?: number;
     /**
      * KS-3775: уникальный сквозной индекс узла дерева анализа
      * (включая боковые варианты). Парсер `parseAnnotatedPgn`
@@ -86,7 +84,9 @@ export interface UseLiveAnalysisSocketState {
      * индекс зрителя для одного и того же узла идентичны. Решает
      * проблему транспозиций (два разных узла дерева могут иметь
      * один и тот же FEN), поэтому передаём именно индекс, а не
-     * FEN текущей позиции.
+     * FEN текущей позиции. Поля `currentPly` и `headers` убраны
+     * из контракта (KS-3775 follow-up): currentPly выводится из
+     * найденного узла, headers — из `parsePgnHeaders(pgn)`.
      */
     currentGlobalIndex?: number;
     orientation?: 'white' | 'black';
@@ -231,8 +231,6 @@ export function useLiveAnalysisSocket({
   const emitStatePatch = useCallback(
     (params: {
       pgn: string;
-      headers?: Record<string, string>;
-      currentPly?: number;
       // KS-3775: см. описание в типе UseLiveAnalysisSocketState.
       currentGlobalIndex?: number;
       orientation?: 'white' | 'black';
