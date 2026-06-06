@@ -5,10 +5,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
+import { useAuth } from '../context/AuthContext';
 import {
   AnalysisPage,
   type RecordedEvent,
@@ -48,8 +49,12 @@ interface LectureSummary {
   description: string | null;
   status: 'scheduled' | 'live' | 'recorded' | 'cancelled';
   ownerUsername?: string;
+  scheduledAt?: string | null;
   startedAt: string | null;
   endedAt: string | null;
+  // KS-3787 backend кладёт liveAnalysis в GET /lectures/:id для
+  // active-lecture; для scheduled/cancelled поле null.
+  liveAnalysis?: { id: string; slug: string; url: string } | null;
 }
 
 interface LectureRecording {
@@ -263,28 +268,15 @@ export function LectureReplayPage() {
   }
 
   if (state.kind === 'no-recording') {
+    // KS-3804 / ADR-113 §4 крупная задача 3: ветка без записи —
+    // дальше выбираем UI по lecture.status.
     return (
-      <div className="lecture-replay-page">
-        <header className="lecture-replay-header">
-          <h1>{state.lecture.title}</h1>
-          {state.lecture.ownerUsername && (
-            <p>
-              {t('lectureReplay.byOwner', 'by')}{' '}
-              <Link
-                to={`/coach/${encodeURIComponent(state.lecture.ownerUsername)}`}
-              >
-                {state.lecture.ownerUsername}
-              </Link>
-            </p>
-          )}
-        </header>
-        <p>
-          {t(
-            'lectureReplay.noRecordingBody',
-            'This lecture has no recording yet. Please come back later.',
-          )}
-        </p>
-      </div>
+      <ScheduledOrCancelledOrLive
+        lecture={state.lecture}
+        onStarted={(updatedLecture) =>
+          setState({ kind: 'no-recording', lecture: updatedLecture })
+        }
+      />
     );
   }
 
@@ -479,6 +471,299 @@ export function LectureReplayPage() {
             </div>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// KS-3804: подкомпонент для scheduled/live/cancelled-веток. Вынесен
+// чтобы держать в LectureReplayPage только плеер записи и не плодить
+// у него лишних эффектов (отсчёт времени, POST /start, навигация в
+// live-режим).
+// ─────────────────────────────────────────────────────────────────────
+
+interface ScheduledOrCancelledOrLiveProps {
+  lecture: LectureSummary;
+  onStarted: (updatedLecture: LectureSummary) => void;
+}
+
+interface StartLectureResponse {
+  lecture: LectureSummary;
+  liveAnalysis: { id: string; slug: string; url: string } | null;
+}
+
+function ScheduledOrCancelledOrLive({
+  lecture,
+  onStarted,
+}: ScheduledOrCancelledOrLiveProps) {
+  const { t } = useTranslation();
+  const { user: currentUser } = useAuth();
+  const navigate = useNavigate();
+  const isOwner =
+    !!currentUser &&
+    !!lecture.ownerUsername &&
+    currentUser.username === lecture.ownerUsername;
+
+  // KS-3804: live-лекция уже идёт — отправляем зрителя и автора на
+  // публичный URL трансляции, чтобы не показывать заглушку «лекция
+  // активна, но без ссылки».
+  if (lecture.status === 'live' && lecture.liveAnalysis?.slug) {
+    return <Navigate to={`/live/${lecture.liveAnalysis.slug}`} replace />;
+  }
+
+  // Тик каждую секунду — обновляет относительное «через X» / «должна
+  // была начаться X минут назад». setInterval хватает: точность
+  // секундная, не RAF-задачи.
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (lecture.status !== 'scheduled') return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [lecture.status]);
+
+  // POST /lectures/:id/start. Backend (KS-3784 follow-up b4a470c2)
+  // принимает body { analysisId? }; без analysisId создаёт пустую
+  // live-сессию через createBareLiveSession. Для запланированной
+  // лекции analysisId у нас нет — поэтому отправляем пустое тело.
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const handleStart = useCallback(async () => {
+    if (starting) return;
+    setStarting(true);
+    setStartError(null);
+    try {
+      const resp = await api.post<StartLectureResponse>(
+        `/lectures/${encodeURIComponent(lecture.id)}/start`,
+        {},
+      );
+      if (resp.liveAnalysis?.slug) {
+        // У автора и зрителя одинаковый итог — публичный URL
+        // трансляции; redirect избавляет от рассинхрона состояний
+        // (status='live', наличие liveAnalysis на странице лекции).
+        navigate(`/live/${resp.liveAnalysis.slug}`);
+        return;
+      }
+      // Defensive: ответ без liveAnalysis — обновляем lecture в
+      // родителе и показываем то, что есть.
+      onStarted(resp.lecture);
+    } catch (e) {
+      setStartError(
+        e instanceof ApiError
+          ? e.message
+          : t(
+              'lectureSchedule.start.failed',
+              'Failed to start the lecture. Please try again.',
+            ),
+      );
+    } finally {
+      setStarting(false);
+    }
+  }, [lecture.id, navigate, onStarted, starting, t]);
+
+  const renderOwnerLink = lecture.ownerUsername && (
+    <p style={{ margin: '4px 0', fontSize: 13, opacity: 0.85 }}>
+      {t('lectureReplay.byOwner', 'by')}{' '}
+      <Link to={`/coach/${encodeURIComponent(lecture.ownerUsername)}`}>
+        {lecture.ownerUsername}
+      </Link>
+    </p>
+  );
+
+  const absoluteTime = lecture.scheduledAt
+    ? new Date(lecture.scheduledAt).toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
+
+  // KS-3804: отсчёт по lecture.scheduledAt относительно now.
+  let countdownLabel = '';
+  let overdue = false;
+  if (lecture.status === 'scheduled' && lecture.scheduledAt) {
+    const target = new Date(lecture.scheduledAt).getTime();
+    if (Number.isFinite(target)) {
+      const diff = target - now;
+      overdue = diff <= 0;
+      const abs = Math.abs(diff);
+      const sec = Math.floor(abs / 1000) % 60;
+      const min = Math.floor(abs / (60 * 1000)) % 60;
+      const hour = Math.floor(abs / (60 * 60 * 1000)) % 24;
+      const day = Math.floor(abs / (24 * 60 * 60 * 1000));
+      const parts: string[] = [];
+      if (day > 0) parts.push(`${day}${t('coachProfile.durDay', 'd')}`);
+      if (hour > 0) parts.push(`${hour}${t('coachProfile.durHour', 'h')}`);
+      if (parts.length === 0) {
+        parts.push(`${min}${t('coachProfile.durMin', 'm')}`);
+        parts.push(`${sec.toString().padStart(2, '0')}${t('coachProfile.durSec', 's')}`);
+      } else if (parts.length === 1 && day === 0) {
+        parts.push(`${min}${t('coachProfile.durMin', 'm')}`);
+      }
+      countdownLabel = parts.join(' ');
+    }
+  }
+
+  return (
+    <div
+      className="lecture-replay-page"
+      data-testid="lecture-replay-page"
+      style={{
+        padding: 16,
+        maxWidth: 640,
+        margin: '0 auto',
+      }}
+    >
+      <nav
+        className="lecture-replay-breadcrumbs"
+        aria-label={t('lectureReplay.breadcrumbsLabel', 'Lecture')}
+        style={{
+          margin: '4px 0 12px',
+          fontSize: 13,
+          opacity: 0.85,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        {lecture.ownerUsername && (
+          <>
+            <Link
+              to={`/coach/${encodeURIComponent(lecture.ownerUsername)}`}
+            >
+              {lecture.ownerUsername}
+            </Link>
+            <span aria-hidden="true">/</span>
+          </>
+        )}
+        <span style={{ fontWeight: 600 }}>{lecture.title}</span>
+      </nav>
+
+      {/* Контент по статусу: scheduled / cancelled / live-fallback. */}
+      {lecture.status === 'scheduled' && (
+        <div data-testid="lecture-scheduled-block">
+          {lecture.description && (
+            <p style={{ margin: '8px 0', opacity: 0.85 }}>
+              {lecture.description}
+            </p>
+          )}
+          {!isOwner && renderOwnerLink}
+          {absoluteTime && (
+            <p
+              style={{ margin: '8px 0', fontSize: 14, opacity: 0.75 }}
+              data-testid="lecture-scheduled-absolute"
+            >
+              {t('lectureSchedule.viewer.startsAt', 'Starts at')}{' '}
+              {absoluteTime}
+            </p>
+          )}
+          {countdownLabel && (
+            <p
+              style={{
+                margin: '12px 0',
+                fontSize: 28,
+                fontWeight: 600,
+              }}
+              data-testid="lecture-scheduled-countdown"
+            >
+              {overdue
+                ? t(
+                    'lectureSchedule.viewer.overdue',
+                    'Should have started {{value}} ago',
+                    { value: countdownLabel },
+                  )
+                : t('lectureSchedule.viewer.startsIn', 'Starts in {{value}}', {
+                    value: countdownLabel,
+                  })}
+            </p>
+          )}
+
+          {isOwner ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void handleStart()}
+                disabled={starting}
+                data-testid="lecture-scheduled-start"
+                style={{
+                  marginTop: 16,
+                  padding: '12px 24px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#1976d2',
+                  color: '#fff',
+                  fontSize: 18,
+                  cursor: starting ? 'wait' : 'pointer',
+                }}
+              >
+                {starting
+                  ? t('common.loading', 'Loading…')
+                  : t('lectureSchedule.start.button', 'Start lecture')}
+              </button>
+              {startError && (
+                <p
+                  className="error"
+                  data-testid="lecture-scheduled-start-error"
+                  style={{ marginTop: 8 }}
+                >
+                  {startError}
+                </p>
+              )}
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled
+              data-testid="lecture-scheduled-join"
+              title={t(
+                'lectureSchedule.viewer.joinDisabledTooltip',
+                'The lecture has not started yet',
+              )}
+              style={{
+                marginTop: 16,
+                padding: '12px 24px',
+                borderRadius: 8,
+                border: '1px solid #ddd',
+                background: '#f5f5f5',
+                color: '#888',
+                fontSize: 18,
+                cursor: 'not-allowed',
+              }}
+            >
+              {t('lectureSchedule.viewer.joinButton', 'Join')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {lecture.status === 'cancelled' && (
+        <div data-testid="lecture-cancelled-block">
+          {renderOwnerLink}
+          <p style={{ margin: '12px 0', fontSize: 16 }}>
+            {t(
+              'lectureSchedule.cancelled.body',
+              'This lecture has been cancelled.',
+            )}
+          </p>
+        </div>
+      )}
+
+      {/* live без liveAnalysis.slug — крайне редкий случай (например,
+          gap между «start выставил status=live» и «createBareLiveSession
+          вернул slug»). Дам автору повторить попытку. */}
+      {lecture.status === 'live' && !lecture.liveAnalysis?.slug && (
+        <div data-testid="lecture-live-no-slug-block">
+          {renderOwnerLink}
+          <p style={{ margin: '12px 0' }}>
+            {t(
+              'lectureSchedule.live.noSlug',
+              'The lecture is live but the broadcast link is not ready yet. Please refresh.',
+            )}
+          </p>
+        </div>
       )}
     </div>
   );

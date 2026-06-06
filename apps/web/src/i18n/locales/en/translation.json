@@ -742,6 +742,7 @@
     "scheduleTitle": "Schedule",
     "duration": "Duration",
     "noRecordingNote": "no recording available",
+    "durDay": "d",
     "durHour": "h",
     "durMin": "m",
     "durSec": "s"
@@ -782,6 +783,23 @@
     "actions": {
       "edit": "Edit",
       "cancel": "Cancel"
+    },
+    "start": {
+      "button": "Start lecture",
+      "failed": "Failed to start the lecture. Please try again."
+    },
+    "viewer": {
+      "startsAt": "Starts at",
+      "startsIn": "Starts in {{value}}",
+      "overdue": "Should have started {{value}} ago",
+      "joinButton": "Join",
+      "joinDisabledTooltip": "The lecture has not started yet"
+    },
+    "cancelled": {
+      "body": "This lecture has been cancelled."
+    },
+    "live": {
+      "noSlug": "The lecture is live but the broadcast link is not ready yet. Please refresh."
     }
   },
   "lecture": {
