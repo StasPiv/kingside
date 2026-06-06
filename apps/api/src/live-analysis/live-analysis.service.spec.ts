@@ -147,6 +147,8 @@ describe('LiveAnalysisService', () => {
       incLiveAnalysisMoveIllegal: jest.fn(),
       incLiveAnalysisRateLimited: jest.fn(),
       incLiveAnalysisCleanupClosed: jest.fn(),
+      incLiveAnalysisStatePatchAccepted: jest.fn(),
+      incLiveAnalysisStatePatchRejected: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -605,6 +607,53 @@ describe('LiveAnalysisService', () => {
       await expect(
         service.applyStatePatch('s', 'u-1', { pgn: tinyPgn }),
       ).rejects.toThrow(/Rate limit/);
+    });
+
+    it('инкрементит state_patches_total + bytes_sum на успешный patch', async () => {
+      await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+      expect(metrics.incLiveAnalysisStatePatchAccepted).toHaveBeenCalledWith(
+        tinyPgn.length,
+      );
+    });
+
+    it('инкрементит rejected_total{reason=pgn_too_large} при превышении 256 KB', async () => {
+      const huge = '[Event "x"]\n\n1. e4 *\n' + 'A'.repeat(300_000);
+      await expect(
+        service.applyStatePatch('s', 'u-1', { pgn: huge }),
+      ).rejects.toThrow();
+      expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
+        'pgn_too_large',
+      );
+    });
+
+    it('инкрементит rejected_total{reason=invalid_pgn} при битом PGN', async () => {
+      await expect(
+        service.applyStatePatch('s', 'u-1', { pgn: '!!!garbage!!!' }),
+      ).rejects.toThrow();
+      expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
+        'invalid_pgn',
+      );
+    });
+
+    it('инкрементит rejected_total{reason=rate_limit} при срабатывании bucket', async () => {
+      for (let i = 0; i < 10; i++) {
+        await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
+      }
+      await expect(
+        service.applyStatePatch('s', 'u-1', { pgn: tinyPgn }),
+      ).rejects.toThrow();
+      expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
+        'rate_limit',
+      );
+    });
+
+    it('инкрементит rejected_total{reason=forbidden} если не владелец', async () => {
+      await expect(
+        service.applyStatePatch('s', 'NOT-u-1', { pgn: tinyPgn }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
+        'forbidden',
+      );
     });
 
     it('publish payload включает currentPgn, moves и headers (если есть)', async () => {

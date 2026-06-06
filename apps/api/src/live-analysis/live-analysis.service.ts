@@ -504,25 +504,37 @@ export class LiveAnalysisService {
     payload: Omit<LiveAnalysisStatePatchPayload, 'slug'>,
   ): Promise<LiveAnalysisSyncSnapshot> {
     return this.runExclusive(slug, async () => {
-      const meta = await this.assertOwnerAndActive(slug, actingUserId);
+      // (1) проверка владельца и статуса. ForbiddenException → метрика
+      // reason='forbidden'. NotFoundException (slug нет / closed) к
+      // 4 кодам не относится — не учитываем в state-patch метриках.
+      let meta;
+      try {
+        meta = await this.assertOwnerAndActive(slug, actingUserId);
+      } catch (e) {
+        if (e instanceof ForbiddenException) {
+          this.metrics.incLiveAnalysisStatePatchRejected('forbidden');
+        }
+        throw e;
+      }
 
-      // (2) hard cap. Считаем длину строки PGN. JS string.length — это
-      // UTF-16 code units, что для ASCII-PGN совпадает с байтами; для
-      // кириллических комментариев overhead вдвое, но на верхнюю
-      // границу абуза 256 KB строки в любом случае хватает с запасом.
+      // (2) жёсткий лимит длины PGN. JS string.length — UTF-16 code
+      // units, что для ASCII-PGN совпадает с байтами; для кириллических
+      // комментариев расход вдвое, но на верхнюю границу абуза 256 KB
+      // строки в любом случае хватает с запасом.
       if (
         payload.pgn.length > LiveAnalysisService.STATE_PATCH_PGN_HARD_CAP_BYTES
       ) {
-        this.metrics.incLiveAnalysisRateLimited('author_moves');
+        this.metrics.incLiveAnalysisStatePatchRejected('pgn_too_large');
         this.logger.warn(
           `state-patch rejected (pgn too large) slug=${slug} bytes=${payload.pgn.length}`,
         );
         throw new BadRequestException('pgn-too-large');
       }
 
-      // (3) rate-limit. Отдельный bucket от move — у них разные пороги.
+      // (3) ограничение частоты. Отдельный bucket от move — у них
+      // разные пороги темпа.
       if (!this.authorStatePatchLimiter.tryConsume(slug)) {
-        this.metrics.incLiveAnalysisRateLimited('author_moves');
+        this.metrics.incLiveAnalysisStatePatchRejected('rate_limit');
         this.logger.warn(
           `rate-limit drop state-patch slug=${slug} owner=${actingUserId}`,
         );
@@ -534,6 +546,7 @@ export class LiveAnalysisService {
       try {
         chess.loadPgn(payload.pgn);
       } catch (e) {
+        this.metrics.incLiveAnalysisStatePatchRejected('invalid_pgn');
         this.logger.warn(
           `state-patch invalid PGN slug=${slug}: ${(e as Error).message}`,
         );
@@ -632,7 +645,8 @@ export class LiveAnalysisService {
         currentPgn: payload.pgn,
         ...(Object.keys(headers ?? {}).length > 0 && { headers }),
       };
-      this.metrics.incLiveAnalysisMoveAccepted();
+      // KS-3745: counter принятых патчей + bytes_sum по длине payload.
+      this.metrics.incLiveAnalysisStatePatchAccepted(payload.pgn.length);
       await this.publish(LiveAnalysisService.CHANNEL_SYNC, snapshot);
       return snapshot;
     });

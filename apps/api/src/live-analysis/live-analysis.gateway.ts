@@ -35,6 +35,7 @@ import {
   ClosePayloadDto,
   MovePayloadDto,
   ResetPayloadDto,
+  StatePatchPayloadDto,
   SubscribePayloadDto,
   SyncRequestPayloadDto,
   UnsubscribePayloadDto,
@@ -53,12 +54,25 @@ import {
  * сделанный на инстансе A, через канал прилетает на инстанс B и
  * эмитится в комнату.
  */
+/**
+ * KS-3744 / ADR-111 §2.8 п.11–12, §8:
+ *   - `perMessageDeflate: true` — сжатие WS-фреймов. Annotated PGN —
+ *     текст с повторами (NAG-теги, повторяющиеся имена клеток,
+ *     дублирующиеся комментарии в вариантах), жмётся 5× и выше.
+ *     CPU-цена при 5 эмитах/сек на инстанс несущественна.
+ *   - `maxHttpBufferSize: 512_000` (512 KB) — вдвое больше жёсткого
+ *     лимита PGN (256 KB) из `applyStatePatch`. Запас на JSON-обвязку
+ *     (slug, headers, currentPly, orientation) и на накладные расходы
+ *     протокола.
+ */
 @WebSocketGateway({
   namespace: LiveAnalysisEvents.NAMESPACE,
   cors: { origin: '*' },
   transports: ['websocket'],
   pingTimeout: 30000,
   connectTimeout: 60000,
+  perMessageDeflate: true,
+  maxHttpBufferSize: 512_000,
 })
 export class LiveAnalysisGateway
   implements
@@ -333,6 +347,37 @@ export class LiveAnalysisGateway
     }
   }
 
+  /**
+   * KS-3744 / ADR-111 §2.2. Автор присылает обновлённое содержимое
+   * окна анализа. Проверка владельца — по JWT в `client.data.user`
+   * (handshake выставил, см. `handleConnection`). Сам `applyStatePatch`
+   * валидирует длину PGN, грамматику, частоту, синхронизирует
+   * moves-list и публикует `live-analysis:sync` через Redis pub/sub —
+   * pub/sub-обработчик гейтвея разошлёт snapshot в комнату.
+   */
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage(LiveAnalysisEvents.STATE_PATCH)
+  async handleStatePatch(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: StatePatchPayloadDto,
+  ): Promise<void> {
+    const user = client.data?.user;
+    if (!user) {
+      this.emitError(client, new ForbiddenException('Authenticated owner required'));
+      return;
+    }
+    try {
+      await this.service.applyStatePatch(data.slug, user.id, {
+        pgn: data.pgn,
+        headers: data.headers,
+        currentPly: data.currentPly,
+        orientation: data.orientation,
+      });
+    } catch (e) {
+      this.emitError(client, e);
+    }
+  }
+
   // ─── Helpers ───────────────────────────────────────────────────────
 
   private roomFor(slug: string): string {
@@ -361,11 +406,33 @@ export class LiveAnalysisGateway
     if (e instanceof ForbiddenException) {
       return { code: 'forbidden', message: (e.message as string) || 'Forbidden' };
     }
-    const err = e as { message?: string; status?: number };
-    if (err?.message?.toLowerCase().includes('illegal')) {
-      return { code: 'illegal-move', message: err.message };
+    const err = e as { message?: string; status?: number; response?: { message?: string | string[] } };
+    const msg = (err?.message ?? '').toLowerCase();
+    // KS-3744 / ADR-111: hard cap PGN ловится двумя путями — либо
+    // BadRequestException('pgn-too-large') из сервиса, либо
+    // MaxLength-нарушение от ValidationPipe (text содержит "pgn"
+    // и "longer than"). Мапим оба варианта в один код события.
+    const validationMessages = Array.isArray(err?.response?.message)
+      ? (err!.response!.message as string[]).join(' ').toLowerCase()
+      : (err?.response?.message ?? '').toString().toLowerCase();
+    if (
+      msg.includes('pgn-too-large') ||
+      (validationMessages.includes('pgn') &&
+        (validationMessages.includes('longer than') ||
+          validationMessages.includes('maxlength')))
+    ) {
+      return {
+        code: 'pgn-too-large',
+        message: err?.message ?? 'PGN exceeds 256 KB limit',
+      };
     }
-    if (err?.message?.toLowerCase().includes('rate limit')) {
+    if (msg.includes('invalid pgn')) {
+      return { code: 'invalid-payload', message: err.message ?? 'Invalid PGN' };
+    }
+    if (msg.includes('illegal')) {
+      return { code: 'illegal-move', message: err.message ?? 'Illegal move' };
+    }
+    if (msg.includes('rate limit')) {
       return { code: 'rate-limit', message: err.message ?? 'Rate limit' };
     }
     if (err?.status === 400) {

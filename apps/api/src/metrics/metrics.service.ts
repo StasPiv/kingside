@@ -68,6 +68,22 @@ export class MetricsService implements OnModuleInit {
   readonly liveAnalysisRateLimitedTotal: Counter<'reason'>;
   readonly liveAnalysisCleanupClosedTotal: Counter<string>;
 
+  /**
+   * KS-3745 / ADR-111 §8. Метрики state-patch-потока.
+   *
+   * - `live_analysis_state_patches_total` (counter) — успешно
+   *   применённые патчи (после валидации и записи в Redis).
+   * - `live_analysis_state_patch_bytes_sum` (counter) — суммарный
+   *   размер принятых PGN в байтах. Деление на счётчик патчей даёт
+   *   среднюю длину в Grafana без отдельного histogram'а.
+   * - `live_analysis_state_patch_rejected_total{reason}` (counter)
+   *   отказы. Допустимые значения `reason`:
+   *     pgn_too_large | invalid_pgn | rate_limit | forbidden.
+   */
+  readonly liveAnalysisStatePatchesTotal: Counter<string>;
+  readonly liveAnalysisStatePatchBytesSum: Counter<string>;
+  readonly liveAnalysisStatePatchRejectedTotal: Counter<'reason'>;
+
   constructor() {
     this.registry = new Registry();
 
@@ -158,6 +174,31 @@ export class MetricsService implements OnModuleInit {
         '(lastActivityAt < NOW() - 30 min).',
       registers: [this.registry],
     });
+
+    // KS-3745 / ADR-111 §8: state-patch counters.
+    this.liveAnalysisStatePatchesTotal = new Counter({
+      name: 'live_analysis_state_patches_total',
+      help:
+        'Количество успешно применённых state-patch-событий от авторов ' +
+        'live-трансляций (после валидации и записи в Redis).',
+      registers: [this.registry],
+    });
+    this.liveAnalysisStatePatchBytesSum = new Counter({
+      name: 'live_analysis_state_patch_bytes_sum',
+      help:
+        'Суммарный размер принятых annotated-PGN в state-patch (байты). ' +
+        'Делением на live_analysis_state_patches_total получаем среднюю ' +
+        'длину payload без выделенного гистограммного timeseries.',
+      registers: [this.registry],
+    });
+    this.liveAnalysisStatePatchRejectedTotal = new Counter({
+      name: 'live_analysis_state_patch_rejected_total',
+      help:
+        'Отказы по state-patch. Label reason: pgn_too_large | ' +
+        'invalid_pgn | rate_limit | forbidden.',
+      labelNames: ['reason'] as const,
+      registers: [this.registry],
+    });
   }
 
   async onModuleInit(): Promise<void> {
@@ -230,6 +271,23 @@ export class MetricsService implements OnModuleInit {
   /** Cleanup-tick закрыл одну трансляцию по неактивности. */
   incLiveAnalysisCleanupClosed(by = 1): void {
     this.liveAnalysisCleanupClosedTotal.inc(by);
+  }
+
+  // ─── KS-3745 / ADR-111: state-patch ────────────────────────────────
+
+  /** Принят state-patch + добавить размер payload в bytes_sum. */
+  incLiveAnalysisStatePatchAccepted(bytes: number): void {
+    this.liveAnalysisStatePatchesTotal.inc();
+    if (Number.isFinite(bytes) && bytes >= 0) {
+      this.liveAnalysisStatePatchBytesSum.inc(bytes);
+    }
+  }
+
+  /** Отказ по причине: pgn_too_large | invalid_pgn | rate_limit | forbidden. */
+  incLiveAnalysisStatePatchRejected(
+    reason: 'pgn_too_large' | 'invalid_pgn' | 'rate_limit' | 'forbidden',
+  ): void {
+    this.liveAnalysisStatePatchRejectedTotal.inc({ reason });
   }
 
   /**
