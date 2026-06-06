@@ -40,7 +40,6 @@ describe('LiveAnalysisGateway.handleStatePatch (KS-3775)', () => {
       {
         slug: 'faxRe7ajRY',
         pgn: '1. e4 e5 *',
-        currentPly: 2,
         orientation: 'white' as const,
         currentGlobalIndex: 42,
       },
@@ -55,7 +54,6 @@ describe('LiveAnalysisGateway.handleStatePatch (KS-3775)', () => {
     expect(params).toEqual(
       expect.objectContaining({
         pgn: '1. e4 e5 *',
-        currentPly: 2,
         orientation: 'white',
         currentGlobalIndex: 42,
       }),

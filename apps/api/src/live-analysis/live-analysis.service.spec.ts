@@ -484,13 +484,12 @@ describe('LiveAnalysisService', () => {
       });
       // state не инициализирован в FakeRedis для этого id — fallback на initial.
       const snap = await service.getSyncSnapshot('s');
-      expect(snap.currentPly).toBe(0);
       expect(snap.moves).toEqual([]);
-      expect(snap.currentFen).toContain('rnbqkbnr');
+      expect(snap.startingFen).toContain('rnbqkbnr');
       expect(snap.orientation).toBe('white');
     });
 
-    it('возвращает накопленный список ходов и текущий FEN', async () => {
+    it('возвращает накопленный список ходов', async () => {
       prisma.liveAnalysis.findUnique.mockResolvedValueOnce({
         id: 'la-1',
         ownerId: 'u-1',
@@ -513,7 +512,6 @@ describe('LiveAnalysisService', () => {
       });
       const snap = await service.getSyncSnapshot('s');
       expect(snap.moves).toEqual(['e2e4', 'e7e5']);
-      expect(snap.currentPly).toBe(2);
     });
 
     it('404 если slug closed', async () => {
@@ -540,13 +538,14 @@ describe('LiveAnalysisService', () => {
       await service.applyMove('s', 'u-1', 'e2e4');
       // потом reset
       const snap = await service.applyReset('s', 'u-1');
-      expect(snap.currentPly).toBe(0);
       expect(snap.moves).toEqual([]);
       const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
       expect(moves).toEqual([]);
+      // KS-3775: snapshot после reset уже не содержит currentPly/currentFen,
+      // зритель восстанавливает позицию по startingFen + moves.
       expect(redis.publish).toHaveBeenCalledWith(
         'live-analysis:sync',
-        expect.stringContaining('"currentPly":0'),
+        expect.stringContaining('"startingFen"'),
       );
     });
 
@@ -673,13 +672,13 @@ describe('LiveAnalysisService', () => {
       const snap = await service.applyStatePatch('s', 'u-1', { pgn: tinyPgn });
       expect(snap.currentPgn).toBe(tinyPgn);
       expect(snap.moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
-      expect(snap.currentPly).toBe(4);
-      // currentFen — позиция после 4 полуходов.
-      expect(snap.currentFen).toContain('w');
       const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
       expect(moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
       const state = await redis.hgetall('live_analysis:la-1:state');
       expect(state.currentPgn).toBe(tinyPgn);
+      // KS-3775: state hash хранит currentFen для applyMove и REST,
+      // в snapshot он не отдаётся.
+      expect(state.currentFen).toContain('w');
       expect(redis.publish).toHaveBeenCalledWith(
         'live-analysis:sync',
         expect.stringContaining('"currentPgn"'),
@@ -698,25 +697,6 @@ describe('LiveAnalysisService', () => {
       const snap = await service.getSyncSnapshot('s');
       expect(snap.moves).toEqual(['e2e4', 'e7e5', 'g1f3', 'b8c6']);
       expect(snap.currentPgn).toBe(tinyPgn);
-      expect(snap.currentPly).toBe(4);
-    });
-
-    it('игнорирует невалидный currentPly и берёт длину истории', async () => {
-      const snap = await service.applyStatePatch('s', 'u-1', {
-        pgn: tinyPgn,
-        currentPply: 999, // намеренно опечатка — это поле не существует, проверяем поведение по умолчанию
-      } as any);
-      expect(snap.currentPly).toBe(4);
-    });
-
-    it('поддерживает листание автором назад: currentPly < длины истории', async () => {
-      const snap = await service.applyStatePatch('s', 'u-1', {
-        pgn: tinyPgn,
-        currentPly: 2,
-      });
-      expect(snap.currentPly).toBe(2);
-      // currentFen — после e4 e5 (ход белых, чёрный сыграл).
-      expect(snap.currentFen).toContain('w');
     });
 
     it('rejects PGN с >256 KB', async () => {
@@ -805,19 +785,19 @@ describe('LiveAnalysisService', () => {
       );
     });
 
-    it('publish payload включает currentPgn, moves и headers (если есть)', async () => {
+    it('publish payload включает currentPgn и moves; headers не передаются (KS-3775)', async () => {
       const pgnWithHeaders = '[White "Alice"]\n[Black "Bob"]\n\n1. e4 *';
-      await service.applyStatePatch('s', 'u-1', {
-        pgn: pgnWithHeaders,
-        headers: { White: 'Alice', Black: 'Bob' },
-      });
+      await service.applyStatePatch('s', 'u-1', { pgn: pgnWithHeaders });
       const publishedCalls = (redis.publish as jest.Mock).mock.calls;
       const syncCall = publishedCalls.find((c) => c[0] === 'live-analysis:sync');
       expect(syncCall).toBeDefined();
       const payload = JSON.parse(syncCall![1]);
       expect(payload.currentPgn).toContain('Alice');
       expect(payload.moves).toEqual(['e2e4']);
-      expect(payload.headers).toEqual(expect.objectContaining({ White: 'Alice' }));
+      // KS-3775: headers/currentFen/currentPly в snapshot не передаются.
+      expect(payload.headers).toBeUndefined();
+      expect(payload.currentFen).toBeUndefined();
+      expect(payload.currentPly).toBeUndefined();
     });
 
     it('KS-3775: пробрасывает currentGlobalIndex в snapshot и Redis', async () => {

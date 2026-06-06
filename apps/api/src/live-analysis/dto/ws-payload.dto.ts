@@ -1,7 +1,6 @@
 import {
   IsIn,
   IsInt,
-  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -112,15 +111,6 @@ export class StatePatchPayloadDto {
    */
   @MaxLength(262_144)
   pgn!: string;
-
-  @IsOptional()
-  @IsObject()
-  headers?: Record<string, string>;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  currentPly?: number;
 
   @IsOptional()
   @IsIn(['white', 'black'])

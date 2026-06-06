@@ -306,7 +306,6 @@ export class LiveAnalysisService implements OnModuleInit {
       orientation: state?.orientation ?? 'white',
       viewerCount,
       currentPgn: state?.currentPgn,
-      headers: state?.headers,
     });
   }
 
@@ -338,10 +337,10 @@ export class LiveAnalysisService implements OnModuleInit {
       orientation: state?.orientation ?? 'white',
       viewerCount,
       // KS-3743 / ADR-111: для зрителя, который опрашивает snapshot
-      // REST'ом до WS-subscribe, отдаём текущий PGN и headers если
-      // автор уже присылал state-patch.
+      // REST'ом до WS-subscribe, отдаём текущий PGN если он уже есть.
+      // KS-3775: headers больше не дублируем — фронт извлекает их
+      // из самого PGN.
       currentPgn: state?.currentPgn,
-      headers: state?.headers,
     });
   }
 
@@ -533,13 +532,10 @@ export class LiveAnalysisService implements OnModuleInit {
       slug,
       startingFen: state?.startingFen ?? row.startingFen ?? LiveAnalysisService.INITIAL_FEN,
       moves,
-      currentFen: state?.currentFen ?? row.startingFen ?? LiveAnalysisService.INITIAL_FEN,
-      currentPly: state?.currentPly ?? moves.length,
       orientation: state?.orientation ?? 'white',
-      // KS-3743 / ADR-111: annotated PGN автора и headers — опциональны
-      // (на трансляции, где автор ещё не присылал state-patch, их нет).
+      // KS-3743 / ADR-111: annotated PGN автора (опц., до первого
+      // state-patch отсутствует).
       ...(state?.currentPgn !== undefined && { currentPgn: state.currentPgn }),
-      ...(state?.headers !== undefined && { headers: state.headers }),
       // KS-3775: сквозной индекс узла дерева автора.
       ...(state?.currentGlobalIndex !== undefined && {
         currentGlobalIndex: state.currentGlobalIndex,
@@ -710,7 +706,6 @@ export class LiveAnalysisService implements OnModuleInit {
         promotion?: string;
         before?: string;
       }>;
-      const headersFromPgn = this.extractPgnHeaders(chess);
       const startingFen =
         verbose[0]?.before ??
         // Если ходов нет — chess.fen() это и есть стартовая позиция
@@ -720,21 +715,20 @@ export class LiveAnalysisService implements OnModuleInit {
         (m) => `${m.from}${m.to}${m.promotion ?? ''}`,
       );
 
-      // (6) currentPly: переданный приоритетнее, но обязан быть в [0..N].
-      let currentPly = uciHistory.length;
-      if (
-        typeof payload.currentPly === 'number' &&
-        Number.isInteger(payload.currentPly) &&
-        payload.currentPly >= 0 &&
-        payload.currentPly <= uciHistory.length
-      ) {
-        currentPly = payload.currentPly;
-      }
+      // KS-3775: currentPly больше не приходит от автора (frontend
+      // вычисляет позицию по currentGlobalIndex). Внутри сервиса
+      // используем длину main-line — этого достаточно для applyMove
+      // (продолжает считать ply от main-line) и для REST-ответа
+      // getBySlug, где currentPly отдаётся как «сколько ходов в
+      // main-line к моменту последнего state-patch».
+      const currentPly = uciHistory.length;
 
-      // (7) currentFen — пересобираем заново независимо от переданного.
+      // currentFen — собираем по main-line как «позиция после
+      // последнего хода main-line». Хранится в state hash для REST
+      // (getBySlug) и applyMove. В sync-snapshot уже не отдаётся,
+      // зритель восстанавливает позицию автора по globalIndex/PGN.
       const replay = new Chess(startingFen);
-      for (let i = 0; i < currentPly; i++) {
-        const uci = uciHistory[i];
+      for (const uci of uciHistory) {
         const from = uci.slice(0, 2);
         const to = uci.slice(2, 4);
         const promotion = uci.length === 5 ? uci.slice(4, 5) : undefined;
@@ -746,13 +740,6 @@ export class LiveAnalysisService implements OnModuleInit {
         payload.orientation ??
         (await this.readRedisState(meta.id))?.orientation ??
         'white';
-
-      // headers: предпочитаем явные из payload, иначе извлечённые из PGN.
-      const headers = payload.headers ?? headersFromPgn;
-      const headersJson =
-        headers && Object.keys(headers).length > 0
-          ? JSON.stringify(headers)
-          : '';
 
       // KS-3775: сквозной индекс узла дерева автора. Никакой шахматной
       // валидации — это идентификатор узла из parseAnnotatedPgn; в
@@ -767,6 +754,8 @@ export class LiveAnalysisService implements OnModuleInit {
           : undefined;
 
       // (8) HSET state + замена moves-list по main-line.
+      // KS-3775: headersJson больше не пишем — headers убраны из
+      // snapshot, фронт извлекает их из самого PGN через parsePgnHeaders.
       const stateKey = this.stateKey(meta.id);
       const movesKey = this.movesKey(meta.id);
       const pipeline = this.redis
@@ -777,7 +766,6 @@ export class LiveAnalysisService implements OnModuleInit {
           currentPly: String(currentPly),
           orientation,
           currentPgn: payload.pgn,
-          headersJson,
           lastPatchAt: String(Date.now()),
           ...(currentGlobalIndexValue !== undefined && {
             currentGlobalIndex: String(currentGlobalIndexValue),
@@ -800,16 +788,15 @@ export class LiveAnalysisService implements OnModuleInit {
       await this.touchLastActivity(slug, meta.id);
 
       // (10) publish full sync — gateway разошлёт в комнату.
+      // KS-3775: currentFen/currentPly/headers убраны из snapshot —
+      // зритель извлекает позицию по currentGlobalIndex и headers из
+      // самого currentPgn.
       const snapshot: LiveAnalysisSyncSnapshot = {
         slug,
         startingFen,
         moves: uciHistory,
-        currentFen,
-        currentPly,
         orientation,
         currentPgn: payload.pgn,
-        ...(Object.keys(headers ?? {}).length > 0 && { headers }),
-        // KS-3775: пробрасываем индекс узла автора в snapshot.
         ...(currentGlobalIndexValue !== undefined && {
           currentGlobalIndex: currentGlobalIndexValue,
         }),
@@ -819,22 +806,6 @@ export class LiveAnalysisService implements OnModuleInit {
       await this.publish(LiveAnalysisService.CHANNEL_SYNC, snapshot);
       return snapshot;
     });
-  }
-
-  /**
-   * Извлечь PGN-headers через `chess.header()`. Возвращает копию
-   * объекта (мутации не утекут в chess instance).
-   */
-  private extractPgnHeaders(chess: Chess): Record<string, string> {
-    // chess.js 1.4 .header() — `getHeaders` без аргументов.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = (chess as any).getHeaders?.() ?? (chess as any).header?.();
-    if (!raw || typeof raw !== 'object') return {};
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(raw)) {
-      if (typeof v === 'string' && v.length > 0) out[k] = v;
-    }
-    return out;
   }
 
   /**
@@ -869,14 +840,19 @@ export class LiveAnalysisService implements OnModuleInit {
 
       await this.touchLastActivity(slug, meta.id, /*force*/ true);
 
+      // KS-3775: currentFen/currentPly из snapshot убраны. После
+      // reset зритель видит startingFen + пустой moves — этого
+      // достаточно для отрисовки начальной позиции.
       const snapshot: LiveAnalysisSyncSnapshot = {
         slug,
         startingFen: newStartingFen,
         moves: [],
-        currentFen,
-        currentPly: 0,
         orientation,
       };
+      // Локальный currentFen после reset используется только для
+      // следующих applyMove (через readRedisState), уже записан в
+      // state hash выше; в snapshot не отдаётся.
+      void currentFen;
       await this.publish(LiveAnalysisService.CHANNEL_SYNC, snapshot);
       return snapshot;
     });
@@ -1164,8 +1140,6 @@ export class LiveAnalysisService implements OnModuleInit {
         orientation: LiveAnalysisOrientation;
         /** KS-3743 / ADR-111: annotated PGN последнего state-patch (опц.). */
         currentPgn?: string;
-        /** KS-3743 / ADR-111: распарсенный JSON `headersJson` (опц.). */
-        headers?: Record<string, string>;
         /** KS-3775: сквозной индекс узла, на котором стоит автор. */
         currentGlobalIndex?: number;
       }
@@ -1173,17 +1147,6 @@ export class LiveAnalysisService implements OnModuleInit {
   > {
     const raw = await this.redis.hgetall(this.stateKey(id));
     if (!raw || !raw.currentFen) return null;
-    let headers: Record<string, string> | undefined;
-    if (raw.headersJson) {
-      try {
-        const parsed = JSON.parse(raw.headersJson);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          headers = parsed as Record<string, string>;
-        }
-      } catch {
-        // Битый JSON в hash — игнорируем, фронт всё равно читает headers из PGN.
-      }
-    }
     let currentGlobalIndex: number | undefined;
     if (typeof raw.currentGlobalIndex === 'string' && raw.currentGlobalIndex.length > 0) {
       const n = Number(raw.currentGlobalIndex);
@@ -1197,7 +1160,6 @@ export class LiveAnalysisService implements OnModuleInit {
       currentPly: Number(raw.currentPly ?? '0') || 0,
       orientation: (raw.orientation as LiveAnalysisOrientation) ?? 'white',
       currentPgn: raw.currentPgn && raw.currentPgn.length > 0 ? raw.currentPgn : undefined,
-      headers,
       currentGlobalIndex,
     };
   }

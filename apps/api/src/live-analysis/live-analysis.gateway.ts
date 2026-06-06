@@ -369,12 +369,7 @@ export class LiveAnalysisGateway
     try {
       await this.service.applyStatePatch(data.slug, user.id, {
         pgn: data.pgn,
-        headers: data.headers,
-        currentPly: data.currentPly,
         orientation: data.orientation,
-        // KS-3775: пробрасываем сквозной индекс узла дерева автора.
-        // Без этой строки поле теряется на gateway-слое и не доходит
-        // до сервиса — sync.currentGlobalIndex всегда отсутствует.
         currentGlobalIndex: data.currentGlobalIndex,
       });
     } catch (e) {
