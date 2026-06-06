@@ -815,40 +815,102 @@ function AnalysisPageInner({
   // Применяем только для viewer-режима. Owner-side state-patch будет
   // обрабатываться в KS-3748 (там автор сам генерирует PGN из своего
   // review-state и шлёт его наружу).
-  const previousLivePgnRef = useRef<string | null>(null);
+  // KS-3750 / ADR-111 §2.8 риски: если зритель ушёл в локальную
+  // ветку (currentFen != authorFen из live-хука), новый state-patch
+  // не применяется автоматически — иначе мы перебьём разбор зрителя
+  // посреди работы. Вместо этого:
+  //   1. кладём свежий PGN в `pendingLivePgn`,
+  //   2. показываем badge «Получено обновление от автора» с кнопкой
+  //      «Применить» (ниже в JSX),
+  //   3. как только зритель сам вернулся на main-line автора (т.е.
+  //      `currentFen` совпал с `liveFull.currentFen`) — авто-применяем
+  //      pending (так требует acceptance: «возврат к трансляции не
+  //      теряет накопленные обновления»).
+  // Применённый PGN запоминаем в `lastAppliedLivePgnRef`, чтобы тот
+  // же snapshot не применился дважды.
+  const lastAppliedLivePgnRef = useRef<string | null>(null);
+  const [pendingLivePgn, setPendingLivePgn] = useState<string | null>(null);
+
+  // Стабильный applier — общий код для авто-apply и для клика по
+  // кнопке «Применить» из badge'а.
+  const applyLivePgn = useCallback(
+    (nextPgn: string) => {
+      const preserveFen = currentMove?.fen ?? initialFen;
+      try {
+        const moves = parseAnnotatedPgn(nextPgn);
+        const initialAnn = extractInitialAnnotations(nextPgn);
+        loadFromPgn(moves, initialAnn);
+        // Восстановление позиции зрителя (ADR-111 §2.8 п.5). Если в
+        // новом дереве нет узла с прежним fen — reducer оставит
+        // currentMove на последнем ходе (soft drift), это норма.
+        const idx = findGlobalIndexByFen(moves, preserveFen);
+        if (idx !== null) {
+          const target = searchInHistory(moves, idx);
+          if (target) gotoMove(target);
+        }
+        lastAppliedLivePgnRef.current = nextPgn;
+      } catch {
+        /* битый PGN — оставляем дерево как есть, ждём следующего sync. */
+      }
+    },
+    [currentMove, initialFen, loadFromPgn, gotoMove],
+  );
+
+  // Шлюз входящих state-patch'ей. Решаем: применить сразу или отложить.
   useEffect(() => {
     if (!isViewerLive) return;
     if (!liveFull.pgn) return;
-    if (previousLivePgnRef.current === liveFull.pgn) return;
-    previousLivePgnRef.current = liveFull.pgn;
-    // Шаг 1: FEN перед apply. Используем live ref-getter, потому что
-    // currentMove/history/initialFen внутри useReviewState — это
-    // снапшоты, обновляемые через useReducer; в момент срабатывания
-    // useEffect эти значения уже актуальны.
-    const preserveFen = currentMove?.fen ?? initialFen;
-    try {
-      const moves = parseAnnotatedPgn(liveFull.pgn);
-      const initialAnn = extractInitialAnnotations(liveFull.pgn);
-      loadFromPgn(moves, initialAnn);
-      // Шаг 3: ищем узел в свежепарсенном дереве и переходим на него.
-      // Это синхронно: переменная `moves` — то же дерево, что попадёт
-      // в state.history по dispatch'у выше.
-      const idx = findGlobalIndexByFen(moves, preserveFen);
-      if (idx !== null) {
-        const target = searchInHistory(moves, idx);
-        if (target) gotoMove(target);
-      }
-    } catch {
-      /* битый PGN — оставляем дерево как есть, ждём следующего sync. */
+    if (lastAppliedLivePgnRef.current === liveFull.pgn) return;
+    // KS-3750: «локальная ветка» = currentFen зрителя не совпадает
+    // с известным FEN автора. liveFull.currentFen может быть null,
+    // если ни sync, ни move ещё не приходили — тогда применяем
+    // (стартуем с чистого листа), это первый patch.
+    const viewerFen = currentMove?.fen ?? initialFen;
+    const authorFen = liveFull.currentFen;
+    const onMainLine = !authorFen || authorFen === viewerFen;
+    if (onMainLine) {
+      applyLivePgn(liveFull.pgn);
+      // Если что-то лежало в pending — теперь оно неактуально, очищаем.
+      if (pendingLivePgn !== null) setPendingLivePgn(null);
+    } else {
+      // Локальная ветка: не применяем, держим последний свежий PGN в
+      // pending'е (только последний — новые патчи перезаписывают
+      // предыдущие, дельты не нужны).
+      setPendingLivePgn(liveFull.pgn);
+    }
+    // currentMove исключён из deps намеренно: на каждое переключение
+    // ходов зрителя — это норма, не сигнал «пришёл новый patch».
+    // Авто-apply pending на возврате к main-line обрабатывает соседний
+    // useEffect ниже.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isViewerLive, liveFull.pgn, liveFull.currentFen, applyLivePgn]);
+
+  // KS-3750: авто-apply pending когда зритель сам вернулся на main-line
+  // автора. Триггер — изменение currentMove (то есть зритель листает /
+  // ходит). При совпадении viewerFen с authorFen сразу применяем pending.
+  useEffect(() => {
+    if (!isViewerLive) return;
+    if (!pendingLivePgn) return;
+    if (!liveFull.currentFen) return;
+    const viewerFen = currentMove?.fen ?? initialFen;
+    if (viewerFen === liveFull.currentFen) {
+      applyLivePgn(pendingLivePgn);
+      setPendingLivePgn(null);
     }
   }, [
     isViewerLive,
-    liveFull.pgn,
+    pendingLivePgn,
+    liveFull.currentFen,
     currentMove,
     initialFen,
-    loadFromPgn,
-    gotoMove,
+    applyLivePgn,
   ]);
+
+  const handleApplyPendingLive = useCallback(() => {
+    if (!pendingLivePgn) return;
+    applyLivePgn(pendingLivePgn);
+    setPendingLivePgn(null);
+  }, [applyLivePgn, pendingLivePgn]);
 
   // KS-3747: orientation из live перебивает локальный boardOrientation.
   // Зритель не должен сам переворачивать доску — автор задал ориентацию,
@@ -2012,6 +2074,35 @@ function AnalysisPageInner({
     return headers.join('\n') + '\n\n' + moves + '\n';
   }, [history, analysisTitle, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex]);
 
+  // KS-3749 / ADR-111 §7. Авторский emit `state-patch`. Запускается на
+  // любое изменение review-state (новые ходы, NAGs, комментарии,
+  // вариации, стрелки, headers, переключение currentPly, переворот
+  // доски). Хук `useAnalysisLiveBroadcast` сам глушит шквал
+  // trailing-edge дебаунсом 500 мс и не отправляет дубликаты — мы
+  // здесь просто кормим его актуальным snapshot'ом каждый рендер,
+  // когда live-сессия активна.
+  //
+  // Emit `move` уже мгновенен (обёртка `makeVariantMove` выше зовёт
+  // `liveBroadcast.emitMove(uci)` сразу после успешного хода — это
+  // быстрая анимация у зрителей до прихода state-patch'а).
+  useEffect(() => {
+    if (!liveBroadcast.isLive) return;
+    const pgn = buildAnalysisPgn();
+    if (!pgn) return;
+    liveBroadcast.emitStatePatch({
+      pgn,
+      headers: pgnHeaders,
+      currentPly: currentMove?.ply ?? 0,
+      orientation: boardOrientation,
+    });
+  }, [
+    liveBroadcast,
+    buildAnalysisPgn,
+    pgnHeaders,
+    currentMove,
+    boardOrientation,
+  ]);
+
   // Export PGN handler
   const handleExportPgn = useCallback(() => {
     try {
@@ -2704,6 +2795,57 @@ function AnalysisPageInner({
             }}
             onStop={liveBroadcast.stop}
           />
+        )}
+        {/* KS-3750: badge «получено обновление от автора». Виден
+            только в зрительском live-режиме и только когда зритель
+            находится в локальной ветке (`pendingLivePgn != null`). По
+            клику применяет накопленный pending к review-state
+            (`applyLivePgn` сохраняет позицию через findGlobalIndexByFen).
+            Авто-применение при возврате на main-line автора уже
+            обрабатывается соседним useEffect — badge нужен только пока
+            зритель действительно в стороне. */}
+        {isViewerLive && pendingLivePgn && (
+          <div
+            className="analysis-live-update-badge"
+            data-testid="analysis-live-update-badge"
+            role="status"
+            aria-live="polite"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '6px 12px',
+              borderRadius: 16,
+              background: '#fff8e1',
+              border: '1px solid #f4b400',
+              color: '#5d4037',
+              fontSize: 13,
+              margin: '8px 0',
+            }}
+          >
+            <span>
+              {t(
+                'liveAnalysisViewer.updateAvailable',
+                'New update from the author',
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={handleApplyPendingLive}
+              data-testid="analysis-live-update-apply"
+              style={{
+                padding: '4px 10px',
+                borderRadius: 12,
+                border: 'none',
+                background: '#f4b400',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: 13,
+              }}
+            >
+              {t('liveAnalysisViewer.applyUpdate', 'Apply')}
+            </button>
+          </div>
         )}
         {/* KS-3261: toast «Открыли существующий анализ» — показывается
             после dedup-hit'а на backend (POST /analyses вернул

@@ -741,7 +741,9 @@
     "closedByInactivity": "The broadcast was closed due to inactivity.",
     "notFoundTitle": "Broadcast not found",
     "notFoundBody": "The broadcast link is invalid or the broadcast has been removed.",
-    "loadError": "Failed to load broadcast."
+    "loadError": "Failed to load broadcast.",
+    "updateAvailable": "New update from the author",
+    "applyUpdate": "Apply"
   },
   "myLiveAnalyses": {
     "title": "My live broadcasts",

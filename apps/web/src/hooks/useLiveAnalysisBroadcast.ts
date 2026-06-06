@@ -72,6 +72,13 @@ export interface UseLiveAnalysisBroadcastState {
   headers: Record<string, string> | null;
   /** Текущая позиция автора в дереве (из `sync.currentPly` или последнего `move.ply`). */
   currentPly: number;
+  /**
+   * KS-3750 / ADR-111 §7. Текущий FEN автора (из `sync.currentFen` или
+   * последнего `move.fen`). Нужен зрителю чтобы понять, находится ли он
+   * на main-line автора или в локальной ветке. `null` пока не пришёл
+   * первый sync/move.
+   */
+  currentFen: string | null;
   /** Ориентация доски, как её сохранил автор. */
   orientation: LiveAnalysisOrientation;
   /** Текущее число зрителей (по `viewers`-event). */
@@ -116,6 +123,7 @@ export function useLiveAnalysisBroadcast({
   const [pgn, setPgn] = useState<string | null>(null);
   const [headers, setHeaders] = useState<Record<string, string> | null>(null);
   const [currentPly, setCurrentPly] = useState(0);
+  const [currentFen, setCurrentFen] = useState<string | null>(null);
   const [orientation, setOrientation] =
     useState<LiveAnalysisOrientation>('white');
   const [viewerCount, setViewerCount] = useState(0);
@@ -145,6 +153,7 @@ export function useLiveAnalysisBroadcast({
       }
       setHeaders(payload.headers ?? null);
       setCurrentPly(payload.currentPly);
+      setCurrentFen(payload.currentFen);
       setOrientation(payload.orientation);
       // На приход sync сбрасываем последнюю ошибку — текущее состояние
       // снова консистентно с сервером.
@@ -153,10 +162,17 @@ export function useLiveAnalysisBroadcast({
     onMove: useCallback((payload: LiveAnalysisMoveEvent) => {
       // На голый `move` сервер не пересылает PGN целиком (см. ADR-111
       // §2.2: «move» — это лёгкий апдейт). Поэтому здесь только сдвигаем
-      // currentPly. PGN-дерево обновится на следующем `state-patch` от
-      // автора (либо потребитель сам применяет UCI поверх локального PGN).
-      // Защита от out-of-order: применяем только если ply вырос.
-      setCurrentPly((prev) => (payload.ply > prev ? payload.ply : prev));
+      // currentPly + currentFen. PGN-дерево обновится на следующем
+      // `state-patch` от автора (либо потребитель сам применяет UCI
+      // поверх локального PGN). Защита от out-of-order: применяем
+      // только если ply вырос.
+      setCurrentPly((prev) => {
+        if (payload.ply > prev) {
+          setCurrentFen(payload.fen);
+          return payload.ply;
+        }
+        return prev;
+      });
     }, []),
     onViewers: useCallback((payload: LiveAnalysisViewersEvent) => {
       setViewerCount(payload.count);
@@ -266,6 +282,7 @@ export function useLiveAnalysisBroadcast({
       pgn,
       headers,
       currentPly,
+      currentFen,
       orientation,
       viewerCount,
       connected,
@@ -280,6 +297,7 @@ export function useLiveAnalysisBroadcast({
       pgn,
       headers,
       currentPly,
+      currentFen,
       orientation,
       viewerCount,
       connected,
