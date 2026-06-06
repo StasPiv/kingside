@@ -66,6 +66,14 @@ import { AnalysisHeader } from './analysis/AnalysisHeader';
 // индикатор статуса, восстановление режима при reload.
 import { LiveBroadcastControl } from '../components/analysis/LiveBroadcastControl';
 import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
+// KS-3747 / ADR-111 §7: проп `liveSession` — AnalysisPage становится
+// просмотрщиком трансляции (mode='viewer') или подключается к ней как
+// автор (mode='owner', фактическое использование — KS-3748). Хук тот же
+// (`useLiveAnalysisBroadcast`), что и в KS-3746. Прежнее имя
+// `liveBroadcast` уже занято в этом файле под другую сущность
+// (`useAnalysisLiveBroadcast` из KS-3736 — стартер/state-машина блока
+// «Транслировать» автора), переиспользовать имя нельзя.
+import { useLiveAnalysisBroadcast } from '../hooks/useLiveAnalysisBroadcast';
 // KS-2958: переиспользуем основной `PuzzleGeneratorModal` с пропами
 // `initialPgn` + `autoStart` — то же окно с прогрессом и пост-flow
 // (My drafts / Publish all), что и в разделе «Тренировка точности».
@@ -201,6 +209,25 @@ interface AnalysisPageProps {
    */
   embedded?: boolean;
   embeddedPgn?: string;
+  /**
+   * KS-3747 (ADR-111 §7): подключение страницы анализа к live-
+   * трансляции «full» (с PGN-деревом, а не только UCI-лентой).
+   *
+   *  - `mode: 'viewer'` — источник PGN не REST/state, а live `pgn` из
+   *    `useLiveAnalysisBroadcast`. Каждый `sync`/`state-patch` от
+   *    автора применяется через `loadFromPgn`, при этом критично
+   *    сохраняется текущая позиция зрителя в дереве (ADR-111 §2.8 п.5):
+   *    после загрузки нового PGN ищем узел с тем же FEN и переходим
+   *    на него. Owner-only UI (`autosave`, `Share`, `edit-title`,
+   *    «Транслировать», `Set Position`, `Game Info`) подавлен через
+   *    `publicMode || isViewerLive` + явный гейт пунктов меню.
+   *    ArchiveTreePanel, Stockfish, AI продолжают работать локально
+   *    у зрителя (они привязаны к currentFen — а он валиден всегда).
+   *  - `mode: 'owner'` — подключение к хуку для последующего эмита
+   *    state-patch при изменениях review-state. Фактическое
+   *    использование — KS-3748; здесь только готовится почва.
+   */
+  liveSession?: { slug: string; mode: 'viewer' | 'owner' };
 }
 
 /**
@@ -238,6 +265,14 @@ type BuildItemsContext = {
   handleCopyPgn: () => Promise<void> | void;
   setShowSetPosition: (v: boolean) => void;
   setShowPgnHeaders: (v: boolean) => void;
+  /**
+   * KS-3747 (ADR-111 §7): зрительский live-режим. Подавляет пункты,
+   * которые трогают авторитетное состояние трансляции
+   * (`set-position`, `game-info`-edit). Остальные owner-only пункты
+   * (autosave, Share, edit-title) уже скрыты гейтом `publicMode`
+   * (он принудительно true для viewer-live в `AnalysisPageInner`).
+   */
+  liveViewer: boolean;
   setPuzzleGenPgn: (pgn: string) => void;
   setShowPuzzleGen: (v: boolean) => void;
   setSidePickerOpen: (v: boolean) => void;
@@ -283,6 +318,7 @@ function buildAnalysisActionsItems(
     handleCopyPgn,
     setShowSetPosition,
     setShowPgnHeaders,
+    liveViewer,
     setPuzzleGenPgn,
     setShowPuzzleGen,
     setSidePickerOpen,
@@ -307,7 +343,12 @@ function buildAnalysisActionsItems(
   const items: AnalysisActionItem[] = [];
 
   // — gamePosition —
-  if (!gameId) {
+  // KS-3747: для зрителя live-трансляции set-position и game-info
+  // подавлены — эти модалки меняют локальное состояние, которое в
+  // viewer-режиме перезапишется следующим sync'ом от автора, и юзер
+  // подумает что «не сохранилось». Find-by-position остаётся — это
+  // навигация в архив, безопасно.
+  if (!gameId && !liveViewer) {
     items.push({
       id: 'set-position',
       group: 'gamePosition',
@@ -471,6 +512,7 @@ export function AnalysisPage({
   publicMode = false,
   embedded = false,
   embeddedPgn,
+  liveSession,
 }: AnalysisPageProps = {}) {
   const params = useParams<{
     id?: string;
@@ -480,14 +522,22 @@ export function AnalysisPage({
   // useParams вернёт undefined, поэтому key основан на pgn (смена PGN
   // должна пересоздавать всё внутреннее состояние, иначе history
   // первой партии останется во второй карточке шага).
+  // KS-3747: live-инстанс монтируется по slug — пересоздаём дерево
+  // при смене slug/mode (но НЕ при каждом state-patch, иначе
+  // потеряли бы контекст зрителя — см. ADR-111 §2.8 п.5).
   const key =
-    params.id ?? params.gameId ?? (embedded ? `embedded:${embeddedPgn ?? ''}` : '__none__');
+    params.id ??
+    params.gameId ??
+    (embedded ? `embedded:${embeddedPgn ?? ''}` : null) ??
+    (liveSession ? `live:${liveSession.slug}:${liveSession.mode}` : null) ??
+    '__none__';
   return (
     <AnalysisPageInner
       key={key}
       publicMode={publicMode}
       embedded={embedded}
       embeddedPgn={embeddedPgn}
+      liveSession={liveSession}
     />
   );
 }
@@ -496,6 +546,7 @@ function AnalysisPageInner({
   publicMode: publicModeProp = false,
   embedded = false,
   embeddedPgn,
+  liveSession,
 }: AnalysisPageProps) {
   // KS-3182: embedded === read-only во всех точках, где `publicMode`
   // используется как гейт мутаций (autosave, share, title-edit,
@@ -503,7 +554,14 @@ function AnalysisPageInner({
   // Чтобы не переписывать каждый use-site, переопределяем локальный
   // `publicMode = publicModeProp || embedded`. Все существующие гейты
   // (~15 use-sites) автоматически захватят embedded как read-only.
-  const publicMode = publicModeProp || embedded;
+  //
+  // KS-3747 (ADR-111 §7): viewer-live тоже считаем read-only — у
+  // зрителя нет analysisId, нечего автосейвить, нельзя editить title
+  // или вызывать «Транслировать». Этот же гейт скрывает блок
+  // LiveBroadcastControl (KS-3736), который условие
+  // `!embedded && !publicMode && user` уже учитывает.
+  const isViewerLive = liveSession?.mode === 'viewer';
+  const publicMode = publicModeProp || embedded || isViewerLive;
   // Add class to body/app for mobile layout (fallback for browsers without :has() support)
   useEffect(() => {
     // KS-3182: body-class `has-analysis-page` нужна mobile-layout'у
@@ -728,6 +786,101 @@ function AnalysisPageInner({
     // KS-2152
     currentAnnotations, initialAnnotations, annotationsByIndex, setAnnotationsForCurrent,
   } = useReviewState();
+
+  // KS-3747 / ADR-111 §7: подключение к «full» live-трансляции.
+  // В viewer-режиме хук кормит нас актуальным PGN/headers/orientation
+  // (см. useEffect ниже), в owner-режиме — даёт emit-методы для
+  // KS-3748. Если liveBroadcast пропа нет — хук «спит» (slug=null).
+  const liveFull = useLiveAnalysisBroadcast({
+    slug: liveSession?.slug ?? null,
+    mode: liveSession?.mode ?? 'viewer',
+  });
+
+  // KS-3747 / ADR-111 §2.8 п.5 — «применение PGN без сноса контекста».
+  // На каждый новый pgn из sync/state-patch:
+  //   1. Запоминаем FEN текущей позиции зрителя (currentMove?.fen или
+  //      initialFen для root).
+  //   2. Парсим новый PGN и грузим через loadFromPgn — это меняет
+  //      state.history целиком, но НЕ трогает initialFen (LOAD_FROM_PGN
+  //      reducer specifically оставляет initialFen как есть).
+  //   3. После apply ищем узел с тем же FEN в новом дереве. Если нашли —
+  //      gotoMove на него: зритель остаётся на той же позиции, не теряя
+  //      контекста. Stockfish (на currentFen), AI (тоже на currentFen),
+  //      ArchiveTreePanel — все они переживут без сброса.
+  //   4. Если узла нет (зритель ушёл в локальную ветку, которой не
+  //      существует в дереве автора, либо автор откатил свою линию) —
+  //      reducer уже выставил currentMove на последний ход, оставляем
+  //      как есть. Это «soft drift» вместо жёсткого сноса.
+  //
+  // Применяем только для viewer-режима. Owner-side state-patch будет
+  // обрабатываться в KS-3748 (там автор сам генерирует PGN из своего
+  // review-state и шлёт его наружу).
+  const previousLivePgnRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isViewerLive) return;
+    if (!liveFull.pgn) return;
+    if (previousLivePgnRef.current === liveFull.pgn) return;
+    previousLivePgnRef.current = liveFull.pgn;
+    // Шаг 1: FEN перед apply. Используем live ref-getter, потому что
+    // currentMove/history/initialFen внутри useReviewState — это
+    // снапшоты, обновляемые через useReducer; в момент срабатывания
+    // useEffect эти значения уже актуальны.
+    const preserveFen = currentMove?.fen ?? initialFen;
+    try {
+      const moves = parseAnnotatedPgn(liveFull.pgn);
+      const initialAnn = extractInitialAnnotations(liveFull.pgn);
+      loadFromPgn(moves, initialAnn);
+      // Шаг 3: ищем узел в свежепарсенном дереве и переходим на него.
+      // Это синхронно: переменная `moves` — то же дерево, что попадёт
+      // в state.history по dispatch'у выше.
+      const idx = findGlobalIndexByFen(moves, preserveFen);
+      if (idx !== null) {
+        const target = searchInHistory(moves, idx);
+        if (target) gotoMove(target);
+      }
+    } catch {
+      /* битый PGN — оставляем дерево как есть, ждём следующего sync. */
+    }
+  }, [
+    isViewerLive,
+    liveFull.pgn,
+    currentMove,
+    initialFen,
+    loadFromPgn,
+    gotoMove,
+  ]);
+
+  // KS-3747: orientation из live перебивает локальный boardOrientation.
+  // Зритель не должен сам переворачивать доску — автор задал ориентацию,
+  // мы её отображаем. Owner-режим тоже синхронизирует, иначе автор и
+  // зритель видели бы разное.
+  useEffect(() => {
+    if (!liveSession) return;
+    if (!liveFull.orientation) return;
+    setBoardOrientation((prev) =>
+      prev === liveFull.orientation ? prev : liveFull.orientation,
+    );
+  }, [liveSession, liveFull.orientation]);
+
+  // KS-3747: headers из live — обновляем locale-state. По ADR-111 §2.8.2
+  // «при расхождении побеждает PGN», но и `headers` поле служит хинтом
+  // для зрительского `GameMetaBar`. Подменяем только если оно реально
+  // пришло; пустого объекта/null reducer'ом не трогаем — иначе один
+  // sync без headers перетёр бы валидные значения.
+  useEffect(() => {
+    if (!isViewerLive) return;
+    if (!liveFull.headers) return;
+    setPgnHeaders(liveFull.headers);
+  }, [isViewerLive, liveFull.headers]);
+
+  // KS-3747: в viewer-режиме нет id-based загрузки — стартуем сразу
+  // готовыми к рендеру, спиннер не нужен. Загружаемое содержимое
+  // подтянет live-хук через useEffect выше.
+  useEffect(() => {
+    if (!isViewerLive) return;
+    setLoading(false);
+    setError('');
+  }, [isViewerLive]);
 
   // KS-3736 / ADR-110: state-автомат live-трансляции анализа. Хук сам
   // делает REST POST/GET, держит WS-подписку, восстанавливает slug из
@@ -2733,6 +2886,7 @@ function AnalysisPageInner({
                     handleCopyPgn,
                     setShowSetPosition,
                     setShowPgnHeaders,
+                    liveViewer: isViewerLive,
                     setPuzzleGenPgn,
                     setShowPuzzleGen,
                     setSidePickerOpen,
