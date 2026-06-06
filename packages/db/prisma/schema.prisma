@@ -845,6 +845,12 @@ model Analysis {
 
   user User @relation(fields: [userId], references: [id])
 
+  // KS-3757 / ADR-112: обратная связь к live-трансляциям, привязанным
+  // к этому анализу. При удалении анализа в `LiveAnalysis.analysisId`
+  // ставится NULL (см. relation там, `onDelete: SetNull`) — трансляции
+  // не удаляются ради аудита, просто теряют binding.
+  liveAnalyses LiveAnalysis[]
+
   @@index([userId])
   @@index([userId, createdAt])
   /// KS-3261. LRU-сортировка в findAll.
@@ -2125,6 +2131,16 @@ model LiveAnalysis {
   /// Пиковое число одновременных зрителей за время трансляции.
   /// Аналитика; обновляется атомарно при росте viewers-counter.
   viewerPeak     Int                @default(0) @map("viewer_peak")
+  /// KS-3757 / ADR-112: ссылка на исходный `Analysis`, чьё содержимое
+  /// автор транслирует. Nullable, потому что трансляция может стартовать
+  /// без привязки (исторические записи ADR-110). `onDelete: SetNull` —
+  /// удаление анализа сохраняет запись трансляции (аудит), но обнуляет
+  /// binding. Уникальность «один автор × один анализ = один active» —
+  /// через partial UNIQUE индекс в миграции `WHERE status='active' AND
+  /// analysis_id IS NOT NULL`; в schema не выражается, поэтому здесь
+  /// нет `@@unique`.
+  analysisId     String?            @map("analysis_id") @db.Uuid
+  analysis       Analysis?          @relation(fields: [analysisId], references: [id], onDelete: SetNull)
 
   /// «Мои активные трансляции» в профиле автора.
   @@index([ownerId, status])
