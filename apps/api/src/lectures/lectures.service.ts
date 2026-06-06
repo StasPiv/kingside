@@ -5,9 +5,17 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
 import { CreateLectureDto } from './dto/create-lecture.dto';
+
+/**
+ * KS-3785/KS-3789. Возвращаемое значение POST/start: запись Lecture
+ * плюс мини-объект с `slug` и `url` связанной LiveAnalysis для
+ * удобства фронта (чтобы не делать второй REST-запрос за slug'ом).
+ */
+type LectureLiveBinding = { id: string; slug: string; url: string } | null;
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1. Сервис лекций тренера.
@@ -37,7 +45,53 @@ export class LecturesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly liveAnalysisService: LiveAnalysisService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * KS-3785/KS-3789. Базовый публичный URL фронта для конструирования
+   * `/live/<slug>` ссылок. Совпадает с тем, что использует
+   * `LiveAnalysisController.publicBaseUrl`.
+   */
+  private publicBaseUrl(): string {
+    return (
+      this.config.get<string>('LIVE_ANALYSIS_PUBLIC_BASE_URL') ||
+      this.config.get<string>('PUBLIC_BASE_URL') ||
+      'https://kingside.site'
+    );
+  }
+
+  /**
+   * KS-3785/KS-3789. Создать сессию для лекции. Если `analysisId`
+   * передан — идём через `LiveAnalysisService.create` (ADR-112):
+   * проверка владельца анализа, идемпотентность по `(ownerId,
+   * analysisId)`. Без `analysisId` — `createBareLiveSession` (без
+   * привязки к `Analysis`).
+   */
+  private async openLectureLiveSession(
+    ownerId: string,
+    title: string,
+    analysisId?: string,
+  ): Promise<{ id: string; slug: string; url: string }> {
+    const baseUrl = this.publicBaseUrl();
+    if (analysisId) {
+      const resp = await this.liveAnalysisService.create(
+        ownerId,
+        { analysisId, title },
+        baseUrl,
+      );
+      return { id: resp.id, slug: resp.slug, url: resp.url };
+    }
+    const bare = await this.liveAnalysisService.createBareLiveSession(
+      ownerId,
+      { title },
+    );
+    return {
+      id: bare.id,
+      slug: bare.slug,
+      url: `${baseUrl.replace(/\/$/, '')}/live/${bare.slug}`,
+    };
+  }
 
   // ─── Создание ─────────────────────────────────────────────────────
 
@@ -47,11 +101,13 @@ export class LecturesService {
     const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
 
     // Сценарий «начать сейчас»: scheduledAt отсутствует → лекция
-    // сразу live + создаётся LiveAnalysis под неё.
+    // сразу live + открывается LiveAnalysis под неё (с привязкой к
+    // Analysis если передан analysisId, иначе bare).
     if (!scheduledAt) {
-      const session = await this.liveAnalysisService.createBareLiveSession(
+      const session = await this.openLectureLiveSession(
         ownerId,
-        { title: dto.title },
+        dto.title,
+        dto.analysisId,
       );
       const lecture = await this.prisma.lecture.create({
         data: {
@@ -67,7 +123,7 @@ export class LecturesService {
       this.logger.log(
         `Lecture created (immediate live): id=${lecture.id} owner=${ownerId} liveAnalysisId=${session.id}`,
       );
-      return lecture;
+      return { lecture, liveAnalysis: session as LectureLiveBinding };
     }
 
     // Запланированная лекция: только запись, без сессии — она появится
@@ -85,7 +141,7 @@ export class LecturesService {
     this.logger.log(
       `Lecture created (scheduled): id=${lecture.id} owner=${ownerId} scheduledAt=${scheduledAt.toISOString()}`,
     );
-    return lecture;
+    return { lecture, liveAnalysis: null as LectureLiveBinding };
   }
 
   // ─── Старт ────────────────────────────────────────────────────────
@@ -107,7 +163,11 @@ export class LecturesService {
    * лишняя `LiveAnalysis` останется висеть `active` — её закроет
    * cleanup-job по таймауту неактивности (30 мин).
    */
-  async start(lectureId: string, actingUserId: string) {
+  async start(
+    lectureId: string,
+    actingUserId: string,
+    options: { analysisId?: string } = {},
+  ) {
     const lecture = await this.prisma.lecture.findUnique({
       where: { id: lectureId },
     });
@@ -118,7 +178,12 @@ export class LecturesService {
       throw new ForbiddenException('Only the owner can start this lecture');
     }
     if (lecture.status === 'live') {
-      return lecture;
+      // Идемпотентно: уже live, возвращаем текущую запись. Если у неё
+      // есть liveAnalysisId — отдаём slug/url из БД для удобства фронта.
+      const liveAnalysis = lecture.liveAnalysisId
+        ? await this.fetchLiveAnalysisBinding(lecture.liveAnalysisId)
+        : null;
+      return { lecture, liveAnalysis };
     }
     if (lecture.status === 'recorded' || lecture.status === 'cancelled') {
       throw new BadRequestException(
@@ -126,9 +191,10 @@ export class LecturesService {
       );
     }
 
-    const session = await this.liveAnalysisService.createBareLiveSession(
+    const session = await this.openLectureLiveSession(
       actingUserId,
-      { title: lecture.title },
+      lecture.title,
+      options.analysisId,
     );
     try {
       const updated = await this.prisma.lecture.update({
@@ -142,7 +208,7 @@ export class LecturesService {
       this.logger.log(
         `Lecture started: id=${lectureId} owner=${actingUserId} liveAnalysisId=${session.id}`,
       );
-      return updated;
+      return { lecture: updated, liveAnalysis: session as LectureLiveBinding };
     } catch (e) {
       // Concurrent start: partial UNIQUE на (liveAnalysisId) WHERE
       // status='live' даст P2002. Возвращаем текущую live-запись.
@@ -154,11 +220,34 @@ export class LecturesService {
           this.logger.warn(
             `Lecture concurrent start: returning existing live id=${lectureId}`,
           );
-          return current;
+          const liveAnalysis = current.liveAnalysisId
+            ? await this.fetchLiveAnalysisBinding(current.liveAnalysisId)
+            : null;
+          return { lecture: current, liveAnalysis };
         }
       }
       throw e;
     }
+  }
+
+  /**
+   * Прочитать slug у `LiveAnalysis` по id (для идемпотентного ответа
+   * `start`, когда лекция уже live).
+   */
+  private async fetchLiveAnalysisBinding(
+    liveAnalysisId: string,
+  ): Promise<LectureLiveBinding> {
+    const row = await this.prisma.liveAnalysis.findUnique({
+      where: { id: liveAnalysisId },
+      select: { id: true, slug: true },
+    });
+    if (!row) return null;
+    const baseUrl = this.publicBaseUrl();
+    return {
+      id: row.id,
+      slug: row.slug,
+      url: `${baseUrl.replace(/\/$/, '')}/live/${row.slug}`,
+    };
   }
 
   // ─── Чтение ───────────────────────────────────────────────────────

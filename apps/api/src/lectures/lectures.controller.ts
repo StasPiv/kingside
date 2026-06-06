@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
-import { CreateLectureDto } from './dto/create-lecture.dto';
+import { CreateLectureDto, StartLectureDto } from './dto/create-lecture.dto';
 import { LecturesService } from './lectures.service';
 
 /**
@@ -42,8 +42,9 @@ export class LecturesController {
   async start(
     @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: StartLectureDto,
   ) {
-    return this.service.start(id, req.user.id);
+    return this.service.start(id, req.user.id, { analysisId: dto.analysisId });
   }
 
   @Get('lectures/:id')

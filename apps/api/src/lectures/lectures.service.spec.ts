@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { LecturesService } from './lectures.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
@@ -31,10 +32,15 @@ describe('LecturesService', () => {
     user: {
       findUnique: jest.Mock;
     };
+    liveAnalysis: {
+      findUnique: jest.Mock;
+    };
   };
   let liveAnalysis: {
     createBareLiveSession: jest.Mock;
+    create: jest.Mock;
   };
+  let config: { get: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -47,18 +53,38 @@ describe('LecturesService', () => {
       user: {
         findUnique: jest.fn(),
       },
+      liveAnalysis: {
+        // fetchLiveAnalysisBinding (для идемпотентного start) запрашивает
+        // slug по id. По умолчанию возвращаем стандартную запись.
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'la-existing', slug: 'EXIST00000' }),
+      },
     };
     liveAnalysis = {
       createBareLiveSession: jest.fn().mockResolvedValue({
         id: 'la-1',
         slug: 'SLUG000000',
       }),
+      // LiveAnalysisService.create возвращает LiveAnalysisResponse, нам
+      // нужны id/slug/url для openLectureLiveSession.
+      create: jest.fn().mockResolvedValue({
+        id: 'la-analysis-bound',
+        slug: 'BOUND00000',
+        url: 'https://kingside.site/live/BOUND00000',
+      }),
+    };
+    config = {
+      get: jest.fn((key: string) =>
+        key === 'PUBLIC_BASE_URL' ? 'https://kingside.site' : undefined,
+      ),
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LecturesService,
         { provide: PrismaService, useValue: prisma },
         { provide: LiveAnalysisService, useValue: liveAnalysis },
+        { provide: ConfigService, useValue: config },
       ],
     }).compile();
     service = module.get(LecturesService);
@@ -116,6 +142,28 @@ describe('LecturesService', () => {
       const data = prisma.lecture.create.mock.calls[0][0].data;
       expect(data.visibility).toBe('unlisted');
     });
+
+    it('KS-3789: immediate-live с analysisId использует LiveAnalysisService.create', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-4',
+        ownerId: 'u-1',
+        status: 'live',
+        liveAnalysisId: 'la-analysis-bound',
+      });
+      const r = await service.create('u-1', {
+        title: 'Лекция по партии',
+        analysisId: 'a-1',
+      });
+      expect(liveAnalysis.create).toHaveBeenCalledWith(
+        'u-1',
+        expect.objectContaining({ analysisId: 'a-1', title: 'Лекция по партии' }),
+        expect.any(String),
+      );
+      expect(liveAnalysis.createBareLiveSession).not.toHaveBeenCalled();
+      expect(r.lecture.liveAnalysisId).toBe('la-analysis-bound');
+      expect(r.liveAnalysis?.slug).toBe('BOUND00000');
+      expect(r.liveAnalysis?.url).toBe('https://kingside.site/live/BOUND00000');
+    });
   });
 
   // ─── start ────────────────────────────────────────────────────────
@@ -148,8 +196,10 @@ describe('LecturesService', () => {
       };
       prisma.lecture.findUnique.mockResolvedValueOnce(existing);
       const r = await service.start('l-1', 'u-1');
-      expect(r).toBe(existing);
+      expect(r.lecture).toBe(existing);
+      expect(r.liveAnalysis?.slug).toBe('EXIST00000');
       expect(liveAnalysis.createBareLiveSession).not.toHaveBeenCalled();
+      expect(liveAnalysis.create).not.toHaveBeenCalled();
       expect(prisma.lecture.update).not.toHaveBeenCalled();
     });
 
@@ -198,7 +248,30 @@ describe('LecturesService', () => {
           liveAnalysisId: 'la-1',
         }),
       });
-      expect(r.status).toBe('live');
+      expect(r.lecture.status).toBe('live');
+      expect(r.liveAnalysis?.id).toBe('la-1');
+    });
+
+    it('KS-3789: scheduled → live с analysisId использует LiveAnalysisService.create', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        title: 'Лекция с анализом',
+        status: 'scheduled',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'live',
+        liveAnalysisId: 'la-analysis-bound',
+      });
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
+      expect(liveAnalysis.create).toHaveBeenCalledWith(
+        'u-1',
+        expect.objectContaining({ analysisId: 'a-1', title: 'Лекция с анализом' }),
+        expect.any(String),
+      );
+      expect(liveAnalysis.createBareLiveSession).not.toHaveBeenCalled();
+      expect(r.liveAnalysis?.id).toBe('la-analysis-bound');
     });
 
     it('concurrent P2002 на partial UNIQUE → возвращает существующую live', async () => {
@@ -218,8 +291,8 @@ describe('LecturesService', () => {
       const p2002 = Object.assign(new Error('unique'), { code: 'P2002' });
       prisma.lecture.update.mockRejectedValueOnce(p2002);
       const r = await service.start('l-1', 'u-1');
-      expect(r.status).toBe('live');
-      expect(r.liveAnalysisId).toBe('la-winner');
+      expect(r.lecture.status).toBe('live');
+      expect(r.lecture.liveAnalysisId).toBe('la-winner');
     });
   });
 

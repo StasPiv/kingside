@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 
@@ -36,4 +37,30 @@ export class CreateLectureDto {
   @IsOptional()
   @IsIn(['public', 'unlisted'])
   visibility?: 'public' | 'unlisted';
+
+  /**
+   * KS-3785/KS-3789: при immediate-live (без `scheduledAt`) можно
+   * привязать лекцию к конкретному `Analysis`. Тогда созданная под
+   * лекцию `LiveAnalysis` идёт через `LiveAnalysisService.create`
+   * (ADR-112): проверяется владелец анализа, действует идемпотентность
+   * по `(ownerId, analysisId)` (если у владельца уже есть active
+   * сессия на этот анализ — лекция привяжется к ней), и
+   * `GET /live-analyses/by-analysis/:analysisId` потом найдёт её.
+   *
+   * Без `analysisId` лекция создаётся через
+   * `createBareLiveSession` — без привязки к `Analysis`.
+   */
+  @IsOptional()
+  @IsUUID('4')
+  analysisId?: string;
+}
+
+/**
+ * KS-3785/KS-3789. Body для `POST /lectures/:id/start`. Опциональное
+ * поле `analysisId` — то же значение, что и в `CreateLectureDto`.
+ */
+export class StartLectureDto {
+  @IsOptional()
+  @IsUUID('4')
+  analysisId?: string;
 }
