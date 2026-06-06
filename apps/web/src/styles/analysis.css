@@ -4164,10 +4164,22 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
    лекции» + плашка «truncated») съедает вертикальный бюджет — из-за
    этого проигрыватель снизу частично уходит под `MobileBottomBar`.
    По требованию пользователя на mobile прячем крошки целиком. На
-   desktop заголовок остаётся как есть. */
+   desktop заголовок остаётся как есть.
+
+   KS-3807: nav-меню (`MobileBottomBar`) — `position: fixed; bottom: 0;
+   height: 56px; z-index: 90` (см. layout.css §«Mobile Bottom Bar»).
+   Оно лежит ПОВЕРХ нижней кромки `.main`, поэтому обычный flex-ребёнок
+   `.lecture-replay-player`, прилегающий к низу `.main`, физически
+   перекрывается nav-меню. Поднимаем плеер на высоту nav-меню через
+   `margin-bottom` — освобождаем 56px под плеером, в которых nav-меню
+   сидит свободно. `env(safe-area-inset-bottom)` уже учтён в самом
+   `.mobile-bottom-bar`, дублировать не нужно. */
 @media (max-width: 768px) {
   .lecture-replay-breadcrumbs {
     display: none !important;
+  }
+  .lecture-replay-player {
+    margin-bottom: 56px;
   }
 }
 
