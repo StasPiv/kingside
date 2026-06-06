@@ -12,67 +12,48 @@ import { ApiError } from '../ApiError';
 import { useLiveAnalysisSocket } from './useLiveAnalysisSocket';
 
 /**
- * KS-3736 / ADR-110 §3-§4. Доменный хук «трансляция анализа» для
- * `AnalysisPage`. Связывает REST (`POST /live-analyses`), сокет-обвязку
- * (`useLiveAnalysisSocket`) и localStorage-восстановление в один state-
- * автомат, чтобы страница использовала простой API:
+ * KS-3763 / ADR-112 §4. Доменный хук «трансляция анализа» для
+ * `AnalysisPage`. Связывает REST (`POST /live-analyses`,
+ * `GET /live-analyses/by-analysis/:analysisId`) и сокет-обвязку
+ * (`useLiveAnalysisSocket`) в один state-автомат.
  *
- *   const live = useAnalysisLiveBroadcast({ currentFen, orientation, title });
- *   live.isLive        // bool, для отображения индикатора
- *   live.viewerCount   // number, счётчик зрителей
- *   live.publicUrl     // string | null, для кнопки «Скопировать ссылку»
- *   live.start()       // POST /live-analyses + сохранение slug
- *   live.stop()        // WS close + чистка localStorage
- *   live.emitMove(uci) // дёргается из обёртки makeVariantMove
+ * История изменений (важна для понимания инвариантов):
+ *  - KS-3736 / ADR-110: первичная реализация. Slug кэшировался в
+ *    браузерном хранилище, восстановление при mount шло по этому ключу.
+ *  - KS-3754: обнаружен баг — кэшевое восстановление подцепляло slug
+ *    на ЛЮБУЮ страницу анализа, и эффект отправки сливал PGN текущей
+ *    (другой) страницы по чужому slug-у. Зрители видели «не ту партию».
+ *  - KS-3763 / ADR-112: модель пересмотрена. Никакого браузерного
+ *    кэша, одна active-трансляция на пару (`userId`, `analysisId`) —
+ *    backend применяет partial-UNIQUE. Восстановление идёт через
+ *    `GET /by-analysis/:id`: на странице анализа A это вернёт slug
+ *    трансляции A (если она есть), на странице анализа B — slug
+ *    трансляции B. Пересечения невозможны по определению.
  *
- * ### localStorage-восстановление (acceptance §«при reload»)
+ * ### Контракт
  *
- * После старта slug кладётся в `localStorage` под ключом
- * `live-analysis:active-slug`. При mount хук читает ключ:
- *   1. Если есть — параллельно делает `GET /live-analyses/:slug`,
- *      чтобы убедиться, что трансляция жива (active) и владелец тот же.
- *   2. Если status=active И ownerId совпал с текущим юзером — режим
- *      «трансляция продолжается»: подписываемся через socket-хук,
- *      сервер пришлёт `sync`, дальше — обычный поток.
- *   3. Если status=closed или 404 — чистим ключ, обычный idle-режим.
+ *   const live = useAnalysisLiveBroadcast({
+ *     analysisId, initialFen, orientation, title, userId,
+ *   });
+ *   live.isLive            // bool, для индикатора
+ *   live.viewerCount       // number, счётчик зрителей
+ *   live.publicUrl         // string | null, для кнопки «Скопировать»
+ *   live.start(analysisId) // POST /live-analyses с analysisId
+ *   live.stop()            // WS close
+ *   live.emitMove(uci)     // мгновенный move
+ *   live.emitStatePatch(p) // state-patch с debounce 500 мс (KS-3749)
  *
- * ### Поведение `emitMove`
+ * ### `emitMove` self-heal
  *
  * На каждый успешный `makeVariantMove` страница вызывает `emitMove(uci)`.
  * Хук эмитит `live-analysis:move`. Если сервер вернёт `illegal-move` —
- * это значит у нас на стороне автора было переключение между линиями
- * вариантов (currentFen не «следующий» после серверного currentFen).
- * В этом случае хук автоматически шлёт `reset({ fen: currentFen })`,
- * чтобы синхронизировать зрителей на актуальную позицию автора.
+ * у автора было переключение между линиями вариантов (currentFen не
+ * «следующий» после серверного currentFen). Хук автоматически шлёт
+ * `reset({ fen: currentFen })`, чтобы синхронизировать зрителей.
  */
 
-const LIVE_SLUG_STORAGE_KEY = 'live-analysis:active-slug';
-
-function readPersistedSlug(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem(LIVE_SLUG_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writePersistedSlug(slug: string | null): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (slug) {
-      window.localStorage.setItem(LIVE_SLUG_STORAGE_KEY, slug);
-    } else {
-      window.localStorage.removeItem(LIVE_SLUG_STORAGE_KEY);
-    }
-  } catch {
-    /* localStorage может быть выключен (приват-режим Safari) — не критично,
-       просто не будет работать восстановление при reload. */
-  }
-}
-
 export interface UseAnalysisLiveBroadcastArgs {
-  /** Актуальная позиция автора (используется для start + для reset-fallback). */
+  /** Актуальная позиция автора (используется для start + reset-fallback). */
   currentFen: string;
   /** Стартовая позиция анализа (для `startingFen` в POST). */
   initialFen: string;
@@ -82,6 +63,19 @@ export interface UseAnalysisLiveBroadcastArgs {
   title?: string | null;
   /** ID текущего юзера или `null`. Без авторизации трансляцию запускать нельзя. */
   userId: string | null;
+  /**
+   * KS-3763 / ADR-112 §4. ID сохранённого анализа.
+   *
+   * Используется для двух вещей:
+   *  1. REST-restore при mount: `GET /live-analyses/by-analysis/:id`.
+   *     200 → подключаемся к найденному slug-у; 404 → idle.
+   *  2. Аргумент `start()` (через push-через-callback аналогично).
+   *
+   * `null` для kind='review' / 'puzzle' / ad-hoc анализа без id —
+   * тогда хук «спит» полностью: restore не делается, `start()` тоже
+   * заблокирован (без analysisId сервер вернёт 400 после KS-3759).
+   */
+  analysisId: string | null;
 }
 
 export interface UseAnalysisLiveBroadcastState {
@@ -97,9 +91,14 @@ export interface UseAnalysisLiveBroadcastState {
   viewerCount: number;
   /** Последняя серверная ошибка (для тоста). Сбрасывается на каждом действии. */
   error: string | null;
-  /** Запустить трансляцию (POST /live-analyses + сохранить slug). */
-  start: () => Promise<LiveAnalysisResponse | null>;
-  /** Завершить трансляцию (WS close + чистка localStorage). */
+  /**
+   * Запустить трансляцию. `analysisId` обязателен — без него сервер
+   * вернёт 400 (см. `CreateLiveAnalysisDto`). На странице с пропом
+   * `analysisId === null` (kind='review'/'puzzle'/ad-hoc) start
+   * вернёт `null` с error='no-analysis-id' без попытки POST.
+   */
+  start: (analysisId: string) => Promise<LiveAnalysisResponse | null>;
+  /** Завершить трансляцию (WS close). */
   stop: () => void;
   /** Эмит хода автора. Безопасно вызывать когда `isLive=false` — будет no-op. */
   emitMove: (uci: string) => void;
@@ -132,6 +131,7 @@ export function useAnalysisLiveBroadcast({
   orientation,
   title,
   userId,
+  analysisId,
 }: UseAnalysisLiveBroadcastArgs): UseAnalysisLiveBroadcastState {
   const [slug, setSlug] = useState<string | null>(null);
   const [publicUrl, setPublicUrl] = useState<string | null>(null);
@@ -155,53 +155,46 @@ export function useAnalysisLiveBroadcast({
     () => {},
   );
 
-  // ─── Восстановление после reload ──────────────────────────────────
-  // Один раз при mount: если в localStorage лежит slug, проверяем что
-  // трансляция жива и наша. Перепроверка нужна потому что между
-  // closed→reload могло пройти много времени (вкладка спала, сервер
-  // закрыл по inactivity и т.д.).
+  // ─── KS-3763 / ADR-112: REST-restore по analysisId ────────────────
+  // На mount, на смену userId, на смену analysisId — спрашиваем backend
+  // «есть ли активная трансляция этого анализа?». 200 → подключаемся;
+  // 404 / нет analysisId / нет userId → idle. Никакого браузерного
+  // кэша, никаких флагов «тихого восстановления»: backend сам
+  // гарантирует партицию (userId, analysisId) → ровно одна
+  // active-трансляция, и фронт получает её адресно. Пересечения
+  // «slug чужого анализа на этой странице» невозможны.
   useEffect(() => {
-    const persisted = readPersistedSlug();
-    if (!persisted || !userId) {
-      // Нет сохранённого slug — обычный idle. Если есть, но юзер не
-      // авторизован сейчас — тоже не восстанавливаем (см. ADR-110 §2.6:
-      // move/reset/close идут от owner-а, без токена сервер их отклонит).
-      if (persisted && !userId) writePersistedSlug(null);
-      return;
-    }
+    if (!analysisId || !userId) return;
     let cancelled = false;
     (async () => {
       try {
         const resp = await api.get<LiveAnalysisResponse>(
-          `/live-analyses/${persisted}`,
+          `/live-analyses/by-analysis/${analysisId}`,
         );
         if (cancelled) return;
-        if (resp.status !== 'active' || resp.ownerId !== userId) {
-          // Закрыта или не наша — чистим, иначе будем светить чужой
-          // индикатор «В эфире» у пользователя.
-          writePersistedSlug(null);
+        if (resp.status !== 'active') {
+          // По контракту 200 приходит только для active. Дополнительная
+          // защита-проверка на случай нестандартного ответа сервера.
           return;
         }
         setSlug(resp.slug);
         setPublicUrl(resp.url);
         setViewerCount(resp.viewerCount);
       } catch (e) {
-        // 404 / SESSION_EXPIRED / network — в любом случае ключ
-        // больше не имеет смысла. На SESSION_EXPIRED auth-flow уже
-        // редиректнет на /login через notifySessionExpired, нам не
-        // нужно дополнительно реагировать.
+        if (cancelled) return;
         if (e instanceof ApiError && e.status === 404) {
-          writePersistedSlug(null);
+          // 404 — нормальный idle-исход. Этот анализ не транслируется,
+          // ничего не делаем; пользователь может запустить через start().
+          return;
         }
+        // Сетевые ошибки и прочее — молча, без кэшевого фолбэка
+        // (KS-3754: фолбэк бы вернул баг с привязкой к чужой странице).
       }
     })();
     return () => {
       cancelled = true;
     };
-    // Один раз при mount; смена userId после логина в этой же вкладке
-    // обновит контекст и страница перемонтируется выше.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [analysisId, userId]);
 
   // ─── Сокет: подписка + обработчики ────────────────────────────────
   const handleViewers = useCallback((payload: LiveAnalysisViewersEvent) => {
@@ -209,12 +202,11 @@ export function useAnalysisLiveBroadcast({
   }, []);
 
   const handleClosed = useCallback((_payload: LiveAnalysisClosedEvent) => {
-    // Сервер закрыл (inactivity / by_owner с другой вкладки).
-    // Чистим локальный state и storage, индикатор гаснет.
+    // Сервер закрыл (inactivity / by_owner с другой вкладки). Чистим
+    // локальный state — индикатор гаснет. Никакого storage больше нет.
     setSlug(null);
     setPublicUrl(null);
     setViewerCount(0);
-    writePersistedSlug(null);
   }, []);
 
   const handleError = useCallback((payload: LiveAnalysisErrorEvent) => {
@@ -227,14 +219,13 @@ export function useAnalysisLiveBroadcast({
       return;
     }
     if (payload.code === 'slug-not-found') {
-      // Сервер не знает наш slug — трансляция исчезла. Чистимся.
+      // Сервер не знает наш slug — трансляция исчезла.
       setSlug(null);
       setPublicUrl(null);
       setViewerCount(0);
-      writePersistedSlug(null);
       return;
     }
-    // forbidden / rate-limit / invalid-payload — показываем тост.
+    // forbidden / rate-limit / invalid-payload / pgn-too-large — тост.
     setError(payload.message || payload.code);
   }, []);
 
@@ -258,15 +249,10 @@ export function useAnalysisLiveBroadcast({
   }, [emitReset]);
 
   // Когда сервер прислал sync (например, после reconnect или
-  // восстановления при reload) — обновляем счётчик нечего синхронизировать
-  // дополнительно. `snapshot` использует страница только косвенно (через
-  // подтверждение что подписка установлена).
+  // первичного subscribe) — сбрасываем ошибку, потому что подписка
+  // живая и валидная.
   useEffect(() => {
     if (!snapshot) return;
-    // Sync содержит только текущую позицию, без viewerCount — счётчик
-    // придёт отдельным `viewers`-event-ом, сервер сам шлёт его на
-    // subscribe. Здесь просто сбрасываем ошибку, потому что подписка
-    // живая и валидная.
     setError(null);
   }, [snapshot]);
 
@@ -277,7 +263,7 @@ export function useAnalysisLiveBroadcast({
   // 500 мс — синхронизирован с серверным rate-limit (ADR-111 §2.4).
   //
   // Дополнительная защита от лишнего трафика: сравниваем payload с
-  // последним отправленным (через JSON-хеш). Идентичные patch'ы (та же
+  // последним отправленным (через JSON-хеш). Идентичные patch'и (та же
   // позиция/ply/orientation) не уходят повторно — экономит трафик и
   // bandwidth у зрителей.
   const statePatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -321,8 +307,6 @@ export function useAnalysisLiveBroadcast({
     (params) => {
       if (!slug) return;
       if (!params.pgn) return;
-      // Dedupe: если ничего не поменялось относительно последней
-      // отправки — не ставим таймер, экономим re-render у зрителей.
       const signature = JSON.stringify({
         p: params.pgn,
         h: params.headers ?? null,
@@ -353,41 +337,50 @@ export function useAnalysisLiveBroadcast({
 
   // ─── Действия ─────────────────────────────────────────────────────
 
-  const start = useCallback(async (): Promise<LiveAnalysisResponse | null> => {
-    if (!userId) {
-      setError('not-authenticated');
-      return null;
-    }
-    if (slug) {
-      // Уже идёт трансляция — не создаём повторно.
-      return null;
-    }
-    setIsStarting(true);
-    setError(null);
-    try {
-      const body: CreateLiveAnalysisDto = {
-        startingFen: initialFen,
-        orientation,
-        title: title ?? undefined,
-      };
-      const resp = await api.post<LiveAnalysisResponse>(
-        '/live-analyses',
-        body,
-      );
-      setSlug(resp.slug);
-      setPublicUrl(resp.url);
-      setViewerCount(resp.viewerCount);
-      writePersistedSlug(resp.slug);
-      return resp;
-    } catch (e) {
-      const msg =
-        e instanceof ApiError ? e.message : 'failed-to-start-broadcast';
-      setError(msg);
-      return null;
-    } finally {
-      setIsStarting(false);
-    }
-  }, [initialFen, orientation, slug, title, userId]);
+  const start = useCallback(
+    async (startAnalysisId: string): Promise<LiveAnalysisResponse | null> => {
+      if (!userId) {
+        setError('not-authenticated');
+        return null;
+      }
+      if (!startAnalysisId) {
+        // KS-3763 / ADR-112: без analysisId сервер вернёт 400. Заранее
+        // отбиваем чтобы не делать заведомо неуспешный POST.
+        setError('no-analysis-id');
+        return null;
+      }
+      if (slug) {
+        // Уже идёт трансляция — не создаём повторно.
+        return null;
+      }
+      setIsStarting(true);
+      setError(null);
+      try {
+        const body: CreateLiveAnalysisDto = {
+          analysisId: startAnalysisId,
+          startingFen: initialFen,
+          orientation,
+          title: title ?? undefined,
+        };
+        const resp = await api.post<LiveAnalysisResponse>(
+          '/live-analyses',
+          body,
+        );
+        setSlug(resp.slug);
+        setPublicUrl(resp.url);
+        setViewerCount(resp.viewerCount);
+        return resp;
+      } catch (e) {
+        const msg =
+          e instanceof ApiError ? e.message : 'failed-to-start-broadcast';
+        setError(msg);
+        return null;
+      } finally {
+        setIsStarting(false);
+      }
+    },
+    [initialFen, orientation, slug, title, userId],
+  );
 
   const stop = useCallback(() => {
     if (!slug) return;
@@ -399,7 +392,6 @@ export function useAnalysisLiveBroadcast({
     setSlug(null);
     setPublicUrl(null);
     setViewerCount(0);
-    writePersistedSlug(null);
   }, [emitClose, slug]);
 
   const emitMove = useCallback(

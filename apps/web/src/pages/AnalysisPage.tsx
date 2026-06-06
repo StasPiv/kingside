@@ -944,16 +944,21 @@ function AnalysisPageInner({
     setError('');
   }, [isViewerLive]);
 
-  // KS-3736 / ADR-110: state-автомат live-трансляции анализа. Хук сам
-  // делает REST POST/GET, держит WS-подписку, восстанавливает slug из
-  // localStorage при reload и обрабатывает серверные ошибки (incl.
-  // self-heal через `reset` при `illegal-move`).
+  // KS-3736 / ADR-110, KS-3763 / ADR-112: state-автомат live-трансляции
+  // анализа. Хук делает REST POST для запуска, REST GET по analysisId
+  // для восстановления (привязка к конкретному анализу — backend
+  // enforce'ит partial-UNIQUE), держит WS-подписку и self-heal через
+  // `reset` при `illegal-move`.
   const liveBroadcast = useAnalysisLiveBroadcast({
     currentFen,
     initialFen,
     orientation: boardOrientation,
     title: analysisTitle,
     userId: user?.id ?? null,
+    // KS-3763: ID сохранённого анализа — ключ восстановления через
+    // GET /live-analyses/by-analysis/:id. На странице без id
+    // (ad-hoc / kind='review' / 'puzzle') — null, хук «спит».
+    analysisId: analysisId ?? null,
   });
 
   // Обёртка над `rawMakeVariantMove`: пробрасываем UCI в live-трансляцию
@@ -2087,6 +2092,11 @@ function AnalysisPageInner({
   // быстрая анимация у зрителей до прихода state-patch'а).
   useEffect(() => {
     if (!liveBroadcast.isLive) return;
+    // KS-3763 / ADR-112: «тихий» restore больше невозможен — slug
+    // приходит только от REST-восстановления по analysisId, то есть
+    // ровно для этой страницы. Дополнительный гейт против отравления
+    // чужой трансляции, добавленный в KS-3754, больше не нужен:
+    // backend гарантирует партицию (userId, analysisId).
     const pgn = buildAnalysisPgn();
     if (!pgn) return;
     liveBroadcast.emitStatePatch({
@@ -2788,10 +2798,14 @@ function AnalysisPageInner({
             publicUrl={liveBroadcast.publicUrl}
             errorMessage={liveBroadcast.error}
             onStart={() => {
+              // KS-3763 / ADR-112: трансляция привязана к конкретному
+              // анализу. Без analysisId backend вернёт 400 — отбиваем
+              // заранее, без round-trip'а.
+              if (!analysisId) return;
               // Авто-копирование ссылки и тост «Ссылка скопирована»
               // делает сам компонент в useEffect при переходе
               // publicUrl null → string. Здесь только запускаем start.
-              void liveBroadcast.start();
+              void liveBroadcast.start(analysisId);
             }}
             onStop={liveBroadcast.stop}
           />
