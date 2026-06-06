@@ -20,14 +20,12 @@ import { useTranslation } from 'react-i18next';
  */
 export interface LiveBroadcastBadgeProps {
   isLive: boolean;
-  viewerCount: number;
   publicUrl: string | null;
   errorMessage: string | null;
 }
 
 export function LiveBroadcastBadge({
   isLive,
-  viewerCount,
   publicUrl,
   errorMessage,
 }: LiveBroadcastBadgeProps) {
@@ -101,10 +99,11 @@ export function LiveBroadcastBadge({
               display: 'inline-block',
             }}
           />
+          {/* KS-3771: счётчик зрителей убран. Backend продолжает
+              его собирать (метрики, viewerPeak), фронт не показывает —
+              значение часто завышено относительно реального числа
+              открытых вкладок и пользовательски бесполезно. */}
           <strong>{t('liveAnalysis.onAir', 'On air')}</strong>
-          <span data-testid="analysis-live-badge-viewers">
-            · {viewerCount} {t('liveAnalysis.viewersShort', 'viewers')}
-          </span>
         </span>
       )}
       {copied && (

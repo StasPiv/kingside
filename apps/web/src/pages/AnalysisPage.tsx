@@ -308,7 +308,7 @@ type BuildItemsContext = {
   liveAnalysisId: string | null;
   liveIsLive: boolean;
   liveIsStarting: boolean;
-  liveViewerCount: number;
+  // KS-3771: счётчик зрителей убран из UI (см. broadcast-status пункт).
   livePublicUrl: string | null;
   onLiveStart: () => void;
   onLiveSaveAndStart: () => void;
@@ -352,7 +352,6 @@ function buildAnalysisActionsItems(
     liveAnalysisId,
     liveIsLive,
     liveIsStarting,
-    liveViewerCount,
     livePublicUrl,
     onLiveStart,
     onLiveSaveAndStart,
@@ -548,13 +547,13 @@ function buildAnalysisActionsItems(
       // Меню — самый видимый канал, в котором имеет смысл показывать
       // счётчик зрителей; внешний бейдж даёт минимально-навязчивую
       // подсказку «трансляция идёт», детализация — здесь.
+      // KS-3771: счётчик зрителей убран. Заголовок группы — просто
+      // «В эфире» (без `· N зрителей`). Backend по-прежнему собирает
+      // viewerCount/viewerPeak (метрики), фронт не показывает.
       items.push({
         id: 'broadcast-status',
         group: 'broadcast',
-        label: `${t('liveAnalysis.onAir', 'On air')} · ${liveViewerCount} ${t(
-          'liveAnalysis.viewersShort',
-          'viewers',
-        )}`,
+        label: t('liveAnalysis.onAir', 'On air'),
         onClick: () => {},
         disabled: true,
       });
@@ -3055,7 +3054,6 @@ function AnalysisPageInner({
         {!embedded && !publicMode && user && (
           <LiveBroadcastBadge
             isLive={liveBroadcast.isLive}
-            viewerCount={liveBroadcast.viewerCount}
             publicUrl={liveBroadcast.publicUrl}
             errorMessage={liveBroadcast.error}
           />
@@ -3307,7 +3305,6 @@ function AnalysisPageInner({
                     liveAnalysisId: analysisId ?? null,
                     liveIsLive: liveBroadcast.isLive,
                     liveIsStarting: liveBroadcast.isStarting,
-                    liveViewerCount: liveBroadcast.viewerCount,
                     livePublicUrl: liveBroadcast.publicUrl,
                     onLiveStart: handleLiveStart,
                     onLiveSaveAndStart: handleLiveSaveAndStart,
