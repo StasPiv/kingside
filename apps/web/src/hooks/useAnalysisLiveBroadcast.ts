@@ -148,7 +148,15 @@ export interface UseAnalysisLiveBroadcastState {
 }
 
 /** KS-3749: debounce для emit state-patch, синхронизирован с серверным rate-limit. */
-const STATE_PATCH_DEBOUNCE_MS = 500;
+/**
+ * KS-3776: задержка отправки полностью убрана. Прежняя
+ * `STATE_PATCH_DEBOUNCE_MS` придумывалась как «защита от шквала», но
+ * PGN-дерево пересобирается на коммит изменения (setComment по Enter
+ * или blur, setNag, setArrow), а не на каждое нажатие клавиши —
+ * реального шквала у автора не бывает, серверное ограничение частоты
+ * 5/сек burst 10 в обычном сценарии не пробивается. Трансляция —
+ * это «игра в игре», задержки между автором и зрителем быть не должно.
+ */
 
 export function useAnalysisLiveBroadcast({
   currentFen,
@@ -287,51 +295,29 @@ export function useAnalysisLiveBroadcast({
     setError(null);
   }, [snapshot]);
 
-  // ─── KS-3749: debounced emitStatePatch для автора ─────────────────
-  // Push-метод: AnalysisPage сам вычисляет PGN/headers/currentPly/
+  // ─── KS-3749/KS-3776: emitStatePatch для автора ──────────────────
+  // Push-метод: AnalysisPage сам вычисляет PGN/currentGlobalIndex/
   // orientation (через useEffect на изменения review-state) и зовёт
-  // `emitStatePatch(...)`. Хук собирает входы в trailing-edge debounce
-  // 500 мс — синхронизирован с серверным rate-limit (ADR-111 §2.4).
+  // `emitStatePatch(...)`. Хук отправляет мгновенно — без задержки
+  // (KS-3776: трансляция — это «игра в игре», задержка между автором
+  // и зрителем недопустима).
   //
-  // Дополнительная защита от лишнего трафика: сравниваем payload с
-  // последним отправленным (через JSON-хеш). Идентичные patch'и (та же
-  // позиция/ply/orientation) не уходят повторно — экономит трафик и
-  // bandwidth у зрителей.
-  const statePatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingStatePatchRef = useRef<{
-    pgn: string;
-    // KS-3775: точная позиция автора в дереве вариантов через
-    // уникальный индекс узла (см. описание в типе выше).
-    currentGlobalIndex?: number;
-    orientation?: LiveAnalysisOrientation;
-  } | null>(null);
+  // Единственная защита от лишнего трафика — сравнение payload с
+  // последним отправленным (через JSON-хеш). Идентичные сообщения
+  // (та же позиция/индекс/ориентация) не уходят повторно — экономит
+  // трафик и пропускную способность у зрителей.
   const lastSentSignatureRef = useRef<string | null>(null);
   const socketEmitStatePatchRef = useRef(socketEmitStatePatch);
   useEffect(() => {
     socketEmitStatePatchRef.current = socketEmitStatePatch;
   }, [socketEmitStatePatch]);
 
-  // Сброс при смене трансляции (slug стал null или сменился) —
-  // очищаем pending и last-sent baseline. Иначе при перезапуске
-  // трансляции мы бы пропустили первый patch как «уже отправленный».
+  // Сброс при смене трансляции (slug стал null или сменился) — иначе
+  // при перезапуске первое сообщение могло бы быть отброшено как
+  // «уже отправленное».
   useEffect(() => {
-    if (statePatchTimerRef.current) {
-      clearTimeout(statePatchTimerRef.current);
-      statePatchTimerRef.current = null;
-    }
-    pendingStatePatchRef.current = null;
     lastSentSignatureRef.current = null;
   }, [slug]);
-
-  // Очистка таймера на unmount хука.
-  useEffect(() => {
-    return () => {
-      if (statePatchTimerRef.current) {
-        clearTimeout(statePatchTimerRef.current);
-        statePatchTimerRef.current = null;
-      }
-    };
-  }, []);
 
   const emitStatePatch = useCallback<
     UseAnalysisLiveBroadcastState['emitStatePatch']
@@ -345,22 +331,8 @@ export function useAnalysisLiveBroadcast({
         o: params.orientation ?? null,
       });
       if (signature === lastSentSignatureRef.current) return;
-      pendingStatePatchRef.current = params;
-      if (statePatchTimerRef.current) {
-        clearTimeout(statePatchTimerRef.current);
-      }
-      statePatchTimerRef.current = setTimeout(() => {
-        statePatchTimerRef.current = null;
-        const payload = pendingStatePatchRef.current;
-        pendingStatePatchRef.current = null;
-        if (!payload) return;
-        socketEmitStatePatchRef.current(payload);
-        lastSentSignatureRef.current = JSON.stringify({
-          p: payload.pgn,
-          g: payload.currentGlobalIndex ?? null,
-          o: payload.orientation ?? null,
-        });
-      }, STATE_PATCH_DEBOUNCE_MS);
+      socketEmitStatePatchRef.current(params);
+      lastSentSignatureRef.current = signature;
     },
     [slug],
   );
