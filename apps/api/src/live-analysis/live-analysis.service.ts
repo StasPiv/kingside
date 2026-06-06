@@ -436,9 +436,10 @@ export class LiveAnalysisService implements OnModuleInit {
       return { id: found.id, alreadyClosed: true };
     }
 
+    const closedAt = new Date();
     await this.prisma.liveAnalysis.update({
       where: { id: found.id },
-      data: { status: 'closed', closedAt: new Date() },
+      data: { status: 'closed', closedAt },
     });
     this.slugToOwnerCache.delete(slug);
     this.lastActivityCache.delete(slug);
@@ -447,10 +448,46 @@ export class LiveAnalysisService implements OnModuleInit {
     this.metrics.decLiveAnalysisActive();
     await this.purgeRedisState(found.id);
 
+    // KS-3785 / ADR-113 §4 эпик 1: проставить endedAt связанной
+    // live-лекции (если есть). Статус Lecture не меняем — переход в
+    // recorded/cancelled будет в эпике 2 после финализатора записи.
+    await this.markLiveLectureEnded(found.id, closedAt);
+
     await this.publish(LiveAnalysisService.CHANNEL_CLOSED, { slug, reason });
 
     this.logger.log(`Live analysis closed: slug=${slug} reason=${reason}`);
     return { id: found.id, alreadyClosed: false };
+  }
+
+  /**
+   * KS-3785 / ADR-113 §4 эпик 1. UPDATE lectures SET ended_at=?
+   * WHERE live_analysis_id=? AND status='live'. Безопасно для трансляций
+   * без привязанной лекции: `updateMany` с пустой выборкой возвращает
+   * `count: 0`, ошибок не кидает. Статус Lecture не меняем — переход
+   * в recorded/cancelled принадлежит эпику 2 (финализатор записи).
+   */
+  private async markLiveLectureEnded(
+    liveAnalysisId: string,
+    endedAt: Date,
+  ): Promise<void> {
+    try {
+      const result = await this.prisma.lecture.updateMany({
+        where: { liveAnalysisId, status: 'live' },
+        data: { endedAt },
+      });
+      if (result.count > 0) {
+        this.logger.log(
+          `Lecture endedAt set: liveAnalysisId=${liveAnalysisId} count=${result.count}`,
+        );
+      }
+    } catch (e) {
+      // Падать из-за лекции при закрытии трансляции — плохой UX.
+      // Лекция в худшем случае останется с endedAt=null, что
+      // регулярная финализация эпика 2 закроет позже.
+      this.logger.warn(
+        `markLiveLectureEnded failed: liveAnalysisId=${liveAnalysisId} ${(e as Error).message}`,
+      );
+    }
   }
 
   // ─── KS-3733: cleanup-job ──────────────────────────────────────────
@@ -506,6 +543,9 @@ export class LiveAnalysisService implements OnModuleInit {
           this.authorMoveLimiter.reset(row.slug);
           this.authorStatePatchLimiter.reset(row.slug);
           await this.purgeRedisState(row.id);
+          // KS-3785: тот же хук, что и в closeBySlug — endedAt для
+          // связанной live-лекции.
+          await this.markLiveLectureEnded(row.id, now);
           await this.publish(LiveAnalysisService.CHANNEL_CLOSED, {
             slug: row.slug,
             reason: 'inactivity',

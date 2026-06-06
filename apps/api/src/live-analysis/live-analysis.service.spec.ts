@@ -137,6 +137,9 @@ describe('LiveAnalysisService', () => {
     analysis: {
       findUnique: jest.Mock;
     };
+    lecture: {
+      updateMany: jest.Mock;
+    };
   };
   let redis: FakeRedis;
   let metrics: jest.Mocked<Partial<MetricsService>>;
@@ -158,6 +161,12 @@ describe('LiveAnalysisService', () => {
         // принадлежит анализ — тестам без явного mock-а это позволяет
         // не падать на проверке владельца.
         findUnique: jest.fn().mockResolvedValue({ id: 'a-1', userId: 'u-1' }),
+      },
+      lecture: {
+        // KS-3785: closeBySlug/runCleanupTick зовут updateMany на
+        // lectures для проставления endedAt. По умолчанию нет
+        // связанных лекций (count=0).
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
     redis = new FakeRedis();
@@ -481,6 +490,53 @@ describe('LiveAnalysisService', () => {
       });
       await expect(service.closeBySlug('s', 'NOT-u-1')).rejects.toThrow(
         ForbiddenException,
+      );
+    });
+
+    // ─── KS-3785 / ADR-113: хук endedAt у связанной лекции ───────────
+
+    it('KS-3785: проставляет endedAt у связанной live-лекции', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        ownerId: 'u-1',
+        status: 'active',
+      });
+      prisma.lecture.updateMany.mockResolvedValueOnce({ count: 1 });
+      await service.closeBySlug('s', 'u-1');
+      expect(prisma.lecture.updateMany).toHaveBeenCalledWith({
+        where: { liveAnalysisId: 'la-1', status: 'live' },
+        data: { endedAt: expect.any(Date) },
+      });
+    });
+
+    it('KS-3785: трансляция без связанной лекции — count=0, успешно', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        ownerId: 'u-1',
+        status: 'active',
+      });
+      // По умолчанию prisma.lecture.updateMany возвращает count=0.
+      const res = await service.closeBySlug('s', 'u-1');
+      expect(res.alreadyClosed).toBe(false);
+      expect(prisma.lecture.updateMany).toHaveBeenCalledWith({
+        where: { liveAnalysisId: 'la-1', status: 'live' },
+        data: { endedAt: expect.any(Date) },
+      });
+    });
+
+    it('KS-3785: ошибка updateMany не валит closeBySlug', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        ownerId: 'u-1',
+        status: 'active',
+      });
+      prisma.lecture.updateMany.mockRejectedValueOnce(new Error('boom'));
+      const res = await service.closeBySlug('s', 'u-1');
+      expect(res.alreadyClosed).toBe(false);
+      // closeBySlug всё равно publish'нул событие.
+      expect(redis.publish).toHaveBeenCalledWith(
+        'live-analysis:closed',
+        expect.stringContaining('"reason":"by_owner"'),
       );
     });
   });
