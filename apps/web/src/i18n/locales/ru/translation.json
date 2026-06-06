@@ -741,7 +741,10 @@
     "linkCopied": "Ссылка скопирована",
     "saveAndStart": "Сохранить и транслировать",
     "saveAndStartTooltip": "Сохраняет анализ в мастерскую и сразу запускает трансляцию",
-    "unavailableTooltip": "Сохраните в мастерскую, чтобы транслировать"
+    "unavailableTooltip": "Сохраните в мастерскую, чтобы транслировать",
+    "startMenuItem": "Начать трансляцию",
+    "stopMenuItem": "Завершить трансляцию",
+    "saveAndStartMenuItem": "Сохранить и начать трансляцию"
   },
   "liveAnalysisViewer": {
     "defaultTitle": "Живой разбор",

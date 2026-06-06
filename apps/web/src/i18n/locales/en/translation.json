@@ -731,7 +731,10 @@
     "linkCopied": "Link copied",
     "saveAndStart": "Save and broadcast",
     "saveAndStartTooltip": "Saves the analysis to your workshop, then starts the broadcast",
-    "unavailableTooltip": "Save to your workshop to start broadcasting"
+    "unavailableTooltip": "Save to your workshop to start broadcasting",
+    "startMenuItem": "Start broadcast",
+    "stopMenuItem": "Stop broadcast",
+    "saveAndStartMenuItem": "Save and start broadcast"
   },
   "liveAnalysisViewer": {
     "defaultTitle": "Live analysis",

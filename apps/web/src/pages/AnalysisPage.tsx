@@ -64,7 +64,12 @@ import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 import { AnalysisHeader } from './analysis/AnalysisHeader';
 // KS-3736 / ADR-110: live-трансляция анализа партии — кнопка «Транслировать»,
 // индикатор статуса, восстановление режима при reload.
-import { LiveBroadcastControl } from '../components/analysis/LiveBroadcastControl';
+// KS-3755 / ADR-112: управление трансляцией перенесено в
+// AnalysisActionsMenu (под доской). От прежнего верхнего блока
+// `LiveBroadcastControl` осталась только тонкая обёртка-индикатор
+// `LiveBroadcastBadge`: «В эфире · N зрителей» + тосты «Ссылка
+// скопирована» / ошибки.
+import { LiveBroadcastBadge } from '../components/analysis/LiveBroadcastBadge';
 import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
 // KS-3747 / ADR-111 §7: проп `liveSession` — AnalysisPage становится
 // просмотрщиком трансляции (mode='viewer') или подключается к ней как
@@ -293,6 +298,22 @@ type BuildItemsContext = {
   onRunGameReview: () => void;
   gameReviewDisabled: boolean;
   gameReviewDisabledHint: string | undefined;
+  /**
+   * KS-3755 (ADR-112): live-трансляция анализа. Управление перенесено
+   * из верхнего LiveBroadcastControl в эту группу пунктов меню.
+   * Источник state — `useAnalysisLiveBroadcast`; обработчики — caller.
+   * Гейт видимости пунктов — `!publicMode && user` (только владелец
+   * на своей странице); внутри — kind-aware ветки (см. buildItems).
+   */
+  liveAnalysisId: string | null;
+  liveIsLive: boolean;
+  liveIsStarting: boolean;
+  liveViewerCount: number;
+  livePublicUrl: string | null;
+  onLiveStart: () => void;
+  onLiveSaveAndStart: () => void;
+  onLiveCopyLink: () => void | Promise<void>;
+  onLiveStop: () => void;
 };
 
 function buildAnalysisActionsItems(
@@ -328,6 +349,15 @@ function buildAnalysisActionsItems(
     onRunGameReview,
     gameReviewDisabled,
     gameReviewDisabledHint,
+    liveAnalysisId,
+    liveIsLive,
+    liveIsStarting,
+    liveViewerCount,
+    livePublicUrl,
+    onLiveStart,
+    onLiveSaveAndStart,
+    onLiveCopyLink,
+    onLiveStop,
   } = ctx;
 
   const isOwner =
@@ -503,6 +533,83 @@ function buildAnalysisActionsItems(
       disabled: isGuest,
       disabledHint: isGuest ? guestDisabledHint : undefined,
     });
+  }
+
+  // — broadcast — KS-3755 / ADR-112: управление трансляцией перенесено
+  // из верхнего LiveBroadcastControl сюда. Пункты видны только владельцу
+  // на собственной странице (не publicMode, не гость). Для зрителя
+  // live-режима (publicMode=true через isViewerLive) ничего не
+  // добавляем — он не управляет трансляцией. Для гостя на чужом
+  // публичном анализе тоже ничего — там нечего транслировать.
+  const broadcastVisible = !publicMode && !!user;
+  if (broadcastVisible) {
+    if (liveIsLive) {
+      // Заголовок группы: «В эфире · N зрителей» как disabled-пункт.
+      // Меню — самый видимый канал, в котором имеет смысл показывать
+      // счётчик зрителей; внешний бейдж даёт минимально-навязчивую
+      // подсказку «трансляция идёт», детализация — здесь.
+      items.push({
+        id: 'broadcast-status',
+        group: 'broadcast',
+        label: `${t('liveAnalysis.onAir', 'On air')} · ${liveViewerCount} ${t(
+          'liveAnalysis.viewersShort',
+          'viewers',
+        )}`,
+        onClick: () => {},
+        disabled: true,
+      });
+      if (livePublicUrl) {
+        items.push({
+          id: 'broadcast-copy-link',
+          group: 'broadcast',
+          label: t('liveAnalysis.copyLink', 'Copy link'),
+          onClick: () => {
+            void onLiveCopyLink();
+          },
+        });
+      }
+      items.push({
+        id: 'broadcast-stop',
+        group: 'broadcast',
+        label: t('liveAnalysis.stopMenuItem', 'Stop broadcast'),
+        onClick: onLiveStop,
+      });
+    } else if (kind !== 'analysis') {
+      // review / puzzle — анализ чужой партии или пазла, транслировать
+      // нечего. Пункт disabled + tooltip-подсказка.
+      items.push({
+        id: 'broadcast-start',
+        group: 'broadcast',
+        label: t('liveAnalysis.startMenuItem', 'Start broadcast'),
+        onClick: () => {},
+        disabled: true,
+        disabledHint: t(
+          'liveAnalysis.unavailableTooltip',
+          'Save to your workshop to start broadcasting',
+        ),
+      });
+    } else if (!liveAnalysisId) {
+      // Ad-hoc сессия без id — «Сохранить и начать трансляцию».
+      items.push({
+        id: 'broadcast-save-and-start',
+        group: 'broadcast',
+        label: t(
+          'liveAnalysis.saveAndStartMenuItem',
+          'Save and start broadcast',
+        ),
+        onClick: onLiveSaveAndStart,
+        disabled: liveIsStarting,
+      });
+    } else {
+      // Обычный flow: сохранённый анализ с id → просто start.
+      items.push({
+        id: 'broadcast-start',
+        group: 'broadcast',
+        label: t('liveAnalysis.startMenuItem', 'Start broadcast'),
+        onClick: onLiveStart,
+        disabled: liveIsStarting,
+      });
+    }
   }
 
   return items;
@@ -2079,6 +2186,66 @@ function AnalysisPageInner({
     return headers.join('\n') + '\n\n' + moves + '\n';
   }, [history, analysisTitle, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex]);
 
+  // KS-3755 / ADR-112: обработчики управления трансляцией. Переехали из
+  // верхнего LiveBroadcastControl-блока в пункты AnalysisActionsMenu —
+  // выносим в стабильные useCallback'и, чтобы передавать в
+  // buildAnalysisActionsItems без перерасчёта items на каждый рендер.
+  const handleLiveStart = useCallback(() => {
+    if (!analysisId) return;
+    void liveBroadcast.start(analysisId);
+  }, [analysisId, liveBroadcast]);
+  const handleLiveSaveAndStart = useCallback(() => {
+    if (liveBroadcast.isStarting) return;
+    // Race: autosave мог успеть создать запись раньше клика.
+    const existingId = localIdRef.current;
+    if (existingId) {
+      void liveBroadcast.start(existingId);
+      return;
+    }
+    const pgn = buildAnalysisPgn() ?? '';
+    const category =
+      gameId ? 'game_review' : puzzleFen ? 'puzzle' : 'analysis';
+    const hasCustomFen = initialFen !== DEFAULT_FEN;
+    void (async () => {
+      try {
+        const entry = await createAnalysis(
+          pgn,
+          analysisTitle,
+          category,
+          hasCustomFen ? initialFen : undefined,
+        );
+        localIdRef.current = entry.id;
+        window.history.replaceState(null, '', '/analysis/' + entry.id);
+        if (entry.userId) setSavedOwnerId(entry.userId);
+        setSavedIsPublic(
+          Boolean((entry as { isPublic?: boolean }).isPublic),
+        );
+        void liveBroadcast.start(entry.id);
+      } catch {
+        /* error попадёт в liveBroadcast.error через хук */
+      }
+    })();
+  }, [
+    analysisTitle,
+    buildAnalysisPgn,
+    createAnalysis,
+    gameId,
+    initialFen,
+    liveBroadcast,
+    puzzleFen,
+  ]);
+  const handleLiveCopyLink = useCallback(async () => {
+    if (!liveBroadcast.publicUrl) return;
+    try {
+      await navigator.clipboard.writeText(liveBroadcast.publicUrl);
+    } catch {
+      /* clipboard может быть закрыт permissions — игнорируем */
+    }
+  }, [liveBroadcast.publicUrl]);
+  const handleLiveStop = useCallback(() => {
+    liveBroadcast.stop();
+  }, [liveBroadcast]);
+
   // KS-3749 / ADR-111 §7. Авторский emit `state-patch`. Запускается на
   // любое изменение review-state (новые ходы, NAGs, комментарии,
   // вариации, стрелки, headers, переключение currentPly, переворот
@@ -2786,79 +2953,17 @@ function AnalysisPageInner({
             onTitleClick={handleTitleClick}
           />
         )}
-        {/* KS-3736 / ADR-110: блок управления live-трансляцией.
-            Виден только авторизованному пользователю и только в обычном
-            (не embedded / не publicMode) режиме страницы — это инструмент
-            автора, не зрителя и не ученика урока. */}
+        {/* KS-3755 / ADR-112: лёгкий бейдж «В эфире · N зрителей»
+            (заменил тяжёлый LiveBroadcastControl). Виден только
+            владельцу на собственной странице и только когда трансляция
+            активна. Управление (старт/стоп/копирование ссылки) —
+            в AnalysisActionsMenu под доской, см. broadcast-группу. */}
         {!embedded && !publicMode && user && (
-          <LiveBroadcastControl
+          <LiveBroadcastBadge
             isLive={liveBroadcast.isLive}
-            isStarting={liveBroadcast.isStarting}
             viewerCount={liveBroadcast.viewerCount}
             publicUrl={liveBroadcast.publicUrl}
             errorMessage={liveBroadcast.error}
-            // KS-3764 / ADR-112: kind-aware кнопка. Источник — kind из
-            // AnalysisContext: для /game/:id/review это 'review',
-            // для пазловых страниц — 'puzzle', иначе 'analysis'.
-            kind={ctx.kind}
-            // analysisId === undefined трактуем как «нет сохранёнки»
-            // (ad-hoc сессия). Локальный (только-что-созданный) id
-            // живёт в `localIdRef.current` и подхватится в обработчиках.
-            analysisId={analysisId ?? null}
-            onStart={() => {
-              // KS-3763 / ADR-112: трансляция привязана к конкретному
-              // анализу. Без analysisId backend вернёт 400 — отбиваем
-              // заранее, без round-trip'а.
-              if (!analysisId) return;
-              // Авто-копирование ссылки и тост «Ссылка скопирована»
-              // делает сам компонент в useEffect при переходе
-              // publicUrl null → string. Здесь только запускаем start.
-              void liveBroadcast.start(analysisId);
-            }}
-            // KS-3764 / ADR-112: «Сохранить и транслировать» для
-            // ad-hoc-сессий (kind='analysis' без analysisId). Поток
-            // повторяет существующий autosave-flow (см. createAnalysis
-            // вызов выше), только триггерится явно по клику —
-            // дожидаемся entry.id и сразу же стартуем трансляцию.
-            onSaveAndStart={() => {
-              if (liveBroadcast.isStarting) return;
-              // Race-condition: autosave мог успеть создать запись
-              // раньше клика — тогда сразу запускаем по существующему id.
-              const existingId = localIdRef.current;
-              if (existingId) {
-                void liveBroadcast.start(existingId);
-                return;
-              }
-              const pgn = buildAnalysisPgn() ?? '';
-              const category =
-                gameId ? 'game_review' : puzzleFen ? 'puzzle' : 'analysis';
-              const hasCustomFen = initialFen !== DEFAULT_FEN;
-              void (async () => {
-                try {
-                  const entry = await createAnalysis(
-                    pgn,
-                    analysisTitle,
-                    category,
-                    hasCustomFen ? initialFen : undefined,
-                  );
-                  localIdRef.current = entry.id;
-                  window.history.replaceState(
-                    null,
-                    '',
-                    '/analysis/' + entry.id,
-                  );
-                  if (entry.userId) setSavedOwnerId(entry.userId);
-                  setSavedIsPublic(
-                    Boolean((entry as { isPublic?: boolean }).isPublic),
-                  );
-                  void liveBroadcast.start(entry.id);
-                } catch {
-                  /* error попадёт в liveBroadcast.error через хук
-                     либо тихо игнорируется — alert-pop'апов не делаем */
-                }
-              })();
-            }}
-            onStop={liveBroadcast.stop}
           />
         )}
         {/* KS-3750: badge «получено обновление от автора». Виден
@@ -3104,6 +3209,16 @@ function AnalysisPageInner({
                     onRunGameReview: gameReviewLauncher.trigger,
                     gameReviewDisabled: gameReviewLauncher.disabled,
                     gameReviewDisabledHint: gameReviewLauncher.disabledHint,
+                    // KS-3755 / ADR-112: broadcast-группа в меню.
+                    liveAnalysisId: analysisId ?? null,
+                    liveIsLive: liveBroadcast.isLive,
+                    liveIsStarting: liveBroadcast.isStarting,
+                    liveViewerCount: liveBroadcast.viewerCount,
+                    livePublicUrl: liveBroadcast.publicUrl,
+                    onLiveStart: handleLiveStart,
+                    onLiveSaveAndStart: handleLiveSaveAndStart,
+                    onLiveCopyLink: handleLiveCopyLink,
+                    onLiveStop: handleLiveStop,
                   })}
                 />
               ) : (

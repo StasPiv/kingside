@@ -32,7 +32,11 @@ export type AnalysisActionGroup =
   | 'gamePosition' // FEN / Game info / Find games
   | 'pgn' // Export / Copy
   | 'training' // Puzzle / Guess / Repertoires
-  | 'sharing'; // Share
+  | 'sharing' // Share
+  // KS-3755: live-трансляция анализа. Старт/копирование/завершение —
+  // отдельная группа в конце меню, чтобы не смешиваться с действиями
+  // над PGN/позицией.
+  | 'broadcast';
 
 export interface AnalysisActionItem {
   /** Стабильный id для data-testid и React-keys. */
@@ -66,6 +70,10 @@ const GROUP_ORDER: AnalysisActionGroup[] = [
   'pgn',
   'training',
   'sharing',
+  // KS-3755: «broadcast» в самом конце — это дополнительная функция,
+  // не основная (см. описание задачи: «трансляция — не основная,
+  // должна быть в меню»).
+  'broadcast',
 ];
 
 function groupItems(
