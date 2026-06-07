@@ -586,29 +586,10 @@ export function LectureReplayPage() {
               flexShrink: 0,
             }}
           >
-            {/* KS-3855 / ADR-116 §2.5. У лекции нет записанного голоса
-                (finalizer не отработал, либо лекция велась без аудио) —
-                плеер деградирует до старого timer-driven режима и
-                сообщает об этом пользователю. */}
-            {!hasAudio && (
-              <div
-                role="status"
-                data-testid="lecture-replay-no-audio-badge"
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  background: '#e3f2fd',
-                  border: '1px solid #90caf9',
-                  color: '#0d47a1',
-                  fontSize: 13,
-                }}
-              >
-                {t(
-                  'lectureReplay.noAudioBadge',
-                  'Запись звука недоступна, плеер работает только по ходам.',
-                )}
-              </div>
-            )}
+            {/* KS-3855 / KS-3860: при `!hasAudio` плеер деградирует
+                до timer-driven режима. Визуальное уведомление убрано
+                по KS-3860; режим виден через атрибут
+                `data-replay-mode` на корневом контейнере плеера. */}
             <input
               type="range"
               min={0}
