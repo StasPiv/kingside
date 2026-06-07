@@ -1524,8 +1524,15 @@ describe('KS-3290 (M2 B4): review-mode + GET /reviews/due', () => {
         title: 't',
         pgn: '1. e4',
       });
-      const past = new Date('2026-05-20T00:00:00Z');
-      const future = new Date('2026-06-01T00:00:00Z');
+      // KS-3859: используем относительные даты от Date.now(), чтобы
+      // статусы (`mastered` = sm2DueAt в будущем, `due` = sm2DueAt в
+      // прошлом) не «протухали» с течением календарного времени.
+      // Раньше здесь были зашиты литералы `2026-05-20` / `2026-06-01`,
+      // и после 2026-06-01 фикстура «mastered» начинала классифицироваться
+      // как `due`, ломая тест.
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+      const past = new Date(Date.now() - 30 * ONE_DAY_MS);
+      const future = new Date(Date.now() + 30 * ONE_DAY_MS);
 
       // 1. mastered (sm2DueAt в будущем)
       repo._seedLineProgress({
