@@ -240,6 +240,20 @@
   align-self: flex-start;
 }
 
+/* KS-3879: когда тренер ведёт live-лекцию, над доской прибавляются
+   бейдж «● В эфире» (`.analysis-live-badge`) и индикатор записи
+   (`.lecture-publisher-status-badge`). Базовая формула резервирует
+   240px только под AnalysisHeader + game-info + controls — этих
+   ~80px не учитывает, доска перерастает viewport и обрезается
+   снизу. Увеличиваем резерв до 320px только в этом контексте через
+   `:has()` (поддержка во всех evergreen-браузерах с 2023). На
+   mobile правило не сработает: `.analysis-page .board-container`
+   там перебито `width: 100vw - 16` в responsive.css. */
+.analysis-board-area:has(.analysis-live-badge) .board-container,
+.analysis-board-area:has(.lecture-publisher-status-badge) .board-container {
+  max-width: calc((100vh - 320px) * var(--analysis-board-size-scale, 0.92));
+}
+
 body[data-board-size='sm'] { --analysis-board-size-scale: 0.78; }
 body[data-board-size='md'] { --analysis-board-size-scale: 0.92; }
 body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
