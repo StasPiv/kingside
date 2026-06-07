@@ -147,6 +147,18 @@ export function LecturePublisherStatusBadge({
               { count: peerCount },
             )}
           </span>
+          {publisher.chunksFailed > 0 && (
+            <span
+              data-testid="lecture-publisher-status-badge-failed"
+              style={{ color: '#b26a00' }}
+              title={t(
+                'lecturePublisher.failedHint',
+                'Аудио не загрузилось на сервер',
+              )}
+            >
+              ⚠
+            </span>
+          )}
         </>
       )}
       {showError && (
