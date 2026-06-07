@@ -799,7 +799,12 @@ export function CoachProfilePage() {
             }}
           >
             {recordedLectures.map((l) => {
-              const dateLabel = formatDate(l.endedAt, i18n.language);
+              // KS-3863 follow-up: в списке записанных лекций раньше
+              // показывалась только дата окончания — при нескольких
+              // записях в один день карточки выглядели одинаково, и
+              // тренер не мог отличить одну от другой. Теперь
+              // показываем «дата + время» окончания.
+              const dateLabel = formatStartedAt(l.endedAt, i18n.language);
               const duration = formatDuration(l, t as unknown as TFn);
               return (
                 <li
