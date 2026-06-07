@@ -16,10 +16,12 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { PuzzleService } from './puzzle.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { FindPuzzlesDto } from './dto/find-puzzles.dto';
 import { BatchPuzzlesDto } from './dto/batch-puzzle.dto';
@@ -33,9 +35,26 @@ import { isPrecisionRelevantTheme } from '@kingside/shared';
 
 @Controller('puzzles')
 export class PuzzleController {
+  /**
+   * KS-3891. TTL кэша `total` для `/puzzles/browse` (сек). Count при
+   * `hideSolved=true` + `source='lichess'` упирается в Parallel Seq
+   * Scan на ~6M строк `puzzles` (см. EXPLAIN ANALYZE в задаче, ~10 с
+   * на запрос). Само значение редко меняется в окне 5 минут (новые
+   * lichess-пазлы заливаются батчами, не «в реальном времени»), а
+   * UI-счётчик «Найдено: N» не критичен к небольшой stale-задержке.
+   */
+  private static readonly BROWSE_TOTAL_CACHE_TTL_SEC = 300;
+  /**
+   * KS-3891. Префикс ключа в Redis. Ключ строится как hash от
+   * нормализованных фильтров + userId (для запросов с hideSolved
+   * это per-user). Подробности см. `cacheKeyForBrowseTotal`.
+   */
+  private static readonly BROWSE_TOTAL_CACHE_PREFIX = 'puzzles:browse:count:v1';
+
   constructor(
     private readonly puzzleService: PuzzleService,
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
   ) {}
 
   /**
@@ -507,46 +526,64 @@ export class PuzzleController {
 
     // KS-3666 / ADR-106. Точный счётчик «Найдено: N» в UI каталога.
     // Считается на snapshot conditions/params до cursor — total
-    // стабилен при переходе на следующую страницу. Параллельно с
-    // dataQuery через Promise.all (две поездки в БД, но без
-    // последовательного ожидания).
-    const countWhere = filterConditionsSnapshot.join(' AND ');
-    const countQuery = `SELECT COUNT(*)::int AS total
-      FROM puzzles p
-      WHERE ${countWhere}`;
+    // стабилен при переходе на следующую страницу.
+    //
+    // KS-3891. Регрессия: на проде countQuery без курсора + фильтр
+    // `source='lichess'` + NOT EXISTS на puzzle_attempts давал
+    // Parallel Seq Scan на ~6M строк (~10 секунд). Решение:
+    //   1. Count считается ТОЛЬКО на первой странице (cursor=undefined),
+    //      т.к. он стабилен при переходе на следующие страницы —
+    //      фронт уже знает значение.
+    //   2. Результат кешируется в Redis с TTL 5 минут per
+    //      (нормализованные фильтры + userId). Stale-окно для UI-
+    //      счётчика приемлемо; lichess-пазлы заливаются батчами.
+    //   3. На последующих страницах total не передаётся в SQL —
+    //      возвращаем `null` (фронт должен сохранить значение с
+    //      первой страницы).
+    const dataRowsPromise = this.prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        fen: string;
+        moves: string;
+        rating: number;
+        themes: string;
+        source: string;
+        source_type: string | null;
+        source_id: string | null;
+        source_metadata: string | null;
+        source_move_num: number | null;
+        game_url: string | null;
+        solution_mode: string | null;
+        is_public: boolean;
+        created_by: string | null;
+        created_at: Date | string;
+        // KS-3663 / ADR-106 §2.5.
+        maia_weak_choice_prob: number | null;
+        maia_metric_version: number | null;
+        maia_top1_elo: number | null;
+        blunderer_elo: number | null;
+        solved_status: string | null;
+      }>
+    >(dataQuery, ...params);
 
-    const [rows, countRows] = await Promise.all([
-      this.prisma.$queryRawUnsafe<
-        Array<{
-          id: string;
-          fen: string;
-          moves: string;
-          rating: number;
-          themes: string;
-          source: string;
-          source_type: string | null;
-          source_id: string | null;
-          source_metadata: string | null;
-          source_move_num: number | null;
-          game_url: string | null;
-          solution_mode: string | null;
-          is_public: boolean;
-          created_by: string | null;
-          created_at: Date | string;
-          // KS-3663 / ADR-106 §2.5.
-          maia_weak_choice_prob: number | null;
-          maia_metric_version: number | null;
-          maia_top1_elo: number | null;
-          blunderer_elo: number | null;
-          solved_status: string | null;
-        }>
-      >(dataQuery, ...params),
-      this.prisma.$queryRawUnsafe<Array<{ total: number }>>(
-        countQuery,
-        ...filterParamsSnapshot,
-      ),
+    let totalPromise: Promise<number | null>;
+    if (decoded) {
+      // KS-3891: на последующих страницах total не считаем. Фронт
+      // сохраняет значение с первой страницы.
+      totalPromise = Promise.resolve(null);
+    } else {
+      totalPromise = this.resolveBrowseTotal(
+        filterConditionsSnapshot,
+        filterParamsSnapshot,
+        userId,
+      );
+    }
+
+    const [rows, totalOrNull] = await Promise.all([
+      dataRowsPromise,
+      totalPromise,
     ]);
-    const total = countRows[0]?.total ?? 0;
+    const total = totalOrNull;
 
     const hasMore = rows.length > take;
     const slice = hasMore ? rows.slice(0, take) : rows;
@@ -805,5 +842,71 @@ export class PuzzleController {
         moves: dto.moves,
       },
     );
+  }
+
+  /**
+   * KS-3891. Получить total с кешем. Cache key — sha256 от
+   * нормализованных условий, параметров и userId. TTL — 5 минут.
+   * При промахе ходит в БД, при ошибках Redis — fallback на прямой
+   * count (хуже по скорости, но не ломает запрос).
+   */
+  private async resolveBrowseTotal(
+    filterConditions: string[],
+    filterParams: unknown[],
+    userId: string | null,
+  ): Promise<number> {
+    const key = this.cacheKeyForBrowseTotal(
+      filterConditions,
+      filterParams,
+      userId,
+    );
+    try {
+      const cached = await this.redis.get(key);
+      if (cached !== null) {
+        const parsed = Number.parseInt(cached, 10);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    } catch {
+      // Redis недоступен — продолжаем напрямую к БД.
+    }
+    const countWhere = filterConditions.join(' AND ');
+    const countQuery = `SELECT COUNT(*)::int AS total FROM puzzles p WHERE ${countWhere}`;
+    const countRows = await this.prisma.$queryRawUnsafe<
+      Array<{ total: number }>
+    >(countQuery, ...filterParams);
+    const total = countRows[0]?.total ?? 0;
+    try {
+      await this.redis.set(
+        key,
+        String(total),
+        'EX',
+        PuzzleController.BROWSE_TOTAL_CACHE_TTL_SEC,
+      );
+    } catch {
+      // Не блокируем ответ из-за ошибки записи в Redis.
+    }
+    return total;
+  }
+
+  /**
+   * KS-3891. Нормализованный ключ кеша для total. На вход — список
+   * SQL-условий и упорядоченный массив подставленных параметров;
+   * формируем устойчивую строку и считаем sha256 — компактно и
+   * безопасно для длинных query.
+   */
+  private cacheKeyForBrowseTotal(
+    filterConditions: string[],
+    filterParams: unknown[],
+    userId: string | null,
+  ): string {
+    const hash = createHash('sha256');
+    hash.update(filterConditions.join('|'));
+    hash.update('::params::');
+    hash.update(JSON.stringify(filterParams));
+    hash.update('::user::');
+    hash.update(userId ?? 'anon');
+    return `${PuzzleController.BROWSE_TOTAL_CACHE_PREFIX}:${hash
+      .digest('hex')
+      .slice(0, 32)}`;
   }
 }

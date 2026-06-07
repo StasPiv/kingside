@@ -80,6 +80,22 @@ const anonReq = { user: undefined } as unknown as AuthenticatedRequest;
 const loginReq = (id: string) =>
   ({ user: { id } }) as unknown as AuthenticatedRequest;
 
+/**
+ * KS-3891. Заглушка RedisService для `PuzzleController`. По умолчанию
+ * cache промахивается (get→null), а set — no-op. Тесты, которым нужно
+ * проверить чтение из кеша, перепоставят моки на эту инстанцию.
+ */
+function makeFakeRedis(): {
+  get: jest.Mock;
+  set: jest.Mock;
+} {
+  return {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue('OK'),
+  };
+}
+const fakeRedis = (): unknown => makeFakeRedis();
+
 describe('puzzle-cursor-codec', () => {
   it('encode → decode round-trip', () => {
     const c = { c: '2026-05-07T10:00:00.000Z', i: 'pz-1' };
@@ -106,7 +122,7 @@ describe('puzzle-cursor-codec', () => {
 describe('PuzzleController.browse — KS-2560 cursor', () => {
   it('первая страница: data + nextCursor=null когда rows < limit+1', async () => {
     const prisma = makePrisma([makeRow(1), makeRow(2), makeRow(3)]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     const res = await controller.browse(anonReq, 20);
 
@@ -119,7 +135,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
   it('nextCursor выставляется когда rows.length === limit+1', async () => {
     // limit=2 → запрос с LIMIT 3; вернулось 3 строки → есть следующая.
     const prisma = makePrisma([makeRow(1), makeRow(2), makeRow(3)]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     const res = await controller.browse(anonReq, 2);
 
@@ -136,7 +152,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
       i: 'pz-prev',
     });
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(anonReq, 20, cursor);
 
@@ -149,7 +165,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
   it('themes ANY-of: OR-цепочка LIKE', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       anonReq,
@@ -169,7 +185,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
   it('ratingMin/ratingMax → BETWEEN-условия', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       anonReq,
@@ -190,7 +206,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
   it('source whitelist: lichess', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       anonReq,
@@ -211,7 +227,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
   it('source whitelist: garbage → игнорируется', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       anonReq,
@@ -232,7 +248,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
   it('anon: visibility = is_public=true', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(anonReq, 20);
 
@@ -244,7 +260,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
   it('login без mine: visibility = (created_by=me OR is_public=true)', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(loginReq('user-1'), 20);
 
@@ -255,7 +271,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
   it('login + mine=true: только свои', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(loginReq('user-1'), 20, undefined, 'true');
 
@@ -271,6 +287,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
 
     // browse(req, limit, cursor?, mine?, themes?, ratingMin?, ratingMax?,
@@ -309,6 +326,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await controller.browse(
       anonReq,
@@ -333,7 +351,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
 
   it('hideSolved login: NOT EXISTS на puzzle_attempts', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       loginReq('user-1'),
@@ -355,7 +373,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     const prisma = makePrisma([
       makeRow(1, { source: 'lichess', is_public: true }),
     ]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     const res = await controller.browse(anonReq, 20);
     expect(res.data[0]).toMatchObject({
@@ -377,6 +395,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await controller.browse(anonReq, 20);
     const [sql] = getDataCall(prisma);
@@ -396,6 +415,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     const res = await controller.browse(anonReq, 20);
     expect(res.data[0]).toMatchObject({
@@ -410,6 +430,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     const res = await controller.browse(anonReq, 20);
     expect(res.data[0]).toMatchObject({
@@ -439,6 +460,7 @@ describe('PuzzleController.browse — KS-3656 minMaiaWeakChoiceProb', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await controller.browse(
       anonReq,
@@ -490,6 +512,7 @@ describe('PuzzleController.browse — KS-3656 minMaiaWeakChoiceProb', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await expect(
       controller.browse(
@@ -509,6 +532,7 @@ describe('PuzzleController.browse — KS-3656 minMaiaWeakChoiceProb', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await expect(
       controller.browse(
@@ -528,6 +552,7 @@ describe('PuzzleController.browse — KS-3656 minMaiaWeakChoiceProb', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await expect(
       controller.browse(
@@ -562,6 +587,7 @@ describe('PuzzleController.browse — KS-3670 maxMaiaWeakChoiceProb', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await controller.browse(
       anonReq,
@@ -671,6 +697,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     const res = await controller.browse(anonReq, 20);
     expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(2);
@@ -685,6 +712,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     const res = await controller.browse(anonReq, 20);
     expect(res.data).toHaveLength(2);
@@ -703,6 +731,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     const res = await controller.browse(anonReq, 20);
     expect(res.total).toBe(0);
@@ -713,6 +742,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await controller.browse(
       anonReq,
@@ -735,23 +765,59 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     expect(countCall.slice(1)).toContain(1600);
   });
 
-  it('count НЕ содержит keyset-cursor условие (total стабилен между страницами)', async () => {
+  it('KS-3891: count НЕ запускается при наличии cursor (total=null на последующих страницах)', async () => {
     const prisma = makePrisma([makeRow(1)], 100);
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     const cursor = encodePuzzleCursor({
       c: '2026-05-07T10:00:00.000Z',
       i: 'pz-5',
     });
-    await controller.browse(anonReq, 20, cursor);
+    const res = await controller.browse(anonReq, 20, cursor);
     const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
-    const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
-    // dataQuery содержит cursor-условие, count — нет.
-    expect(countCall[0]).not.toContain('p.created_at <');
+    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeUndefined();
+    // dataQuery всё ещё содержит cursor-условие.
     const dataCall = calls.find((c) => c[0].includes('SELECT p.id'))!;
     expect(dataCall[0]).toContain('p.created_at <');
+    // total на последующих страницах не возвращается.
+    expect(res.total).toBeNull();
+  });
+
+  it('KS-3891: total читается из Redis-кеша, count в БД не идёт', async () => {
+    const prisma = makePrisma([makeRow(1)], 999);
+    const redis = makeFakeRedis();
+    redis.get.mockResolvedValueOnce('42'); // cache hit
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      redis as unknown as never,
+    );
+    const res = await controller.browse(anonReq, 20);
+    expect(res.total).toBe(42);
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeUndefined();
+    expect(redis.set).not.toHaveBeenCalled();
+  });
+
+  it('KS-3891: при промахе кеша total считается в БД и пишется в Redis с TTL', async () => {
+    const prisma = makePrisma([makeRow(1)], 777);
+    const redis = makeFakeRedis(); // get → null
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      redis as unknown as never,
+    );
+    const res = await controller.browse(anonReq, 20);
+    expect(res.total).toBe(777);
+    expect(redis.set).toHaveBeenCalledTimes(1);
+    const [key, value, mode, ttl] = redis.set.mock.calls[0];
+    expect(String(key)).toContain('puzzles:browse:count:v1:');
+    expect(value).toBe('777');
+    expect(mode).toBe('EX');
+    expect(ttl).toBe(300);
   });
 
   it('count НЕ содержит ORDER BY / LIMIT', async () => {
@@ -759,6 +825,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await controller.browse(anonReq, 20);
     const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
@@ -772,6 +839,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await controller.browse(
       anonReq,
@@ -793,6 +861,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
     await controller.browse(
       anonReq,
@@ -827,7 +896,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
 describe('PuzzleController.browse — KS-2582 visibility', () => {
   it('mine=true + visibility=draft → AND p.is_public = false', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       loginReq('user-1'),
@@ -850,7 +919,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 
   it('mine=true + visibility=public → AND p.is_public = true', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       loginReq('user-1'),
@@ -873,7 +942,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 
   it('mine=true + visibility=all (default) → только created_by, без is_public-фильтра', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       loginReq('user-1'),
@@ -897,7 +966,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 
   it('mine=true без visibility → default all (поведение KS-2560 не сломано)', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(loginReq('user-1'), 20, undefined, 'true');
 
@@ -909,7 +978,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 
   it('visibility=draft без mine=true → 400', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await expect(
       controller.browse(
@@ -932,7 +1001,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 
   it('visibility=draft без логина (anon) → 400', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await expect(
       controller.browse(
@@ -955,7 +1024,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 
   it('visibility=garbage → 400 валидация whitelist', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await expect(
       controller.browse(
@@ -980,7 +1049,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
     // mine=false НЕ установлен — но visibility='draft' приходит.
     // Без mine=true (для drafts) — отвечаем 400 даже до проверки auth.
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await expect(
       controller.browse(
@@ -1000,7 +1069,7 @@ describe('PuzzleController.browse — KS-2582 visibility', () => {
 
   it('anon + visibility=public → ВСЕГДА is_public=true (visibility игнорируется в anon)', async () => {
     const prisma = makePrisma([]);
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.browse(
       anonReq,
@@ -1070,7 +1139,7 @@ describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', (
 
   it('KS-2659: без явного solutionMode → "play-vs-engine" (server invariant)', async () => {
     const prisma = makeBatchPrisma();
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.batch(
       { puzzles: [minimalPuzzle as any] } as any,
@@ -1085,7 +1154,7 @@ describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', (
 
   it('explicit isPublic=true → пишется true', async () => {
     const prisma = makeBatchPrisma();
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.batch(
       {
@@ -1100,7 +1169,7 @@ describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', (
 
   it('solutionMode="play-vs-engine" с moves="" → принимается, поле сохраняется', async () => {
     const prisma = makeBatchPrisma();
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.batch(
       {
@@ -1128,7 +1197,7 @@ describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', (
     // Теперь сервер форсирует PVE независимо от тела запроса.
     const prisma = makeBatchPrisma();
     (prisma.puzzle.createMany as jest.Mock).mockResolvedValueOnce({ count: 2 });
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     await controller.batch(
       {
@@ -1154,7 +1223,7 @@ describe('PuzzleController.batch — KS-2580/KS-2659 isPublic + solutionMode', (
 
   it('пустой puzzles[] → count=0, created=[], createMany не вызывается', async () => {
     const prisma = makeBatchPrisma();
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     const res = await controller.batch(
       { puzzles: [] } as any,
@@ -1222,6 +1291,7 @@ describe('PuzzleController.batch — KS-2959 response.created', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
 
     const N = 3;
@@ -1243,6 +1313,7 @@ describe('PuzzleController.batch — KS-2959 response.created', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
 
     const input = [mkPuzzle(10), mkPuzzle(20), mkPuzzle(30)];
@@ -1259,6 +1330,7 @@ describe('PuzzleController.batch — KS-2959 response.created', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
 
     const input = [mkPuzzle(1), mkPuzzle(2), mkPuzzle(3)];
@@ -1276,6 +1348,7 @@ describe('PuzzleController.batch — KS-2959 response.created', () => {
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
+      fakeRedis() as any,
     );
 
     const res = await controller.batch(
@@ -1387,7 +1460,7 @@ describe('PuzzleController.delete — KS-2675 (cascade)', () => {
       id: 'P1',
       createdBy: 'user-1',
     });
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     const res = await controller.deleteOne('P1', loginReq('user-1'));
 
@@ -1403,7 +1476,7 @@ describe('PuzzleController.delete — KS-2675 (cascade)', () => {
       id: 'P1',
       createdBy: 'other-user',
     });
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     const res = await controller.deleteOne('P1', loginReq('user-1'));
 
@@ -1414,7 +1487,7 @@ describe('PuzzleController.delete — KS-2675 (cascade)', () => {
   it('DELETE /all — owner: вызывает только puzzle.deleteMany (cascade на FK)', async () => {
     const prisma = makeDeletePrisma();
     (prisma.puzzle.deleteMany as jest.Mock).mockResolvedValueOnce({ count: 3 });
-    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma);
+    const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
     const res = await controller.deleteAll(loginReq('user-1'));
 
