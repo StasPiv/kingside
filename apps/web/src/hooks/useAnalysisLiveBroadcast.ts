@@ -220,29 +220,63 @@ export function useAnalysisLiveBroadcast({
     if (!analysisId || !userId) return;
     let cancelled = false;
     (async () => {
+      // KS-3886: маршрут `GET /live-analyses/by-analysis/:analysisId`
+      // по контракту KS-3760 возвращает 404, когда у пользователя нет
+      // активной трансляции под этим analysisId — это нормальный idle-
+      // исход, не ошибка. Через `api.get` 404 шёл бы как `throw new
+      // ApiError(...)`, и хотя catch-ветка ниже это глушила, цепочка
+      // throw → catch создавала шум в DevTools. Делаем прямой `fetch`
+      // с явной проверкой статуса, чтобы 404 НИКОГДА не становился
+      // исключением; настоящие ошибки (network / 5xx / 4xx ≠ 404)
+      // обрабатываются отдельно и тоже без побочных эффектов.
+      const API_URL =
+        import.meta.env.VITE_API_URL ?? window.location.origin;
+      let token: string | null = null;
       try {
-        const resp = await api.get<LiveAnalysisResponse>(
-          `/live-analyses/by-analysis/${analysisId}`,
-        );
-        if (cancelled) return;
-        if (resp.status !== 'active') {
-          // По контракту 200 приходит только для active. Дополнительная
-          // защита-проверка на случай нестандартного ответа сервера.
-          return;
-        }
-        setSlug(resp.slug);
-        setPublicUrl(resp.url);
-        setViewerCount(resp.viewerCount);
-      } catch (e) {
-        if (cancelled) return;
-        if (e instanceof ApiError && e.status === 404) {
-          // 404 — нормальный idle-исход. Этот анализ не транслируется,
-          // ничего не делаем; пользователь может запустить через start().
-          return;
-        }
-        // Сетевые ошибки и прочее — молча, без кэшевого фолбэка
-        // (KS-3754: фолбэк бы вернул баг с привязкой к чужой странице).
+        token = window.localStorage.getItem('token');
+      } catch {
+        /* localStorage недоступен — продолжаем без auth */
       }
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      let res: Response;
+      try {
+        res = await fetch(
+          `${API_URL}/live-analyses/by-analysis/${encodeURIComponent(analysisId)}`,
+          { method: 'GET', headers },
+        );
+      } catch {
+        // Сетевая ошибка / abort — молча, без кэшевого фолбэка
+        // (KS-3754: фолбэк бы вернул баг с привязкой к чужой странице).
+        return;
+      }
+      if (cancelled) return;
+      if (res.status === 404) {
+        // Нет активной трансляции — корректный idle-исход.
+        return;
+      }
+      if (!res.ok) {
+        // 4xx ≠ 404 / 5xx — тоже не критично для UI, индикатор
+        // трансляции просто не загорится; шум в console не создаём.
+        return;
+      }
+      let resp: LiveAnalysisResponse;
+      try {
+        resp = (await res.json()) as LiveAnalysisResponse;
+      } catch {
+        return;
+      }
+      if (cancelled) return;
+      if (resp.status !== 'active') {
+        // По контракту 200 приходит только для active. Дополнительная
+        // защита на случай нестандартного ответа сервера.
+        return;
+      }
+      setSlug(resp.slug);
+      setPublicUrl(resp.url);
+      setViewerCount(resp.viewerCount);
     })();
     return () => {
       cancelled = true;
