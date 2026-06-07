@@ -1,0 +1,16 @@
+{
+  "CORSRules": [
+    {
+      "ID": "lecture-audio-direct-upload",
+      "AllowedOrigins": [
+        "https://kingside.site",
+        "https://www.kingside.site",
+        "http://localhost:5173"
+      ],
+      "AllowedMethods": ["PUT", "GET", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}
