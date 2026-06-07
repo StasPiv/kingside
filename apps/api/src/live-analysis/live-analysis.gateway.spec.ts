@@ -199,14 +199,49 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
     expect(peers.subscribers.has('S_16')).toBe(false);
   });
 
-  it('peer-joined без user (анонимный) → forbidden, не регистрируется', async () => {
+  // KS-3888: на публичной лекции зритель без логина — обычный сценарий.
+  // Раньше тут был forbidden, и анон не попадал в subscribers, поэтому
+  // publisher после саморегистрации видел пустой набор подписчиков.
+  it('KS-3888: anon регистрируется как subscriber, owner получает peer-joined', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      id: LECTURE,
+      ownerId: 'u-owner',
+    });
+    const owner = makeClient('S_OWNER', { id: 'u-owner', username: 'o' });
+    await gateway.handleWebRTCPeerJoined(owner, { lectureId: LECTURE });
+
+    const anon = makeClient('S_ANON', null);
+    (owner.emit as jest.Mock).mockClear();
+    await gateway.handleWebRTCPeerJoined(anon, { lectureId: LECTURE });
+
+    const peers = (gateway as any).webrtcPeers.get(LECTURE);
+    expect(peers.subscribers.has('S_ANON')).toBe(true);
+    expect((owner.emit as jest.Mock)).toHaveBeenCalledWith(
+      'webrtc:peer-joined',
+      expect.objectContaining({ lectureId: LECTURE, fromSocketId: 'S_ANON' }),
+    );
+    // Никаких forbidden/error.
+    expect((anon.emit as jest.Mock)).not.toHaveBeenCalledWith(
+      'live-analysis:error',
+      expect.anything(),
+    );
+  });
+
+  it('KS-3888: anon → publisher не успел (regression KS-3883): после регистрации publisher anon получает replay-offer trigger', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      id: LECTURE,
+      ownerId: 'u-owner',
+    });
     const anon = makeClient('S_ANON', null);
     await gateway.handleWebRTCPeerJoined(anon, { lectureId: LECTURE });
-    expect((anon.emit as jest.Mock)).toHaveBeenCalledWith(
-      'live-analysis:error',
-      expect.objectContaining({ code: 'forbidden' }),
+    // owner приходит позже — должен получить synthetic peer-joined для anon
+    const owner = makeClient('S_OWNER', { id: 'u-owner', username: 'o' });
+    (owner.emit as jest.Mock).mockClear();
+    await gateway.handleWebRTCPeerJoined(owner, { lectureId: LECTURE });
+    expect((owner.emit as jest.Mock)).toHaveBeenCalledWith(
+      'webrtc:peer-joined',
+      expect.objectContaining({ lectureId: LECTURE, fromSocketId: 'S_ANON' }),
     );
-    expect((gateway as any).webrtcPeers.has(LECTURE)).toBe(false);
   });
 
   it('peer-joined для несуществующей лекции → slug-not-found', async () => {

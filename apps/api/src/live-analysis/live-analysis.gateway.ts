@@ -465,14 +465,17 @@ export class LiveAnalysisGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: WebRTCPeerJoinedDto,
   ): Promise<void> {
-    const user = client.data?.user;
-    if (!user) {
-      this.emitError(
-        client,
-        new ForbiddenException('Authenticated user required for WebRTC'),
-      );
-      return;
-    }
+    // KS-3888. Раньше anon (`client.data.user === null`) сразу получал
+    // 403 «Authenticated user required», и его socket НЕ попадал в
+    // `peers.subscribers`. На публичной лекции это означало: зритель
+    // без логина никогда не регистрируется → publisher (тренер) после
+    // саморегистрации видит пустой набор подписчиков → replay-цикл из
+    // KS-3883 ничего не повторяет → у зрителя `publisherSocketId=`.
+    //
+    // Теперь anon = subscriber по умолчанию: owner может быть только
+    // авторизованным юзером с `userId === Lecture.ownerId`. Это
+    // согласовано с REST'ом `peer-failed`, который тоже принимает anon.
+    const user = client.data?.user ?? null;
     try {
       const lecture = await this.prisma.lecture.findUnique({
         where: { id: data.lectureId },
@@ -485,8 +488,18 @@ export class LiveAnalysisGateway
         );
         return;
       }
-      const isOwner = lecture.ownerId === user.id;
+      // Owner — только тот, кто залогинен и совпадает с Lecture.ownerId.
+      // Anon — всегда subscriber.
+      const isOwner = user !== null && lecture.ownerId === user.id;
       const peers = this.getOrCreateLecturePeers(data.lectureId);
+      // KS-3888 диагностический лог: каждое peer-joined пишем в info
+      // одной строкой. Удобно матчить из CloudWatch когда зрители
+      // снова жалуются на «нет звука».
+      this.logger.log(
+        `webrtc:peer-joined lecture=${data.lectureId} socket=${client.id} ` +
+          `userId=${user?.id ?? 'anon'} isOwner=${isOwner} ` +
+          `priorOwner=${peers.ownerSocketId ?? '-'} subscribers=${peers.subscribers.size}`,
+      );
 
       // Capacity-check для подписчиков. Owner — отдельный слот, в
       // лимит 15 не входит. Если этот socket уже подписан — переучёт
