@@ -881,7 +881,19 @@ function AnalysisPageInner({
   // на прямое чтение ctx.kind/ctx.fields).
   const ctx = useAnalysisContext({ publicMode });
   const gameId = ctx.kind === 'review' ? ctx.gameId : undefined;
-  const analysisId = ctx.kind === 'analysis' ? ctx.analysisId : undefined;
+  // KS-3874: в replay-режиме URL — это `/lectures/:id`, и `useParams`
+  // возвращает `params.id = lectureId`. `useAnalysisContext` принимает
+  // его за `analysisId` и эффекты ниже шлют `GET /analyses/:lectureId`
+  // (→ 404 «Analysis not found»). Когда пришёл проп `replay`, страница
+  // получает все данные из `replay.events` — никаких REST-вызовов в
+  // /analyses не нужно. Глушим `analysisId`, чтобы все getById /
+  // updateAnalysis / originalAnalysisId-эффекты пропустились по
+  // `if (!id) return`.
+  const analysisId = replay
+    ? undefined
+    : ctx.kind === 'analysis'
+      ? ctx.analysisId
+      : undefined;
   const location = useLocation();
   // KS-3082: для onClick «Найти партии с этой позицией» в overflow меню.
   const navigate = useNavigate();
@@ -942,8 +954,14 @@ function AnalysisPageInner({
   } = useSavedAnalyses();
   // KS-2867 (FR4): localId-инициализация из AnalysisContext.localId
   // (resolver уже учёл state.localId и id из URL).
+  // KS-3874: в replay-режиме localId не нужен — иначе автосохранение
+  // и getById зовут /analyses/:lectureId (→ 404).
   const localIdRef = useRef<string | undefined>(
-    ctx.kind === 'analysis' ? ctx.localId : analysisId,
+    replay
+      ? undefined
+      : ctx.kind === 'analysis'
+        ? ctx.localId
+        : analysisId,
   );
   // Safety-net: при смене `:id` синхронизируем `localIdRef.current`,
   // даже если KS-2403 `key={id}` обёртка по какой-то причине не
