@@ -169,7 +169,14 @@ export function useLectureAudioPeerConnections({
       setPeerCount(peersRef.current.size);
 
       try {
-        pc.addTrack(audioTrack);
+        // KS-3881: addTrack обязательно с MediaStream вторым
+        // аргументом. Без него в SDP-offer нет `a=msid`, и у зрителя
+        // `pc.ontrack(ev)` приходит с `ev.streams[]` пустым — Chrome
+        // тогда не привязывает трек к `<audio>` корректно и звука нет.
+        // Создаём отдельный stream на каждый peer; track можно
+        // безопасно держать в нескольких MediaStream одновременно.
+        const peerStream = new MediaStream([audioTrack]);
+        pc.addTrack(audioTrack, peerStream);
       } catch (err) {
         // addTrack может бросить, если track уже остановлен. Закрываем
         // pc, чтобы не висеть в полу-инициализированном состоянии.

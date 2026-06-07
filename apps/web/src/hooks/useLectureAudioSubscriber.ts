@@ -390,6 +390,29 @@ export function useLectureAudioSubscriber({
     const joinEvt: WebRTCPeerJoinedEvent = { lectureId };
     socket.emit('webrtc:peer-joined', joinEvt);
 
+    // KS-3881: рейс в сигнализации — тренер мог ещё не подключить
+    // микрофон в момент маунта зрителя (`audioTrack === null` в
+    // `useLectureAudioPeerConnections`), и наш первоначальный
+    // `peer-joined` уходит в никуда. Повторяем каждые 3 секунды,
+    // пока pc не создан и нет терминального состояния. Тренер
+    // идемпотентен по `peersRef.has(peerSocketId)`, дубль не создаст
+    // второй pc.
+    const rejoinTimer = setInterval(() => {
+      if (
+        capacityRefused ||
+        peerFailedReported ||
+        pcRef.current !== null
+      ) {
+        return;
+      }
+      try {
+        const evt: WebRTCPeerJoinedEvent = { lectureId };
+        socket.emit('webrtc:peer-joined', evt);
+      } catch {
+        /* сокет мог упасть — следующий tick попробует снова */
+      }
+    }, 3_000);
+
     // KS-3849: запускаем 10-секундный таймер. Если до этого момента
     // peer не успел дойти до connected/completed (включая случай,
     // когда offer вообще не пришёл, например при проблемах NAT у
@@ -421,6 +444,7 @@ export function useLectureAudioSubscriber({
 
     return () => {
       clearIceTimer();
+      clearInterval(rejoinTimer);
       socket.off('webrtc:offer', handleOffer);
       socket.off('webrtc:ice', handleIce);
       socket.off('webrtc:peer-left', handlePeerLeft);
