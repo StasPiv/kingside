@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   LiveAnalysisCloseReason,
@@ -8,27 +8,9 @@ import type {
 } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
-import { useAuth } from '../context/AuthContext';
 import { useLiveAnalysisSocket } from '../hooks/useLiveAnalysisSocket';
 import { deserializeLiveTree } from '../review/utils/liveTreeCodec';
-import { liveAnalysisSocket } from '../socket';
-import { LecturePublisherControls } from '../components/lecture/LecturePublisherControls';
-import { LectureAudioListener } from '../components/lecture/LectureAudioListener';
-import { LectureRecordingBadge } from '../components/lecture/LectureRecordingBadge';
 import { AnalysisPage } from './AnalysisPage';
-
-/**
- * KS-3861. Облегчённый снимок лекции — то, что отдаёт
- * `GET /coaches/:username/lectures?status=live` (см. `CoachProfilePage`).
- * Здесь нам нужен только `id` и связка с `liveAnalysisId`, чтобы
- * найти ту лекцию, которая соответствует текущему slug-у трансляции.
- */
-interface OwnerLectureLookup {
-  id: string;
-  liveAnalysisId: string | null;
-  status: 'scheduled' | 'live' | 'recorded' | 'cancelled';
-  startedAt: string | null;
-}
 
 /**
  * KS-3748 / ADR-111 §7. Тонкая обёртка над `AnalysisPage`,
@@ -81,8 +63,6 @@ function useNoIndexMeta(): void {
 export function LiveAnalysisViewerPage() {
   const { slug } = useParams<{ slug: string }>();
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const { user: currentUser } = useAuth();
   useNoIndexMeta();
 
   const [snapshot, setSnapshot] = useState<LiveAnalysisResponse | null>(null);
@@ -165,49 +145,11 @@ export function LiveAnalysisViewerPage() {
     onSync: handleSync,
   });
 
-  // ─── KS-3861 / KS-3862: поиск лекции по live-analysis ─────────────
-  //
-  // Чтобы показать `LecturePublisherControls` владельцу (KS-3861) и
-  // `LectureAudioListener` + `LectureRecordingBadge` зрителю (KS-3862),
-  // нужен `lectureId`. Backend сейчас не отдаёт его в
-  // `LiveAnalysisResponse` (см. `packages/shared/.../live-analysis.ts`),
-  // поэтому используем listing `GET /coaches/:username/lectures?status=live`
-  // и фильтруем по `liveAnalysisId === snapshot.id`. Listing публичный,
-  // зритель тоже может его получить (как на странице тренера в
-  // `CoachProfilePage`).
-  const [ownerLecture, setOwnerLecture] = useState<OwnerLectureLookup | null>(
-    null,
-  );
-  const isOwner = Boolean(
-    currentUser &&
-      snapshot?.ownerUsername &&
-      currentUser.username === snapshot.ownerUsername,
-  );
-  useEffect(() => {
-    setOwnerLecture(null);
-    if (!snapshot || !snapshot.ownerUsername || closedReason) return;
-    let cancelled = false;
-    api
-      .get<OwnerLectureLookup[]>(
-        `/coaches/${encodeURIComponent(
-          snapshot.ownerUsername,
-        )}/lectures?status=live`,
-      )
-      .then((list) => {
-        if (cancelled) return;
-        const match =
-          list.find((l) => l.liveAnalysisId === snapshot.id) ?? null;
-        setOwnerLecture(match);
-      })
-      .catch(() => {
-        // Не критично: если listing упал, блоки голоса/значка просто
-        // не покажутся, остальной UI трансляции работает.
-        if (!cancelled) setOwnerLecture(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [snapshot, closedReason]);
+  // KS-3863: компактные значки лекции (запись для тренера и иконка
+  // голоса для зрителя) рендерятся внутри `AnalysisPage` (рядом с
+  // `LiveBroadcastBadge`), а не отдельным блоком на этой странице —
+  // так шапка остаётся лаконичной, окно анализа само управляет
+  // запуском записи через «Начать лекцию».
 
   // ─── Render: ранние ветки ─────────────────────────────────────────
 
@@ -254,28 +196,10 @@ export function LiveAnalysisViewerPage() {
   return (
     <div className="live-analysis-viewer" data-testid="live-analysis-viewer">
       <header className="live-analysis-viewer__header">
-        <h1
-          className="live-analysis-viewer__title"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 10,
-            flexWrap: 'wrap',
-          }}
-        >
+        <h1 className="live-analysis-viewer__title">
           {liveTitle ||
             snapshot.title ||
             t('liveAnalysisViewer.defaultTitle', 'Live analysis')}
-          {/* KS-3862: значок «🔴 Запись» появляется у зрителя, когда
-              тренер на другой вкладке нажал «Включить микрофон». Сам
-              тренер видит свой индикатор внутри LecturePublisherControls
-              ниже, поэтому здесь значок не дублируем для владельца. */}
-          {!isOwner && ownerLecture && !closedReason && (
-            <LectureRecordingBadge
-              lectureId={ownerLecture.id}
-              socket={liveAnalysisSocket}
-            />
-          )}
         </h1>
         {snapshot.ownerUsername && (
           <p className="live-analysis-viewer__owner">
@@ -287,38 +211,11 @@ export function LiveAnalysisViewerPage() {
         )}
       </header>
 
-      {/* KS-3861: блок управления записью голоса для автора лекции.
-          Виден только владельцу live-analysis, к которому привязана
-          активная лекция. Внутри использует `useLectureAudioPublisher`
-          (запись + чанки) и `useLectureAudioPeerConnections` (WebRTC
-          к зрителям) поверх того же `liveAnalysisSocket`, что и доска.
-          clockSkewMs передаём 0: точный skew приходит только из
-          ответа `POST /lectures/:id/start` (KS-3834), а на этой
-          странице трансляция уже идёт — приближение «без коррекции»
-          приемлемо, при первой синхронизации финализатор на бэке
-          (KS-3846) пересчитает offset. */}
-      {isOwner && ownerLecture && !closedReason && (
-        <LecturePublisherControls
-          lectureId={ownerLecture.id}
-          socket={liveAnalysisSocket}
-          recordingStartedAtClient={ownerLecture.startedAt}
-          onClosed={() => navigate(`/lectures/${ownerLecture.id}`)}
-        />
-      )}
-
-      {/* KS-3862: кнопка «🔊 Включить голос тренера» и регулятор
-          громкости для зрителя. `<audio autoPlay muted playsInline>`
-          ждёт первого user-gesture (см. autoplay-policy). После клика
-          UI переходит в регулятор + значок «Голос в эфире». При
-          переполнении peer-list (`webrtc:capacity-exceeded`,
-          KS-3850) и при ICE-failure (KS-3849) внутри хука уже
-          отображаются соответствующие значки. */}
-      {!isOwner && ownerLecture && !closedReason && (
-        <LectureAudioListener
-          lectureId={ownerLecture.id}
-          socket={liveAnalysisSocket}
-        />
-      )}
+      {/* KS-3863: компактные значки лекции (запись для тренера,
+          иконка голоса для зрителя) теперь живут в шапке самой
+          AnalysisPage рядом с `LiveBroadcastBadge`. Отдельные большие
+          блоки тут не нужны — окно анализа само ищет лекцию по slug-у
+          и рендерит подходящий значок. */}
 
       {/* Сама «толстая» страница анализа в зрительском режиме.
           Внутри AnalysisPage:

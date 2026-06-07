@@ -76,6 +76,15 @@ import { AnalysisHeader } from './analysis/AnalysisHeader';
 // скопирована» / ошибки.
 import { LiveBroadcastBadge } from '../components/analysis/LiveBroadcastBadge';
 import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
+// KS-3863: компактные UI для лекций (запись звука у тренера +
+// прослушивание у зрителя). Большие компоненты
+// `LecturePublisherControls` / `LectureAudioListener` захламляли окно
+// анализа — здесь используются компактные «значки в шапке».
+import { liveAnalysisSocket } from '../socket';
+import { LecturePublisherStatusBadge } from '../components/lecture/LecturePublisherStatusBadge';
+import { LectureAudioListenerCompact } from '../components/lecture/LectureAudioListenerCompact';
+import { LectureRecordingBadge } from '../components/lecture/LectureRecordingBadge';
+import { useLectureLookupBySlug } from '../hooks/useLectureLookupBySlug';
 // KS-3789 / ADR-113 §4 эпик 1: модальное окно создания лекции
 // и мгновенного запуска live-сессии.
 import { CreateLectureModal } from '../components/analysis/CreateLectureModal';
@@ -151,6 +160,66 @@ type GameData = {
 };
 
 const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/**
+ * KS-3863. Подкомпонент шапки `AnalysisPage`, который ищет лекцию по
+ * slug-у трансляции и рендерит компактные значки лекции:
+ *  - Тренеру (active live, не зритель) — индикатор записи; запись
+ *    запускается автоматически вместе со стартом трансляции и
+ *    финализируется при остановке.
+ *  - Зрителю (`isViewer`) — маленькая иконка «🔊» + значок «🔴
+ *    запись» при активной записи тренера.
+ *
+ * Подкомпонент существует ради `useLectureLookupBySlug`: хук нельзя
+ * звать на верхнем уровне `AnalysisPage`, потому что он должен
+ * выполняться только когда есть slug, а в шапке проще встроить
+ * условный рендер через дочерний компонент с собственным эффектом.
+ */
+function LectureBadgesBlock({
+  slug,
+  isLive,
+  isViewer,
+  embedded,
+}: {
+  slug: string | null;
+  isLive: boolean;
+  isViewer: boolean;
+  embedded?: boolean;
+}) {
+  const lookup = useLectureLookupBySlug(slug);
+  if (embedded || !lookup) return null;
+  // Тренер: badge показывается, если есть lectureId; внутри
+  // компонента он сам решает, рисовать ли точку «запись».
+  if (!isViewer) {
+    return (
+      <LecturePublisherStatusBadge
+        lectureId={lookup.lectureId}
+        socket={liveAnalysisSocket}
+        recordingStartedAtClient={lookup.startedAt}
+        active={isLive}
+      />
+    );
+  }
+  // Зритель: компактный аудио-иконка + «🔴 запись».
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      <LectureRecordingBadge
+        lectureId={lookup.lectureId}
+        socket={liveAnalysisSocket}
+      />
+      <LectureAudioListenerCompact
+        lectureId={lookup.lectureId}
+        socket={liveAnalysisSocket}
+      />
+    </span>
+  );
+}
 
 function buildPgnWithFen(moves: string, fen: string, headers?: Record<string, string>): string {
   const parts: string[] = [];
@@ -3283,6 +3352,18 @@ function AnalysisPageInner({
             errorMessage={liveBroadcast.error}
           />
         )}
+        {/* KS-3863: компактные значки лекции. Для тренера —
+            индикатор записи (запись стартует автоматически при
+            старте трансляции и финализируется при stop). Для
+            зрителя — маленькая иконка «🔊» + «🔴 запись» рядом с
+            названием. Lookup lectureId через slug (см.
+            useLectureLookupBySlug). */}
+        <LectureBadgesBlock
+          slug={liveBroadcast.slug ?? liveSession?.slug ?? null}
+          isLive={liveBroadcast.isLive}
+          isViewer={isViewerLive}
+          embedded={embedded}
+        />
         {/* KS-3750: badge «получено обновление от автора». Виден
             только в зрительском live-режиме и только когда зритель
             находится в локальной ветке (`pendingLiveTree != null`). По
