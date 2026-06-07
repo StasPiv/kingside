@@ -137,6 +137,9 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
       prisma as unknown as PrismaService,
     );
     (gateway as any).server = makeServer();
+    // KS-3889 hotfix: forward теперь идёт через webrtcNamespace, не
+    // через server.sockets.sockets. Подкладываем stub.
+    (gateway as any).webrtcNamespace = { sockets: socketRegistry };
   });
 
   it('peer-joined от владельца: ставит ownerSocketId и не считает в capacity', async () => {
