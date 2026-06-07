@@ -3167,3 +3167,247 @@ export interface BlindBoardLeaderboardEntry {
 export interface BlindBoardLeaderboardResponse {
   entries: BlindBoardLeaderboardEntry[];
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// KS-3839 / ADR-116. Lecture audio (клиентская запись + P2P-сигналинг).
+//
+// Backend и frontend разделяют один и тот же набор типов: shape моделей
+// БД (без internal-полей), запросы/ответы REST-эндпоинтов аудио и
+// payload'ы WebSocket-событий WebRTC-сигналинга для namespace
+// /live-analysis. Также — расширение существующих контрактов
+// (LecturesStartResponse полем serverNow, LectureDetail — опциональным
+// блоком audio).
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Модель `LectureAudio` (одна аудио-дорожка на лекцию). Соответствует
+ * таблице `lecture_audio` (см. Prisma-миграцию KS-3829). Internal-поля
+ * (`id`) опущены — фронту достаточно `lectureId` как ключа.
+ *
+ * `recorderStartedAtClient` — момент `MediaRecorder.start()` на
+ * клиенте (ISO-8601). Используется для синхронизации аудио с
+ * `LectureRecording` (audio.t = recording.t + offsetMs).
+ */
+export interface LectureAudio {
+  lectureId: string;
+  storageKey: string;
+  codec: string;
+  container: string;
+  bitrateKbps: number | null;
+  channels: number;
+  durationMs: number | null;
+  /**
+   * Смещение начала аудио относительно начала `LectureRecording` (мс).
+   * Может быть отрицательным, если recorder стартовал раньше первого
+   * recorded-события.
+   */
+  offsetMs: number | null;
+  recorderStartedAtClient: string;
+  createdAt: string;
+}
+
+/**
+ * То, что отдаётся клиенту в `GET /lectures/:id` (поле `audio`). URL
+ * — signed CloudFront URL (см. KS-3831 `signedCloudFrontUrl`); все
+ * internal-поля (`storageKey`, `bitrateKbps`, `channels`,
+ * `recorderStartedAtClient`, `createdAt`) опущены.
+ */
+export interface LectureAudioInfo {
+  url: string;
+  durationMs: number | null;
+  offsetMs: number | null;
+  codec: string;
+  container: string;
+}
+
+/**
+ * `POST /lectures/:id/audio/chunks` — запрос presigned PUT URL для
+ * очередного чанка клиентской записи (см. ADR-116 §5.1).
+ */
+export interface ChunkUploadRequest {
+  seq: number;
+  sizeBytes: number;
+  clientCreatedAt: string;
+}
+
+/**
+ * Ответ presign-эндпоинта. `uploadUrl` — presigned PUT URL,
+ * подписанный с обязательным `x-amz-tagging: kind=chunk` (нужно для
+ * S3 Lifecycle Policy: удаление чанков через 24 часа). `chunkKey` —
+ * ключ объекта в бакете (`audio/<lectureId>/chunks/<seq>.webm`),
+ * клиент вернёт его в `ChunkAckRequest`.
+ */
+export interface ChunkUploadResponse {
+  uploadUrl: string;
+  chunkKey: string;
+}
+
+/**
+ * `POST /lectures/:id/audio/chunks/:seq/ack` — подтверждение клиентом
+ * успешного PUT'а. ETag из S3-ответа. Идемпотентен: повторный ACK
+ * того же seq не создаёт дубль (UNIQUE(lecture_id, seq) в БД).
+ */
+export interface ChunkAckRequest {
+  seq: number;
+  etag: string;
+  sizeBytes: number;
+  clientCreatedAt: string;
+}
+
+/**
+ * `POST /lectures/:id/end` — финализация лекции (расширение
+ * существующего `LectureEndRequest`; здесь — добавочные поля под аудио).
+ * Если ни одно поле не передано, поведение совпадает с прежним end —
+ * без аудио. `chunkCount` нужен finalizer'у для sanity-check
+ * (ожидаемое число чанков vs. фактически найденных в `ListObjectsV2`).
+ */
+export interface FinalizeRecordingRequest {
+  offsetMs?: number;
+  chunkCount?: number;
+  recorderStartedAtClient?: string;
+  recorderEndedAtClient?: string;
+}
+
+// ─── WebRTC signaling (namespace /live-analysis, KS-3836) ────────────
+//
+// Сообщения роутятся между peer'ами одной лекции. Гейтвей хранит
+// `Map<lectureId, Set<socketId>>`; capacity 15 подписчиков на лекцию
+// (см. ADR-116 §2.2). Тренер (publisher) определяется через JWT
+// handshake (`userId === Lecture.ownerId`); offer от не-владельца
+// отбрасывается.
+
+/**
+ * Клиент → сервер: «подключаюсь к peer-list лекции». Сервер
+ * регистрирует socketId в `Map<lectureId, Set>` и (если место есть)
+ * уведомляет publisher'а через тот же event, проброшенный к нему.
+ * Если capacity превышено — клиент получает `WebRTCCapacityExceededEvent`
+ * вместо регистрации.
+ */
+export interface WebRTCPeerJoinedEvent {
+  lectureId: string;
+  /** Заполняется сервером при forward'е к publisher'у. */
+  fromSocketId?: string;
+}
+
+/**
+ * Клиент → сервер: «отключаюсь от peer-list лекции». На сервере
+ * также вызывается при `disconnect` socket'а — сервер сам рассылает
+ * `WebRTCPeerLeftEvent` оставшимся peer'ам.
+ */
+export interface WebRTCPeerLeftEvent {
+  lectureId: string;
+  /** Заполняется сервером при forward'е остальным peer'ам. */
+  fromSocketId?: string;
+}
+
+/**
+ * Publisher → сервер → подписчик: SDP offer. Сервер отбрасывает,
+ * если sender не владелец лекции. `toSocketId` — конкретный
+ * подписчик (per-peer offer'ы; SFU мы не используем).
+ */
+export interface WebRTCOfferEvent {
+  lectureId: string;
+  toSocketId: string;
+  /** Заполняется сервером при forward'е получателю. */
+  fromSocketId?: string;
+  sdp: string;
+}
+
+/**
+ * Подписчик → сервер → publisher: SDP answer. Forward проходит, если
+ * `(lectureId, toSocketId)` зарегистрирована в peer-list (т.е. это
+ * ответ на ранее присланный offer).
+ */
+export interface WebRTCAnswerEvent {
+  lectureId: string;
+  toSocketId: string;
+  fromSocketId?: string;
+  sdp: string;
+}
+
+/**
+ * Обмен ICE-кандидатами (обе стороны). Сервер не валидирует
+ * содержимое, просто проксирует по `toSocketId`.
+ */
+export interface WebRTCIceEvent {
+  lectureId: string;
+  toSocketId: string;
+  fromSocketId?: string;
+  /** ICE-кандидат как `RTCIceCandidateInit` (сериализуется как есть). */
+  candidate: {
+    candidate: string;
+    sdpMid?: string | null;
+    sdpMLineIndex?: number | null;
+    usernameFragment?: string | null;
+  };
+}
+
+/**
+ * Сервер → новый peer: «capacity лекции исчерпана, в peer-list тебя
+ * не добавили». 15 — фиксированный лимит из ADR-116 §2.2 (P2P mesh
+ * деградирует выше 15 одновременных подписчиков).
+ */
+export interface WebRTCCapacityExceededEvent {
+  lectureId: string;
+  currentSubscribers: number;
+  max: 15;
+}
+
+// ─── Расширения существующих контрактов лекций ──────────────────────
+//
+// До ADR-116 у нас не было shared-типов лекций — backend и frontend
+// работали с PrismaClient-инфером (apps/api) и литералами (apps/web).
+// Эпик F' выносит контракты в shared как единый источник правды.
+
+/** Статусы лекции (соответствуют `LectureStatus` в БД). */
+export type LectureStatus = 'scheduled' | 'live' | 'recorded' | 'cancelled';
+
+/** Видимость (соответствует `LectureVisibility` в БД). */
+export type LectureVisibility = 'public' | 'unlisted';
+
+/**
+ * Сводный вид лекции — то, что прилетает в списочных эндпоинтах
+ * (`GET /coaches/:username/lectures`, `.../schedule`). DateTime'ы как
+ * ISO-строки.
+ */
+export interface LectureSummary {
+  id: string;
+  ownerId: string;
+  title: string;
+  description: string | null;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+  status: LectureStatus;
+  visibility: LectureVisibility;
+  liveAnalysisId: string | null;
+  recordingId: string | null;
+  mediaUrl: string | null;
+  mediaKind: string | null;
+  createdAt: string;
+  updatedAt: string;
+  liveAnalysis: { id: string; slug: string; url: string } | null;
+}
+
+/**
+ * Полный вид лекции для `GET /lectures/:id`. `audio` (KS-3839 / ADR-116)
+ * — присутствует, если в БД есть запись `LectureAudio` (т.е.
+ * cron-finalizer склеил клиентскую запись). `null` или отсутствует —
+ * аудио ещё не финализировано / не было.
+ */
+export interface LectureDetail extends LectureSummary {
+  audio?: LectureAudioInfo | null;
+}
+
+/**
+ * Ответ `POST /lectures/:id/start`. `serverNow` (KS-3834 / ADR-116
+ * §2.5) — серверное ISO-время на момент ответа; клиент использует
+ * его для компенсации clock-skew при подсчёте `offsetMs` записи.
+ */
+export interface LecturesStartResponse {
+  lecture: LectureSummary;
+  liveAnalysis: { id: string; slug: string; url: string } | null;
+  serverNow: string;
+}
+
