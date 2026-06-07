@@ -148,12 +148,35 @@ export function useLectureAudioPeerConnections({
     }
 
     const handlePeerJoined = (payload: WebRTCPeerJoinedEvent) => {
-      if (payload?.lectureId !== lectureIdRef.current) return;
+      console.info('[lecture-audio-pub] received webrtc:peer-joined', {
+        payloadLectureId: payload?.lectureId,
+        currentLectureId: lectureIdRef.current,
+        fromSocketId: payload?.fromSocketId,
+        existingPeers: peersRef.current.size,
+        hasAudioTrack: audioTrackRef.current !== null,
+      });
+      if (payload?.lectureId !== lectureIdRef.current) {
+        console.info(
+          '[lecture-audio-pub] peer-joined ignored: lectureId mismatch',
+        );
+        return;
+      }
       const peerSocketId = payload.fromSocketId;
-      if (!peerSocketId) return;
+      if (!peerSocketId) {
+        console.warn(
+          '[lecture-audio-pub] peer-joined ignored: fromSocketId is empty',
+        );
+        return;
+      }
       // Идемпотентность: если по какой-то причине gateway переотправил
       // peer-joined для уже известного socketId — не дублируем pc.
-      if (peersRef.current.has(peerSocketId)) return;
+      if (peersRef.current.has(peerSocketId)) {
+        console.info(
+          '[lecture-audio-pub] peer-joined ignored: pc already exists for',
+          peerSocketId,
+        );
+        return;
+      }
       if (peersRef.current.size >= MAX_PEERS) {
         // Серверный capacity 15 (см. ADR-116 §2.2) уже отсёк
         // зрителя; этот лимит — страховка на случай рассинхрона.
@@ -222,16 +245,34 @@ export function useLectureAudioPeerConnections({
       (async () => {
         try {
           const offer = await pc.createOffer();
+          console.info('[lecture-audio-pub] createOffer ok', {
+            sdpLength: offer.sdp?.length ?? 0,
+            peer: peerSocketId,
+          });
           await pc.setLocalDescription(offer);
+          console.info(
+            '[lecture-audio-pub] setLocalDescription(offer) ok for',
+            peerSocketId,
+          );
           const s = socketRef.current;
           const lid = lectureIdRef.current;
-          if (!s || !lid) return;
-          if (!offer.sdp) return;
+          if (!s || !lid || !offer.sdp) {
+            console.warn('[lecture-audio-pub] offer not emitted', {
+              hasSocket: !!s,
+              hasLectureId: !!lid,
+              hasSdp: !!offer.sdp,
+            });
+            return;
+          }
           s.emit('webrtc:offer', {
             lectureId: lid,
             toSocketId: peerSocketId,
             sdp: offer.sdp,
           });
+          console.info(
+            '[lecture-audio-pub] emitted webrtc:offer to',
+            peerSocketId,
+          );
         } catch (err) {
           console.warn('[useLectureAudioPeerConnections] createOffer failed', err);
           closePeer(peerSocketId);
@@ -279,6 +320,15 @@ export function useLectureAudioPeerConnections({
       closePeer(peerSocketId);
     };
 
+    console.info(
+      '[lecture-audio-pub] mount: subscribing to webrtc events',
+      {
+        lectureId,
+        socketId: socket.id,
+        socketConnected: socket.connected,
+        hasAudioTrack: audioTrack !== null,
+      },
+    );
     socket.on('webrtc:peer-joined', handlePeerJoined);
     socket.on('webrtc:answer', handleAnswer);
     socket.on('webrtc:ice', handleIce);
