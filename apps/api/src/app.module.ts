@@ -25,6 +25,7 @@ import { WorkshopModule } from './workshop/workshop.module';
 import { LiveTournamentModule } from './live-tournament/live-tournament.module';
 import { LiveAnalysisModule } from './live-analysis/live-analysis.module';
 import { LecturesModule } from './lectures/lectures.module';
+import { LectureAudioModule } from './lecture-audio/lecture-audio.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
 import { PlayerModule } from './player/player.module';
 import { MessageModule } from './message/message.module';
@@ -104,6 +105,9 @@ import { HealthController } from './health.controller';
     // KS-3784 / ADR-113 §4 эпик 1: лекции тренера
     // (REST /lectures, /coaches/:username/lectures).
     LecturesModule,
+    // KS-3831 / ADR-116 §5.1: S3-обёртка для аудио лекций (presigned
+    // PUT чанков, ListObjects/DeleteObjects, signed CloudFront URL).
+    LectureAudioModule,
     ClientLogsModule,
     PlayerModule,
     MessageModule,
