@@ -2210,6 +2210,12 @@ model Lecture {
   /// и тип источника — youtube / vk / mp4 / …).
   mediaUrl       String?            @map("media_url")
   mediaKind      String?            @map("media_kind")
+  /// KS-3829 / ADR-116 §4. Аудио-метаданные лекции (одна запись на лекцию,
+  /// UNIQUE по lectureId) и журнал чанков клиентской записи. Обратные
+  /// концы FK с onDelete: Cascade — описаны в моделях LectureAudio /
+  /// LectureAudioChunk.
+  audio          LectureAudio?
+  audioChunks    LectureAudioChunk[]
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 
@@ -2267,6 +2273,62 @@ model LectureRecording {
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("lecture_recordings")
+}
+
+/// KS-3829 / ADR-116 §4, §7.3. Аудио-метаданные лекции. Одна запись на
+/// лекцию (UNIQUE по lectureId). Клиент пишет MediaRecorder'ом и заливает
+/// чанками (см. LectureAudioChunk); cron-finalizer склеивает чанки через
+/// `ffmpeg -c copy -f ogg` в финальный файл и записывает сюда
+/// storageKey/durationMs/bitrateKbps/...
+///
+/// `recorderStartedAtClient` — момент `MediaRecorder.start()` на клиенте
+/// (DateTime). Нужен для синхронизации аудио с recorded-событиями
+/// LectureRecording (audio.t = recording.t + offsetMs).
+///
+/// Удалённые поля (по сравнению с задумкой ADR-115): `audioStartedAt`,
+/// `egressId` — артефакты прежней серверной (LiveKit) записи; в схеме
+/// никогда не материализовались (модель добавляется впервые этой
+/// миграцией).
+model LectureAudio {
+  id                      String   @id @default(uuid()) @db.Uuid
+  lectureId               String   @unique @map("lecture_id") @db.Uuid
+  lecture                 Lecture  @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  storageKey              String   @map("storage_key")
+  codec                   String   @default("opus")
+  container               String   @default("ogg")
+  bitrateKbps             Int?     @map("bitrate_kbps")
+  channels                Int      @default(1)
+  durationMs              Int?     @map("duration_ms")
+  /// Смещение начала аудио относительно начала LectureRecording (мс).
+  /// Может быть отрицательным, если recorder стартовал раньше первой
+  /// записанной события доски.
+  offsetMs                Int?     @map("offset_ms")
+  recorderStartedAtClient DateTime @map("recorder_started_at_client")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  @@index([lectureId])
+  @@map("lecture_audio")
+}
+
+/// KS-3829 / ADR-116 §7.3. Журнал чанков клиентской аудио-записи.
+/// Используется cron-восстановителем (KS-A05') для сборки финального
+/// файла и обеспечения идемпотентности подтверждений загрузки чанка
+/// (UNIQUE по (lectureId, seq) — повторный PUT того же seq не создаёт
+/// дубликата).
+model LectureAudioChunk {
+  id              String   @id @default(uuid()) @db.Uuid
+  lectureId       String   @map("lecture_id") @db.Uuid
+  lecture         Lecture  @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  seq             Int
+  storageKey      String   @map("storage_key")
+  etag            String
+  sizeBytes       Int      @map("size_bytes")
+  clientCreatedAt DateTime @map("client_created_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([lectureId, seq])
+  @@index([lectureId])
+  @@map("lecture_audio_chunks")
 }
 
 enum LectureStatus {
