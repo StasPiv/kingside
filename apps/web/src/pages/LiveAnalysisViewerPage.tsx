@@ -13,6 +13,8 @@ import { useLiveAnalysisSocket } from '../hooks/useLiveAnalysisSocket';
 import { deserializeLiveTree } from '../review/utils/liveTreeCodec';
 import { liveAnalysisSocket } from '../socket';
 import { LecturePublisherControls } from '../components/lecture/LecturePublisherControls';
+import { LectureAudioListener } from '../components/lecture/LectureAudioListener';
+import { LectureRecordingBadge } from '../components/lecture/LectureRecordingBadge';
 import { AnalysisPage } from './AnalysisPage';
 
 /**
@@ -163,15 +165,16 @@ export function LiveAnalysisViewerPage() {
     onSync: handleSync,
   });
 
-  // ─── KS-3861: lookup лекции для владельца ─────────────────────────
+  // ─── KS-3861 / KS-3862: поиск лекции по live-analysis ─────────────
   //
-  // Если текущий пользователь — автор трансляции, ищем активную
-  // лекцию, привязанную к этому live-analysis. Нужно, чтобы внутри
-  // страницы показать `LecturePublisherControls` с правильным
-  // `lectureId`. Backend сейчас не отдаёт `lectureId` в
+  // Чтобы показать `LecturePublisherControls` владельцу (KS-3861) и
+  // `LectureAudioListener` + `LectureRecordingBadge` зрителю (KS-3862),
+  // нужен `lectureId`. Backend сейчас не отдаёт его в
   // `LiveAnalysisResponse` (см. `packages/shared/.../live-analysis.ts`),
   // поэтому используем listing `GET /coaches/:username/lectures?status=live`
-  // и фильтруем по `liveAnalysisId === snapshot.id`.
+  // и фильтруем по `liveAnalysisId === snapshot.id`. Listing публичный,
+  // зритель тоже может его получить (как на странице тренера в
+  // `CoachProfilePage`).
   const [ownerLecture, setOwnerLecture] = useState<OwnerLectureLookup | null>(
     null,
   );
@@ -182,12 +185,12 @@ export function LiveAnalysisViewerPage() {
   );
   useEffect(() => {
     setOwnerLecture(null);
-    if (!isOwner || !snapshot || closedReason) return;
+    if (!snapshot || !snapshot.ownerUsername || closedReason) return;
     let cancelled = false;
     api
       .get<OwnerLectureLookup[]>(
         `/coaches/${encodeURIComponent(
-          snapshot.ownerUsername ?? '',
+          snapshot.ownerUsername,
         )}/lectures?status=live`,
       )
       .then((list) => {
@@ -197,14 +200,14 @@ export function LiveAnalysisViewerPage() {
         setOwnerLecture(match);
       })
       .catch(() => {
-        // Не критично: если listing упал, controls просто не
-        // покажутся, остальной UI трансляции работает.
+        // Не критично: если listing упал, блоки голоса/значка просто
+        // не покажутся, остальной UI трансляции работает.
         if (!cancelled) setOwnerLecture(null);
       });
     return () => {
       cancelled = true;
     };
-  }, [isOwner, snapshot, closedReason]);
+  }, [snapshot, closedReason]);
 
   // ─── Render: ранние ветки ─────────────────────────────────────────
 
@@ -251,10 +254,28 @@ export function LiveAnalysisViewerPage() {
   return (
     <div className="live-analysis-viewer" data-testid="live-analysis-viewer">
       <header className="live-analysis-viewer__header">
-        <h1 className="live-analysis-viewer__title">
+        <h1
+          className="live-analysis-viewer__title"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
+        >
           {liveTitle ||
             snapshot.title ||
             t('liveAnalysisViewer.defaultTitle', 'Live analysis')}
+          {/* KS-3862: значок «🔴 Запись» появляется у зрителя, когда
+              тренер на другой вкладке нажал «Включить микрофон». Сам
+              тренер видит свой индикатор внутри LecturePublisherControls
+              ниже, поэтому здесь значок не дублируем для владельца. */}
+          {!isOwner && ownerLecture && !closedReason && (
+            <LectureRecordingBadge
+              lectureId={ownerLecture.id}
+              socket={liveAnalysisSocket}
+            />
+          )}
         </h1>
         {snapshot.ownerUsername && (
           <p className="live-analysis-viewer__owner">
@@ -282,6 +303,20 @@ export function LiveAnalysisViewerPage() {
           socket={liveAnalysisSocket}
           recordingStartedAtClient={ownerLecture.startedAt}
           onClosed={() => navigate(`/lectures/${ownerLecture.id}`)}
+        />
+      )}
+
+      {/* KS-3862: кнопка «🔊 Включить голос тренера» и регулятор
+          громкости для зрителя. `<audio autoPlay muted playsInline>`
+          ждёт первого user-gesture (см. autoplay-policy). После клика
+          UI переходит в регулятор + значок «Голос в эфире». При
+          переполнении peer-list (`webrtc:capacity-exceeded`,
+          KS-3850) и при ICE-failure (KS-3849) внутри хука уже
+          отображаются соответствующие значки. */}
+      {!isOwner && ownerLecture && !closedReason && (
+        <LectureAudioListener
+          lectureId={ownerLecture.id}
+          socket={liveAnalysisSocket}
         />
       )}
 
