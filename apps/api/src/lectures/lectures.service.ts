@@ -411,6 +411,15 @@ export class LecturesService {
     if (!audio) {
       return { ...(rest as Omit<T, 'audio'>), audio: null };
     }
+    // KS-3866: в dev-окружении без LECTURE_AUDIO_* сервис в режиме
+    // disabled — отдать audio: null лучше, чем 503 на каждом
+    // GET /lectures/:id. Прод этим путём не пойдёт (там всё задано).
+    if (this.audioS3.isDisabled()) {
+      this.logger.warn(
+        `withAudioInfo: lecture=${lectureId} has audio row, but S3 service disabled — returning audio: null`,
+      );
+      return { ...(rest as Omit<T, 'audio'>), audio: null };
+    }
     const url = await this.audioS3.signedCloudFrontUrl(lectureId);
     return {
       ...(rest as Omit<T, 'audio'>),

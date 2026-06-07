@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   DeleteObjectCommand,
@@ -71,22 +76,68 @@ export class LectureAudioS3Service implements OnModuleInit {
   /** Обязательный тег на чанках для lifecycle policy (KS-3827). */
   static readonly CHUNK_TAGGING = 'kind=chunk';
 
+  /**
+   * KS-3866. Если обязательные переменные окружения не заданы — сервис
+   * стартует в режиме `disabled`. На dev это позволяет поднимать API
+   * без AWS-настроек (фронту не нужны функции записи лекции, но всё
+   * остальное должно работать). Любой публичный метод в `disabled`-
+   * режиме кидает `ServiceUnavailableException`.
+   *
+   * В проде `NODE_ENV='production'` отсутствие переменных — фатальная
+   * ошибка: бросаем как раньше, чтобы не разворачивать сломанный API.
+   */
+  private disabled = false;
+  private disabledReason: string | null = null;
+
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit(): void {
-    this.bucket = this.requireConfig('LECTURE_AUDIO_BUCKET');
+    const bucket = this.config.get<string>('LECTURE_AUDIO_BUCKET');
+    const cdnBase = this.config.get<string>('LECTURE_AUDIO_CDN_BASE');
+    const cdnKeyPairId = this.config.get<string>(
+      'LECTURE_AUDIO_CDN_KEY_PAIR_ID',
+    );
+    const cdnPrivateKeySecretName = this.config.get<string>(
+      'LECTURE_AUDIO_CDN_PRIVATE_KEY_SECRET_NAME',
+    );
+    const missing = (
+      [
+        ['LECTURE_AUDIO_BUCKET', bucket],
+        ['LECTURE_AUDIO_CDN_BASE', cdnBase],
+        ['LECTURE_AUDIO_CDN_KEY_PAIR_ID', cdnKeyPairId],
+        [
+          'LECTURE_AUDIO_CDN_PRIVATE_KEY_SECRET_NAME',
+          cdnPrivateKeySecretName,
+        ],
+      ] as const
+    )
+      .filter(([, v]) => !v)
+      .map(([k]) => k);
+
+    if (missing.length > 0) {
+      const isProd =
+        (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV) ===
+        'production';
+      if (isProd) {
+        // В проде падаем — деплой со сломанной конфигурацией нельзя.
+        throw new Error(
+          `${missing.join(', ')} is required for LectureAudioS3Service`,
+        );
+      }
+      this.disabled = true;
+      this.disabledReason = `LectureAudioS3Service disabled in dev: missing env ${missing.join(', ')}`;
+      this.logger.warn(this.disabledReason);
+      return;
+    }
+
+    this.bucket = bucket as string;
     this.region =
       this.config.get<string>('LECTURE_AUDIO_REGION') ??
       this.config.get<string>('AWS_REGION') ??
       'eu-central-1';
-    this.cdnBase = this.requireConfig('LECTURE_AUDIO_CDN_BASE').replace(
-      /\/+$/,
-      '',
-    );
-    this.cdnKeyPairId = this.requireConfig('LECTURE_AUDIO_CDN_KEY_PAIR_ID');
-    this.cdnPrivateKeySecretName = this.requireConfig(
-      'LECTURE_AUDIO_CDN_PRIVATE_KEY_SECRET_NAME',
-    );
+    this.cdnBase = (cdnBase as string).replace(/\/+$/, '');
+    this.cdnKeyPairId = cdnKeyPairId as string;
+    this.cdnPrivateKeySecretName = cdnPrivateKeySecretName as string;
     this.s3 = new S3Client({ region: this.region });
     this.secretsManager = new SecretsManagerClient({ region: this.region });
     this.logger.log(
@@ -94,12 +145,25 @@ export class LectureAudioS3Service implements OnModuleInit {
     );
   }
 
-  private requireConfig(key: string): string {
-    const v = this.config.get<string>(key);
-    if (!v) {
-      throw new Error(`${key} is required for LectureAudioS3Service`);
+  /**
+   * KS-3866. Внешний геттер для интеграционных проверок (например,
+   * чтобы контроллер мог отдать 503, а не уйти в ffmpeg-стадии).
+   */
+  isDisabled(): boolean {
+    return this.disabled;
+  }
+
+  /**
+   * Гард: вызывается из каждого публичного метода перед обращением к
+   * AWS. В режиме `disabled` бросает 503; в норме — no-op.
+   */
+  private ensureEnabled(): void {
+    if (this.disabled) {
+      throw new ServiceUnavailableException(
+        this.disabledReason ??
+          'Lecture audio storage is not configured in this environment',
+      );
     }
-    return v;
   }
 
   // ─── Ключи и URL'ы ─────────────────────────────────────────────────
@@ -138,6 +202,7 @@ export class LectureAudioS3Service implements OnModuleInit {
     sizeBytes: number,
     ttlSec = 300,
   ): Promise<string> {
+    this.ensureEnabled();
     const key = this.chunkKey(lectureId, seq);
     const command = new PutObjectCommand({
       Bucket: this.bucket,
@@ -166,6 +231,7 @@ export class LectureAudioS3Service implements OnModuleInit {
   async listChunks(
     lectureId: string,
   ): Promise<Array<{ seq: number; key: string; etag: string; sizeBytes: number }>> {
+    this.ensureEnabled();
     const prefix = this.chunksPrefix(lectureId);
     const out: Array<{
       seq: number;
@@ -214,6 +280,7 @@ export class LectureAudioS3Service implements OnModuleInit {
    * чанка) — функция вернёт 0 и не упадёт.
    */
   async deleteChunks(lectureId: string): Promise<number> {
+    this.ensureEnabled();
     const chunks = await this.listChunks(lectureId);
     if (chunks.length === 0) return 0;
     let deleted = 0;
@@ -255,6 +322,7 @@ export class LectureAudioS3Service implements OnModuleInit {
    * лишнего.
    */
   async downloadObject(key: string, localPath: string): Promise<void> {
+    this.ensureEnabled();
     const resp = await this.s3.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: key }),
     );
@@ -274,6 +342,7 @@ export class LectureAudioS3Service implements OnModuleInit {
    * finalizer пишет ffmpeg-выход в `/tmp/<lectureId>.ogg`).
    */
   async putFinalTrack(lectureId: string, localPath: string): Promise<void> {
+    this.ensureEnabled();
     const key = this.finalKey(lectureId);
     const stat = await fsp.stat(localPath);
     await this.s3.send(
@@ -297,6 +366,7 @@ export class LectureAudioS3Service implements OnModuleInit {
    * должен оборачивать в best-effort try/catch.
    */
   async deleteFinalTrack(lectureId: string): Promise<void> {
+    this.ensureEnabled();
     await this.s3.send(
       new DeleteObjectCommand({
         Bucket: this.bucket,
@@ -320,6 +390,7 @@ export class LectureAudioS3Service implements OnModuleInit {
     lectureId: string,
     ttlSec = 86400,
   ): Promise<string> {
+    this.ensureEnabled();
     const privateKey = await this.loadCdnPrivateKey();
     const url = `${this.cdnBase}/audio/${lectureId}/track.ogg`;
     const dateLessThan = new Date(Date.now() + ttlSec * 1000).toISOString();

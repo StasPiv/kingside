@@ -52,6 +52,7 @@ describe('LecturesService', () => {
     signedCloudFrontUrl: jest.Mock;
     deleteChunks: jest.Mock;
     deleteFinalTrack: jest.Mock;
+    isDisabled: jest.Mock;
   };
   let audioService: { finalizeRecording: jest.Mock };
 
@@ -104,6 +105,8 @@ describe('LecturesService', () => {
         ),
       deleteChunks: jest.fn().mockResolvedValue(0),
       deleteFinalTrack: jest.fn().mockResolvedValue(undefined),
+      // KS-3866: сервис в обычном режиме — disabled=false.
+      isDisabled: jest.fn().mockReturnValue(false),
     };
     audioService = {
       finalizeRecording: jest.fn().mockResolvedValue({

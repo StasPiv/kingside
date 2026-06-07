@@ -50,6 +50,11 @@ export class LectureAudioFinalizerScheduler {
       this.logger.warn('finalizer: previous tick still running, skip');
       return;
     }
+    // KS-3866: на dev без LECTURE_AUDIO_* S3-сервис в режиме disabled.
+    // Cron тогда нечего делать — пропускаем тик и не плодим warn'ы.
+    if (this.s3.isDisabled()) {
+      return;
+    }
     this.running = true;
     const startedAt = Date.now();
     try {

@@ -14,6 +14,8 @@ function makeScheduler() {
   };
   const s3 = {
     listChunks: jest.fn(),
+    // KS-3866: scheduler пропускает тик при disabled — мок отвечает false.
+    isDisabled: jest.fn().mockReturnValue(false),
   };
   const audio = {
     finalizeRecording: jest.fn(),
@@ -108,5 +110,13 @@ describe('LectureAudioFinalizerScheduler (KS-3833)', () => {
     expect(prisma.lecture.findMany).toHaveBeenCalledTimes(1);
     resolve([]);
     await p1;
+  });
+
+  // KS-3866: при отключённом S3-сервисе тик молча выходит.
+  it('handleTick пропускает запуск, если S3-сервис disabled', async () => {
+    const { scheduler, prisma, s3 } = makeScheduler();
+    (s3.isDisabled as jest.Mock).mockReturnValueOnce(true);
+    await scheduler.handleTick();
+    expect(prisma.lecture.findMany).not.toHaveBeenCalled();
   });
 });

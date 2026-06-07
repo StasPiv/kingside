@@ -64,9 +64,58 @@ describe('LectureAudioS3Service', () => {
     svc.onModuleInit();
   });
 
-  it('onModuleInit падает, если обязательный env не задан', () => {
-    const bad = new LectureAudioS3Service(makeConfig({ LECTURE_AUDIO_BUCKET: undefined }));
-    expect(() => bad.onModuleInit()).toThrow(/LECTURE_AUDIO_BUCKET/);
+  it('onModuleInit в проде падает, если обязательный env не задан', () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const bad = new LectureAudioS3Service(
+        makeConfig({ LECTURE_AUDIO_BUCKET: undefined, NODE_ENV: 'production' }),
+      );
+      expect(() => bad.onModuleInit()).toThrow(/LECTURE_AUDIO_BUCKET/);
+    } finally {
+      process.env.NODE_ENV = prev;
+    }
+  });
+
+  it('KS-3866: в dev (NODE_ENV != production) без env сервис стартует disabled', () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const bad = new LectureAudioS3Service(
+        makeConfig({
+          LECTURE_AUDIO_BUCKET: undefined,
+          LECTURE_AUDIO_CDN_BASE: undefined,
+          LECTURE_AUDIO_CDN_KEY_PAIR_ID: undefined,
+          LECTURE_AUDIO_CDN_PRIVATE_KEY_SECRET_NAME: undefined,
+        }),
+      );
+      expect(() => bad.onModuleInit()).not.toThrow();
+      expect(bad.isDisabled()).toBe(true);
+    } finally {
+      process.env.NODE_ENV = prev;
+    }
+  });
+
+  it('KS-3866: в disabled-режиме методы кидают ServiceUnavailable', async () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const disabled = new LectureAudioS3Service(
+        makeConfig({ LECTURE_AUDIO_BUCKET: undefined }),
+      );
+      disabled.onModuleInit();
+      await expect(
+        disabled.presignChunkUpload('uuid', 0, 1),
+      ).rejects.toMatchObject({ status: 503 });
+      await expect(disabled.listChunks('uuid')).rejects.toMatchObject({
+        status: 503,
+      });
+      await expect(disabled.signedCloudFrontUrl('uuid')).rejects.toMatchObject({
+        status: 503,
+      });
+    } finally {
+      process.env.NODE_ENV = prev;
+    }
   });
 
   describe('presignChunkUpload', () => {
