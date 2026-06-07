@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
+import { LectureAudioS3Service } from '../lecture-audio/lecture-audio-s3.service';
 import { CreateLectureDto, UpdateLectureDto } from './dto/create-lecture.dto';
 
 /**
@@ -46,6 +47,7 @@ export class LecturesService {
     private readonly prisma: PrismaService,
     private readonly liveAnalysisService: LiveAnalysisService,
     private readonly config: ConfigService,
+    private readonly audioS3: LectureAudioS3Service,
   ) {}
 
   /**
@@ -352,12 +354,68 @@ export class LecturesService {
       where: { id },
       include: {
         liveAnalysis: { select: { id: true, slug: true } },
+        // KS-3835 / ADR-116 §5.1: audio-метаданные для replay-плеера.
+        audio: {
+          select: {
+            durationMs: true,
+            offsetMs: true,
+            codec: true,
+            container: true,
+          },
+        },
       },
     });
     if (!row) {
       throw new NotFoundException(`Lecture "${id}" not found`);
     }
-    return this.withLiveAnalysisBinding(row);
+    const withLive = this.withLiveAnalysisBinding(row);
+    return this.withAudioInfo(id, withLive);
+  }
+
+  /**
+   * KS-3835 / ADR-116 §5.1. Подмена raw `audio` (из Prisma include) на
+   * `LectureAudioInfo` с подписанным CloudFront-URL. Если у лекции
+   * нет аудио — поле `null`. Для `public` и `unlisted` используется
+   * один и тот же signed URL (ADR-116 §1.2: упрощение раздачи).
+   */
+  private async withAudioInfo<
+    T extends {
+      audio?: {
+        durationMs: number | null;
+        offsetMs: number | null;
+        codec: string;
+        container: string;
+      } | null;
+    },
+  >(
+    lectureId: string,
+    row: T,
+  ): Promise<
+    Omit<T, 'audio'> & {
+      audio: {
+        url: string;
+        durationMs: number | null;
+        offsetMs: number | null;
+        codec: string;
+        container: string;
+      } | null;
+    }
+  > {
+    const { audio, ...rest } = row;
+    if (!audio) {
+      return { ...(rest as Omit<T, 'audio'>), audio: null };
+    }
+    const url = await this.audioS3.signedCloudFrontUrl(lectureId);
+    return {
+      ...(rest as Omit<T, 'audio'>),
+      audio: {
+        url,
+        durationMs: audio.durationMs,
+        offsetMs: audio.offsetMs,
+        codec: audio.codec,
+        container: audio.container,
+      },
+    };
   }
 
   /**

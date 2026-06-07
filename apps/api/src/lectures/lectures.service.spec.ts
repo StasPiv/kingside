@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { LecturesService } from './lectures.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
+import { LectureAudioS3Service } from '../lecture-audio/lecture-audio-s3.service';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1. Unit-тесты `LecturesService`.
@@ -41,6 +42,7 @@ describe('LecturesService', () => {
     create: jest.Mock;
   };
   let config: { get: jest.Mock };
+  let audioS3: { signedCloudFrontUrl: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -79,12 +81,20 @@ describe('LecturesService', () => {
         key === 'PUBLIC_BASE_URL' ? 'https://kingside.site' : undefined,
       ),
     };
+    audioS3 = {
+      signedCloudFrontUrl: jest
+        .fn()
+        .mockResolvedValue(
+          'https://media.kingside.site/audio/L/track.ogg?Key-Pair-Id=K&Signature=S&Expires=1',
+        ),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LecturesService,
         { provide: PrismaService, useValue: prisma },
         { provide: LiveAnalysisService, useValue: liveAnalysis },
         { provide: ConfigService, useValue: config },
+        { provide: LectureAudioS3Service, useValue: audioS3 },
       ],
     }).compile();
     service = module.get(LecturesService);
@@ -560,6 +570,83 @@ describe('LecturesService', () => {
         slug: 'SLUG000002',
         url: 'https://kingside.site/live/SLUG000002',
       });
+    });
+
+    // KS-3835 / ADR-116 §5.1: audio в ответе getById.
+    it('KS-3835: recorded-лекция с LectureAudio отдаёт audio { url, durationMs, offsetMs, codec, container }', async () => {
+      audioS3.signedCloudFrontUrl.mockResolvedValueOnce(
+        'https://media.kingside.site/audio/l-rec/track.ogg?Key-Pair-Id=K22OGMBTKZ8IZR&Signature=SIG&Expires=12345',
+      );
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-rec',
+        visibility: 'public',
+        status: 'recorded',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        audio: {
+          durationMs: 3_600_000,
+          offsetMs: 1200,
+          codec: 'opus',
+          container: 'ogg',
+        },
+      });
+      const r = (await service.getById('l-rec')) as unknown as {
+        audio: {
+          url: string;
+          durationMs: number;
+          offsetMs: number;
+          codec: string;
+          container: string;
+        } | null;
+      };
+      expect(r.audio).not.toBeNull();
+      expect(r.audio!.url).toContain('/audio/l-rec/track.ogg');
+      expect(r.audio!.url).toContain('Key-Pair-Id=');
+      expect(r.audio!.url).toContain('Signature=');
+      expect(r.audio!.durationMs).toBe(3_600_000);
+      expect(r.audio!.offsetMs).toBe(1200);
+      expect(r.audio!.codec).toBe('opus');
+      expect(r.audio!.container).toBe('ogg');
+      expect(audioS3.signedCloudFrontUrl).toHaveBeenCalledWith('l-rec');
+    });
+
+    it('KS-3835: лекция без audio → audio: null, signedCloudFrontUrl не вызывается', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-3',
+        visibility: 'public',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        audio: null,
+      });
+      const r = (await service.getById('l-3')) as unknown as {
+        audio: unknown;
+      };
+      expect(r.audio).toBeNull();
+      expect(audioS3.signedCloudFrontUrl).not.toHaveBeenCalled();
+    });
+
+    it('KS-3835: unlisted лекция с audio тоже получает signed URL (тот же путь, что у public)', async () => {
+      audioS3.signedCloudFrontUrl.mockResolvedValueOnce(
+        'https://media.kingside.site/audio/l-u/track.ogg?Key-Pair-Id=K&Signature=X&Expires=1',
+      );
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-u',
+        visibility: 'unlisted',
+        status: 'recorded',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        audio: {
+          durationMs: 100,
+          offsetMs: 0,
+          codec: 'opus',
+          container: 'ogg',
+        },
+      });
+      const r = (await service.getById('l-u')) as unknown as {
+        audio: { url: string } | null;
+      };
+      expect(r.audio).not.toBeNull();
+      expect(r.audio!.url).toContain('Signature=');
     });
   });
 
