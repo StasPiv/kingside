@@ -225,12 +225,27 @@ export function useLectureAudioSubscriber({
     };
 
     const handleOffer = (payload: WebRTCOfferEvent) => {
+      console.info(
+        '[lecture-audio-sub] received webrtc:offer',
+        {
+          payloadLectureId: payload?.lectureId,
+          currentLectureId: lectureIdRef.current,
+          fromSocketId: payload?.fromSocketId,
+          sdpLength: payload?.sdp?.length ?? 0,
+        },
+      );
       if (payload?.lectureId !== lectureIdRef.current) return;
       // KS-3850: если gateway уже сообщил, что лекция заполнена,
       // отрицаем любые внезапные offer'ы (форвард мог быть в полёте).
-      if (capacityRefused) return;
+      if (capacityRefused) {
+        console.info('[lecture-audio-sub] offer ignored: capacityRefused=true');
+        return;
+      }
       const fromSocketId = payload.fromSocketId;
-      if (!fromSocketId) return;
+      if (!fromSocketId) {
+        console.info('[lecture-audio-sub] offer ignored: no fromSocketId');
+        return;
+      }
       // Re-offer от того же тренера (ICE-restart) — закрываем старый pc.
       if (pcRef.current) {
         try {
@@ -265,6 +280,10 @@ export function useLectureAudioSubscriber({
       };
 
       pc.oniceconnectionstatechange = () => {
+        console.info(
+          '[lecture-audio-sub] iceConnectionState change →',
+          pc.iceConnectionState,
+        );
         setConnectionState(pc.iceConnectionState);
         if (
           pc.iceConnectionState === 'connected' ||
@@ -275,6 +294,9 @@ export function useLectureAudioSubscriber({
         }
         if (pc.iceConnectionState === 'failed') {
           // KS-3849: failed → метрика peer-failed + UI «не удалось».
+          console.warn(
+            '[lecture-audio-sub] iceConnectionState=failed; reporting peer-failed',
+          );
           clearIceTimer();
           reportPeerFailed('ice_failed', pc.iceConnectionState);
           setConnectionState('ice-failed-timeout');
@@ -291,32 +313,66 @@ export function useLectureAudioSubscriber({
       };
 
       pc.ontrack = (ev) => {
-        // Берём первый stream — у нас единственный audio-track.
+        const fallbackStream = ev.streams[0] === undefined;
         const stream = ev.streams[0] ?? new MediaStream([ev.track]);
+        console.info('[lecture-audio-sub] ontrack', {
+          streamsCount: ev.streams.length,
+          fallbackStream,
+          trackKind: ev.track.kind,
+          trackId: ev.track.id,
+          trackEnabled: ev.track.enabled,
+          trackMuted: ev.track.muted,
+          trackReadyState: ev.track.readyState,
+          streamId: stream.id,
+          audioTracks: stream.getAudioTracks().length,
+        });
         const el = audioRef.current;
         if (el) {
           el.srcObject = stream;
-          // play() может reject-нуться из-за autoplay-policy браузера
-          // (Safari, Chrome без user-gesture). Это нормально: UI
-          // показывает кнопку «Включить голос», по клику дёргает play().
-          el.play().catch(() => {
-            /* autoplay blocked — UI обработает по клику */
-          });
+          el.play()
+            .then(() => {
+              console.info('[lecture-audio-sub] <audio>.play() resolved');
+            })
+            .catch((err) => {
+              console.warn(
+                '[lecture-audio-sub] <audio>.play() rejected',
+                err?.name,
+                err?.message,
+              );
+            });
+        } else {
+          console.warn('[lecture-audio-sub] ontrack but audioRef.current is null');
         }
       };
 
       (async () => {
         try {
           await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp });
+          console.info('[lecture-audio-sub] setRemoteDescription(offer) ok');
           const answer = await pc.createAnswer();
+          console.info('[lecture-audio-sub] createAnswer ok', {
+            sdpLength: answer.sdp?.length ?? 0,
+          });
           await pc.setLocalDescription(answer);
+          console.info('[lecture-audio-sub] setLocalDescription(answer) ok');
           const s = socketRef.current;
           const lid = lectureIdRef.current;
-          if (!s || !lid || !answer.sdp) return;
+          if (!s || !lid || !answer.sdp) {
+            console.warn('[lecture-audio-sub] answer not emitted', {
+              hasSocket: !!s,
+              hasLectureId: !!lid,
+              hasSdp: !!answer.sdp,
+            });
+            return;
+          }
           s.emit('webrtc:answer', {
             lectureId: lid,
             toSocketId: fromSocketId,
             sdp: answer.sdp,
+          });
+          console.info('[lecture-audio-sub] emitted webrtc:answer', {
+            toSocketId: fromSocketId,
+            sdpLength: answer.sdp.length,
           });
         } catch (err) {
           console.warn('[useLectureAudioSubscriber] answer flow failed', err);
@@ -326,6 +382,12 @@ export function useLectureAudioSubscriber({
     };
 
     const handleIce = (payload: WebRTCIceEvent) => {
+      console.info('[lecture-audio-sub] received webrtc:ice', {
+        payloadLectureId: payload?.lectureId,
+        fromSocketId: payload?.fromSocketId,
+        currentPublisher: publisherSocketIdRef.current,
+        hasPc: pcRef.current !== null,
+      });
       if (payload?.lectureId !== lectureIdRef.current) return;
       const fromSocketId = payload.fromSocketId;
       if (!fromSocketId) return;
@@ -385,6 +447,24 @@ export function useLectureAudioSubscriber({
     socket.on('webrtc:peer-left', handlePeerLeft);
     socket.on('webrtc:capacity-exceeded', handleCapacityExceeded);
 
+    // KS-3881 follow-up: диагностические логи под пользовательский
+    // сценарий, когда подключение зрителя не доходит до connected
+    // и нет видимых ошибок в консоли. Печатаем все шаги цепочки,
+    // чтобы можно было собрать transcript из консоли пользователя.
+    const log = (msg: string, extra?: Record<string, unknown>) => {
+      console.info(
+        `[lecture-audio-sub] ${msg}`,
+        extra ?? '',
+        'lectureId=',
+        lectureId,
+        'socketId=',
+        socket.id,
+        'connected=',
+        socket.connected,
+      );
+    };
+    log('mount; listeners attached, emitting webrtc:peer-joined');
+
     // Регистрируемся в peer-list. Сервер сам форвардит peer-joined
     // публикатору с нашим socketId, и тренер пришлёт offer.
     const joinEvt: WebRTCPeerJoinedEvent = { lectureId };
@@ -408,6 +488,10 @@ export function useLectureAudioSubscriber({
       try {
         const evt: WebRTCPeerJoinedEvent = { lectureId };
         socket.emit('webrtc:peer-joined', evt);
+        console.info('[lecture-audio-sub] rejoin emitted webrtc:peer-joined', {
+          socketConnected: socket.connected,
+          socketId: socket.id,
+        });
       } catch {
         /* сокет мог упасть — следующий tick попробует снова */
       }
@@ -426,6 +510,14 @@ export function useLectureAudioSubscriber({
       const pc = pcRef.current;
       const state: string = pc?.iceConnectionState ?? 'no_offer';
       if (state === 'connected' || state === 'completed') return;
+      console.warn(
+        '[lecture-audio-sub] ICE timeout 10s; final state=',
+        state,
+        'hasPc=',
+        pc !== null,
+        'publisherSocketId=',
+        publisherSocketIdRef.current,
+      );
       reportPeerFailed('ice_timeout', state);
       setConnectionState('ice-failed-timeout');
       // Закрываем pc — повторных попыток нет (см. ADR-116 §2.3).
