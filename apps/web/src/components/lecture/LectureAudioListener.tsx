@@ -55,6 +55,10 @@ export function LectureAudioListener({
   const [unlocked, setUnlocked] = useState(false);
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(1);
+  // KS-3880: «прогревающий» AudioContext, см. подробный комментарий
+  // в LectureAudioListenerCompact. Нужен, чтобы WebRTC под капотом
+  // не блокировался autoplay-policy на следующих треках.
+  const warmupCtxRef = useRef<AudioContext | null>(null);
 
   // Синхронизируем `audio.muted` / `audio.volume` со state'ом, чтобы
   // первый рендер с `<audio muted>` корректно работал, и чтобы
@@ -66,7 +70,52 @@ export function LectureAudioListener({
     el.volume = volume;
   }, [audioRef, muted, volume]);
 
+  // KS-3880: освобождаем AudioContext при unmount.
+  useEffect(() => {
+    return () => {
+      const ctx = warmupCtxRef.current;
+      if (ctx && typeof ctx.close === 'function') {
+        try {
+          void ctx.close();
+        } catch {
+          /* ignore */
+        }
+      }
+      warmupCtxRef.current = null;
+    };
+  }, []);
+
   const handleUnlock = useCallback(() => {
+    // KS-3880: синхронно прогреваем AudioContext до любых обращений к
+    // `<audio>` — это разблокирует WebRTC-выход на удалённых треках.
+    try {
+      const Ctor =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (Ctor && !warmupCtxRef.current) {
+        const ctx = new Ctor();
+        warmupCtxRef.current = ctx;
+        if (typeof ctx.resume === 'function') void ctx.resume();
+        try {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          gain.gain.value = 0;
+          osc.connect(gain).connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.01);
+        } catch {
+          /* отдельные браузеры не поддерживают всю цепочку */
+        }
+      } else if (
+        warmupCtxRef.current &&
+        warmupCtxRef.current.state === 'suspended'
+      ) {
+        void warmupCtxRef.current.resume();
+      }
+    } catch {
+      /* AudioContext недоступен — без прогрева */
+    }
     const el = audioRef.current;
     if (!el) return;
     el.muted = false;

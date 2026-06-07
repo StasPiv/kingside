@@ -45,6 +45,15 @@ export function LectureAudioListenerCompact({
   const [volume, setVolume] = useState(1);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  // KS-3880: «прогревающий» AudioContext, созданный синхронно в
+  // обработчике клика. WebRTC под капотом тоже создаёт AudioContext
+  // на каждый входящий аудио-трек; если до этого момента в
+  // документе не было ни одного `resume`-нутого в жесте AudioContext,
+  // браузер блокирует все WebRTC-потоки с сообщением «AudioContext
+  // was not allowed to start» и звука нет, даже если `<audio>.play()`
+  // уже разрешён. Один раз создаём свой, держим в ref, чтобы
+  // повторные клики его переиспользовали.
+  const warmupCtxRef = useRef<AudioContext | null>(null);
 
   // Синхронизация state ↔ <audio>.
   useEffect(() => {
@@ -53,6 +62,22 @@ export function LectureAudioListenerCompact({
     el.muted = muted;
     el.volume = volume;
   }, [audioRef, muted, volume]);
+
+  // KS-3880: закрытие «прогревающего» AudioContext при unmount —
+  // освобождаем аппаратные ресурсы аудио-вывода.
+  useEffect(() => {
+    return () => {
+      const ctx = warmupCtxRef.current;
+      if (ctx && typeof ctx.close === 'function') {
+        try {
+          void ctx.close();
+        } catch {
+          /* ignore */
+        }
+      }
+      warmupCtxRef.current = null;
+    };
+  }, []);
 
   // Закрытие popover при клике вне компонента.
   useEffect(() => {
@@ -70,6 +95,43 @@ export function LectureAudioListenerCompact({
   const handleIconClick = useCallback(() => {
     const el = audioRef.current;
     if (!unlocked) {
+      // KS-3880: всё ниже выполняется СИНХРОННО внутри обработчика
+      // клика — никаких await. Браузер разрешает аудио-вывод только
+      // если AudioContext был resume-нут / `<audio>.play()` вызван в
+      // том же тике, что и user gesture.
+      try {
+        const Ctor =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext?: typeof AudioContext })
+            .webkitAudioContext;
+        if (Ctor && !warmupCtxRef.current) {
+          const ctx = new Ctor();
+          warmupCtxRef.current = ctx;
+          // resume — на случай если контекст создался suspended.
+          // Игнорируем промис: вызов уже зачтён как «в жесте».
+          if (typeof ctx.resume === 'function') void ctx.resume();
+          // Короткий тишинный осциллятор окончательно «разогревает»
+          // вывод — на iOS Safari без этого следующие WebRTC-потоки
+          // всё равно блокировались.
+          try {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            gain.gain.value = 0;
+            osc.connect(gain).connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.01);
+          } catch {
+            /* отдельные браузеры не поддерживают всю цепочку — не критично */
+          }
+        } else if (
+          warmupCtxRef.current &&
+          warmupCtxRef.current.state === 'suspended'
+        ) {
+          void warmupCtxRef.current.resume();
+        }
+      } catch {
+        /* AudioContext недоступен — без прогрева, но это не должно мешать */
+      }
       if (el) {
         el.muted = false;
         el.play().catch(() => {
