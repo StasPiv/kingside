@@ -152,6 +152,52 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
     expect(owner.data.webrtcOwnedLectures.has(LECTURE)).toBe(true);
   });
 
+  // KS-3889: handler приходит до завершения async handleConnection —
+  // `client.data.user` ещё undefined. Handler должен сам поднять JWT
+  // из handshake.auth.token и корректно определить владельца.
+  it('KS-3889: late auth resolve — JWT в handshake, client.data.user не выставлен → handler сам поднимает и считает owner', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      id: LECTURE,
+      ownerId: 'u-owner',
+    });
+    // JwtService мок: верифицирует и отдаёт payload.
+    const verify = jest.fn().mockReturnValue({
+      sub: 'u-owner',
+      username: 'trainer',
+    });
+    (gateway as unknown as { jwtService: { verify: jest.Mock } }).jwtService = {
+      verify,
+    };
+    // Симулируем гонку: данные сокета без `user` (handleConnection не
+    // успел), но в handshake.auth.token есть JWT.
+    const emit = jest.fn();
+    const owner = {
+      id: 'S_OWNER',
+      data: {
+        // user НЕ выставлен — handleConnection ещё на async-стадии
+        subscribedSlugs: new Set(),
+        // webrtcLectures / webrtcOwnedLectures тоже отсутствуют —
+        // handler должен их инициализировать сам
+      },
+      handshake: { auth: { token: 'jwt.fake' } },
+      emit,
+    };
+    socketRegistry.set('S_OWNER', { id: 'S_OWNER', emit });
+
+    await gateway.handleWebRTCPeerJoined(
+      owner as never,
+      { lectureId: LECTURE },
+    );
+    expect(verify).toHaveBeenCalledWith('jwt.fake');
+    const peers = (gateway as any).webrtcPeers.get(LECTURE);
+    expect(peers.ownerSocketId).toBe('S_OWNER');
+    expect(owner.data.user).toEqual({ id: 'u-owner', username: 'trainer' });
+    expect(
+      (owner.data as { webrtcOwnedLectures: Set<string> })
+        .webrtcOwnedLectures.has(LECTURE),
+    ).toBe(true);
+  });
+
   it('peer-joined от подписчика: регистрирует, уведомляет владельца', async () => {
     prisma.lecture.findUnique.mockResolvedValue({
       id: LECTURE,

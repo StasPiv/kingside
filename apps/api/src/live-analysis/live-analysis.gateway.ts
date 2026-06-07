@@ -195,8 +195,40 @@ export class LiveAnalysisGateway
     }
     client.data.ipSlotAcquired = true;
 
+    this.resolveAuthFromHandshake(client);
+    client.data.subscribedSlugs = new Set<string>();
+    // KS-3836: для очистки peer-list'ов на disconnect.
+    client.data.webrtcLectures = new Set<string>();
+    // KS-3836: per-socket кеш ownership (lectureId → owner?). Заполняется
+    // в `webrtc:peer-joined` (там же возможна 1 БД-выборка
+    // Lecture.ownerId), используется при offer для дешёвой проверки
+    // «sender является владельцем лекции».
+    client.data.webrtcOwnedLectures = new Set<string>();
+  }
+
+  /**
+   * KS-3889. Извлечь JWT из handshake и поднять `client.data.user`.
+   * Идемпотентно: повторный вызов на уже-разрешённом сокете — no-op.
+   * Невалидный токен → `client.data.user = null` (публичный namespace).
+   *
+   * Выделено из `handleConnection` отдельным методом, потому что
+   * Socket.IO в Nest начинает доставлять message-events ДО завершения
+   * async `handleConnection` (на промежутке `tryAcquireIpSlot` —
+   * Redis I/O — может прилететь первый `webrtc:peer-joined`). Тогда в
+   * хендлере `client.data.user === undefined`, тренер ошибочно
+   * считается subscriber'ом. Хендлер `peer-joined` теперь сам вызывает
+   * этот резолвер, если `user` ещё не выставлен.
+   */
+  private resolveAuthFromHandshake(client: Socket): void {
+    if (
+      client.data &&
+      Object.prototype.hasOwnProperty.call(client.data, 'user')
+    ) {
+      return;
+    }
     try {
-      const rawToken = client.handshake.auth?.token ?? client.handshake.query?.token;
+      const rawToken =
+        client.handshake.auth?.token ?? client.handshake.query?.token;
       if (rawToken) {
         const payload = this.jwtService.verify<JwtPayload>(String(rawToken));
         client.data.user = { id: payload.sub, username: payload.username };
@@ -208,14 +240,6 @@ export class LiveAnalysisGateway
       // Падаем в анонимный режим: смотреть всё ещё можно.
       client.data.user = null;
     }
-    client.data.subscribedSlugs = new Set<string>();
-    // KS-3836: для очистки peer-list'ов на disconnect.
-    client.data.webrtcLectures = new Set<string>();
-    // KS-3836: per-socket кеш ownership (lectureId → owner?). Заполняется
-    // в `webrtc:peer-joined` (там же возможна 1 БД-выборка
-    // Lecture.ownerId), используется при offer для дешёвой проверки
-    // «sender является владельцем лекции».
-    client.data.webrtcOwnedLectures = new Set<string>();
   }
 
   /**
@@ -475,6 +499,21 @@ export class LiveAnalysisGateway
     // Теперь anon = subscriber по умолчанию: owner может быть только
     // авторизованным юзером с `userId === Lecture.ownerId`. Это
     // согласовано с REST'ом `peer-failed`, который тоже принимает anon.
+    //
+    // KS-3889. Socket.IO начинает обрабатывать events до того, как
+    // async `handleConnection` успевает поднять `client.data.user`
+    // (между ipSlot acquire по Redis и парсингом JWT может прилететь
+    // первый peer-joined от тренера). Без подстраховки тренер бы
+    // ошибочно регистрировался как subscriber, потому что
+    // `client.data.user` всё ещё `undefined`. Пробуем поднять auth
+    // прямо тут — `resolveAuthFromHandshake` идемпотентен.
+    this.resolveAuthFromHandshake(client);
+    if (!client.data.webrtcLectures) {
+      client.data.webrtcLectures = new Set<string>();
+    }
+    if (!client.data.webrtcOwnedLectures) {
+      client.data.webrtcOwnedLectures = new Set<string>();
+    }
     const user = client.data?.user ?? null;
     try {
       const lecture = await this.prisma.lecture.findUnique({
