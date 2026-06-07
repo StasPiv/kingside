@@ -1,0 +1,22 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-lecture-audio-chunks-after-1d",
+      "Status": "Enabled",
+      "Filter": {
+        "And": {
+          "Prefix": "audio/",
+          "Tags": [
+            {
+              "Key": "kind",
+              "Value": "chunk"
+            }
+          ]
+        }
+      },
+      "Expiration": {
+        "Days": 1
+      }
+    }
+  ]
+}
