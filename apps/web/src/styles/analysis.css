@@ -4181,5 +4181,38 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   .lecture-replay-player {
     margin-bottom: 56px;
   }
+  /* KS-3878: у `.analysis-page` на mobile (responsive.css:226) стоит
+     `padding-bottom: 56px` под `MobileBottomBar`. В lecture-replay
+     запас под нижнее меню обеспечивается уже `margin-bottom: 56px`
+     самого `.lecture-replay-player` (см. правило выше) — поэтому
+     внутренний padding `.analysis-page` превращается в пустую полосу
+     между блоком нотации и плеером. Сбрасываем его только в
+     replay-контексте, чтобы отступ под mobile-bottom-bar остался
+     снаружи, а не внутри AnalysisPage. */
+  .lecture-replay-page .analysis-page {
+    padding-bottom: 0;
+  }
+  /* KS-3878: основная причина пустого зазора — обёртка
+     `[data-testid='lecture-replay-analysis-wrapper']` (inline-style
+     `flex:1; minHeight:0`) растягивает `.analysis-page` на всю
+     оставшуюся высоту. Из-за этого `.analysis-mobile-panel__content`
+     (`flex:1; overflow-y:auto`) превращается в большой пустой
+     scroll-блок: между «No moves» / коротким списком ходов и плеером
+     зияет ~150–200px пустоты. Inline `flex:1` перебиваем через
+     `!important` и переключаем обёртку + панель на shrink-to-fit;
+     длинная нотация остаётся скроллируемой за счёт max-height на
+     content'е (35vh ≈ 295px на 844-высоте). Плеер визуально шёл
+     сразу после нотации, отступ под нижним меню (56px) остаётся
+     ниже плеера через `margin-bottom` выше. */
+  .lecture-replay-page [data-testid='lecture-replay-analysis-wrapper'] {
+    flex: 0 1 auto !important;
+  }
+  .lecture-replay-page .analysis-mobile-panel {
+    flex: 0 1 auto;
+  }
+  .lecture-replay-page .analysis-mobile-panel__content {
+    flex: 0 1 auto;
+    max-height: 35vh;
+  }
 }
 
