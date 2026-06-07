@@ -442,6 +442,26 @@ export function useLectureAudioSubscriber({
       }
     };
 
+    // KS-3881: тот же фикс что в publisher — гарантируем что socket
+    // подключён и имеет JWT в auth до подписки. liveAnalysisSocket
+    // autoConnect=false, явный connect делает только useLiveAnalysisSocket.
+    try {
+      const token =
+        typeof window !== 'undefined'
+          ? window.localStorage.getItem('token')
+          : null;
+      socket.auth = token ? { token } : {};
+    } catch {
+      /* без auth — анонимный зритель, тоже допустимо */
+    }
+    if (!socket.connected) {
+      try {
+        socket.connect();
+      } catch (err) {
+        console.warn('[lecture-audio-sub] socket.connect() failed', err);
+      }
+    }
+
     socket.on('webrtc:offer', handleOffer);
     socket.on('webrtc:ice', handleIce);
     socket.on('webrtc:peer-left', handlePeerLeft);

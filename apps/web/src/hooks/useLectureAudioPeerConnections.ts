@@ -320,6 +320,30 @@ export function useLectureAudioPeerConnections({
       closePeer(peerSocketId);
     };
 
+    // KS-3881: liveAnalysisSocket создаётся с `autoConnect: false`
+    // (см. apps/web/src/socket.ts), а явно его подключает только
+    // зрительский хук `useLiveAnalysisSocket`. У тренера этот хук не
+    // запускается, поэтому без следующего блока publisher всю жизнь
+    // оставался отключённым (socketConnected: false в логах KS-3881)
+    // и webrtc:peer-joined до него никогда не доходило. Gateway также
+    // опознаёт publisher по JWT в `socket.auth` — иначе не знает, кому
+    // форвардить.
+    try {
+      const token =
+        typeof window !== 'undefined'
+          ? window.localStorage.getItem('token')
+          : null;
+      socket.auth = token ? { token } : {};
+    } catch {
+      /* localStorage недоступен — подключимся без auth, всё равно лучше, чем offline */
+    }
+    if (!socket.connected) {
+      try {
+        socket.connect();
+      } catch (err) {
+        console.warn('[lecture-audio-pub] socket.connect() failed', err);
+      }
+    }
     console.info(
       '[lecture-audio-pub] mount: subscribing to webrtc events',
       {
