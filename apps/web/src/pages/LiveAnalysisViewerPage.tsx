@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   LiveAnalysisCloseReason,
@@ -8,9 +8,25 @@ import type {
 } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
+import { useAuth } from '../context/AuthContext';
 import { useLiveAnalysisSocket } from '../hooks/useLiveAnalysisSocket';
 import { deserializeLiveTree } from '../review/utils/liveTreeCodec';
+import { liveAnalysisSocket } from '../socket';
+import { LecturePublisherControls } from '../components/lecture/LecturePublisherControls';
 import { AnalysisPage } from './AnalysisPage';
+
+/**
+ * KS-3861. Облегчённый снимок лекции — то, что отдаёт
+ * `GET /coaches/:username/lectures?status=live` (см. `CoachProfilePage`).
+ * Здесь нам нужен только `id` и связка с `liveAnalysisId`, чтобы
+ * найти ту лекцию, которая соответствует текущему slug-у трансляции.
+ */
+interface OwnerLectureLookup {
+  id: string;
+  liveAnalysisId: string | null;
+  status: 'scheduled' | 'live' | 'recorded' | 'cancelled';
+  startedAt: string | null;
+}
 
 /**
  * KS-3748 / ADR-111 §7. Тонкая обёртка над `AnalysisPage`,
@@ -63,6 +79,8 @@ function useNoIndexMeta(): void {
 export function LiveAnalysisViewerPage() {
   const { slug } = useParams<{ slug: string }>();
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
   useNoIndexMeta();
 
   const [snapshot, setSnapshot] = useState<LiveAnalysisResponse | null>(null);
@@ -145,6 +163,49 @@ export function LiveAnalysisViewerPage() {
     onSync: handleSync,
   });
 
+  // ─── KS-3861: lookup лекции для владельца ─────────────────────────
+  //
+  // Если текущий пользователь — автор трансляции, ищем активную
+  // лекцию, привязанную к этому live-analysis. Нужно, чтобы внутри
+  // страницы показать `LecturePublisherControls` с правильным
+  // `lectureId`. Backend сейчас не отдаёт `lectureId` в
+  // `LiveAnalysisResponse` (см. `packages/shared/.../live-analysis.ts`),
+  // поэтому используем listing `GET /coaches/:username/lectures?status=live`
+  // и фильтруем по `liveAnalysisId === snapshot.id`.
+  const [ownerLecture, setOwnerLecture] = useState<OwnerLectureLookup | null>(
+    null,
+  );
+  const isOwner = Boolean(
+    currentUser &&
+      snapshot?.ownerUsername &&
+      currentUser.username === snapshot.ownerUsername,
+  );
+  useEffect(() => {
+    setOwnerLecture(null);
+    if (!isOwner || !snapshot || closedReason) return;
+    let cancelled = false;
+    api
+      .get<OwnerLectureLookup[]>(
+        `/coaches/${encodeURIComponent(
+          snapshot.ownerUsername ?? '',
+        )}/lectures?status=live`,
+      )
+      .then((list) => {
+        if (cancelled) return;
+        const match =
+          list.find((l) => l.liveAnalysisId === snapshot.id) ?? null;
+        setOwnerLecture(match);
+      })
+      .catch(() => {
+        // Не критично: если listing упал, controls просто не
+        // покажутся, остальной UI трансляции работает.
+        if (!cancelled) setOwnerLecture(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwner, snapshot, closedReason]);
+
   // ─── Render: ранние ветки ─────────────────────────────────────────
 
   if (loading) {
@@ -204,6 +265,25 @@ export function LiveAnalysisViewerPage() {
           </p>
         )}
       </header>
+
+      {/* KS-3861: блок управления записью голоса для автора лекции.
+          Виден только владельцу live-analysis, к которому привязана
+          активная лекция. Внутри использует `useLectureAudioPublisher`
+          (запись + чанки) и `useLectureAudioPeerConnections` (WebRTC
+          к зрителям) поверх того же `liveAnalysisSocket`, что и доска.
+          clockSkewMs передаём 0: точный skew приходит только из
+          ответа `POST /lectures/:id/start` (KS-3834), а на этой
+          странице трансляция уже идёт — приближение «без коррекции»
+          приемлемо, при первой синхронизации финализатор на бэке
+          (KS-3846) пересчитает offset. */}
+      {isOwner && ownerLecture && !closedReason && (
+        <LecturePublisherControls
+          lectureId={ownerLecture.id}
+          socket={liveAnalysisSocket}
+          recordingStartedAtClient={ownerLecture.startedAt}
+          onClosed={() => navigate(`/lectures/${ownerLecture.id}`)}
+        />
+      )}
 
       {/* Сама «толстая» страница анализа в зрительском режиме.
           Внутри AnalysisPage:
