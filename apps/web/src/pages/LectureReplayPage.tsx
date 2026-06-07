@@ -153,11 +153,25 @@ export function LectureReplayPage() {
 
   // KS-3852 / ADR-116 §5.2. Ref на скрытый `<audio>` для воспроизведения
   // записанного голоса тренера. Сам элемент рендерится ниже только если
-  // у лекции есть `audio.url`. Сейчас (KS-3852) — просто присутствует в
-  // DOM с правильным `src`; синхронизация с шкалой записи
-  // (`audio.currentTime + offsetMs`) и контролы перемотки/скорости —
-  // следующие задачи эпика E' (KS-3853, KS-3854).
+  // у лекции есть `audio.url`.
+  //
+  // KS-3853, KS-3854 (audio-driven режим): когда есть аудио, аудиоэлемент
+  // становится источником правды таймлайна (`currentT = audio.currentTime
+  // * 1000 + offsetMs`), а доска применяет события до этого момента
+  // через `replay.currentTimeMs` в `AnalysisPage`. Плеер (play/pause,
+  // seek, скорость) управляет аудио, а не RAF-таймером.
+  //
+  // KS-3855 (graceful degradation): если у лекции `audio == null`,
+  // плеер работает в старом timer-driven режиме (RAF + локальный
+  // setCurrentTimeMs) и показывает info-значок «Запись звука
+  // недоступна».
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+
+  // KS-3853 / KS-3855. `audio-driven` если у лекции есть `audio.url`,
+  // иначе `timer-driven`.
+  const hasAudio = state.kind === 'ready' && Boolean(state.lecture.audio?.url);
+  const audioOffsetMs =
+    state.kind === 'ready' ? state.lecture.audio?.offsetMs ?? 0 : 0;
 
   // При смене лекции — сбрасываем плеер. Иначе позиция из старой
   // лекции «протечёт» в новую и обновим dial в неконсистентное
@@ -171,11 +185,87 @@ export function LectureReplayPage() {
   const durationMs =
     state.kind === 'ready' ? state.recording.durationMs : 0;
 
+  // ─── audio-driven режим (KS-3853, KS-3854) ──────────────────────────
+  // Подписка на события `<audio>`: play/pause синхронизируют isPlaying,
+  // timeupdate обновляет currentTimeMs из `audio.currentTime`, ratechange
+  // — speed. Дополнительно — RAF (см. ниже) даёт плавное обновление между
+  // timeupdate-событиями (timeupdate приходит ~3–4 раза в секунду, для
+  // визуально гладкого таймлайна нужно чаще).
+  useEffect(() => {
+    if (!hasAudio) return;
+    const el = audioElementRef.current;
+    if (!el) return;
+
+    // KS-3854: применяем выставленную скорость + preservesPitch=true
+    // при первом подключении audio, чтобы не было «бурундука» на ×1.5/×2.
+    // `preservesPitch` доступен в современных браузерах; если нет — TS
+    // не свалится (поле объявлено в lib.dom), но в рантайме мы не
+    // упадём при присваивании.
+    el.playbackRate = speed;
+    try {
+      el.preservesPitch = true;
+    } catch {
+      /* старые браузеры — игнорируем */
+    }
+
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleTimeUpdate = () => {
+      setCurrentTimeMs(el.currentTime * 1000 + audioOffsetMs);
+    };
+    const handleRateChange = () => setSpeed(el.playbackRate);
+    const handleEnded = () => setIsPlaying(false);
+
+    el.addEventListener('play', handlePlay);
+    el.addEventListener('pause', handlePause);
+    el.addEventListener('timeupdate', handleTimeUpdate);
+    el.addEventListener('ratechange', handleRateChange);
+    el.addEventListener('ended', handleEnded);
+
+    // Подтягиваем начальную позицию (если audio уже загрузился).
+    setCurrentTimeMs(el.currentTime * 1000 + audioOffsetMs);
+
+    return () => {
+      el.removeEventListener('play', handlePlay);
+      el.removeEventListener('pause', handlePause);
+      el.removeEventListener('timeupdate', handleTimeUpdate);
+      el.removeEventListener('ratechange', handleRateChange);
+      el.removeEventListener('ended', handleEnded);
+    };
+  }, [hasAudio, audioOffsetMs, speed]);
+
+  // KS-3853: плавное обновление currentTimeMs между timeupdate-событиями.
+  // Эффект работает только пока audio играет — на паузе доска
+  // автоматически замирает, так как currentTimeMs не меняется.
+  useEffect(() => {
+    if (!hasAudio || !isPlaying) return;
+    const el = audioElementRef.current;
+    if (!el) return;
+    let raf: number | null = null;
+    const tick = () => {
+      // Если audio внезапно поставлен на паузу (например, браузер
+      // приостановил из-за autoplay-policy), tick прекращается.
+      if (el.paused) {
+        raf = null;
+        return;
+      }
+      setCurrentTimeMs(el.currentTime * 1000 + audioOffsetMs);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      if (raf !== null) cancelAnimationFrame(raf);
+    };
+  }, [hasAudio, isPlaying, audioOffsetMs]);
+
+  // ─── timer-driven режим (KS-3855: оставляем как было) ───────────────
   // requestAnimationFrame-таймер — плавнее чем setInterval и не
-  // переисполняется на вкладке в фоне.
+  // переисполняется на вкладке в фоне. Активен только когда у лекции
+  // нет аудио (`!hasAudio`).
   const rafRef = useRef<number | null>(null);
   const lastTickAtRef = useRef<number | null>(null);
   useEffect(() => {
+    if (hasAudio) return; // в audio-driven режиме таймлайн ведёт <audio>
     if (!isPlaying) {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
@@ -208,9 +298,27 @@ export function LectureReplayPage() {
       }
       lastTickAtRef.current = null;
     };
-  }, [isPlaying, speed, durationMs]);
+  }, [hasAudio, isPlaying, speed, durationMs]);
 
   const handlePlayPause = useCallback(() => {
+    // KS-3853: в audio-driven режиме play/pause управляет <audio>;
+    // isPlaying обновится через event-listener выше.
+    if (hasAudio) {
+      const el = audioElementRef.current;
+      if (!el) return;
+      if (el.paused) {
+        // Если у конца записи — перематываем в начало (как timer-driven).
+        if (el.duration > 0 && el.currentTime >= el.duration) {
+          el.currentTime = 0;
+        }
+        el.play().catch(() => {
+          /* autoplay-policy браузера — пользователь нажмёт ещё раз */
+        });
+      } else {
+        el.pause();
+      }
+      return;
+    }
     if (durationMs <= 0) return;
     setIsPlaying((p) => {
       if (!p && currentTimeMs >= durationMs) {
@@ -220,11 +328,51 @@ export function LectureReplayPage() {
       }
       return !p;
     });
-  }, [durationMs, currentTimeMs]);
+  }, [hasAudio, durationMs, currentTimeMs]);
 
-  const handleSeek = useCallback((nextMs: number) => {
-    setCurrentTimeMs(Math.max(0, Math.min(durationMs, nextMs)));
-  }, [durationMs]);
+  const handleSeek = useCallback(
+    (nextMs: number) => {
+      const clamped = Math.max(0, Math.min(durationMs, nextMs));
+      // KS-3854: в audio-driven режиме seek = смена `audio.currentTime`;
+      // доска перерисуется автоматически, так как `replay.currentTimeMs`
+      // (производное от audio) поменяется и AnalysisPage применит
+      // события до новой позиции (`event.t <= currentT`).
+      if (hasAudio) {
+        const el = audioElementRef.current;
+        if (el) {
+          // offsetMs может быть отрицательным (recorder стартовал до
+          // первого recorded-event'а), поэтому клампим к [0, duration].
+          const targetSec = Math.max(0, (clamped - audioOffsetMs) / 1000);
+          el.currentTime = targetSec;
+        }
+        // Моментальный фидбек до timeupdate-события.
+        setCurrentTimeMs(clamped);
+        return;
+      }
+      setCurrentTimeMs(clamped);
+    },
+    [hasAudio, durationMs, audioOffsetMs],
+  );
+
+  const handleSetSpeed = useCallback(
+    (s: number) => {
+      setSpeed(s);
+      // KS-3854: в audio-driven режиме реальную скорость задаёт
+      // <audio>. preservesPitch=true сохраняет тембр голоса при ×1.5/×2.
+      if (hasAudio) {
+        const el = audioElementRef.current;
+        if (el) {
+          el.playbackRate = s;
+          try {
+            el.preservesPitch = true;
+          } catch {
+            /* старые браузеры — игнорируем */
+          }
+        }
+      }
+    },
+    [hasAudio],
+  );
 
   // KS-3798 (повторно): первая попытка с sticky-плеером + динамическим
   // padding-bottom не сработала — плеер позиционировался относительно
@@ -423,6 +571,7 @@ export function LectureReplayPage() {
           <div
             className="lecture-replay-player"
             data-testid="lecture-replay-player"
+            data-replay-mode={hasAudio ? 'audio-driven' : 'timer-driven'}
             style={{
               background: '#fff',
               borderTop: '1px solid #ddd',
@@ -437,6 +586,29 @@ export function LectureReplayPage() {
               flexShrink: 0,
             }}
           >
+            {/* KS-3855 / ADR-116 §2.5. У лекции нет записанного голоса
+                (finalizer не отработал, либо лекция велась без аудио) —
+                плеер деградирует до старого timer-driven режима и
+                сообщает об этом пользователю. */}
+            {!hasAudio && (
+              <div
+                role="status"
+                data-testid="lecture-replay-no-audio-badge"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  background: '#e3f2fd',
+                  border: '1px solid #90caf9',
+                  color: '#0d47a1',
+                  fontSize: 13,
+                }}
+              >
+                {t(
+                  'lectureReplay.noAudioBadge',
+                  'Запись звука недоступна, плеер работает только по ходам.',
+                )}
+              </div>
+            )}
             <input
               type="range"
               min={0}
@@ -487,7 +659,7 @@ export function LectureReplayPage() {
                   <button
                     key={s}
                     type="button"
-                    onClick={() => setSpeed(s)}
+                    onClick={() => handleSetSpeed(s)}
                     data-testid={`lecture-replay-speed-${s}`}
                     style={{
                       padding: '4px 10px',
