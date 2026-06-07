@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { LectureAudioS3Service } from './lecture-audio-s3.service';
-import { LectureAudioService } from './lecture-audio.service';
+import { LectureAudioService, NoChunksError } from './lecture-audio.service';
 
 /**
  * KS-3833 / ADR-116 §2.4.3. Cron-восстановитель брошенных лекций.
@@ -99,22 +99,23 @@ export class LectureAudioFinalizerScheduler {
           continue;
         }
         const result = await this.audio.finalizeRecording(lecture.id, {});
-        if (result) {
-          finalized++;
-          this.logger.log(
-            `finalizer: lecture=${lecture.id} finalized durationMs=${result.durationMs} offsetMs=${result.offsetMs}`,
-          );
-        } else {
-          // finalizeRecording вернул null — нет чанков по результату
-          // повторного listChunks (race). Не криминально, пробрасываем
-          // в skipped.
-          skippedNoChunks++;
-        }
-      } catch (e) {
-        failed++;
-        this.logger.warn(
-          `finalizer: lecture=${lecture.id} failed: ${(e as Error).message}`,
+        finalized++;
+        this.logger.log(
+          `finalizer: lecture=${lecture.id} finalized durationMs=${result.durationMs} offsetMs=${result.offsetMs}`,
         );
+      } catch (e) {
+        if (e instanceof NoChunksError) {
+          // Гонка между нашим listChunks и реальным запуском
+          // finalizeRecording (kind=chunk lifecycle мог снести
+          // последний чанк между двумя вызовами). Не считаем
+          // ошибкой — просто пропускаем.
+          skippedNoChunks++;
+        } else {
+          failed++;
+          this.logger.warn(
+            `finalizer: lecture=${lecture.id} failed: ${(e as Error).message}`,
+          );
+        }
       }
     }
     this.logger.log(

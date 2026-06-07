@@ -78,3 +78,96 @@ describe('LectureAudioController.reportPeerFailed (KS-3837)', () => {
     expect(result).toBeUndefined();
   });
 });
+
+// KS-3838: unit-тесты остальных handler'ов контроллера (chunk-url,
+// chunk-ack, end). Сервис подменён моком — проверяем только мэппинг
+// аргументов и обработку NoChunksError.
+describe('LectureAudioController handlers (KS-3838)', () => {
+  const LECTURE = '11111111-2222-3333-4444-555555555555';
+  let controller: LectureAudioController;
+  let service: {
+    issueChunkUploadUrl: jest.Mock;
+    ackChunk: jest.Mock;
+    finalizeRecording: jest.Mock;
+  };
+
+  beforeEach(() => {
+    service = {
+      issueChunkUploadUrl: jest.fn(),
+      ackChunk: jest.fn(),
+      finalizeRecording: jest.fn(),
+    };
+    controller = new LectureAudioController(
+      service as unknown as import('./lecture-audio.service').LectureAudioService,
+    );
+  });
+
+  function reqAs(userId: string) {
+    return {
+      user: { id: userId, username: 'u' },
+    } as unknown as import('../common/authenticated-request').AuthenticatedRequest;
+  }
+
+  it('chunk-url пробрасывает userId, seq, sizeBytes в сервис', async () => {
+    service.issueChunkUploadUrl.mockResolvedValue({
+      uploadUrl: 'u',
+      chunkKey: `audio/${LECTURE}/chunks/3.webm`,
+    });
+    const r = await controller.chunkUrl(reqAs('u-1'), LECTURE, {
+      seq: 3,
+      sizeBytes: 1234,
+    });
+    expect(service.issueChunkUploadUrl).toHaveBeenCalledWith(
+      LECTURE,
+      'u-1',
+      3,
+      1234,
+    );
+    expect(r.chunkKey).toContain('/chunks/3.webm');
+  });
+
+  it('chunk-ack пробрасывает payload в сервис', async () => {
+    service.ackChunk.mockResolvedValue({ ok: true });
+    const dto = {
+      seq: 5,
+      etag: 'e',
+      sizeBytes: 100,
+      clientCreatedAt: '2026-06-07T10:00:00Z',
+    };
+    const r = await controller.chunkAck(reqAs('u-1'), LECTURE, dto);
+    expect(service.ackChunk).toHaveBeenCalledWith(LECTURE, 'u-1', dto);
+    expect(r).toEqual({ ok: true });
+  });
+
+  it('end передаёт actingUserId и возвращает { audio }', async () => {
+    service.finalizeRecording.mockResolvedValue({
+      lectureId: LECTURE,
+      durationMs: 1000,
+      offsetMs: 0,
+    });
+    const r = await controller.end(reqAs('u-1'), LECTURE, { offsetMs: 0 });
+    expect(service.finalizeRecording).toHaveBeenCalledWith(
+      LECTURE,
+      { offsetMs: 0 },
+      { actingUserId: 'u-1' },
+    );
+    expect(r.audio.lectureId).toBe(LECTURE);
+  });
+
+  it('end мапит NoChunksError → UnprocessableEntityException (422)', async () => {
+    const {
+      NoChunksError,
+    } = await import('./lecture-audio.service');
+    service.finalizeRecording.mockRejectedValue(new NoChunksError(LECTURE));
+    await expect(
+      controller.end(reqAs('u-1'), LECTURE, {}),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  it('end пробрасывает другие ошибки без преобразования', async () => {
+    service.finalizeRecording.mockRejectedValue(new Error('boom'));
+    await expect(
+      controller.end(reqAs('u-1'), LECTURE, {}),
+    ).rejects.toThrow(/boom/);
+  });
+});

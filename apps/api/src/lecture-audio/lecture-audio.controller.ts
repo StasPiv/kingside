@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Post,
   Request,
+  UnprocessableEntityException,
   UseGuards,
   UsePipes,
   ValidationPipe,
@@ -18,7 +19,7 @@ import { PeerFailedDto } from './dto/peer-failed.dto';
 import { ChunkUrlDto } from './dto/chunk-url.dto';
 import { ChunkAckDto } from './dto/chunk-ack.dto';
 import { FinalizeRecordingDto } from './dto/finalize-recording.dto';
-import { LectureAudioService } from './lecture-audio.service';
+import { LectureAudioService, NoChunksError } from './lecture-audio.service';
 
 /**
  * KS-3830 / KS-3837. REST-эндпоинты аудио лекций.
@@ -85,14 +86,25 @@ export class LectureAudioController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: FinalizeRecordingDto,
   ): Promise<{
-    audio:
-      | { lectureId: string; durationMs: number; offsetMs: number | null }
-      | null;
+    audio: { lectureId: string; durationMs: number; offsetMs: number | null };
   }> {
-    const audio = await this.service.finalizeRecording(id, dto, {
-      actingUserId: req.user.id,
-    });
-    return { audio };
+    try {
+      const audio = await this.service.finalizeRecording(id, dto, {
+        actingUserId: req.user.id,
+      });
+      return { audio };
+    } catch (e) {
+      if (e instanceof NoChunksError) {
+        // KS-3838: пустой список чанков — клиент вызвал /end до
+        // загрузки хотя бы одного чанка, или все ACK'и потерялись.
+        // 422 как доменная ошибка валидации состояния.
+        throw new UnprocessableEntityException({
+          code: 'no-chunks',
+          message: e.message,
+        });
+      }
+      throw e;
+    }
   }
 
   // ─── KS-3837 ──────────────────────────────────────────────────────

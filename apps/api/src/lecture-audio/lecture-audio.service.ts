@@ -4,6 +4,20 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+
+/**
+ * KS-3830 / KS-3838. Бросается из `finalizeRecording`, если в S3 нет
+ * ни одного чанка для лекции. Контроллер `POST /lectures/:id/end`
+ * мапит её в HTTP 422 (UnprocessableEntity); cron-восстановитель
+ * сам отсеивает пустые лекции до вызова сервиса, поэтому туда не
+ * прилетает.
+ */
+export class NoChunksError extends Error {
+  constructor(lectureId: string) {
+    super(`No chunks in S3 for lecture "${lectureId}" — cannot finalize`);
+    this.name = 'NoChunksError';
+  }
+}
 import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import { basename, join } from 'node:path';
@@ -183,7 +197,7 @@ export class LectureAudioService {
       recorderEndedAtClient?: string;
     },
     options: { actingUserId?: string } = {},
-  ): Promise<{ lectureId: string; durationMs: number; offsetMs: number | null } | null> {
+  ): Promise<{ lectureId: string; durationMs: number; offsetMs: number | null }> {
     let lecture: { id: string; ownerId: string; startedAt: Date | null };
     if (options.actingUserId) {
       lecture = await this.assertOwnership(lectureId, options.actingUserId);
@@ -217,9 +231,9 @@ export class LectureAudioService {
     const chunks = await this.s3.listChunks(lectureId);
     if (chunks.length === 0) {
       this.logger.warn(
-        `finalize: no chunks in S3 for lecture=${lectureId} — nothing to do`,
+        `finalize: no chunks in S3 for lecture=${lectureId} — throwing NoChunksError`,
       );
-      return null;
+      throw new NoChunksError(lectureId);
     }
     if (
       payload.chunkCount !== undefined &&

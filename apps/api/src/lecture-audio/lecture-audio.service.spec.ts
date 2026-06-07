@@ -182,7 +182,8 @@ describe('LectureAudioService (KS-3830)', () => {
       expect(s3.putFinalTrack).not.toHaveBeenCalled();
     });
 
-    it('нет чанков в S3 → null', async () => {
+    it('KS-3838: нет чанков в S3 → throw NoChunksError', async () => {
+      const { NoChunksError } = await import('./lecture-audio.service');
       prisma.lecture.findUnique.mockResolvedValueOnce({
         id: LECTURE,
         ownerId: OWNER,
@@ -190,12 +191,9 @@ describe('LectureAudioService (KS-3830)', () => {
       });
       prisma.lectureAudio.findUnique.mockResolvedValueOnce(null);
       s3.listChunks.mockResolvedValueOnce([]);
-      const r = await svc.finalizeRecording(
-        LECTURE,
-        {},
-        { actingUserId: OWNER },
-      );
-      expect(r).toBeNull();
+      await expect(
+        svc.finalizeRecording(LECTURE, {}, { actingUserId: OWNER }),
+      ).rejects.toBeInstanceOf(NoChunksError);
       expect(ffmpeg.runWithOutput).not.toHaveBeenCalled();
     });
 
@@ -286,6 +284,7 @@ describe('LectureAudioService (KS-3830)', () => {
     });
 
     it('без actingUserId (вызов из cron) — owner-check пропускается', async () => {
+      const { NoChunksError } = await import('./lecture-audio.service');
       prisma.lecture.findUnique.mockResolvedValueOnce({
         id: LECTURE,
         ownerId: OWNER,
@@ -293,8 +292,67 @@ describe('LectureAudioService (KS-3830)', () => {
       });
       prisma.lectureAudio.findUnique.mockResolvedValueOnce(null);
       s3.listChunks.mockResolvedValueOnce([]);
-      const r = await svc.finalizeRecording(LECTURE, {});
-      expect(r).toBeNull();
+      // Без чанков всё равно throw — а Forbidden НЕ кидается:
+      // owner-check пропущен (actingUserId undefined).
+      await expect(svc.finalizeRecording(LECTURE, {})).rejects.toBeInstanceOf(
+        NoChunksError,
+      );
+    });
+
+    // KS-3838: дополнительные доменные кейсы.
+    it('chunk-url повторный вызов с тем же seq идемпотентен (только новый presign, БД не трогается)', async () => {
+      prisma.lecture.findUnique.mockResolvedValue({
+        id: LECTURE,
+        ownerId: OWNER,
+        startedAt: null,
+      });
+      s3.presignChunkUpload
+        .mockResolvedValueOnce(
+          'https://kingside-lectures.s3.eu-central-1.amazonaws.com/audio/L/chunks/0.webm?X-Amz-Signature=A1',
+        )
+        .mockResolvedValueOnce(
+          'https://kingside-lectures.s3.eu-central-1.amazonaws.com/audio/L/chunks/0.webm?X-Amz-Signature=A2',
+        );
+      const r1 = await svc.issueChunkUploadUrl(LECTURE, OWNER, 0, 1000);
+      const r2 = await svc.issueChunkUploadUrl(LECTURE, OWNER, 0, 1000);
+      expect(r1.chunkKey).toBe(r2.chunkKey);
+      // Подпись свежая (другая) — TTL обновляется на каждом запросе.
+      expect(r1.uploadUrl).not.toBe(r2.uploadUrl);
+      expect(s3.presignChunkUpload).toHaveBeenCalledTimes(2);
+      // Идемпотентен по БД — никаких побочных вставок.
+      expect(prisma.lectureAudioChunk.upsert).not.toHaveBeenCalled();
+    });
+
+    it('ackChunk: повторный вызов с тем же seq UPSERT-ит ту же строку (одна и та же composite-key)', async () => {
+      prisma.lecture.findUnique.mockResolvedValue({
+        id: LECTURE,
+        ownerId: OWNER,
+        startedAt: null,
+      });
+      prisma.lectureAudioChunk.upsert.mockResolvedValue({ id: 'x' });
+      await svc.ackChunk(LECTURE, OWNER, {
+        seq: 3,
+        etag: 'e1',
+        sizeBytes: 100,
+        clientCreatedAt: '2026-06-07T10:00:00Z',
+      });
+      await svc.ackChunk(LECTURE, OWNER, {
+        seq: 3,
+        etag: 'e2-after-retry',
+        sizeBytes: 120,
+        clientCreatedAt: '2026-06-07T10:00:05Z',
+      });
+      expect(prisma.lectureAudioChunk.upsert).toHaveBeenCalledTimes(2);
+      const k1 = prisma.lectureAudioChunk.upsert.mock.calls[0][0].where;
+      const k2 = prisma.lectureAudioChunk.upsert.mock.calls[1][0].where;
+      // Композитный ключ один и тот же — UNIQUE-нарушения не будет,
+      // в БД останется одна строка.
+      expect(k1).toEqual(k2);
+      // Второй вызов обновляет etag/sizeBytes.
+      const updateArg2 = prisma.lectureAudioChunk.upsert.mock.calls[1][0]
+        .update;
+      expect(updateArg2.etag).toBe('e2-after-retry');
+      expect(updateArg2.sizeBytes).toBe(120);
     });
   });
 });
