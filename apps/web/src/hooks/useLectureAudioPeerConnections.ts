@@ -327,22 +327,45 @@ export function useLectureAudioPeerConnections({
     // оставался отключённым (socketConnected: false в логах KS-3881)
     // и webrtc:peer-joined до него никогда не доходило. Gateway также
     // опознаёт publisher по JWT в `socket.auth` — иначе не знает, кому
-    // форвардить.
+    // пересылать.
     try {
       const token =
         typeof window !== 'undefined'
           ? window.localStorage.getItem('token')
           : null;
       socket.auth = token ? { token } : {};
+      console.info('[lecture-audio-pub] auth set, hasToken=', !!token);
     } catch {
       /* localStorage недоступен — подключимся без auth, всё равно лучше, чем offline */
     }
+    const handleSocketConnect = () => {
+      console.info('[lecture-audio-pub] socket connect-event', {
+        id: socket.id,
+      });
+    };
+    const handleSocketDisconnect = (reason: string) => {
+      console.warn('[lecture-audio-pub] socket disconnect-event', reason);
+    };
+    const handleSocketConnectError = (err: Error) => {
+      console.warn(
+        '[lecture-audio-pub] socket connect_error',
+        err.message,
+        err,
+      );
+    };
+    socket.on('connect', handleSocketConnect);
+    socket.on('disconnect', handleSocketDisconnect);
+    socket.on('connect_error', handleSocketConnectError);
+
     if (!socket.connected) {
       try {
         socket.connect();
+        console.info('[lecture-audio-pub] socket.connect() invoked');
       } catch (err) {
-        console.warn('[lecture-audio-pub] socket.connect() failed', err);
+        console.warn('[lecture-audio-pub] socket.connect() throw', err);
       }
+    } else {
+      console.info('[lecture-audio-pub] socket already connected');
     }
     console.info(
       '[lecture-audio-pub] mount: subscribing to webrtc events',
@@ -364,6 +387,9 @@ export function useLectureAudioPeerConnections({
       socket.off('webrtc:answer', handleAnswer);
       socket.off('webrtc:ice', handleIce);
       socket.off('webrtc:peer-left', handlePeerLeft);
+      socket.off('connect', handleSocketConnect);
+      socket.off('disconnect', handleSocketDisconnect);
+      socket.off('connect_error', handleSocketConnectError);
       peers.forEach((pc) => {
         try {
           pc.close();
