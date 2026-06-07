@@ -177,25 +177,39 @@ const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
  */
 function LectureBadgesBlock({
   slug,
+  lectureId: directLectureId,
   isLive,
   isViewer,
   embedded,
 }: {
   slug: string | null;
+  /**
+   * KS-3869: lectureId, известный родителю напрямую (например, после
+   * `CreateLectureModal.onCreated`). Если передан — пропускаем
+   * асинхронную выборку через `useLectureLookupBySlug`; иначе fallback
+   * на старый путь (для случаев, когда тренер вернулся на страницу
+   * лекции в другом сеансе или это зритель `/live/:slug` без своей
+   * сессии создания).
+   */
+  lectureId?: string | null;
   isLive: boolean;
   isViewer: boolean;
   embedded?: boolean;
 }) {
-  const lookup = useLectureLookupBySlug(slug);
-  if (embedded || !lookup) return null;
+  // Хук всегда вызываем (правила React), но slug передаём только когда
+  // прямой lectureId не дан — иначе useLectureLookupBySlug «спит».
+  const lookup = useLectureLookupBySlug(directLectureId ? null : slug);
+  const lectureId = directLectureId ?? lookup?.lectureId ?? null;
+  const startedAt = lookup?.startedAt ?? null;
+  if (embedded || !lectureId) return null;
   // Тренер: badge показывается, если есть lectureId; внутри
   // компонента он сам решает, рисовать ли точку «запись».
   if (!isViewer) {
     return (
       <LecturePublisherStatusBadge
-        lectureId={lookup.lectureId}
+        lectureId={lectureId}
         socket={liveAnalysisSocket}
-        recordingStartedAtClient={lookup.startedAt}
+        recordingStartedAtClient={startedAt}
         active={isLive}
       />
     );
@@ -210,11 +224,11 @@ function LectureBadgesBlock({
       }}
     >
       <LectureRecordingBadge
-        lectureId={lookup.lectureId}
+        lectureId={lectureId}
         socket={liveAnalysisSocket}
       />
       <LectureAudioListenerCompact
-        lectureId={lookup.lectureId}
+        lectureId={lectureId}
         socket={liveAnalysisSocket}
       />
     </span>
@@ -2591,12 +2605,23 @@ function AnalysisPageInner({
   // второго POST /live-analyses, всё уже сделал backend в одной
   // транзакции).
   const [showCreateLecture, setShowCreateLecture] = useState(false);
+  // KS-3869: id свежесозданной лекции. Сохраняется при успешном
+  // `CreateLectureModal.onCreated`, чтобы `LectureBadgesBlock` мог
+  // сразу смонтировать `LecturePublisherStatusBadge` с правильным
+  // `lectureId` и не ждать асинхронной выборки через
+  // `useLectureLookupBySlug` (она не успевала за `MediaRecorder` —
+  // чанки не отправлялись).
+  const [activeLectureId, setActiveLectureId] = useState<string | null>(null);
   const handleStartLecture = useCallback(() => {
     if (!analysisId) return;
     setShowCreateLecture(true);
   }, [analysisId]);
   const handleLectureCreated = useCallback(
-    (session: { id: string; slug: string; url: string }) => {
+    (
+      session: { id: string; slug: string; url: string },
+      lectureId: string,
+    ) => {
+      setActiveLectureId(lectureId);
       liveBroadcast.attachExistingSession({
         slug: session.slug,
         url: session.url,
@@ -3360,6 +3385,7 @@ function AnalysisPageInner({
             useLectureLookupBySlug). */}
         <LectureBadgesBlock
           slug={liveBroadcast.slug ?? liveSession?.slug ?? null}
+          lectureId={activeLectureId}
           isLive={liveBroadcast.isLive}
           isViewer={isViewerLive}
           embedded={embedded}

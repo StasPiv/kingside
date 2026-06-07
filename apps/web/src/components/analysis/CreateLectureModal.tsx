@@ -44,8 +44,18 @@ interface CreateLectureModalProps {
   /** Стартовый title — берём analysisTitle, чтобы автору не пришлось перепечатывать. */
   defaultTitle?: string;
   onClose: () => void;
-  /** Колбэк с сессией трансляции; вызывается до закрытия модального окна. */
-  onCreated: (session: CreateLectureLiveSession) => void;
+  /**
+   * Колбэк с сессией трансляции и id созданной лекции; вызывается до
+   * закрытия модального окна. `lectureId` нужен `AnalysisPage`, чтобы
+   * подключить компактный значок записи (KS-3869) без асинхронной
+   * выборки по slug-у — иначе `useLectureAudioPublisher.start()` не
+   * успевает запуститься до первого `MediaRecorder.ondataavailable`,
+   * и чанки никуда не отправляются.
+   */
+  onCreated: (
+    session: CreateLectureLiveSession,
+    lectureId: string,
+  ) => void;
 }
 
 export function CreateLectureModal({
@@ -87,7 +97,7 @@ export function CreateLectureModal({
         );
         return;
       }
-      onCreated(resp.liveAnalysis);
+      onCreated(resp.liveAnalysis, resp.lecture.id);
       onClose();
     } catch (e) {
       if (e instanceof ApiError) {
