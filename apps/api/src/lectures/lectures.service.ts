@@ -162,6 +162,13 @@ export class LecturesService {
    * нашей `liveAnalysisId` действительно стоит наша. В худшем случае
    * лишняя `LiveAnalysis` останется висеть `active` — её закроет
    * cleanup-job по таймауту неактивности (30 мин).
+   *
+   * KS-3834 / ADR-116 §2.5. В ответе возвращается `serverNow` (ISO-
+   * время на момент формирования ответа) для компенсации clock-skew
+   * клиента: фронт использует его, чтобы посчитать `offsetMs` записи
+   * аудио (см. эпик C', frontend публикатор). Поле проставляется во
+   * всех ветках start'а — fresh, idempotent (уже live), concurrent
+   * P2002.
    */
   async start(
     lectureId: string,
@@ -183,7 +190,7 @@ export class LecturesService {
       const liveAnalysis = lecture.liveAnalysisId
         ? await this.fetchLiveAnalysisBinding(lecture.liveAnalysisId)
         : null;
-      return { lecture, liveAnalysis };
+      return { lecture, liveAnalysis, serverNow: new Date().toISOString() };
     }
     if (lecture.status === 'recorded' || lecture.status === 'cancelled') {
       throw new BadRequestException(
@@ -208,7 +215,11 @@ export class LecturesService {
       this.logger.log(
         `Lecture started: id=${lectureId} owner=${actingUserId} liveAnalysisId=${session.id}`,
       );
-      return { lecture: updated, liveAnalysis: session as LectureLiveBinding };
+      return {
+        lecture: updated,
+        liveAnalysis: session as LectureLiveBinding,
+        serverNow: new Date().toISOString(),
+      };
     } catch (e) {
       // Concurrent start: partial UNIQUE на (liveAnalysisId) WHERE
       // status='live' даст P2002. Возвращаем текущую live-запись.
@@ -223,7 +234,11 @@ export class LecturesService {
           const liveAnalysis = current.liveAnalysisId
             ? await this.fetchLiveAnalysisBinding(current.liveAnalysisId)
             : null;
-          return { lecture: current, liveAnalysis };
+          return {
+            lecture: current,
+            liveAnalysis,
+            serverNow: new Date().toISOString(),
+          };
         }
       }
       throw e;

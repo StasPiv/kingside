@@ -294,6 +294,64 @@ describe('LecturesService', () => {
       expect(r.lecture.status).toBe('live');
       expect(r.lecture.liveAnalysisId).toBe('la-winner');
     });
+
+    // KS-3834 / ADR-116 §2.5: serverNow в ответе для компенсации
+    // clock-skew клиента. Проверяем во всех трёх ветках start'а
+    // (fresh scheduled→live, идемпотентный уже-live, concurrent P2002).
+    it('KS-3834: возвращает serverNow близкий к Date.now() (fresh scheduled→live)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        title: 't',
+        status: 'scheduled',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'live',
+        liveAnalysisId: 'la-1',
+      });
+      const before = Date.now();
+      const r = await service.start('l-1', 'u-1');
+      const after = Date.now();
+      expect(typeof r.serverNow).toBe('string');
+      const ts = Date.parse(r.serverNow);
+      expect(ts).toBeGreaterThanOrEqual(before);
+      expect(ts).toBeLessThanOrEqual(after);
+      expect(Math.abs(ts - Date.now())).toBeLessThan(5000);
+    });
+
+    it('KS-3834: serverNow присутствует и в идемпотентной ветке (уже live)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'live',
+        liveAnalysisId: 'la-existing',
+      });
+      const r = await service.start('l-1', 'u-1');
+      expect(typeof r.serverNow).toBe('string');
+      expect(Number.isNaN(Date.parse(r.serverNow))).toBe(false);
+    });
+
+    it('KS-3834: serverNow присутствует и в ветке concurrent P2002', async () => {
+      prisma.lecture.findUnique
+        .mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          status: 'scheduled',
+          title: 't',
+        })
+        .mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          status: 'live',
+          liveAnalysisId: 'la-winner',
+        });
+      const p2002 = Object.assign(new Error('unique'), { code: 'P2002' });
+      prisma.lecture.update.mockRejectedValueOnce(p2002);
+      const r = await service.start('l-1', 'u-1');
+      expect(typeof r.serverNow).toBe('string');
+      expect(Number.isNaN(Date.parse(r.serverNow))).toBe(false);
+    });
   });
 
   // ─── listByCoach ──────────────────────────────────────────────────
