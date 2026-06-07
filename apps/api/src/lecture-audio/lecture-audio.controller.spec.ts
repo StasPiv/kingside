@@ -14,7 +14,10 @@ describe('LectureAudioController.reportPeerFailed (KS-3837)', () => {
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    controller = new LectureAudioController();
+    controller = new LectureAudioController(
+      // Сервис не задействован в peer-failed; передаём заглушку.
+      {} as unknown as import('./lecture-audio.service').LectureAudioService,
+    );
     warnSpy = jest
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);

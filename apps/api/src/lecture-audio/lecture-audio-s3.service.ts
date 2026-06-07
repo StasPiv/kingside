@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   DeleteObjectsCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -12,8 +13,10 @@ import {
   GetSecretValueCommand,
   SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager';
-import { createReadStream, promises as fsp } from 'node:fs';
+import { createReadStream, createWriteStream, promises as fsp } from 'node:fs';
 import { basename } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 /**
  * KS-3831 / ADR-116 §5.1. Тонкая обёртка над AWS SDK для операций над
@@ -239,6 +242,26 @@ export class LectureAudioS3Service implements OnModuleInit {
       }
     }
     return deleted;
+  }
+
+  // ─── Скачивание объекта ───────────────────────────────────────────
+
+  /**
+   * KS-3830. Скачать объект из бакета в локальный файл. Стримом, без
+   * буферизации всего тела в память — чанки могут быть 100–500 КБ,
+   * но финалайзер обрабатывает 100+ чанков параллельно через
+   * p-queue (concurrency 2), суммарный объём в RAM иначе вырастает
+   * лишнего.
+   */
+  async downloadObject(key: string, localPath: string): Promise<void> {
+    const resp = await this.s3.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    const body = resp.Body;
+    if (!body) {
+      throw new Error(`downloadObject: empty body for key=${key}`);
+    }
+    await pipeline(body as Readable, createWriteStream(localPath));
   }
 
   // ─── Финальный track.ogg ──────────────────────────────────────────

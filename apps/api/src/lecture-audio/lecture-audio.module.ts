@@ -1,29 +1,37 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { PrismaModule } from '../prisma/prisma.module';
 import { LectureAudioS3Service } from './lecture-audio-s3.service';
 import { LectureAudioController } from './lecture-audio.controller';
 import { FfmpegConcatService } from './ffmpeg-concat.service';
+import { LectureAudioService } from './lecture-audio.service';
+import { LectureAudioFinalizerScheduler } from './lecture-audio-finalizer.scheduler';
 
 /**
- * KS-3831 / ADR-116. Модуль аудио лекций.
+ * KS-3830 / ADR-116. Модуль аудио лекций.
  *
- * Сейчас содержит:
+ * Состав:
  *  - `LectureAudioS3Service` — S3/CloudFront-обёртка (KS-3831).
- *  - `LectureAudioController` — endpoint `POST /lecture-audio/peer-failed`
- *    для метрики провальных WebRTC-соединений (KS-3837).
- *  - `FfmpegConcatService` — обёртка над ffmpeg для склейки чанков
- *    WebM → Ogg (KS-3832).
+ *  - `FfmpegConcatService` — склейка WebM-чанков в Ogg (KS-3832).
+ *  - `LectureAudioService` — бизнес-логика chunk-url / chunk-ack /
+ *    finalize (KS-3830).
+ *  - `LectureAudioController` — REST: presigned URL, ACK, end,
+ *    peer-failed (KS-3830, KS-3837).
+ *  - `LectureAudioFinalizerScheduler` — cron @ 10 мин: добивка
+ *    брошенных лекций (KS-3833).
  *
- * Бизнес-контроллер аудио лекций (KS-A02') и cron-finalizer (KS-A05')
- * подключатся отдельными задачами.
- *
- * `AuthModule` нужен ради `OptionalJwtGuard` (passport-jwt strategy
- * берётся из общего реестра, регистрация — там).
+ * `AuthModule` — `JwtAuthGuard` и `OptionalJwtGuard`. `PrismaModule` —
+ * доступ к Prisma в сервисах и cron'е.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, PrismaModule],
   controllers: [LectureAudioController],
-  providers: [LectureAudioS3Service, FfmpegConcatService],
-  exports: [LectureAudioS3Service, FfmpegConcatService],
+  providers: [
+    LectureAudioS3Service,
+    FfmpegConcatService,
+    LectureAudioService,
+    LectureAudioFinalizerScheduler,
+  ],
+  exports: [LectureAudioS3Service, FfmpegConcatService, LectureAudioService],
 })
 export class LectureAudioModule {}
