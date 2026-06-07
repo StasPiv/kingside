@@ -65,14 +65,21 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 // (импортированы в память). Reload нужен чтобы подхватить свежий бандл.
 // Слушаем `controllerchange` — событие срабатывает в момент, когда
 // новый SW стал контролировать клиента (после `clients.claim()`).
-// Делаем один reload, флаг через sessionStorage чтобы не зациклиться,
-// если SW активируется несколько раз за сессию.
+//
+// KS-3884: безусловный reload здесь раньше рвал любые активные сессии
+// — особенно больно для зрителей live-лекций и WebRTC: после каждого
+// нашего деплоя страница сама перезагружалась, состояние терялось,
+// пользователь даже не успевал понять, нажал ли он «слушать». Новое
+// поведение: ждём, пока вкладка станет скрытой (`visibilitychange` ->
+// `document.visibilityState === 'hidden'`). Тогда перезагрузка
+// пользователю не заметна. Если пользователь так и не свернёт вкладку
+// — следующий заход на страницу с нуля и так подтянет свежий бандл
+// через обычный HTTP-кеш + SW.
 if (typeof window !== 'undefined' && import.meta.env.PROD && 'serviceWorker' in navigator) {
   let reloadedOnce = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
+  let pendingReload = false;
+  const reloadOnce = (reason: string) => {
     if (reloadedOnce) return;
-    // Если в сессии уже релоадились по этой причине — пропускаем
-    // (защита от циклических SW-апдейтов в редких edge case'ах).
     try {
       if (sessionStorage.getItem('ks3315-sw-reloaded')) return;
       sessionStorage.setItem('ks3315-sw-reloaded', '1');
@@ -81,8 +88,28 @@ if (typeof window !== 'undefined' && import.meta.env.PROD && 'serviceWorker' in 
     }
     reloadedOnce = true;
     // eslint-disable-next-line no-console
-    console.info('[ks3315] new Service Worker activated → reload for fresh bundle');
+    console.info(`[ks3315] reload for fresh bundle (${reason})`);
     window.location.reload();
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadedOnce) return;
+    if (document.visibilityState === 'hidden') {
+      reloadOnce('controllerchange while hidden');
+      return;
+    }
+    if (pendingReload) return;
+    pendingReload = true;
+    // eslint-disable-next-line no-console
+    console.info(
+      '[ks3315] new Service Worker activated; reload deferred until tab is hidden',
+    );
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') {
+        document.removeEventListener('visibilitychange', onHidden);
+        reloadOnce('controllerchange + visibility hidden');
+      }
+    };
+    document.addEventListener('visibilitychange', onHidden);
   });
 }
 
