@@ -150,6 +150,9 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
       prisma as unknown as PrismaService,
     );
     (gateway as any).server = makeServer();
+    // KS-3889 финал: доставка идёт через `webrtcNs.to(id).emit()` —
+    // подкладываем тот же эмулятор, чтобы тесты ловили emit'ы.
+    (gateway as any).webrtcNs = makeServer();
   });
 
   it('peer-joined от владельца: ставит ownerSocketId и не считает в capacity', async () => {

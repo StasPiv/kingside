@@ -124,6 +124,17 @@ export class LiveAnalysisGateway
     { ownerSocketId: string | null; subscribers: Set<string> }
   >();
 
+  /**
+   * KS-3889 финал. Ссылка на пространство имён `/live-analysis`,
+   * захваченная из `client.nsp` при первом коннекте. Используется
+   * для адресной доставки: `this.webrtcNs.to(socketId).emit(...)`.
+   * В Nest `@WebSocketServer()` инжектит `Server`, а не `Namespace`,
+   * и `this.server.to(id).emit(...)` уходит в default-пространство
+   * `/`, где наших сокетов нет.
+   */
+  private webrtcNs: {
+    to: (room: string) => { emit: (event: string, payload: unknown) => void };
+  } | null = null;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -179,6 +190,22 @@ export class LiveAnalysisGateway
   }
 
   async handleConnection(client: Socket): Promise<void> {
+    // KS-3889 final. Захватываем пространство имён `/live-analysis`
+    // напрямую с клиентского сокета. `this.server` в Nest gateway
+    // инжектится как `Server`, и `this.server.to(id)` уходит в
+    // пространство по умолчанию `/`, где наших сокетов нет.
+    if (!this.webrtcNs) {
+      const nsp = (client as unknown as {
+        nsp?: {
+          to: (room: string) => {
+            emit: (event: string, payload: unknown) => void;
+          };
+        };
+      }).nsp;
+      if (nsp && typeof nsp.to === 'function') {
+        this.webrtcNs = nsp;
+      }
+    }
     // KS-3734 / ADR §6: лимит 10 одновременных WS-коннектов на IP.
     const ip = this.extractClientIp(client);
     client.data.ip = ip;
@@ -459,20 +486,24 @@ export class LiveAnalysisGateway
   }
 
   /**
-   * KS-3889 окончательный фикс. Доставка сообщения конкретному
-   * сокету через broadcast operator: `this.server.to(socketId)
-   * .emit(event, payload)`. В Socket.IO 4.x каждый сокет
-   * автоматически состоит в room со своим id, поэтому
-   * адресный emit работает на любом namespace без ручного поиска
-   * по `namespace.sockets`. Прежняя реализация через
-   * `this.server.sockets.sockets.get(id)` обращалась к default
-   * namespace (`/`), там наших сокетов нет — emit фактически уходил
-   * «в никуда». Из-за этого первый зритель получал звук (только
-   * через replay в той же функции, через `client.emit` — он работает
-   * прямо к самому себе), а второй и далее — нет.
+   * KS-3889 финал. Доставка сообщения конкретному сокету через
+   * комнату со socketId — в Socket.IO 4 каждый сокет автоматически
+   * в room со своим id.
+   *
+   * Идём через `client.nsp` (сохранён в `webrtcNs` при первом
+   * подключении), а не через `this.server`: в Nest gateway с
+   * namespace поле `@WebSocketServer()` инжектится как `Server`,
+   * и `this.server.to(id)` уходит в пространство имён по умолчанию
+   * `/`, где сокетов из `/live-analysis` нет — сообщение пропадает.
+   *
+   * Если `webrtcNs` ещё не захвачен (никто не подключался), сообщение
+   * не отправляется — это нормально, в продакшене такое состояние
+   * невозможно для peer-joined / offer / answer / ice (отправитель
+   * сам уже подключён, значит handleConnection отработал).
    */
   private emitToSocket(socketId: string, event: string, payload: unknown): void {
-    this.server.to(socketId).emit(event, payload);
+    if (!this.webrtcNs) return;
+    this.webrtcNs.to(socketId).emit(event, payload);
   }
 
   // ─── KS-3836 / ADR-116 §2.2: WebRTC-сигналинг ─────────────────────
