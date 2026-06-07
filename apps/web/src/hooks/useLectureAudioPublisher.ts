@@ -62,7 +62,11 @@ import { api } from '../api';
 
 const RECORDER_MIME = 'audio/webm;codecs=opus';
 const RECORDER_BITRATE = 32_000;
-const CHUNK_DURATION_MS = 30_000;
+// Короткий интервал (5 сек) выбран ради устойчивости коротких лекций
+// (10–20 сек): хотя бы один полный чанк успеет уйти в S3, не полагаясь
+// на финальный кусочек от `recorder.stop()`. Сетевой пик невелик —
+// 32 kbps ≈ 20 КБ за чанк.
+const CHUNK_DURATION_MS = 5_000;
 const MAX_PARALLEL_UPLOADS = 2;
 const X_AMZ_TAGGING = 'kind=chunk';
 
