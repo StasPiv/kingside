@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
@@ -286,6 +287,21 @@ export class LectureAudioS3Service implements OnModuleInit {
     );
     this.logger.log(
       `putFinalTrack: uploaded lecture=${lectureId} size=${stat.size}`,
+    );
+  }
+
+  /**
+   * KS-3864. Удалить финальный `track.ogg` (используется при удалении
+   * лекции). Если объекта нет — S3 вернёт 204 без ошибки, поэтому
+   * метод идемпотентен. На случай транзитных ошибок вызывающий код
+   * должен оборачивать в best-effort try/catch.
+   */
+  async deleteFinalTrack(lectureId: string): Promise<void> {
+    await this.s3.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucket,
+        Key: this.finalKey(lectureId),
+      }),
     );
   }
 

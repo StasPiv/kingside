@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -9,6 +10,10 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
 import { LectureAudioS3Service } from '../lecture-audio/lecture-audio-s3.service';
+import {
+  LectureAudioService,
+  NoChunksError,
+} from '../lecture-audio/lecture-audio.service';
 import { CreateLectureDto, UpdateLectureDto } from './dto/create-lecture.dto';
 
 /**
@@ -48,6 +53,7 @@ export class LecturesService {
     private readonly liveAnalysisService: LiveAnalysisService,
     private readonly config: ConfigService,
     private readonly audioS3: LectureAudioS3Service,
+    private readonly audioService: LectureAudioService,
   ) {}
 
   /**
@@ -541,6 +547,179 @@ export class LecturesService {
         url: `${baseUrl}/live/${liveAnalysis.slug}`,
       },
     };
+  }
+
+  // ─── KS-3864: удаление и принудительное завершение ────────────────
+
+  /**
+   * KS-3864. Удалить лекцию. Разрешено в статусах `scheduled`,
+   * `cancelled`, `recorded`. В `live` — 409 (`force-end` сначала).
+   *
+   * Каскад: FK на `lecture_audio`, `lecture_audio_chunks`,
+   * `lecture_recordings` сконфигурированы `ON DELETE CASCADE` —
+   * связанные записи уходят сами при `prisma.lecture.delete`. До
+   * удаления best-effort чистим S3: чанки (`audio/<id>/chunks/*`)
+   * и финальный `track.ogg`. Ошибки S3 не блокируют БД-удаление —
+   * фоновая lifecycle policy и без нас снесёт чанки за 24 часа.
+   */
+  async delete(id: string, actingUserId: string): Promise<void> {
+    const lecture = await this.prisma.lecture.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true, status: true },
+    });
+    if (!lecture) {
+      throw new NotFoundException(`Lecture "${id}" not found`);
+    }
+    if (lecture.ownerId !== actingUserId) {
+      throw new ForbiddenException('Only the owner can delete this lecture');
+    }
+    if (lecture.status === 'live') {
+      throw new ConflictException(
+        `Cannot delete a live lecture — finish it first via /lectures/${id}/force-end`,
+      );
+    }
+    // Best-effort: чанки.
+    try {
+      await this.audioS3.deleteChunks(id);
+    } catch (e) {
+      this.logger.warn(
+        `delete: deleteChunks failed lecture=${id}: ${(e as Error).message}`,
+      );
+    }
+    // Best-effort: финальный track.ogg.
+    try {
+      await this.audioS3.deleteFinalTrack(id);
+    } catch (e) {
+      this.logger.warn(
+        `delete: deleteFinalTrack failed lecture=${id}: ${(e as Error).message}`,
+      );
+    }
+    // Перед удалением — обнулим Lecture.recordingId, чтобы FK
+    // `lectures.recording_id → lecture_recordings.id` не упёрся при
+    // каскадном удалении lecture_recording (там `onDelete: SetNull`,
+    // должно сработать без явного обнуления, но делаем явно — это
+    // дешевле, чем диагностировать P2003 в проде).
+    await this.prisma.lecture
+      .update({ where: { id }, data: { recordingId: null } })
+      .catch(() => undefined);
+    await this.prisma.lecture.delete({ where: { id } });
+    this.logger.log(`Lecture deleted: id=${id} owner=${actingUserId}`);
+  }
+
+  /**
+   * KS-3864. Принудительно завершить live-лекцию. Используется, если
+   * тренер закрыл вкладку, не дёрнув `POST /lectures/:id/end`, или
+   * если запись аудио не запустилась.
+   *
+   * Алгоритм:
+   *   1. Owner-check, статус-check (только `live`).
+   *   2. Если есть `liveAnalysisId` — закрыть LiveAnalysis через
+   *      `LiveAnalysisService.closeBySlug` (это запустит штатный
+   *      финалайзер LectureRecording: если события были — recorded,
+   *      иначе cancelled; проставит endedAt).
+   *   3. Перетереть статус лекции на `recorded` (force-end по
+   *      контракту всегда возвращает `recorded`, даже если событий
+   *      не было). Гарантируем `endedAt` и `durationMs`.
+   *   4. Best-effort `audioService.finalizeRecording(id, {})` — если
+   *      чанки в S3 есть, склеиваем; `NoChunksError` молча игнорируем.
+   *
+   * Идемпотентен: повторный вызов на уже-recorded — 409 (нельзя
+   * закрывать дважды; тренер должен видеть, что лекция уже закрыта).
+   */
+  async forceEnd(id: string, actingUserId: string) {
+    const lecture = await this.prisma.lecture.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        ownerId: true,
+        status: true,
+        startedAt: true,
+        liveAnalysisId: true,
+      },
+    });
+    if (!lecture) {
+      throw new NotFoundException(`Lecture "${id}" not found`);
+    }
+    if (lecture.ownerId !== actingUserId) {
+      throw new ForbiddenException(
+        'Only the owner can force-end this lecture',
+      );
+    }
+    if (lecture.status !== 'live') {
+      throw new ConflictException(
+        `Cannot force-end a lecture in status "${lecture.status}" — only live lectures can be force-ended`,
+      );
+    }
+
+    // 1. Закрыть LiveAnalysis (если есть). closeBySlug идемпотентен.
+    if (lecture.liveAnalysisId) {
+      const la = await this.prisma.liveAnalysis.findUnique({
+        where: { id: lecture.liveAnalysisId },
+        select: { slug: true },
+      });
+      if (la) {
+        try {
+          await this.liveAnalysisService.closeBySlug(
+            la.slug,
+            actingUserId,
+            'by_owner',
+          );
+        } catch (e) {
+          // closeBySlug может кинуть Forbidden, если ownerId LiveAnalysis
+          // вдруг расходится с lecture.ownerId — это не должно случиться
+          // по построению, но логируем и идём дальше: лекцию всё равно
+          // переведём в recorded.
+          this.logger.warn(
+            `forceEnd: closeBySlug failed lecture=${id} slug=${la.slug}: ${(e as Error).message}`,
+          );
+        }
+      }
+    }
+
+    // 2. Гарантируем переход в recorded + endedAt + durationMs.
+    const endedAt = new Date();
+    const durationMs = lecture.startedAt
+      ? endedAt.getTime() - lecture.startedAt.getTime()
+      : null;
+    const updated = await this.prisma.lecture.update({
+      where: { id },
+      data: {
+        status: 'recorded',
+        endedAt,
+        ...(durationMs !== null ? { durationMs } : {}),
+      },
+      include: {
+        liveAnalysis: { select: { id: true, slug: true } },
+      },
+    });
+
+    // 3. Best-effort: финализация аудио.
+    try {
+      await this.audioService.finalizeRecording(
+        id,
+        {},
+        { actingUserId },
+      );
+    } catch (e) {
+      if (e instanceof NoChunksError) {
+        // Нет чанков — нормальный сценарий force-end. Лекция
+        // закрывается без аудио.
+        this.logger.log(
+          `forceEnd: no audio chunks for lecture=${id}, finalized without audio`,
+        );
+      } else {
+        // Другие ошибки логируем, но force-end сам по себе
+        // успешен — клиент видит закрытую лекцию.
+        this.logger.warn(
+          `forceEnd: finalizeRecording failed lecture=${id}: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Lecture force-ended: id=${id} owner=${actingUserId} durationMs=${durationMs}`,
+    );
+    return this.withLiveAnalysisBinding(updated);
   }
 
   // ─── Internals ────────────────────────────────────────────────────

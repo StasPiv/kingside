@@ -9,6 +9,10 @@ import { LecturesService } from './lectures.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
 import { LectureAudioS3Service } from '../lecture-audio/lecture-audio-s3.service';
+import {
+  LectureAudioService,
+  NoChunksError,
+} from '../lecture-audio/lecture-audio.service';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1. Unit-тесты `LecturesService`.
@@ -29,6 +33,7 @@ describe('LecturesService', () => {
       findUnique: jest.Mock;
       findMany: jest.Mock;
       update: jest.Mock;
+      delete: jest.Mock;
     };
     user: {
       findUnique: jest.Mock;
@@ -40,9 +45,15 @@ describe('LecturesService', () => {
   let liveAnalysis: {
     createBareLiveSession: jest.Mock;
     create: jest.Mock;
+    closeBySlug: jest.Mock;
   };
   let config: { get: jest.Mock };
-  let audioS3: { signedCloudFrontUrl: jest.Mock };
+  let audioS3: {
+    signedCloudFrontUrl: jest.Mock;
+    deleteChunks: jest.Mock;
+    deleteFinalTrack: jest.Mock;
+  };
+  let audioService: { finalizeRecording: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -51,6 +62,7 @@ describe('LecturesService', () => {
         findUnique: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn(),
       },
       user: {
         findUnique: jest.fn(),
@@ -75,6 +87,9 @@ describe('LecturesService', () => {
         slug: 'BOUND00000',
         url: 'https://kingside.site/live/BOUND00000',
       }),
+      closeBySlug: jest
+        .fn()
+        .mockResolvedValue({ id: 'la-existing', alreadyClosed: false }),
     };
     config = {
       get: jest.fn((key: string) =>
@@ -87,6 +102,15 @@ describe('LecturesService', () => {
         .mockResolvedValue(
           'https://media.kingside.site/audio/L/track.ogg?Key-Pair-Id=K&Signature=S&Expires=1',
         ),
+      deleteChunks: jest.fn().mockResolvedValue(0),
+      deleteFinalTrack: jest.fn().mockResolvedValue(undefined),
+    };
+    audioService = {
+      finalizeRecording: jest.fn().mockResolvedValue({
+        lectureId: 'l-1',
+        durationMs: 0,
+        offsetMs: 0,
+      }),
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -95,6 +119,7 @@ describe('LecturesService', () => {
         { provide: LiveAnalysisService, useValue: liveAnalysis },
         { provide: ConfigService, useValue: config },
         { provide: LectureAudioS3Service, useValue: audioS3 },
+        { provide: LectureAudioService, useValue: audioService },
       ],
     }).compile();
     service = module.get(LecturesService);
@@ -878,6 +903,193 @@ describe('LecturesService', () => {
       // findUnique вызывается с include: { recording: true }.
       const args = prisma.lecture.findUnique.mock.calls[0][0];
       expect(args.include).toEqual({ recording: true });
+    });
+  });
+
+  // ─── KS-3864: delete + forceEnd ──────────────────────────────────
+
+  describe('KS-3864 delete', () => {
+    it('owner + status=scheduled → prisma.delete вызван, S3 best-effort cleanup', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({ id: 'l-1' });
+      prisma.lecture.delete.mockResolvedValueOnce({ id: 'l-1' });
+      await service.delete('l-1', 'u-1');
+      expect(audioS3.deleteChunks).toHaveBeenCalledWith('l-1');
+      expect(audioS3.deleteFinalTrack).toHaveBeenCalledWith('l-1');
+      expect(prisma.lecture.delete).toHaveBeenCalledWith({
+        where: { id: 'l-1' },
+      });
+    });
+
+    it('owner + status=recorded → prisma.delete вызван', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'recorded',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({ id: 'l-1' });
+      prisma.lecture.delete.mockResolvedValueOnce({ id: 'l-1' });
+      await service.delete('l-1', 'u-1');
+      expect(prisma.lecture.delete).toHaveBeenCalled();
+    });
+
+    it('status=live → 409 ConflictException', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'live',
+      });
+      await expect(service.delete('l-1', 'u-1')).rejects.toMatchObject({
+        status: 409,
+      });
+      expect(prisma.lecture.delete).not.toHaveBeenCalled();
+    });
+
+    it('не-owner → 403', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'OTHER',
+        status: 'scheduled',
+      });
+      await expect(service.delete('l-1', 'u-1')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(prisma.lecture.delete).not.toHaveBeenCalled();
+    });
+
+    it('лекция не найдена → 404', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(null);
+      await expect(service.delete('missing', 'u-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('S3 ошибки не блокируют удаление из БД', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      audioS3.deleteChunks.mockRejectedValueOnce(new Error('s3 down'));
+      audioS3.deleteFinalTrack.mockRejectedValueOnce(new Error('s3 down'));
+      prisma.lecture.update.mockResolvedValueOnce({ id: 'l-1' });
+      prisma.lecture.delete.mockResolvedValueOnce({ id: 'l-1' });
+      await service.delete('l-1', 'u-1');
+      expect(prisma.lecture.delete).toHaveBeenCalled();
+    });
+  });
+
+  describe('KS-3864 forceEnd', () => {
+    function liveLecture(extra: Record<string, unknown> = {}) {
+      return {
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'live' as const,
+        startedAt: new Date(Date.now() - 60_000),
+        liveAnalysisId: 'la-1',
+        ...extra,
+      };
+    }
+
+    it('live → recorded + endedAt + durationMs; closeBySlug вызван; finalize ok', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(liveLecture());
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce({ slug: 'SLUG' });
+      prisma.lecture.update.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'recorded',
+        endedAt: new Date(),
+        durationMs: 60_000,
+        liveAnalysis: { id: 'la-1', slug: 'SLUG' },
+      });
+      const r = await service.forceEnd('l-1', 'u-1');
+      expect(liveAnalysis.closeBySlug).toHaveBeenCalledWith(
+        'SLUG',
+        'u-1',
+        'by_owner',
+      );
+      expect(audioService.finalizeRecording).toHaveBeenCalledWith(
+        'l-1',
+        {},
+        { actingUserId: 'u-1' },
+      );
+      expect(r.status).toBe('recorded');
+      // durationMs пересчитан (положительный).
+      const updateArg = prisma.lecture.update.mock.calls[0][0];
+      expect(updateArg.data.status).toBe('recorded');
+      expect(updateArg.data.endedAt).toBeInstanceOf(Date);
+      expect(updateArg.data.durationMs).toBeGreaterThan(0);
+    });
+
+    it('live → recorded даже если closeBySlug упал (логируем, не пробрасываем)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(liveLecture());
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce({ slug: 'SLUG' });
+      liveAnalysis.closeBySlug.mockRejectedValueOnce(new Error('redis down'));
+      prisma.lecture.update.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'recorded',
+        liveAnalysis: null,
+      });
+      const r = await service.forceEnd('l-1', 'u-1');
+      expect(r.status).toBe('recorded');
+    });
+
+    it('NoChunksError из finalize не блокирует ответ', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(liveLecture());
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce({ slug: 'SLUG' });
+      prisma.lecture.update.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'recorded',
+        liveAnalysis: { id: 'la-1', slug: 'SLUG' },
+      });
+      audioService.finalizeRecording.mockRejectedValueOnce(
+        new NoChunksError('l-1'),
+      );
+      const r = await service.forceEnd('l-1', 'u-1');
+      expect(r.status).toBe('recorded');
+    });
+
+    it('лекция без liveAnalysisId — closeBySlug не вызывается', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(
+        liveLecture({ liveAnalysisId: null }),
+      );
+      prisma.lecture.update.mockResolvedValueOnce({
+        id: 'l-1',
+        status: 'recorded',
+        liveAnalysis: null,
+      });
+      await service.forceEnd('l-1', 'u-1');
+      expect(liveAnalysis.closeBySlug).not.toHaveBeenCalled();
+    });
+
+    it('не-owner → 403', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(
+        liveLecture({ ownerId: 'OTHER' }),
+      );
+      await expect(service.forceEnd('l-1', 'u-1')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('не-live (scheduled / recorded / cancelled) → 409', async () => {
+      for (const status of ['scheduled', 'recorded', 'cancelled'] as const) {
+        prisma.lecture.findUnique.mockResolvedValueOnce(
+          liveLecture({ status }),
+        );
+        await expect(service.forceEnd('l-1', 'u-1')).rejects.toMatchObject({
+          status: 409,
+        });
+      }
+    });
+
+    it('404 если лекции нет', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(null);
+      await expect(
+        service.forceEnd('missing', 'u-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

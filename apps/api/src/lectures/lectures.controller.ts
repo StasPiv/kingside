@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
@@ -75,6 +76,35 @@ export class LecturesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.cancel(id, req.user.id);
+  }
+
+  /**
+   * KS-3864. Удалить лекцию (owner-only). Разрешено в scheduled /
+   * cancelled / recorded; для live — 409.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete('lectures/:id')
+  @HttpCode(204)
+  async remove(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    await this.service.delete(id, req.user.id);
+  }
+
+  /**
+   * KS-3864. Принудительно завершить live-лекцию: status → recorded,
+   * endedAt → NOW, durationMs пересчитан; LiveAnalysis закрывается;
+   * audio финализируется best-effort. Для не-live статусов — 409.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('lectures/:id/force-end')
+  @HttpCode(200)
+  async forceEnd(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.forceEnd(id, req.user.id);
   }
 
   @Get('lectures/:id')
