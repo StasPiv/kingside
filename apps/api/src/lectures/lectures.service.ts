@@ -193,6 +193,50 @@ export class LecturesService {
       throw new ForbiddenException('Only the owner can start this lecture');
     }
     if (lecture.status === 'live') {
+      // KS-3887. Идемпотентность: уже live. Но раньше тут возвращалась
+      // запись «как есть», независимо от состояния LiveAnalysis. Если
+      // cleanup-job закрыл связанную трансляцию (30 мин неактивности),
+      // а лекция по какой-то причине осталась в `live`, тренер
+      // открывал страницу и не мог продолжить broadcast: gateway не
+      // считает publisher активным, peer-joined не пересылается,
+      // зрителям нет аудио. Корневая причина KS-3883.
+      //
+      // Поведение: если LiveAnalysis отсутствует или уже closed —
+      // открываем новую active-сессию и привязываем к лекции. Это
+      // даёт UX «продолжаем лекцию» без необходимости пересоздавать
+      // запись в БД.
+      const liveAnalysisRow = lecture.liveAnalysisId
+        ? await this.prisma.liveAnalysis.findUnique({
+            where: { id: lecture.liveAnalysisId },
+            select: { status: true },
+          })
+        : null;
+      const needNewSession =
+        !lecture.liveAnalysisId || liveAnalysisRow?.status !== 'active';
+      if (needNewSession) {
+        const session = await this.openLectureLiveSession(
+          actingUserId,
+          lecture.title,
+          options.analysisId,
+        );
+        const updated = await this.prisma.lecture.update({
+          where: { id: lectureId },
+          data: { liveAnalysisId: session.id },
+        });
+        this.logger.log(
+          `Lecture resumed: id=${lectureId} owner=${actingUserId} new liveAnalysisId=${session.id}` +
+            (lecture.liveAnalysisId
+              ? ` (previous ${lecture.liveAnalysisId} was ${
+                  liveAnalysisRow?.status ?? 'missing'
+                })`
+              : ''),
+        );
+        return {
+          lecture: updated,
+          liveAnalysis: session as LectureLiveBinding,
+          serverNow: new Date().toISOString(),
+        };
+      }
       // Идемпотентно: уже live, возвращаем текущую запись. Если у неё
       // есть liveAnalysisId — отдаём slug/url из БД для удобства фронта.
       const liveAnalysis = lecture.liveAnalysisId

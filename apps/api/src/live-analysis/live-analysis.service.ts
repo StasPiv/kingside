@@ -511,13 +511,26 @@ export class LiveAnalysisService implements OnModuleInit {
     endedAt: Date,
   ): Promise<void> {
     try {
+      // KS-3887. Раньше тут проставлялся только `endedAt`, статус
+      // лекции должен был перевести `finalizeLectureRecording` ДО этой
+      // строки. Но если у трансляции вообще не было `Lecture`-binding'а
+      // (или getLectureBinding по гонке вернул null) — finalizer не
+      // вызывался, и Lecture оставалась `status='live'`. После закрытия
+      // LiveAnalysis это даёт зомби-лекцию: тренер открывает страницу,
+      // gateway не пересылает peer-joined, зрители не получают аудио.
+      //
+      // Фикс: одновременно с `endedAt` принудительно переводим лекцию
+      // в `recorded`. Это страховка; в нормальном пути finalizer уже
+      // успел сменить статус и updateMany просто не найдёт записей с
+      // `status='live'`.
       const result = await this.prisma.lecture.updateMany({
         where: { liveAnalysisId, status: 'live' },
-        data: { endedAt },
+        data: { endedAt, status: 'recorded' },
       });
       if (result.count > 0) {
-        this.logger.log(
-          `Lecture endedAt set: liveAnalysisId=${liveAnalysisId} count=${result.count}`,
+        this.logger.warn(
+          `markLiveLectureEnded: forced status=recorded for liveAnalysisId=${liveAnalysisId} count=${result.count} ` +
+            `(finalizer did not catch this lecture — likely no binding or no events)`,
         );
       }
     } catch (e) {

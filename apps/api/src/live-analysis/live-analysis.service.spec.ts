@@ -519,7 +519,9 @@ describe('LiveAnalysisService', () => {
       await service.closeBySlug('s', 'u-1');
       expect(prisma.lecture.updateMany).toHaveBeenCalledWith({
         where: { liveAnalysisId: 'la-1', status: 'live' },
-        data: { endedAt: expect.any(Date) },
+        // KS-3887: вместе с endedAt принудительно ставится recorded —
+        // страховка от рассинхронизации Lecture/LiveAnalysis.
+        data: { endedAt: expect.any(Date), status: 'recorded' },
       });
     });
 
@@ -534,7 +536,9 @@ describe('LiveAnalysisService', () => {
       expect(res.alreadyClosed).toBe(false);
       expect(prisma.lecture.updateMany).toHaveBeenCalledWith({
         where: { liveAnalysisId: 'la-1', status: 'live' },
-        data: { endedAt: expect.any(Date) },
+        // KS-3887: вместе с endedAt принудительно ставится recorded —
+        // страховка от рассинхронизации Lecture/LiveAnalysis.
+        data: { endedAt: expect.any(Date), status: 'recorded' },
       });
     });
 

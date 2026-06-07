@@ -71,9 +71,16 @@ describe('LecturesService', () => {
       liveAnalysis: {
         // fetchLiveAnalysisBinding (для идемпотентного start) запрашивает
         // slug по id. По умолчанию возвращаем стандартную запись.
+        // KS-3887: для идемпотентной ветки `start()` дополнительно
+        // запрашивается `status` — по умолчанию `active`, чтобы
+        // существующие тесты не открывали новую сессию.
         findUnique: jest
           .fn()
-          .mockResolvedValue({ id: 'la-existing', slug: 'EXIST00000' }),
+          .mockResolvedValue({
+            id: 'la-existing',
+            slug: 'EXIST00000',
+            status: 'active',
+          }),
       },
     };
     liveAnalysis = {
@@ -239,6 +246,56 @@ describe('LecturesService', () => {
       expect(liveAnalysis.createBareLiveSession).not.toHaveBeenCalled();
       expect(liveAnalysis.create).not.toHaveBeenCalled();
       expect(prisma.lecture.update).not.toHaveBeenCalled();
+    });
+
+    // KS-3887: возобновление лекции, чья LiveAnalysis закрыта cleanup'ом.
+    it('KS-3887: уже live, LiveAnalysis closed → создаём новую и пересвязываем lecture', async () => {
+      const existing = {
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'live',
+        title: 't',
+        liveAnalysisId: 'la-old',
+      };
+      prisma.lecture.findUnique.mockResolvedValueOnce(existing);
+      // findUnique liveAnalysis: первый вызов — проверка статуса
+      // (closed), затем fetchLiveAnalysisBinding не вызывается, потому
+      // что путь идёт по созданию новой сессии.
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce({
+        id: 'la-old',
+        slug: 'OLD0000000',
+        status: 'closed',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...existing,
+        liveAnalysisId: 'la-1',
+      });
+      const r = await service.start('l-1', 'u-1');
+      expect(liveAnalysis.createBareLiveSession).toHaveBeenCalled();
+      expect(prisma.lecture.update).toHaveBeenCalledWith({
+        where: { id: 'l-1' },
+        data: { liveAnalysisId: 'la-1' },
+      });
+      expect(r.lecture.liveAnalysisId).toBe('la-1');
+      expect(r.liveAnalysis?.id).toBe('la-1');
+    });
+
+    it('KS-3887: уже live, liveAnalysisId=null → создаём новую сессию', async () => {
+      const existing = {
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'live',
+        title: 't',
+        liveAnalysisId: null,
+      };
+      prisma.lecture.findUnique.mockResolvedValueOnce(existing);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...existing,
+        liveAnalysisId: 'la-1',
+      });
+      const r = await service.start('l-1', 'u-1');
+      expect(liveAnalysis.createBareLiveSession).toHaveBeenCalled();
+      expect(r.lecture.liveAnalysisId).toBe('la-1');
     });
 
     it('400 если recorded', async () => {

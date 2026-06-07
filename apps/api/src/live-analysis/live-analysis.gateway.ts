@@ -534,6 +534,25 @@ export class LiveAnalysisGateway
         }
         peers.ownerSocketId = client.id;
         (client.data.webrtcOwnedLectures as Set<string>).add(data.lectureId);
+        // KS-3883. Уведомить publisher'а о всех subscriber'ах, которые
+        // подключились РАНЬШЕ него — без этого зрители, пришедшие до
+        // тренера, остаются «в воздухе»: publisher не знает их socketId,
+        // не шлёт offer, ICE handshake не стартует.
+        // Каждому существующему subscriber'у отправляем виртуальный
+        // peer-joined как будто он только что подключился — publisher
+        // обработает его обычным путём (отправит offer на toSocketId).
+        for (const subscriberSocketId of peers.subscribers) {
+          const payload: WebRTCPeerJoinedEvent = {
+            lectureId: data.lectureId,
+            fromSocketId: subscriberSocketId,
+          };
+          client.emit(LiveAnalysisGateway.WEBRTC_PEER_JOINED, payload);
+        }
+        if (peers.subscribers.size > 0) {
+          this.logger.log(
+            `webrtc publisher registered: lecture=${data.lectureId} replayed ${peers.subscribers.size} pre-joined subscribers`,
+          );
+        }
       }
 
       (client.data.webrtcLectures as Set<string>).add(data.lectureId);
