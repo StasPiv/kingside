@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { LectureAudioInfo } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
 import { useAuth } from '../context/AuthContext';
@@ -55,6 +56,14 @@ interface LectureSummary {
   // KS-3787 backend кладёт liveAnalysis в GET /lectures/:id для
   // active-lecture; для scheduled/cancelled поле null.
   liveAnalysis?: { id: string; slug: string; url: string } | null;
+  /**
+   * KS-3852 / ADR-116 §5.2. Если у лекции есть клиентская аудиозапись
+   * (finalizer прошёл и в БД есть `LectureAudio`), backend кладёт
+   * сюда signed CloudFront URL + длительность/codec. Если поле
+   * `null`/отсутствует — лекция без записанного голоса, плеер
+   * работает в старом timer-based режиме (без `<audio>` в DOM).
+   */
+  audio?: LectureAudioInfo | null;
 }
 
 interface LectureRecording {
@@ -141,6 +150,14 @@ export function LectureReplayPage() {
   const [currentTimeMs, setCurrentTimeMs] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [speed, setSpeed] = useState<number>(1);
+
+  // KS-3852 / ADR-116 §5.2. Ref на скрытый `<audio>` для воспроизведения
+  // записанного голоса тренера. Сам элемент рендерится ниже только если
+  // у лекции есть `audio.url`. Сейчас (KS-3852) — просто присутствует в
+  // DOM с правильным `src`; синхронизация с шкалой записи
+  // (`audio.currentTime + offsetMs`) и контролы перемотки/скорости —
+  // следующие задачи эпика E' (KS-3853, KS-3854).
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
   // При смене лекции — сбрасываем плеер. Иначе позиция из старой
   // лекции «протечёт» в новую и обновим dial в неконсистентное
@@ -355,6 +372,23 @@ export function LectureReplayPage() {
           </span>
         )}
       </nav>
+
+      {/* KS-3852: скрытый аудиоэлемент с записью голоса тренера. Если
+          у лекции нет `audio.url` — не рендерим вовсе, плеер
+          продолжает работать в старом timer-based режиме. preload
+          "metadata" — Safari/Firefox начинают тянуть только заголовок,
+          без целого файла; полная подгрузка — на первый play().
+          `controls` нет: управление будет общим (KS-3854) через
+          кнопку play/pause плеера ниже. */}
+      {lecture.audio?.url && (
+        <audio
+          ref={audioElementRef}
+          src={lecture.audio.url}
+          preload="metadata"
+          data-testid="lecture-replay-audio"
+          style={{ display: 'none' }}
+        />
+      )}
 
       {eventsEmpty ? (
         <p data-testid="lecture-replay-empty">
