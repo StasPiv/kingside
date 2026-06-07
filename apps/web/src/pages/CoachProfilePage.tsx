@@ -200,7 +200,7 @@ export function CoachProfilePage() {
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // KS-3863 follow-up: id лекции, которую сейчас закрываем кнопкой
-  // «Закрыть лекцию» в карточке live-секции. Нужно, чтобы пометить
+  // «Завершить лекцию» в карточке live-секции. Нужно, чтобы пометить
   // конкретную карточку как «в процессе» и не дать кликнуть дважды.
   const [endingLectureId, setEndingLectureId] = useState<string | null>(null);
   // KS-3802/KS-3803: модальное окно «Запланировать / Изменить
@@ -303,12 +303,61 @@ export function CoachProfilePage() {
     [showToast, t],
   );
 
-  // KS-3863 follow-up: ручное закрытие live-лекции из карточки на
+  // KS-3867: общая обработка ошибок owner-only API запросов
+  // (force-end и delete). 401 пускаем дальше — глобальный
+  // notifySessionExpired в api.ts уведомит AuthContext и сделает
+  // редирект на /login. 403/409/5xx — короткий тост по описанию
+  // задачи.
+  const handleLectureApiError = useCallback(
+    (e: unknown, action: 'force-end' | 'delete') => {
+      if (e instanceof ApiError) {
+        // 401 уже обработан в api.ts (dispatch session-expired);
+        // тост показывать не нужно — будет редирект.
+        if (e.status === 401) return;
+        if (e.status === 403) {
+          showToast(t('lectureLive.noPermission', 'Нет прав на это действие'));
+          return;
+        }
+        if (e.status === 409) {
+          showToast(
+            t(
+              'lectureLive.invalidStatus',
+              'Действие недоступно для текущего статуса лекции',
+            ),
+          );
+          return;
+        }
+        if (e.status >= 500) {
+          showToast(
+            t(
+              'lectureLive.serverError',
+              'Не удалось выполнить, попробуйте позже',
+            ),
+          );
+          return;
+        }
+      }
+      // Прочие случаи (сеть, неизвестная ошибка) — общий fallback.
+      showToast(
+        action === 'force-end'
+          ? t(
+              'lectureLive.endFailed',
+              'Не удалось завершить лекцию. Попробуйте ещё раз.',
+            )
+          : t(
+              'lectureLive.deleteFailed',
+              'Не удалось удалить лекцию. Попробуйте ещё раз.',
+            ),
+      );
+    },
+    [showToast, t],
+  );
+
+  // KS-3867: принудительное завершение live-лекции из карточки на
   // странице тренера. Нужно, когда тренер закрыл вкладку без
-  // финализации (или старая лекция от до развёртывания KS-3863) —
-  // лекция «зависла» в статусе live, и зрители продолжают видеть её
-  // как идущую. Backend по `POST /lectures/:id/end` сам переводит
-  // статус в `recorded`/`cancelled`.
+  // финализации — лекция «зависла» в статусе live, и зрители
+  // продолжают видеть её как идущую. Маршрут /force-end (KS-3864)
+  // финализирует аудио best-effort и переводит статус в recorded.
   const handleEndLecture = useCallback(
     async (lecture: CoachLecture) => {
       if (endingLectureId) return;
@@ -326,13 +375,20 @@ export function CoachProfilePage() {
       setEndingLectureId(lecture.id);
       try {
         await api.post(
-          `/lectures/${encodeURIComponent(lecture.id)}/end`,
+          `/lectures/${encodeURIComponent(lecture.id)}/force-end`,
           {},
         );
-        // Оптимистично убираем карточку из «В эфире» — серверный
-        // статус уже изменился; обновлять отдельные списки не нужно,
-        // следующий заход на страницу подтянет свежие данные.
+        // Оптимистично переносим карточку из «В эфире» в
+        // «Записанные» — серверный статус теперь recorded. Сама
+        // карточка сохраняет title/description, но мы выставляем
+        // endedAt = текущее время, чтобы сортировка/подпись в
+        // «Записанных» работали корректно до следующей загрузки.
+        const nowIso = new Date().toISOString();
         setLiveLectures((prev) => prev.filter((l) => l.id !== lecture.id));
+        setRecordedLectures((prev) => [
+          { ...lecture, status: 'recorded', endedAt: nowIso },
+          ...prev,
+        ]);
         showToast(
           t(
             'lectureLive.endSuccessToast',
@@ -341,19 +397,60 @@ export function CoachProfilePage() {
           ),
         );
       } catch (e) {
-        const msg =
-          e instanceof ApiError
-            ? e.message
-            : t(
-                'lectureLive.endFailed',
-                'Не удалось завершить лекцию. Попробуйте ещё раз.',
-              );
-        showToast(msg);
+        handleLectureApiError(e, 'force-end');
       } finally {
         setEndingLectureId(null);
       }
     },
-    [endingLectureId, showToast, t],
+    [endingLectureId, handleLectureApiError, showToast, t],
+  );
+
+  // KS-3867: удаление лекции. Запрещено для статуса live (бэкенд
+  // вернёт 409). Кнопка для live и не показывается — но на всякий
+  // случай дублируем guard в обработчике.
+  const [deletingLectureId, setDeletingLectureId] = useState<string | null>(
+    null,
+  );
+  const handleDeleteLecture = useCallback(
+    async (lecture: CoachLecture) => {
+      if (deletingLectureId) return;
+      if (lecture.status === 'live') return;
+      if (
+        !window.confirm(
+          t(
+            'lectureDelete.confirm',
+            'Удалить лекцию «{{title}}»? Действие необратимо.',
+            { title: lecture.title },
+          ),
+        )
+      ) {
+        return;
+      }
+      setDeletingLectureId(lecture.id);
+      try {
+        await api.delete<void>(`/lectures/${encodeURIComponent(lecture.id)}`);
+        // Карточка живёт ровно в одном из четырёх списков по статусу.
+        // Удаляем из всех, чтобы не зависеть от того, в каком она
+        // сейчас (например, лекция могла дрейфовать между статусами).
+        const filterOut = (prev: CoachLecture[]) =>
+          prev.filter((l) => l.id !== lecture.id);
+        setScheduledLectures(filterOut);
+        setRecordedLectures(filterOut);
+        setCancelledLectures(filterOut);
+        showToast(
+          t(
+            'lectureDelete.successToast',
+            'Лекция «{{title}}» удалена',
+            { title: lecture.title },
+          ),
+        );
+      } catch (e) {
+        handleLectureApiError(e, 'delete');
+      } finally {
+        setDeletingLectureId(null);
+      }
+    },
+    [deletingLectureId, handleLectureApiError, showToast, t],
   );
 
   useEffect(() => {
@@ -728,6 +825,28 @@ export function CoachProfilePage() {
                       >
                         {t('lectureSchedule.actions.cancel', 'Cancel')}
                       </button>
+                      {/* KS-3867: «Удалить» доступно для всех статусов
+                          кроме live (бэкенд вернёт 409). */}
+                      <button
+                        type="button"
+                        data-testid={`coach-profile-schedule-delete-${l.id}`}
+                        onClick={() => void handleDeleteLecture(l)}
+                        disabled={deletingLectureId === l.id}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 4,
+                          border: '1px solid #999',
+                          background: '#fff',
+                          color: '#333',
+                          cursor:
+                            deletingLectureId === l.id ? 'wait' : 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        {deletingLectureId === l.id
+                          ? t('lectureDelete.deleting', 'Удаление…')
+                          : t('lectureDelete.button', 'Удалить')}
+                      </button>
                     </div>
                   )}
                 </li>
@@ -791,38 +910,6 @@ export function CoachProfilePage() {
                       {startedLabel}
                     </footer>
                   )}
-                  {/* KS-3863 follow-up: кнопка «Завершить лекцию» для
-                      владельца. Нужна, если тренер закрыл вкладку
-                      без `finalize()` или лекция была запущена до
-                      KS-3863 — статус повис в `live`. Кнопка шлёт
-                      `POST /lectures/:id/end`, backend меняет статус. */}
-                  {isOwnPage && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        void handleEndLecture(l);
-                      }}
-                      disabled={endingLectureId === l.id}
-                      data-testid={`coach-profile-live-end-${l.id}`}
-                      style={{
-                        marginTop: 10,
-                        padding: '6px 12px',
-                        borderRadius: 6,
-                        border: '1px solid #d32f2f',
-                        background: '#fff',
-                        color: '#d32f2f',
-                        fontSize: 13,
-                        cursor:
-                          endingLectureId === l.id ? 'wait' : 'pointer',
-                      }}
-                    >
-                      {endingLectureId === l.id
-                        ? t('lectureLive.ending', 'Завершение…')
-                        : t('lectureLive.endButton', 'Завершить лекцию')}
-                    </button>
-                  )}
                 </>
               );
               return (
@@ -855,6 +942,47 @@ export function CoachProfilePage() {
                     // и обнуления liveAnalysisId в момент закрытия —
                     // показываем карточку без ссылки.
                     card
+                  )}
+                  {/* KS-3867: «Завершить лекцию» в карточке секции «В
+                      эфире» — для владельца. Шлёт POST /lectures/:id/
+                      force-end (KS-3864). Кнопки «Удалить» здесь нет:
+                      backend запрещает удаление лекции в статусе live
+                      (409). */}
+                  {isOwnPage && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        marginTop: 10,
+                        borderTop: '1px solid #eee',
+                        paddingTop: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        data-testid={`coach-profile-live-end-${l.id}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleEndLecture(l);
+                        }}
+                        disabled={endingLectureId === l.id}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 4,
+                          border: '1px solid #d32f2f',
+                          background: '#fff',
+                          color: '#d32f2f',
+                          cursor:
+                            endingLectureId === l.id ? 'wait' : 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        {endingLectureId === l.id
+                          ? t('lectureLive.ending', 'Завершение…')
+                          : t('lectureLive.endButton', 'Завершить лекцию')}
+                      </button>
+                    </div>
                   )}
                 </li>
               );
@@ -947,6 +1075,39 @@ export function CoachProfilePage() {
                       {dateLabel && <span>{dateLabel}</span>}
                     </footer>
                   </Link>
+                  {/* KS-3867: «Удалить» доступно владельцу для recorded. */}
+                  {isOwnPage && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        marginTop: 8,
+                        borderTop: '1px solid #eee',
+                        paddingTop: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        data-testid={`coach-profile-recording-delete-${l.id}`}
+                        onClick={() => void handleDeleteLecture(l)}
+                        disabled={deletingLectureId === l.id}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 4,
+                          border: '1px solid #999',
+                          background: '#fff',
+                          color: '#333',
+                          cursor:
+                            deletingLectureId === l.id ? 'wait' : 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        {deletingLectureId === l.id
+                          ? t('lectureDelete.deleting', 'Удаление…')
+                          : t('lectureDelete.button', 'Удалить')}
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -1028,6 +1189,39 @@ export function CoachProfilePage() {
                       )}
                     </span>
                   </footer>
+                  {/* KS-3867: «Удалить» доступно владельцу для cancelled. */}
+                  {isOwnPage && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        marginTop: 8,
+                        borderTop: '1px solid #eee',
+                        paddingTop: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        data-testid={`coach-profile-finished-delete-${l.id}`}
+                        onClick={() => void handleDeleteLecture(l)}
+                        disabled={deletingLectureId === l.id}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 4,
+                          border: '1px solid #999',
+                          background: '#fff',
+                          color: '#333',
+                          cursor:
+                            deletingLectureId === l.id ? 'wait' : 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        {deletingLectureId === l.id
+                          ? t('lectureDelete.deleting', 'Удаление…')
+                          : t('lectureDelete.button', 'Удалить')}
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}
