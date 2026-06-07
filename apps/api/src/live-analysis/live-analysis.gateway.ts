@@ -28,9 +28,16 @@ import {
   type LiveAnalysisMoveEvent,
   type LiveAnalysisSyncSnapshot,
   type LiveAnalysisViewersEvent,
+  type WebRTCAnswerEvent,
+  type WebRTCCapacityExceededEvent,
+  type WebRTCIceEvent,
+  type WebRTCOfferEvent,
+  type WebRTCPeerJoinedEvent,
+  type WebRTCPeerLeftEvent,
 } from '@kingside/shared';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { LiveAnalysisService } from './live-analysis.service';
+import { PrismaService } from '../prisma/prisma.service';
 import {
   ClosePayloadDto,
   MovePayloadDto,
@@ -40,6 +47,13 @@ import {
   SyncRequestPayloadDto,
   UnsubscribePayloadDto,
 } from './dto/ws-payload.dto';
+import {
+  WebRTCAnswerDto,
+  WebRTCIceDto,
+  WebRTCOfferDto,
+  WebRTCPeerJoinedDto,
+  WebRTCPeerLeftDto,
+} from './dto/webrtc-payload.dto';
 
 /**
  * KS-3732 / ADR-110 §2.2, §2.6: WebSocket gateway live-трансляции.
@@ -91,10 +105,30 @@ export class LiveAnalysisGateway
   private static readonly VIEWERS_THROTTLE_MS = 2000;
   private readonly viewersThrottle = new Map<string, number>();
 
+  // ─── KS-3836 / ADR-116 §2.2: WebRTC-сигналинг ───────────────────────
+  //
+  // Peer-list per lecture: владелец-publisher (≤1 socket) и
+  // subscriber'ы (capacity 15). Хранится в памяти инстанса — для
+  // multi-instance setup'а потребуется Redis pub/sub (вынесено за
+  // рамки этой задачи; в проде сейчас один API-инстанс).
+  //
+  // `ownerSocketId` = null означает, что publisher ещё не подключился
+  // (subscriber'ы могут уже стоять в очереди — capacity всё равно
+  // считаем). При смене socket'а publisher'а (reconnect) старый id
+  // вытесняется новым.
+  /** Жёсткий потолок подписчиков на лекцию (ADR-116 §2.2). */
+  static readonly WEBRTC_MAX_SUBSCRIBERS = 15;
+
+  private readonly webrtcPeers = new Map<
+    string,
+    { ownerSocketId: string | null; subscribers: Set<string> }
+  >();
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly service: LiveAnalysisService,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -175,6 +209,13 @@ export class LiveAnalysisGateway
       client.data.user = null;
     }
     client.data.subscribedSlugs = new Set<string>();
+    // KS-3836: для очистки peer-list'ов на disconnect.
+    client.data.webrtcLectures = new Set<string>();
+    // KS-3836: per-socket кеш ownership (lectureId → owner?). Заполняется
+    // в `webrtc:peer-joined` (там же возможна 1 БД-выборка
+    // Lecture.ownerId), используется при offer для дешёвой проверки
+    // «sender является владельцем лекции».
+    client.data.webrtcOwnedLectures = new Set<string>();
   }
 
   /**
@@ -202,6 +243,21 @@ export class LiveAnalysisGateway
         this.logger.warn(
           `releaseIpSlot failed ip=${client.data.ip}: ${(e as Error).message}`,
         );
+      }
+    }
+    // KS-3836: чистим WebRTC peer-list'ы лекций, в которых socket
+    // числился, и уведомляем оставшихся.
+    const webrtcLectures: Set<string> | undefined =
+      client.data?.webrtcLectures;
+    if (webrtcLectures && webrtcLectures.size > 0) {
+      for (const lectureId of webrtcLectures) {
+        try {
+          this.removePeer(lectureId, client.id);
+        } catch (e) {
+          this.logger.warn(
+            `webrtc cleanup failed lecture=${lectureId} socket=${client.id}: ${(e as Error).message}`,
+          );
+        }
       }
     }
     const subs: Set<string> | undefined = client.data?.subscribedSlugs;
@@ -375,6 +431,267 @@ export class LiveAnalysisGateway
     } catch (e) {
       this.emitError(client, e);
     }
+  }
+
+  // ─── KS-3836 / ADR-116 §2.2: WebRTC-сигналинг ─────────────────────
+  //
+  // Events:
+  //   client → server:  webrtc:peer-joined { lectureId }
+  //                     webrtc:peer-left   { lectureId }
+  //                     webrtc:offer       { lectureId, toSocketId, sdp }
+  //                     webrtc:answer      { lectureId, toSocketId, sdp }
+  //                     webrtc:ice         { lectureId, toSocketId, candidate }
+  //
+  //   server → client:  webrtc:peer-joined        { lectureId, fromSocketId }
+  //                     webrtc:peer-left          { lectureId, fromSocketId }
+  //                     webrtc:offer/answer/ice   (то же + fromSocketId)
+  //                     webrtc:capacity-exceeded  { lectureId, currentSubscribers, max }
+  //
+  // Owner определяется по JWT (handshake): `client.data.user.id ===
+  // Lecture.ownerId`. Lecture.ownerId читаем один раз при первом
+  // peer-joined для (socket, lecture) и кешируем в
+  // `client.data.webrtcOwnedLectures`.
+
+  static readonly WEBRTC_PEER_JOINED = 'webrtc:peer-joined';
+  static readonly WEBRTC_PEER_LEFT = 'webrtc:peer-left';
+  static readonly WEBRTC_OFFER = 'webrtc:offer';
+  static readonly WEBRTC_ANSWER = 'webrtc:answer';
+  static readonly WEBRTC_ICE = 'webrtc:ice';
+  static readonly WEBRTC_CAPACITY_EXCEEDED = 'webrtc:capacity-exceeded';
+
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage('webrtc:peer-joined')
+  async handleWebRTCPeerJoined(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WebRTCPeerJoinedDto,
+  ): Promise<void> {
+    const user = client.data?.user;
+    if (!user) {
+      this.emitError(
+        client,
+        new ForbiddenException('Authenticated user required for WebRTC'),
+      );
+      return;
+    }
+    try {
+      const lecture = await this.prisma.lecture.findUnique({
+        where: { id: data.lectureId },
+        select: { id: true, ownerId: true },
+      });
+      if (!lecture) {
+        this.emitError(
+          client,
+          new NotFoundException(`Lecture "${data.lectureId}" not found`),
+        );
+        return;
+      }
+      const isOwner = lecture.ownerId === user.id;
+      const peers = this.getOrCreateLecturePeers(data.lectureId);
+
+      // Capacity-check для подписчиков. Owner — отдельный слот, в
+      // лимит 15 не входит. Если этот socket уже подписан — переучёт
+      // не делаем.
+      if (!isOwner && !peers.subscribers.has(client.id)) {
+        if (peers.subscribers.size >= LiveAnalysisGateway.WEBRTC_MAX_SUBSCRIBERS) {
+          const payload: WebRTCCapacityExceededEvent = {
+            lectureId: data.lectureId,
+            currentSubscribers: peers.subscribers.size,
+            max: LiveAnalysisGateway.WEBRTC_MAX_SUBSCRIBERS,
+          };
+          client.emit(
+            LiveAnalysisGateway.WEBRTC_CAPACITY_EXCEEDED,
+            payload,
+          );
+          this.logger.warn(
+            `webrtc capacity exceeded: lecture=${data.lectureId} cur=${peers.subscribers.size}`,
+          );
+          return;
+        }
+        peers.subscribers.add(client.id);
+        // Нотификация publisher'а (если он есть): «появился новый
+        // подписчик, ему можно слать offer».
+        if (peers.ownerSocketId) {
+          const ownerSocket = this.server.sockets.sockets.get(
+            peers.ownerSocketId,
+          );
+          if (ownerSocket) {
+            const payload: WebRTCPeerJoinedEvent = {
+              lectureId: data.lectureId,
+              fromSocketId: client.id,
+            };
+            ownerSocket.emit(
+              LiveAnalysisGateway.WEBRTC_PEER_JOINED,
+              payload,
+            );
+          }
+        }
+      } else if (isOwner) {
+        // Owner-socket: запоминаем (вытесняем старый, если был reconnect).
+        if (peers.ownerSocketId && peers.ownerSocketId !== client.id) {
+          this.logger.log(
+            `webrtc owner reconnect: lecture=${data.lectureId} old=${peers.ownerSocketId} new=${client.id}`,
+          );
+        }
+        peers.ownerSocketId = client.id;
+        (client.data.webrtcOwnedLectures as Set<string>).add(data.lectureId);
+      }
+
+      (client.data.webrtcLectures as Set<string>).add(data.lectureId);
+    } catch (e) {
+      this.emitError(client, e);
+    }
+  }
+
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage('webrtc:peer-left')
+  handleWebRTCPeerLeft(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WebRTCPeerLeftDto,
+  ): void {
+    this.removePeer(data.lectureId, client.id);
+    (client.data.webrtcLectures as Set<string>)?.delete(data.lectureId);
+    (client.data.webrtcOwnedLectures as Set<string>)?.delete(data.lectureId);
+  }
+
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage('webrtc:offer')
+  handleWebRTCOffer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WebRTCOfferDto,
+  ): void {
+    // Offer может слать только владелец лекции. Cache —
+    // `webrtcOwnedLectures` (заполнен в peer-joined). Если sender не в
+    // нём — silently drop (по требованию задачи: «отбрасывать»).
+    const owned: Set<string> | undefined =
+      client.data?.webrtcOwnedLectures;
+    if (!owned || !owned.has(data.lectureId)) {
+      this.logger.warn(
+        `webrtc offer dropped (not owner): lecture=${data.lectureId} socket=${client.id}`,
+      );
+      return;
+    }
+    const peers = this.webrtcPeers.get(data.lectureId);
+    if (!peers || !peers.subscribers.has(data.toSocketId)) {
+      this.logger.warn(
+        `webrtc offer dropped (target not registered): lecture=${data.lectureId} to=${data.toSocketId}`,
+      );
+      return;
+    }
+    const target = this.server.sockets.sockets.get(data.toSocketId);
+    if (!target) return;
+    const payload: WebRTCOfferEvent = {
+      lectureId: data.lectureId,
+      toSocketId: data.toSocketId,
+      fromSocketId: client.id,
+      sdp: data.sdp,
+    };
+    target.emit(LiveAnalysisGateway.WEBRTC_OFFER, payload);
+  }
+
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage('webrtc:answer')
+  handleWebRTCAnswer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WebRTCAnswerDto,
+  ): void {
+    // Answer шлёт subscriber обратно publisher'у. Проверяем что pair
+    // (owner=toSocketId, subscriber=client.id) зарегистрирована.
+    const peers = this.webrtcPeers.get(data.lectureId);
+    if (!peers) return;
+    if (peers.ownerSocketId !== data.toSocketId) {
+      this.logger.warn(
+        `webrtc answer dropped (target not owner): lecture=${data.lectureId} to=${data.toSocketId}`,
+      );
+      return;
+    }
+    if (!peers.subscribers.has(client.id)) {
+      this.logger.warn(
+        `webrtc answer dropped (sender not in peer-list): lecture=${data.lectureId} from=${client.id}`,
+      );
+      return;
+    }
+    const target = this.server.sockets.sockets.get(data.toSocketId);
+    if (!target) return;
+    const payload: WebRTCAnswerEvent = {
+      lectureId: data.lectureId,
+      toSocketId: data.toSocketId,
+      fromSocketId: client.id,
+      sdp: data.sdp,
+    };
+    target.emit(LiveAnalysisGateway.WEBRTC_ANSWER, payload);
+  }
+
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage('webrtc:ice')
+  handleWebRTCIce(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WebRTCIceDto,
+  ): void {
+    // ICE — двусторонний обмен (publisher ↔ subscriber). Проксируем
+    // без хранения. Минимальная проверка: target существует в комнате
+    // peers лекции (owner или subscriber).
+    const peers = this.webrtcPeers.get(data.lectureId);
+    if (!peers) return;
+    const isTargetOwner = peers.ownerSocketId === data.toSocketId;
+    const isTargetSubscriber = peers.subscribers.has(data.toSocketId);
+    if (!isTargetOwner && !isTargetSubscriber) return;
+    const target = this.server.sockets.sockets.get(data.toSocketId);
+    if (!target) return;
+    const payload: WebRTCIceEvent = {
+      lectureId: data.lectureId,
+      toSocketId: data.toSocketId,
+      fromSocketId: client.id,
+      candidate: data.candidate,
+    };
+    target.emit(LiveAnalysisGateway.WEBRTC_ICE, payload);
+  }
+
+  /**
+   * Удалить socket из peer-list лекции (owner или subscriber) и
+   * уведомить оставшихся. Используется и при явном `webrtc:peer-left`,
+   * и при `disconnect`. Если в лекции после удаления никого нет —
+   * чистим запись из `webrtcPeers` (минимизируем долгоживущие
+   * пустые Set'ы).
+   */
+  private removePeer(lectureId: string, socketId: string): void {
+    const peers = this.webrtcPeers.get(lectureId);
+    if (!peers) return;
+    let changed = false;
+    if (peers.ownerSocketId === socketId) {
+      peers.ownerSocketId = null;
+      changed = true;
+    }
+    if (peers.subscribers.delete(socketId)) {
+      changed = true;
+    }
+    if (!changed) return;
+    // Уведомляем оставшихся (owner и всех subscriber'ов).
+    const payload: WebRTCPeerLeftEvent = {
+      lectureId,
+      fromSocketId: socketId,
+    };
+    const targets: string[] = [];
+    if (peers.ownerSocketId) targets.push(peers.ownerSocketId);
+    for (const sid of peers.subscribers) targets.push(sid);
+    for (const sid of targets) {
+      const s = this.server.sockets.sockets.get(sid);
+      if (s) s.emit(LiveAnalysisGateway.WEBRTC_PEER_LEFT, payload);
+    }
+    if (!peers.ownerSocketId && peers.subscribers.size === 0) {
+      this.webrtcPeers.delete(lectureId);
+    }
+  }
+
+  private getOrCreateLecturePeers(lectureId: string): {
+    ownerSocketId: string | null;
+    subscribers: Set<string>;
+  } {
+    let peers = this.webrtcPeers.get(lectureId);
+    if (!peers) {
+      peers = { ownerSocketId: null, subscribers: new Set() };
+      this.webrtcPeers.set(lectureId, peers);
+    }
+    return peers;
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────
