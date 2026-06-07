@@ -124,22 +124,6 @@ export class LiveAnalysisGateway
     { ownerSocketId: string | null; subscribers: Set<string> }
   >();
 
-  /**
-   * KS-3889 hotfix. В `@WebSocketGateway({ namespace })` `this.server`
-   * Nest инжектит как `Namespace`, но `this.server.sockets` — это
-   * default-namespace (`/`), и его `.sockets.get(socketId)` всегда
-   * возвращает undefined для сокетов из `/live-analysis`. Из-за
-   * этого ни одна forward-пересылка (peer-joined owner'у, offer
-   * subscriber'у, answer publisher'у, ICE между peer'ами) физически
-   * не доходила до целевого сокета в проде — только владелец
-   * регистрировался и больше ничего не работало.
-   *
-   * Сохраняем ссылку на наш namespace из первого `handleConnection`
-   * (`client.nsp`) и достаём сокеты через него.
-   */
-  private webrtcNamespace:
-    | { sockets: Map<string, Socket> }
-    | null = null;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -195,15 +179,6 @@ export class LiveAnalysisGateway
   }
 
   async handleConnection(client: Socket): Promise<void> {
-    // KS-3889 hotfix: при первом коннекте берём `client.nsp` — это
-    // правильный Namespace для `/live-analysis`. Используем его для
-    // всех forward-пересылок (см. `webrtcNamespace`).
-    if (!this.webrtcNamespace) {
-      const nsp = (client as unknown as { nsp?: { sockets: Map<string, Socket> } }).nsp;
-      if (nsp && nsp.sockets) {
-        this.webrtcNamespace = nsp;
-      }
-    }
     // KS-3734 / ADR §6: лимит 10 одновременных WS-коннектов на IP.
     const ip = this.extractClientIp(client);
     client.data.ip = ip;
@@ -484,15 +459,20 @@ export class LiveAnalysisGateway
   }
 
   /**
-   * KS-3889 hotfix. Достать сокет из правильного namespace.
-   * Возвращает undefined, если namespace ещё не зафиксирован
-   * (первый коннект не пришёл) или socketId не найден.
-   *
-   * Юнит-тесты переопределяют `webrtcNamespace` через свой stub
-   * (см. `live-analysis.gateway.spec.ts`).
+   * KS-3889 окончательный фикс. Доставка сообщения конкретному
+   * сокету через broadcast operator: `this.server.to(socketId)
+   * .emit(event, payload)`. В Socket.IO 4.x каждый сокет
+   * автоматически состоит в room со своим id, поэтому
+   * адресный emit работает на любом namespace без ручного поиска
+   * по `namespace.sockets`. Прежняя реализация через
+   * `this.server.sockets.sockets.get(id)` обращалась к default
+   * namespace (`/`), там наших сокетов нет — emit фактически уходил
+   * «в никуда». Из-за этого первый зритель получал звук (только
+   * через replay в той же функции, через `client.emit` — он работает
+   * прямо к самому себе), а второй и далее — нет.
    */
-  private peerSocketById(socketId: string): Socket | undefined {
-    return this.webrtcNamespace?.sockets.get(socketId);
+  private emitToSocket(socketId: string, event: string, payload: unknown): void {
+    this.server.to(socketId).emit(event, payload);
   }
 
   // ─── KS-3836 / ADR-116 §2.2: WebRTC-сигналинг ─────────────────────
@@ -609,22 +589,26 @@ export class LiveAnalysisGateway
         // пошлёт свежий offer; для уже-работающего соединения это
         // тоже не вредно — клиент перепереговорит SDP.
         if (peers.ownerSocketId) {
-          const ownerSocket = this.peerSocketById(peers.ownerSocketId);
-          if (ownerSocket) {
-            const payload: WebRTCPeerJoinedEvent = {
-              lectureId: data.lectureId,
-              fromSocketId: client.id,
-            };
-            ownerSocket.emit(
-              LiveAnalysisGateway.WEBRTC_PEER_JOINED,
-              payload,
-            );
-            if (!isNewSubscriber) {
-              this.logger.log(
-                `webrtc:peer-joined re-emit to publisher: lecture=${data.lectureId} subscriber=${client.id}`,
-              );
-            }
-          }
+          const payload: WebRTCPeerJoinedEvent = {
+            lectureId: data.lectureId,
+            fromSocketId: client.id,
+          };
+          this.emitToSocket(
+            peers.ownerSocketId,
+            LiveAnalysisGateway.WEBRTC_PEER_JOINED,
+            payload,
+          );
+          this.logger.log(
+            `webrtc:peer-joined → publisher: lecture=${data.lectureId} ` +
+              `subscriber=${client.id} kind=${
+                isNewSubscriber ? 'new' : 'repeat'
+              } ownerSocket=${peers.ownerSocketId}`,
+          );
+        } else {
+          this.logger.log(
+            `webrtc:peer-joined no publisher yet: lecture=${data.lectureId} subscriber=${client.id} ` +
+              `(stored, will receive offer when publisher joins)`,
+          );
         }
       } else if (isOwner) {
         // Owner-socket: запоминаем (вытесняем старый, если был reconnect).
@@ -697,15 +681,17 @@ export class LiveAnalysisGateway
       );
       return;
     }
-    const target = this.peerSocketById(data.toSocketId);
-    if (!target) return;
     const payload: WebRTCOfferEvent = {
       lectureId: data.lectureId,
       toSocketId: data.toSocketId,
       fromSocketId: client.id,
       sdp: data.sdp,
     };
-    target.emit(LiveAnalysisGateway.WEBRTC_OFFER, payload);
+    this.emitToSocket(
+      data.toSocketId,
+      LiveAnalysisGateway.WEBRTC_OFFER,
+      payload,
+    );
   }
 
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
@@ -730,15 +716,17 @@ export class LiveAnalysisGateway
       );
       return;
     }
-    const target = this.peerSocketById(data.toSocketId);
-    if (!target) return;
     const payload: WebRTCAnswerEvent = {
       lectureId: data.lectureId,
       toSocketId: data.toSocketId,
       fromSocketId: client.id,
       sdp: data.sdp,
     };
-    target.emit(LiveAnalysisGateway.WEBRTC_ANSWER, payload);
+    this.emitToSocket(
+      data.toSocketId,
+      LiveAnalysisGateway.WEBRTC_ANSWER,
+      payload,
+    );
   }
 
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
@@ -755,15 +743,17 @@ export class LiveAnalysisGateway
     const isTargetOwner = peers.ownerSocketId === data.toSocketId;
     const isTargetSubscriber = peers.subscribers.has(data.toSocketId);
     if (!isTargetOwner && !isTargetSubscriber) return;
-    const target = this.peerSocketById(data.toSocketId);
-    if (!target) return;
     const payload: WebRTCIceEvent = {
       lectureId: data.lectureId,
       toSocketId: data.toSocketId,
       fromSocketId: client.id,
       candidate: data.candidate,
     };
-    target.emit(LiveAnalysisGateway.WEBRTC_ICE, payload);
+    this.emitToSocket(
+      data.toSocketId,
+      LiveAnalysisGateway.WEBRTC_ICE,
+      payload,
+    );
   }
 
   /**
@@ -794,8 +784,7 @@ export class LiveAnalysisGateway
     if (peers.ownerSocketId) targets.push(peers.ownerSocketId);
     for (const sid of peers.subscribers) targets.push(sid);
     for (const sid of targets) {
-      const s = this.peerSocketById(sid);
-      if (s) s.emit(LiveAnalysisGateway.WEBRTC_PEER_LEFT, payload);
+      this.emitToSocket(sid, LiveAnalysisGateway.WEBRTC_PEER_LEFT, payload);
     }
     if (!peers.ownerSocketId && peers.subscribers.size === 0) {
       this.webrtcPeers.delete(lectureId);

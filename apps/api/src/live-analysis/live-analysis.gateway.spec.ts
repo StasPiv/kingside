@@ -100,10 +100,23 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
   let prisma: { lecture: { findUnique: jest.Mock } };
   const socketRegistry = new Map<string, { id: string; emit: jest.Mock }>();
 
+  // KS-3889 окончательный фикс: сервис теперь шлёт через
+  // `this.server.to(socketId).emit(event, payload)`. В Socket.IO 4.x
+  // это broadcast operator на room со socketId. В тестах эмулируем:
+  // `to(id)` возвращает объект с `.emit(event, payload)`, который
+  // пишет в `emit` мок-сокета из socketRegistry. Если такого сокета
+  // нет — emit no-op.
   function makeServer(): {
-    sockets: { sockets: Map<string, { id: string; emit: jest.Mock }> };
+    to: (id: string) => { emit: (event: string, payload: unknown) => void };
   } {
-    return { sockets: { sockets: socketRegistry } };
+    return {
+      to: (id: string) => ({
+        emit: (event: string, payload: unknown): void => {
+          const s = socketRegistry.get(id);
+          if (s) s.emit(event, payload);
+        },
+      }),
+    };
   }
 
   function makeClient(
@@ -137,9 +150,6 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
       prisma as unknown as PrismaService,
     );
     (gateway as any).server = makeServer();
-    // KS-3889 hotfix: forward теперь идёт через webrtcNamespace, не
-    // через server.sockets.sockets. Подкладываем stub.
-    (gateway as any).webrtcNamespace = { sockets: socketRegistry };
   });
 
   it('peer-joined от владельца: ставит ownerSocketId и не считает в capacity', async () => {
