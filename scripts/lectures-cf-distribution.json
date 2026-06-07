@@ -1,0 +1,83 @@
+{
+  "_comment": "Snapshot of CloudFront distribution config for kingside-lectures audio CDN. KS-3822 / ADR-115 (P2P revision). Recreate via: aws cloudfront create-distribution --distribution-config file://scripts/lectures-cf-distribution.json. CallerReference must be updated on recreation.",
+  "_resources": {
+    "DistributionId": "E31FVRWDXW1WRW",
+    "DomainName": "d32wakhl5f1rmz.cloudfront.net",
+    "PublicKeyId": "K22OGMBTKZ8IZR",
+    "KeyGroupId": "b40ad59f-faa7-48b8-896e-2841c895199f",
+    "OriginAccessIdentity": "EGUE8B13XR2JG",
+    "CachePolicyId": "c6d6df94-3b22-4f61-9d18-5d9bb0cd297f",
+    "ResponseHeadersPolicyId": "515f8973-0f71-44b2-8152-af8d8d7f7316",
+    "PrivateKeySecret": "kingside/cloudfront/lectures-signing-key"
+  },
+  "CallerReference": "kingside-lectures-1780820700",
+  "Comment": "Kingside lectures audio CDN (KS-3822, ADR-115)",
+  "Enabled": true,
+  "PriceClass": "PriceClass_100",
+  "HttpVersion": "http2",
+  "IsIPV6Enabled": true,
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "S3-kingside-lectures",
+        "DomainName": "kingside-lectures.s3.eu-central-1.amazonaws.com",
+        "OriginPath": "",
+        "CustomHeaders": {"Quantity": 0},
+        "S3OriginConfig": {
+          "OriginAccessIdentity": "origin-access-identity/cloudfront/EGUE8B13XR2JG"
+        },
+        "ConnectionAttempts": 3,
+        "ConnectionTimeout": 10,
+        "OriginShield": {"Enabled": false}
+      }
+    ]
+  },
+  "OriginGroups": {"Quantity": 0},
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "S3-kingside-lectures",
+    "ViewerProtocolPolicy": "redirect-to-https",
+    "AllowedMethods": {
+      "Quantity": 2,
+      "Items": ["GET", "HEAD"],
+      "CachedMethods": {
+        "Quantity": 2,
+        "Items": ["GET", "HEAD"]
+      }
+    },
+    "Compress": false,
+    "SmoothStreaming": false,
+    "FieldLevelEncryptionId": "",
+    "CachePolicyId": "c6d6df94-3b22-4f61-9d18-5d9bb0cd297f",
+    "ResponseHeadersPolicyId": "515f8973-0f71-44b2-8152-af8d8d7f7316",
+    "TrustedKeyGroups": {
+      "Enabled": true,
+      "Quantity": 1,
+      "Items": ["b40ad59f-faa7-48b8-896e-2841c895199f"]
+    },
+    "TrustedSigners": {"Enabled": false, "Quantity": 0},
+    "LambdaFunctionAssociations": {"Quantity": 0},
+    "FunctionAssociations": {"Quantity": 0}
+  },
+  "CacheBehaviors": {"Quantity": 0},
+  "CustomErrorResponses": {"Quantity": 0},
+  "Logging": {
+    "Enabled": false,
+    "IncludeCookies": false,
+    "Bucket": "",
+    "Prefix": ""
+  },
+  "ViewerCertificate": {
+    "CloudFrontDefaultCertificate": true,
+    "MinimumProtocolVersion": "TLSv1.2_2021",
+    "SSLSupportMethod": "sni-only"
+  },
+  "Restrictions": {
+    "GeoRestriction": {
+      "RestrictionType": "none",
+      "Quantity": 0
+    }
+  },
+  "WebACLId": "",
+  "Staging": false
+}
