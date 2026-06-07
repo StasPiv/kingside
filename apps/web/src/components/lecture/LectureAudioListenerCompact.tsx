@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Socket } from 'socket.io-client';
 import { useLectureAudioSubscriber } from '../../hooks/useLectureAudioSubscriber';
@@ -44,7 +50,19 @@ export function LectureAudioListenerCompact({
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(1);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  // KS-3890: с какой стороны иконки рисуем popover. По умолчанию
+  // 'right' — выравниваем правый край popover'а по правому краю
+  // кнопки (как в Material/Google-овском audio-popover). Но когда
+  // компонент стоит у левого края viewport (а так и есть в шапке
+  // AnalysisPage у зрителя), popover уходит за левый край экрана.
+  // Тогда переключаемся на 'left' — выравниваем по левому краю
+  // кнопки. Решение принимается по реальной позиции кнопки в
+  // момент открытия.
+  const [popoverSide, setPopoverSide] = useState<'left' | 'right'>('right');
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  // Ожидаемая ширина popover'а: 10+12 padding по бокам + 32 кнопка
+  // mute + 8 gap + 140 ползунок ≈ 224px. Для запаса берём чуть больше.
+  const POPOVER_WIDTH_PX = 240;
   // KS-3880: «прогревающий» AudioContext, созданный синхронно в
   // обработчике клика. WebRTC под капотом тоже создаёт AudioContext
   // на каждый входящий аудио-трек; если до этого момента в
@@ -62,6 +80,23 @@ export function LectureAudioListenerCompact({
     el.muted = muted;
     el.volume = volume;
   }, [audioRef, muted, volume]);
+
+  // KS-3890: при открытии popover'а смотрим положение wrapper'а
+  // в viewport. Если popover с `right: 0` уйдёт за левый край (т. е.
+  // правый край wrapper минус ширина popover < 0) — переключаемся
+  // на `left: 0`. useLayoutEffect, чтобы избежать видимого «скачка».
+  useLayoutEffect(() => {
+    if (!popoverOpen) return;
+    const el = wrapperRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    // rect.right - POPOVER_WIDTH = левый край popover'а при right:0.
+    if (rect.right - POPOVER_WIDTH_PX < 8) {
+      setPopoverSide('left');
+    } else {
+      setPopoverSide('right');
+    }
+  }, [popoverOpen]);
 
   // KS-3880: закрытие «прогревающего» AudioContext при unmount —
   // освобождаем аппаратные ресурсы аудио-вывода.
@@ -241,12 +276,17 @@ export function LectureAudioListenerCompact({
       {popoverOpen && unlocked && !hasIssue && (
         <div
           data-testid="lecture-audio-listener-compact-popover"
+          data-side={popoverSide}
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
-            right: 0,
+            // KS-3890: динамическая сторона. На левом краю экрана —
+            // открываем вправо (left:0), иначе влево (right:0).
+            left: popoverSide === 'left' ? 0 : 'auto',
+            right: popoverSide === 'right' ? 0 : 'auto',
             zIndex: 200,
             minWidth: 200,
+            maxWidth: 'calc(100vw - 16px)',
             padding: '10px 12px',
             background: '#fff',
             border: '1px solid #ddd',
