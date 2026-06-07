@@ -1,9 +1,11 @@
 # ADR-115: Запись и live-стриминг голоса тренера на лекциях с синхронизацией с ходами
 
-**Статус:** Предложено
+**Статус:** Superseded by [ADR-116](./116-lecture-audio-p2p.md) (2026-06-07, KS-3825)
 **Дата:** 2026-06-07
 **Задача:** KS-3818
-**Связанные ADR:** [ADR-110](./110-live-analysis-broadcast.md), [ADR-111](./111-live-analysis-full-broadcast.md), [ADR-112](./112-live-analysis-per-analysis-binding.md), [ADR-113 §2.6](./113-coach-page.md)
+**Связанные ADR:** [ADR-110](./110-live-analysis-broadcast.md), [ADR-111](./111-live-analysis-full-broadcast.md), [ADR-112](./112-live-analysis-per-analysis-binding.md), [ADR-113 §2.6](./113-coach-page.md), [ADR-116](./116-lecture-audio-p2p.md)
+
+> **ВНИМАНИЕ.** Решение из этого ADR (LiveKit Cloud + server-side Egress) отклонено пользователем по причине нежелания оплачивать сторонний managed-сервис. Заменяющее решение — P2P WebRTC mesh + клиентский MediaRecorder с чанковой загрузкой — описано в [ADR-116](./116-lecture-audio-p2p.md). Часть инфраструктурных решений (S3-bucket `kingside-lectures`, CloudFront-distribution на `media.kingside.site`, схема таблицы `LectureAudio` с минимальными правками) переносится в ADR-116 без изменений. Отменены follow-up задачи: KS-3819 (LiveKit project setup), KS-3824 (Egress config).
 
 ## 1. Контекст
 
