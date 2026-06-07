@@ -29,6 +29,14 @@
       }
     },
     {
+      "Sid": "AllowDeleteLectureChunks",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::kingside-lectures/audio/*/chunks/*"
+    },
+    {
       "Sid": "AllowReadCloudfrontSigningKey",
       "Effect": "Allow",
       "Action": [
