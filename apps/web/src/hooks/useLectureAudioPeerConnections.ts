@@ -409,7 +409,6 @@ export function useLectureAudioPeerConnections({
     socket.on('webrtc:ice', handleIce);
     socket.on('webrtc:peer-left', handlePeerLeft);
 
-    const peers = peersRef.current;
     return () => {
       socket.off('webrtc:peer-joined', handlePeerJoined);
       socket.off('webrtc:answer', handleAnswer);
@@ -418,16 +417,18 @@ export function useLectureAudioPeerConnections({
       socket.off('connect', handleSocketConnect);
       socket.off('disconnect', handleSocketDisconnect);
       socket.off('connect_error', handleSocketConnectError);
-      peers.forEach((pc) => {
-        try {
-          pc.close();
-        } catch {
-          /* ignore */
-        }
-      });
-      peers.clear();
-      setPeerCount(0);
-      setConnectedPeers([]);
+      // KS-3889: НЕ закрываем активные peer-connection в cleanup.
+      // Этот эффект может перезапускаться (например React StrictMode
+      // в dev делает double-mount, или identity `socket`/`audioTrack`
+      // случайно меняется в родителе). До правки cleanup делал
+      // peers.forEach(pc.close()) + peers.clear() — посреди живой
+      // трансляции рвались все соединения, и второй/третий зритель
+      // получал peer-joined в момент, когда у тренера уже не было pc
+      // для него (но peersRef.has(...) уже стояло). Теперь peers
+      // закрываются только явно: по `webrtc:peer-left` от gateway
+      // либо по `iceConnectionState === 'failed' | 'closed'`. На
+      // полное размонтирование стрим всё равно освободит teardown в
+      // useLectureAudioPublisher (он останавливает MediaStream tracks).
     };
   }, [lectureId, audioTrack, socket, closePeer, refreshConnected]);
 
