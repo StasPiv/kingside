@@ -131,6 +131,26 @@ export function LecturePublisherControls({
   >(null);
   const [localError, setLocalError] = useState<Error | null>(null);
 
+  // KS-3844 / ADR-116 §2.4.1. Safari < 14.5 не поддерживает
+  // MediaRecorder (или поддерживает без opus). Проверка делается один
+  // раз на маунте — если запись невозможна, открываем модал
+  // предупреждения и держим кнопку микрофона disabled. Live-передача
+  // голоса через WebRTC — отдельный сценарий (в этом компоненте не
+  // поддерживается, см. описание задачи: «Live идёт без записи» —
+  // запускается через другой механизм/компонент).
+  const recordingSupported = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (typeof window.MediaRecorder === 'undefined') return false;
+    try {
+      return window.MediaRecorder.isTypeSupported('audio/webm;codecs=opus');
+    } catch {
+      return false;
+    }
+  }, []);
+  const [showUnsupportedModal, setShowUnsupportedModal] = useState(
+    !recordingSupported,
+  );
+
   // Объединяем ошибки публикатора и локальные UI-ошибки.
   const visibleError = localError ?? publisher.error;
   const errorInfo = useMemo(
@@ -205,7 +225,15 @@ export function LecturePublisherControls({
           <button
             type="button"
             onClick={handleStart}
-            disabled={pendingAction === 'starting'}
+            disabled={pendingAction === 'starting' || !recordingSupported}
+            title={
+              !recordingSupported
+                ? t(
+                    'lecturePublisher.recorderUnsupportedHint',
+                    'Ваш браузер не поддерживает запись звука',
+                  )
+                : undefined
+            }
             data-testid="lecture-publisher-start"
             style={{
               padding: '8px 14px',
@@ -345,6 +373,72 @@ export function LecturePublisherControls({
             ? t('lecturePublisher.closing', 'Финализация…')
             : t('lecturePublisher.close', 'Закрыть лекцию')}
         </button>
+      )}
+
+      {showUnsupportedModal && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="lecture-publisher-unsupported-title"
+          data-testid="lecture-publisher-unsupported-modal"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowUnsupportedModal(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 10,
+              padding: 20,
+              maxWidth: 480,
+              boxShadow: '0 12px 32px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h3
+              id="lecture-publisher-unsupported-title"
+              style={{ margin: '0 0 8px 0', fontSize: 18 }}
+            >
+              {t(
+                'lecturePublisher.unsupportedTitle',
+                'Запись звука недоступна в этом браузере',
+              )}
+            </h3>
+            <p style={{ margin: '0 0 16px 0', color: '#444', fontSize: 14 }}>
+              {t(
+                'lecturePublisher.unsupportedBody',
+                'Ваш браузер не поддерживает запись звука. Обновите Chrome, Firefox или Safari до актуальной версии, иначе лекция пойдёт без записи.',
+              )}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowUnsupportedModal(false)}
+              data-testid="lecture-publisher-unsupported-dismiss"
+              style={{
+                padding: '8px 16px',
+                borderRadius: 6,
+                border: 'none',
+                background: '#1976d2',
+                color: '#fff',
+                cursor: 'pointer',
+              }}
+            >
+              {t(
+                'lecturePublisher.unsupportedContinue',
+                'Продолжить без записи',
+              )}
+            </button>
+          </div>
+        </div>
       )}
 
       {errorInfo && (
