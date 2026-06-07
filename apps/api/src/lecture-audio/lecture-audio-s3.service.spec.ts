@@ -140,7 +140,44 @@ describe('LectureAudioS3Service', () => {
       const signable: Set<string> = opts.signableHeaders;
       expect(signable.has('x-amz-tagging')).toBe(true);
       expect(signable.has('content-length')).toBe(true);
+      // KS-3872: те же заголовки помечены unhoistable, чтобы остались
+      // подписанными заголовками, а не ушли в query.
+      const unhoistable: Set<string> = opts.unhoistableHeaders;
+      expect(unhoistable.has('x-amz-tagging')).toBe(true);
+      expect(unhoistable.has('content-length')).toBe(true);
       expect(opts.expiresIn).toBe(300);
+    });
+
+    it('KS-3872: middleware build добавляет header x-amz-tagging=kind=chunk', async () => {
+      presignMock.mockResolvedValue('https://x?X-Amz-Signature=Y');
+      await svc.presignChunkUpload(LECTURE, 0, 1);
+      const command = presignMock.mock.calls[0][1] as {
+        middlewareStack: {
+          add: jest.Mock;
+          resolve: (handler: unknown, ctx: unknown) => unknown;
+        };
+      };
+      // Проверяем, что наш middleware зарегистрирован.
+      const stackAddCalls = (command.middlewareStack as unknown as {
+        identify: () => string[];
+      }).identify();
+      expect(stackAddCalls.some((s) => s.includes('EnsureChunkTaggingHeader')))
+        .toBe(true);
+      // Прогоняем сам middleware: build-этап получает request с пустыми
+      // заголовками — на выходе должен быть `x-amz-tagging: kind=chunk`.
+      // resolve(finalHandler, context) → возвращает handler, который
+      // вызывает всю цепочку. Мы запускаем его на синтетическом
+      // request'е и проверяем мутацию.
+      const handler = command.middlewareStack.resolve(
+        (args: { request: { headers: Record<string, string> } }) => {
+          return Promise.resolve({ output: args.request.headers });
+        },
+        {},
+      ) as (args: unknown) => Promise<{ output: Record<string, string> }>;
+      const result = await handler({
+        request: { headers: {} as Record<string, string> },
+      });
+      expect(result.output['x-amz-tagging']).toBe('kind=chunk');
     });
 
     it('ttlSec прокидывается в expiresIn', async () => {

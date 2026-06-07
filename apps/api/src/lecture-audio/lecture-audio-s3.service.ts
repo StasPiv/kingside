@@ -209,13 +209,37 @@ export class LectureAudioS3Service implements OnModuleInit {
       Key: key,
       ContentLength: sizeBytes,
       ContentType: 'audio/webm',
+      // Tagging в команде влияет на финальный объект через S3-middleware,
+      // но в режиме presign сам по себе НЕ добавляет `x-amz-tagging` в
+      // HTTP-запрос (и значит — не попадает в SignedHeaders).
+      // Принудительная инъекция заголовка идёт через middleware
+      // build-этапа (см. ниже).
       Tagging: LectureAudioS3Service.CHUNK_TAGGING,
     });
+
+    // KS-3872. Гарантируем наличие `x-amz-tagging` в request'е до
+    // пресайнинга: подписант увидит реальный заголовок и включит его в
+    // SignedHeaders. Без этого фронт шлёт `x-amz-tagging: kind=chunk`
+    // (требование KS-3841 / lifecycle KS-3827), а подпись его не
+    // содержит → S3 возвращает 403 «HeadersNotSigned: x-amz-tagging».
+    command.middlewareStack.add(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (next: any) => async (args: any) => {
+        if (args.request && args.request.headers) {
+          args.request.headers['x-amz-tagging'] =
+            LectureAudioS3Service.CHUNK_TAGGING;
+        }
+        return next(args);
+      },
+      { step: 'build', name: 'EnsureChunkTaggingHeader' },
+    );
+
     return getSignedS3Url(this.s3, command, {
       expiresIn: ttlSec,
-      // x-amz-tagging обязателен на стороне клиента — он включён в
-      // signed-headers автоматически, потому что Tagging задан в
-      // команде. Явно подсказываем подписанту:
+      // Не выносим тег и Content-Length в query — оставляем как
+      // подписанные заголовки, чтобы клиент обязан был передать их в
+      // PUT-запросе и подпись совпадала бит-в-бит.
+      unhoistableHeaders: new Set(['x-amz-tagging', 'content-length']),
       signableHeaders: new Set(['x-amz-tagging', 'content-length']),
     });
   }
