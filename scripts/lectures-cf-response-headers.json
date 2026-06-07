@@ -1,0 +1,24 @@
+{
+  "_comment": "Snapshot of CloudFront Response Headers Policy 'kingside-lectures-immutable' для distribution E31FVRWDXW1WRW (media.kingside.site). KS-3822 (Cache-Control immutable) + KS-3875 (Cross-Origin-Resource-Policy: cross-origin для совместимости с COEP на kingside.site). Применяется к default cache behavior.",
+  "_resources": {
+    "ResponseHeadersPolicyId": "515f8973-0f71-44b2-8152-af8d8d7f7316",
+    "DistributionId": "E31FVRWDXW1WRW"
+  },
+  "Comment": "Force Cache-Control immutable + Cross-Origin-Resource-Policy: cross-origin for lectures audio (COEP compat). KS-3822/KS-3875.",
+  "Name": "kingside-lectures-immutable",
+  "CustomHeadersConfig": {
+    "Quantity": 2,
+    "Items": [
+      {
+        "Header": "Cache-Control",
+        "Value": "public, max-age=31536000, immutable",
+        "Override": true
+      },
+      {
+        "Header": "Cross-Origin-Resource-Policy",
+        "Value": "cross-origin",
+        "Override": true
+      }
+    ]
+  }
+}
