@@ -168,14 +168,49 @@ export function useLectureAudioPeerConnections({
         );
         return;
       }
-      // Идемпотентность: если по какой-то причине gateway переотправил
-      // peer-joined для уже известного socketId — не дублируем pc.
-      if (peersRef.current.has(peerSocketId)) {
-        console.info(
-          '[lecture-audio-pub] peer-joined ignored: pc already exists for',
+      // KS-3889: идемпотентность по socketId, но с проверкой
+      // реального состояния pc. Если pc уже есть и он ЖИВ
+      // (signalingState=stable/have-remote-offer/have-local-offer,
+      // iceConnectionState != failed/closed/disconnected), повторный
+      // peer-joined — дубль, пропускаем. Если pc застрял в failed/
+      // closed/disconnected (первый offer ушёл, но не дошёл / answer
+      // потерян / зритель reconnect-нулся), закрываем мёртвый pc и
+      // создаём новый. Это покрывает race, при котором subscriber
+      // повторяет peer-joined каждые 3 сек, gateway re-emit-ит к
+      // publisher, но publisher молча отвергал повтор — и зритель
+      // никогда не получал offer.
+      const existingPc = peersRef.current.get(peerSocketId);
+      if (existingPc) {
+        const isAlive =
+          existingPc.iceConnectionState !== 'failed' &&
+          existingPc.iceConnectionState !== 'closed' &&
+          existingPc.iceConnectionState !== 'disconnected' &&
+          existingPc.signalingState !== 'closed';
+        if (isAlive) {
+          console.info(
+            '[lecture-audio-pub] peer-joined ignored: pc alive for',
+            peerSocketId,
+            {
+              ice: existingPc.iceConnectionState,
+              sig: existingPc.signalingState,
+            },
+          );
+          return;
+        }
+        console.warn(
+          '[lecture-audio-pub] peer-joined: closing stale pc and recreating',
           peerSocketId,
+          {
+            ice: existingPc.iceConnectionState,
+            sig: existingPc.signalingState,
+          },
         );
-        return;
+        try {
+          existingPc.close();
+        } catch {
+          /* ignore */
+        }
+        peersRef.current.delete(peerSocketId);
       }
       if (peersRef.current.size >= MAX_PEERS) {
         // Серверный capacity 15 (см. ADR-116 §2.2) уже отсёк
