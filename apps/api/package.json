@@ -55,6 +55,7 @@
     "class-validator": "^0.15.1",
     "ioredis": "^5.10.0",
     "js-yaml": "^4.1.0",
+    "p-queue": "^7.4.1",
     "nestjs-i18n": "^10.6.0",
     "passport": "^0.7.0",
     "passport-facebook": "^3.0.0",

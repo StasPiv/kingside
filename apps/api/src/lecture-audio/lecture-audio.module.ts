@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { LectureAudioS3Service } from './lecture-audio-s3.service';
 import { LectureAudioController } from './lecture-audio.controller';
+import { FfmpegConcatService } from './ffmpeg-concat.service';
 
 /**
  * KS-3831 / ADR-116. Модуль аудио лекций.
@@ -10,6 +11,8 @@ import { LectureAudioController } from './lecture-audio.controller';
  *  - `LectureAudioS3Service` — S3/CloudFront-обёртка (KS-3831).
  *  - `LectureAudioController` — endpoint `POST /lecture-audio/peer-failed`
  *    для метрики провальных WebRTC-соединений (KS-3837).
+ *  - `FfmpegConcatService` — обёртка над ffmpeg для склейки чанков
+ *    WebM → Ogg (KS-3832).
  *
  * Бизнес-контроллер аудио лекций (KS-A02') и cron-finalizer (KS-A05')
  * подключатся отдельными задачами.
@@ -20,7 +23,7 @@ import { LectureAudioController } from './lecture-audio.controller';
 @Module({
   imports: [AuthModule],
   controllers: [LectureAudioController],
-  providers: [LectureAudioS3Service],
-  exports: [LectureAudioS3Service],
+  providers: [LectureAudioS3Service, FfmpegConcatService],
+  exports: [LectureAudioS3Service, FfmpegConcatService],
 })
 export class LectureAudioModule {}
