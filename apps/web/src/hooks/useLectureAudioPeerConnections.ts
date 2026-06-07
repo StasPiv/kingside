@@ -381,6 +381,16 @@ export function useLectureAudioPeerConnections({
     socket.on('connect', handleSocketConnect);
     socket.on('disconnect', handleSocketDisconnect);
     socket.on('connect_error', handleSocketConnectError);
+    // KS-3889 диагностика: ловим ВСЕ входящие события до маршрутизации
+    // в конкретные обработчики. Если в логе тренера onAny показывает
+    // webrtc:peer-joined, но `received webrtc:peer-joined` ниже не
+    // печатается — значит конкретный обработчик отписан.
+    const handleAny = (eventName: string, ...args: unknown[]) => {
+      if (eventName.startsWith('webrtc:') || eventName.startsWith('lecture:')) {
+        console.info('[lecture-audio-pub] socket.onAny', eventName, args);
+      }
+    };
+    socket.onAny(handleAny);
 
     if (!socket.connected) {
       try {
@@ -417,6 +427,7 @@ export function useLectureAudioPeerConnections({
       socket.off('connect', handleSocketConnect);
       socket.off('disconnect', handleSocketDisconnect);
       socket.off('connect_error', handleSocketConnectError);
+      socket.offAny(handleAny);
       // KS-3889: НЕ закрываем активные peer-connection в cleanup.
       // Этот эффект может перезапускаться (например React StrictMode
       // в dev делает double-mount, или identity `socket`/`audioTrack`
