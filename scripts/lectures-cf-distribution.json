@@ -1,14 +1,21 @@
 {
-  "_comment": "Snapshot of CloudFront distribution config for kingside-lectures audio CDN. KS-3822 / ADR-115 (P2P revision). Recreate via: aws cloudfront create-distribution --distribution-config file://scripts/lectures-cf-distribution.json. CallerReference must be updated on recreation.",
+  "_comment": "Snapshot of CloudFront distribution config for kingside-lectures audio CDN. KS-3822/KS-3823 / ADR-115 (P2P revision). Recreate via: aws cloudfront create-distribution --distribution-config file://scripts/lectures-cf-distribution.json. CallerReference must be updated on recreation.",
   "_resources": {
     "DistributionId": "E31FVRWDXW1WRW",
     "DomainName": "d32wakhl5f1rmz.cloudfront.net",
+    "PublicAlias": "media.kingside.site",
+    "AcmCertificateArn": "arn:aws:acm:us-east-1:342946498289:certificate/9774889a-ca53-48c6-a94c-b7f89f21e337",
+    "Route53HostedZoneId": "Z077890528QIIZLL7MESF",
     "PublicKeyId": "K22OGMBTKZ8IZR",
     "KeyGroupId": "b40ad59f-faa7-48b8-896e-2841c895199f",
     "OriginAccessIdentity": "EGUE8B13XR2JG",
     "CachePolicyId": "c6d6df94-3b22-4f61-9d18-5d9bb0cd297f",
     "ResponseHeadersPolicyId": "515f8973-0f71-44b2-8152-af8d8d7f7316",
     "PrivateKeySecret": "kingside/cloudfront/lectures-signing-key"
+  },
+  "Aliases": {
+    "Quantity": 1,
+    "Items": ["media.kingside.site"]
   },
   "CallerReference": "kingside-lectures-1780820700",
   "Comment": "Kingside lectures audio CDN (KS-3822, ADR-115)",
@@ -68,7 +75,9 @@
     "Prefix": ""
   },
   "ViewerCertificate": {
-    "CloudFrontDefaultCertificate": true,
+    "ACMCertificateArn": "arn:aws:acm:us-east-1:342946498289:certificate/9774889a-ca53-48c6-a94c-b7f89f21e337",
+    "Certificate": "arn:aws:acm:us-east-1:342946498289:certificate/9774889a-ca53-48c6-a94c-b7f89f21e337",
+    "CertificateSource": "acm",
     "MinimumProtocolVersion": "TLSv1.2_2021",
     "SSLSupportMethod": "sni-only"
   },
