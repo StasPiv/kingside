@@ -540,28 +540,36 @@ export class LiveAnalysisGateway
           `priorOwner=${peers.ownerSocketId ?? '-'} subscribers=${peers.subscribers.size}`,
       );
 
-      // Capacity-check для подписчиков. Owner — отдельный слот, в
-      // лимит 15 не входит. Если этот socket уже подписан — переучёт
-      // не делаем.
-      if (!isOwner && !peers.subscribers.has(client.id)) {
-        if (peers.subscribers.size >= LiveAnalysisGateway.WEBRTC_MAX_SUBSCRIBERS) {
-          const payload: WebRTCCapacityExceededEvent = {
-            lectureId: data.lectureId,
-            currentSubscribers: peers.subscribers.size,
-            max: LiveAnalysisGateway.WEBRTC_MAX_SUBSCRIBERS,
-          };
-          client.emit(
-            LiveAnalysisGateway.WEBRTC_CAPACITY_EXCEEDED,
-            payload,
-          );
-          this.logger.warn(
-            `webrtc capacity exceeded: lecture=${data.lectureId} cur=${peers.subscribers.size}`,
-          );
-          return;
+      if (!isOwner) {
+        const isNewSubscriber = !peers.subscribers.has(client.id);
+        if (isNewSubscriber) {
+          // Capacity-check только при ПЕРВОМ peer-joined. Owner —
+          // отдельный слот, в лимит 15 не входит.
+          if (peers.subscribers.size >= LiveAnalysisGateway.WEBRTC_MAX_SUBSCRIBERS) {
+            const payload: WebRTCCapacityExceededEvent = {
+              lectureId: data.lectureId,
+              currentSubscribers: peers.subscribers.size,
+              max: LiveAnalysisGateway.WEBRTC_MAX_SUBSCRIBERS,
+            };
+            client.emit(
+              LiveAnalysisGateway.WEBRTC_CAPACITY_EXCEEDED,
+              payload,
+            );
+            this.logger.warn(
+              `webrtc capacity exceeded: lecture=${data.lectureId} cur=${peers.subscribers.size}`,
+            );
+            return;
+          }
+          peers.subscribers.add(client.id);
         }
-        peers.subscribers.add(client.id);
-        // Нотификация publisher'а (если он есть): «появился новый
-        // подписчик, ему можно слать offer».
+        // KS-3889 follow-up. Уведомляем publisher'а на КАЖДЫЙ
+        // peer-joined от подписчика — включая повторный с тем же
+        // socketId. Это закрывает сценарий, когда первый offer не
+        // достиг подписчика (потеря сообщения, перезагрузка фронта
+        // после выкатки, race с прикреплением слушателя), а фронт
+        // ретраит peer-joined. Publisher просто переоткроет PC и
+        // пошлёт свежий offer; для уже-работающего соединения это
+        // тоже не вредно — клиент перепереговорит SDP.
         if (peers.ownerSocketId) {
           const ownerSocket = this.server.sockets.sockets.get(
             peers.ownerSocketId,
@@ -575,6 +583,11 @@ export class LiveAnalysisGateway
               LiveAnalysisGateway.WEBRTC_PEER_JOINED,
               payload,
             );
+            if (!isNewSubscriber) {
+              this.logger.log(
+                `webrtc:peer-joined re-emit to publisher: lecture=${data.lectureId} subscriber=${client.id}`,
+              );
+            }
           }
         }
       } else if (isOwner) {

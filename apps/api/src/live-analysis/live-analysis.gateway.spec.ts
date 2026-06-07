@@ -191,11 +191,36 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
     expect(verify).toHaveBeenCalledWith('jwt.fake');
     const peers = (gateway as any).webrtcPeers.get(LECTURE);
     expect(peers.ownerSocketId).toBe('S_OWNER');
-    expect(owner.data.user).toEqual({ id: 'u-owner', username: 'trainer' });
-    expect(
-      (owner.data as { webrtcOwnedLectures: Set<string> })
-        .webrtcOwnedLectures.has(LECTURE),
-    ).toBe(true);
+    const ownerData = owner.data as unknown as {
+      user: { id: string; username: string };
+      webrtcOwnedLectures: Set<string>;
+    };
+    expect(ownerData.user).toEqual({ id: 'u-owner', username: 'trainer' });
+    expect(ownerData.webrtcOwnedLectures.has(LECTURE)).toBe(true);
+  });
+
+  it('KS-3889: повторный peer-joined от того же подписчика тоже пересылается владельцу', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      id: LECTURE,
+      ownerId: 'u-owner',
+    });
+    const owner = makeClient('S_OWNER', { id: 'u-owner', username: 'o' });
+    const sub = makeClient('S_SUB', { id: 'u-sub', username: 's' });
+    await gateway.handleWebRTCPeerJoined(owner, { lectureId: LECTURE });
+    await gateway.handleWebRTCPeerJoined(sub, { lectureId: LECTURE });
+    // Первая итерация owner уже получил peer-joined; готовимся к
+    // повторной — фронт зрителя ретраит после потери offer'а или
+    // перезагрузки.
+    (owner.emit as jest.Mock).mockClear();
+    await gateway.handleWebRTCPeerJoined(sub, { lectureId: LECTURE });
+    // Размер subscribers НЕ должен вырасти (Set уже содержит).
+    const peers = (gateway as any).webrtcPeers.get(LECTURE);
+    expect(peers.subscribers.size).toBe(1);
+    // Владелец получил повторный peer-joined для пересоздания offer.
+    expect((owner.emit as jest.Mock)).toHaveBeenCalledWith(
+      'webrtc:peer-joined',
+      expect.objectContaining({ lectureId: LECTURE, fromSocketId: 'S_SUB' }),
+    );
   });
 
   it('peer-joined от подписчика: регистрирует, уведомляет владельца', async () => {
