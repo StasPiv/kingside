@@ -199,6 +199,10 @@ export function CoachProfilePage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // KS-3863 follow-up: id лекции, которую сейчас закрываем кнопкой
+  // «Закрыть лекцию» в карточке live-секции. Нужно, чтобы пометить
+  // конкретную карточку как «в процессе» и не дать кликнуть дважды.
+  const [endingLectureId, setEndingLectureId] = useState<string | null>(null);
   // KS-3802/KS-3803: модальное окно «Запланировать / Изменить
   // лекцию». editingLecture !== null → режим редактирования.
   const [showSchedule, setShowSchedule] = useState(false);
@@ -297,6 +301,59 @@ export function CoachProfilePage() {
       }
     },
     [showToast, t],
+  );
+
+  // KS-3863 follow-up: ручное закрытие live-лекции из карточки на
+  // странице тренера. Нужно, когда тренер закрыл вкладку без
+  // финализации (или старая лекция от до развёртывания KS-3863) —
+  // лекция «зависла» в статусе live, и зрители продолжают видеть её
+  // как идущую. Backend по `POST /lectures/:id/end` сам переводит
+  // статус в `recorded`/`cancelled`.
+  const handleEndLecture = useCallback(
+    async (lecture: CoachLecture) => {
+      if (endingLectureId) return;
+      if (
+        !window.confirm(
+          t(
+            'lectureLive.endConfirm',
+            'Завершить лекцию «{{title}}»?',
+            { title: lecture.title },
+          ),
+        )
+      ) {
+        return;
+      }
+      setEndingLectureId(lecture.id);
+      try {
+        await api.post(
+          `/lectures/${encodeURIComponent(lecture.id)}/end`,
+          {},
+        );
+        // Оптимистично убираем карточку из «В эфире» — серверный
+        // статус уже изменился; обновлять отдельные списки не нужно,
+        // следующий заход на страницу подтянет свежие данные.
+        setLiveLectures((prev) => prev.filter((l) => l.id !== lecture.id));
+        showToast(
+          t(
+            'lectureLive.endSuccessToast',
+            'Лекция «{{title}}» завершена',
+            { title: lecture.title },
+          ),
+        );
+      } catch (e) {
+        const msg =
+          e instanceof ApiError
+            ? e.message
+            : t(
+                'lectureLive.endFailed',
+                'Не удалось завершить лекцию. Попробуйте ещё раз.',
+              );
+        showToast(msg);
+      } finally {
+        setEndingLectureId(null);
+      }
+    },
+    [endingLectureId, showToast, t],
   );
 
   useEffect(() => {
@@ -733,6 +790,38 @@ export function CoachProfilePage() {
                       {t('coachProfile.startedAt', 'Started')}{' '}
                       {startedLabel}
                     </footer>
+                  )}
+                  {/* KS-3863 follow-up: кнопка «Завершить лекцию» для
+                      владельца. Нужна, если тренер закрыл вкладку
+                      без `finalize()` или лекция была запущена до
+                      KS-3863 — статус повис в `live`. Кнопка шлёт
+                      `POST /lectures/:id/end`, backend меняет статус. */}
+                  {isOwnPage && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleEndLecture(l);
+                      }}
+                      disabled={endingLectureId === l.id}
+                      data-testid={`coach-profile-live-end-${l.id}`}
+                      style={{
+                        marginTop: 10,
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #d32f2f',
+                        background: '#fff',
+                        color: '#d32f2f',
+                        fontSize: 13,
+                        cursor:
+                          endingLectureId === l.id ? 'wait' : 'pointer',
+                      }}
+                    >
+                      {endingLectureId === l.id
+                        ? t('lectureLive.ending', 'Завершение…')
+                        : t('lectureLive.endButton', 'Завершить лекцию')}
+                    </button>
                   )}
                 </>
               );
