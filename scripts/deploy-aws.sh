@@ -1289,7 +1289,13 @@ if $DEPLOY_API; then
     # Bucket/IAM/БД-миграция оставлены до решения о новой архитектуре.
     # KS-3675 (ADR-107 rev 2 §6 D1): REVIEW_COMMENT_V2=on — расширенная
     # подсказка с позиционными субтермами для ReviewCommentService.
-    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"Stanislav"},{"name":"REVIEW_COMMENT_V2","value":"on"}]'
+    # KS-3868 (ADR-116 B'): LECTURE_AUDIO_* — конфиг lecture-audio модуля
+    # (требуется LectureAudioS3Service.onModuleInit в проде). Все 4
+    # значения нечувствительны: имя бакета, публичный домен CDN, public
+    # key-pair-id CloudFront и ИМЯ секрета в Secrets Manager (сам ключ
+    # читается через secretsmanager:GetSecretValue из ecsTaskRole inline
+    # policy kingside-lectures-s3-access, см. KS-3821/KS-3828).
+    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"Stanislav"},{"name":"REVIEW_COMMENT_V2","value":"on"},{"name":"LECTURE_AUDIO_BUCKET","value":"kingside-lectures"},{"name":"LECTURE_AUDIO_CDN_BASE","value":"https://media.kingside.site"},{"name":"LECTURE_AUDIO_CDN_KEY_PAIR_ID","value":"K22OGMBTKZ8IZR"},{"name":"LECTURE_AUDIO_CDN_PRIVATE_KEY_SECRET_NAME","value":"kingside/cloudfront/lectures-signing-key"}]'
     NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE" "$API_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
     _perf_stamp "api_taskdef_done"
