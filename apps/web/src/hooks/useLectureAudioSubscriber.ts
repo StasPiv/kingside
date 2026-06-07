@@ -451,15 +451,38 @@ export function useLectureAudioSubscriber({
           ? window.localStorage.getItem('token')
           : null;
       socket.auth = token ? { token } : {};
+      console.info('[lecture-audio-sub] auth set, hasToken=', !!token);
     } catch {
       /* без auth — анонимный зритель, тоже допустимо */
     }
+    const handleSocketConnect = () => {
+      console.info('[lecture-audio-sub] socket connect-event', {
+        id: socket.id,
+      });
+    };
+    const handleSocketDisconnect = (reason: string) => {
+      console.warn('[lecture-audio-sub] socket disconnect-event', reason);
+    };
+    const handleSocketConnectError = (err: Error) => {
+      console.warn(
+        '[lecture-audio-sub] socket connect_error',
+        err.message,
+        err,
+      );
+    };
+    socket.on('connect', handleSocketConnect);
+    socket.on('disconnect', handleSocketDisconnect);
+    socket.on('connect_error', handleSocketConnectError);
+
     if (!socket.connected) {
       try {
         socket.connect();
+        console.info('[lecture-audio-sub] socket.connect() invoked');
       } catch (err) {
         console.warn('[lecture-audio-sub] socket.connect() failed', err);
       }
+    } else {
+      console.info('[lecture-audio-sub] socket already connected');
     }
 
     socket.on('webrtc:offer', handleOffer);
@@ -557,6 +580,9 @@ export function useLectureAudioSubscriber({
     return () => {
       clearIceTimer();
       clearInterval(rejoinTimer);
+      socket.off('connect', handleSocketConnect);
+      socket.off('disconnect', handleSocketDisconnect);
+      socket.off('connect_error', handleSocketConnectError);
       socket.off('webrtc:offer', handleOffer);
       socket.off('webrtc:ice', handleIce);
       socket.off('webrtc:peer-left', handlePeerLeft);

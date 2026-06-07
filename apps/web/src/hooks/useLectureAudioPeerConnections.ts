@@ -338,10 +338,35 @@ export function useLectureAudioPeerConnections({
     } catch {
       /* localStorage недоступен — подключимся без auth, всё равно лучше, чем offline */
     }
+    // KS-3881: после установления соединения тренер должен сам
+    // «представиться» как publisher этой лекции. Gateway опознаёт роль
+    // по JWT (userId === Lecture.ownerId, ADR-116 §2.2) и регистрирует
+    // socketId в Map<lectureId, publisherSocketId>. Без этого webrtc:
+    // peer-joined от зрителей не пересылается тренеру.
+    const announcePublisher = () => {
+      const lid = lectureIdRef.current;
+      if (!lid) return;
+      try {
+        socket.emit('webrtc:peer-joined', { lectureId: lid });
+        console.info(
+          '[lecture-audio-pub] emitted webrtc:peer-joined (publisher self-register)',
+          { lectureId: lid },
+        );
+      } catch (err) {
+        console.warn(
+          '[lecture-audio-pub] publisher self-register emit failed',
+          err,
+        );
+      }
+    };
     const handleSocketConnect = () => {
       console.info('[lecture-audio-pub] socket connect-event', {
         id: socket.id,
       });
+      // На каждый connect (initial + reconnect) переотправляем
+      // саморегистрацию: после reconnect-а map на сервере может быть
+      // очищен или socketId изменился.
+      announcePublisher();
     };
     const handleSocketDisconnect = (reason: string) => {
       console.warn('[lecture-audio-pub] socket disconnect-event', reason);
@@ -366,6 +391,9 @@ export function useLectureAudioPeerConnections({
       }
     } else {
       console.info('[lecture-audio-pub] socket already connected');
+      // На уже подключённом сокете connect-event не сработает —
+      // саморегистрация шлётся вручную здесь.
+      announcePublisher();
     }
     console.info(
       '[lecture-audio-pub] mount: subscribing to webrtc events',
