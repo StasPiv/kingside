@@ -338,6 +338,24 @@
   gap: 12px;
   margin-top: 12px;
 }
+
+/* KS-3865: в playing-режиме над доской 4 фиксированных блока (шапка
+   сайта + header страницы + WDL-полоса + HUD-табло), снизу — статус-
+   панель. На viewport вроде 1280×900 суммарная высота `статус + доска`
+   перерастала 100vh — 8-я горизонталь уходила за окно. Ограничиваем
+   `.board-container` (PuzzleBoard внутри GuessRunner) так, чтобы доска
+   не вылезала: max-width/max-height = доступная вертикаль за вычетом
+   зарезервированного на «всё, кроме доски» (≈320px). `useContainerWidth`
+   снимет уменьшенную ширину контейнера, chessboard станет квадратным с
+   этой стороной (aspect-ratio:1 у .board-container уже стоит).
+   На mobile (узкая ширина родителя) `min(parent-width, max-width)` всё
+   равно даёт ширину родителя — раскладка не ломается. */
+.guess-page[data-state='playing'] .guess-runner .board-container {
+  max-width: calc(100dvh - 320px);
+  max-height: calc(100dvh - 320px);
+  margin-left: auto;
+  margin-right: auto;
+}
 .guess-session[data-status='error'],
 .guess-session[data-status='starting'] {
   padding: 24px 16px;
