@@ -264,7 +264,14 @@ export function LectureAudioListener({
             onChange={(e) => setVolume(Number(e.target.value))}
             data-testid="lecture-audio-listener-volume"
             aria-label={t('lectureAudio.volumeLabel', 'Громкость')}
-            style={{ flex: '1 1 120px', maxWidth: 240 }}
+            /* KS-3882: явная горизонтальная ориентация. Без этого
+               Safari iOS может перейти на vertical-slider. */
+            style={{
+              flex: '1 1 120px',
+              maxWidth: 240,
+              height: 18,
+              appearance: 'auto',
+            }}
           />
           <span
             data-testid="lecture-audio-listener-status"

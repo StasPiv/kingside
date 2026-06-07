@@ -210,7 +210,17 @@ export function LectureAudioListenerCompact({
           opacity: isCapacityExceeded ? 0.6 : 1,
         }}
       >
-        <span aria-hidden="true">{muted || !unlocked ? '🔊' : '🔊'}</span>
+        {/* KS-3882: разные значки для состояний. До первого клика и
+            при выключенном звуке — «🔇» (заглушённый), после клика и
+            при наличии потока — «🔊». Пока WebRTC ещё не подключён —
+            «⏳» (ожидание потока от тренера). */}
+        <span aria-hidden="true">
+          {!unlocked || muted
+            ? '🔇'
+            : isConnected
+              ? '🔊'
+              : '⏳'}
+        </span>
         {hasIssue && (
           <span
             aria-hidden="true"
@@ -283,7 +293,16 @@ export function LectureAudioListenerCompact({
               onChange={(e) => setVolume(Number(e.target.value))}
               data-testid="lecture-audio-listener-compact-volume"
               aria-label={t('lectureAudio.volumeLabel', 'Громкость')}
-              style={{ flex: 1 }}
+              /* KS-3882: фиксируем размер ползунка. Без явной ширины
+                 в некоторых браузерах (Safari iOS) `<input type=range>`
+                 переходит в `-webkit-appearance: slider-vertical` и
+                 растягивается вертикально. */
+              style={{
+                width: 140,
+                height: 18,
+                margin: 0,
+                appearance: 'auto',
+              }}
             />
           </div>
           <div style={{ fontSize: 12, color: '#555' }}>
