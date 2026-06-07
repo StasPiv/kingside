@@ -1,9 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { spawn } from 'node:child_process';
-import { promises as fsp } from 'node:fs';
+import { createReadStream, createWriteStream, promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 
 /**
  * KS-3832 / ADR-116 §5.1, §6.3. Тонкая обёртка над системным ffmpeg
@@ -118,18 +119,26 @@ export class FfmpegConcatService implements OnModuleInit {
       const tmpDir = await fsp.mkdtemp(
         join(os.tmpdir(), 'lecture-audio-'),
       );
+      const mergedPath = join(tmpDir, 'merged.webm');
       const outPath = join(tmpDir, 'out.ogg');
-      const listPath = join(tmpDir, 'list.txt');
       try {
-        await this.writeConcatList(listPath, localChunkPaths);
+        // KS-3877. MediaRecorder в режиме `timeslice` отдаёт первый
+        // чанк с полным WebM-заголовком (EBML + Segment + Tracks +
+        // Cluster1), а каждый последующий — только новый Cluster без
+        // заголовков. Concat-demuxer ffmpeg (`-f concat`) считает
+        // каждый файл из списка самостоятельным медиаконтейнером и
+        // отбрасывает безголовочные чанки → итог получался длиной в
+        // один таймслайс.
+        //
+        // Решение: байт-в-байт склеить чанки в `merged.webm`. Matroska
+        // стрим валиден, если в нём header + произвольное число
+        // Cluster'ов подряд — ffmpeg прочитает его как обычный WebM
+        // и перепакует в Ogg одной операцией.
+        await this.concatChunkBytes(localChunkPaths, mergedPath);
         const { stderr } = await this.runFfmpeg([
-          '-f',
-          'concat',
-          '-safe',
-          '0',
           '-i',
-          listPath,
-          '-c',
+          mergedPath,
+          '-c:a',
           'copy',
           '-f',
           'ogg',
@@ -152,19 +161,30 @@ export class FfmpegConcatService implements OnModuleInit {
   }
 
   /**
-   * Список для `-f concat`: формат
-   *   file 'path/to/chunk0.webm'
-   *   file 'path/to/chunk1.webm'
-   * Одиночные кавычки внутри пути экранируются как `'\''` — для
-   * безопасности на случай странных файлов в tmp. У ffmpeg
-   * подразумевается этот же синтаксис.
+   * KS-3877. Байтовая конкатенация чанков (порядок гарантирует
+   * вызывающий код — `LectureAudioS3Service.listChunks` сортирует по
+   * `seq`). Используется вместо ffmpeg concat-demuxer'а, потому что
+   * timeslice-чанки MediaRecorder корректно складываются только так
+   * (см. подробности в комментарии task'а выше).
    */
-  private async writeConcatList(
-    listPath: string,
+  private async concatChunkBytes(
     chunks: string[],
+    targetPath: string,
   ): Promise<void> {
-    const lines = chunks.map((p) => `file '${p.replace(/'/g, `'\\''`)}'`);
-    await fsp.writeFile(listPath, lines.join('\n') + '\n', 'utf-8');
+    const out = createWriteStream(targetPath, { flags: 'w' });
+    try {
+      for (const chunk of chunks) {
+        // pipeline(..., { end: false }) — иначе после первой записи
+        // writer закроется и pipeline следующего файла упадёт.
+        await pipeline(createReadStream(chunk), out, { end: false });
+      }
+    } finally {
+      out.end();
+      await new Promise<void>((resolve, reject) => {
+        out.on('finish', () => resolve());
+        out.on('error', reject);
+      });
+    }
   }
 
   /**

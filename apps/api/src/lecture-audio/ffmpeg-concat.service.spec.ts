@@ -16,6 +16,42 @@ import { join } from 'node:path';
 import { FfmpegConcatService } from './ffmpeg-concat.service';
 
 /**
+ * KS-3877. Имитирует MediaRecorder timeslice: один WebM режется по
+ * границам Matroska Cluster (магия 1F 43 B6 75). Первый чанк = всё
+ * до второго кластера (EBML+Segment+Tracks+Cluster1), последующие —
+ * по одному Cluster'у без заголовков. Именно так работает
+ * MediaRecorder.start(timeslice) в Chromium и Firefox.
+ */
+async function splitWebmIntoTimesliceChunks(
+  fullPath: string,
+  chunkPaths: string[],
+): Promise<void> {
+  const buf = await fsp.readFile(fullPath);
+  const CLUSTER = Buffer.from([0x1f, 0x43, 0xb6, 0x75]);
+  const positions: number[] = [];
+  let idx = -1;
+  while (true) {
+    idx = buf.indexOf(CLUSTER, idx + 1);
+    if (idx === -1) break;
+    positions.push(idx);
+  }
+  if (positions.length === 0) {
+    throw new Error('splitWebmIntoTimesliceChunks: no Cluster element found');
+  }
+  if (positions.length < chunkPaths.length) {
+    throw new Error(
+      `splitWebmIntoTimesliceChunks: only ${positions.length} clusters but ${chunkPaths.length} chunks requested`,
+    );
+  }
+  for (let i = 0; i < chunkPaths.length; i++) {
+    const start = i === 0 ? 0 : positions[i];
+    const end =
+      i + 1 < chunkPaths.length ? positions[i + 1] : buf.length;
+    await fsp.writeFile(chunkPaths[i], buf.subarray(start, end));
+  }
+}
+
+/**
  * Минимальный CJS-stub p-queue для тестов. Реальный p-queue v7 — ESM,
  * jest без `--experimental-vm-modules` его не подхватывает; тестовая
  * очередь повторяет нужный нам интерфейс (`add`, `size`, `pending`)
@@ -56,7 +92,16 @@ function makeSvc(concurrency = 2): FfmpegConcatService {
   return s;
 }
 
-function genWebm(path: string, durationSec: number): Promise<void> {
+function genWebm(
+  path: string,
+  durationSec: number,
+  opts: { clusterTimeMs?: number } = {},
+): Promise<void> {
+  // `-cluster_time_limit` принудительно режет WebM на Cluster'ы по
+  // указанному окну (default ffmpeg = 5000 мс). В тестах нам нужен
+  // несколько Cluster'ов на сравнительно коротких записях — иначе
+  // splitWebmIntoTimesliceChunks падает «only N clusters».
+  const clusterTimeMs = opts.clusterTimeMs ?? 1000;
   return new Promise((resolve, reject) => {
     const proc = spawn(
       'ffmpeg',
@@ -71,6 +116,8 @@ function genWebm(path: string, durationSec: number): Promise<void> {
         `sine=frequency=440:duration=${durationSec}`,
         '-c:a',
         'libopus',
+        '-cluster_time_limit',
+        String(clusterTimeMs),
         '-f',
         'webm',
         path,
@@ -118,36 +165,45 @@ describe('FfmpegConcatService (KS-3832)', () => {
   });
 
   describe('runWithOutput / concatChunksToOgg (integration)', () => {
-    it('склеивает два 1-сек WebM-Opus чанка в out.ogg ≈ 2000 мс', async () => {
+    // KS-3877: чанки сделаны через разрез одного WebM по границам
+    // Cluster — это в точности то, что выдаёт MediaRecorder в режиме
+    // `start(timeslice)`. Раньше тут было `genWebm()` дважды, что
+    // имитировало pattern «stop+start» и проходило через
+    // ffmpeg-concat-demuxer, но в проде фронт использует timeslice;
+    // новая склейка через байтовую конкатенацию должна работать
+    // именно для этого сценария.
+    it('склеивает N timeslice-чанков из ~3-сек WebM-Opus, длительность ≈ 3000 мс', async () => {
       const tmp = await fsp.mkdtemp(join(os.tmpdir(), 'ffmpeg-spec-'));
+      const full = join(tmp, 'full.webm');
       const c0 = join(tmp, 'c0.webm');
       const c1 = join(tmp, 'c1.webm');
       try {
-        await genWebm(c0, 1);
-        await genWebm(c1, 1);
+        await genWebm(full, 3);
+        await splitWebmIntoTimesliceChunks(full, [c0, c1]);
         let copied = '';
         let durationMs = 0;
-        await svc.runWithOutput([c0, c1], async ({ localPath, durationMs: d }) => {
-          // копируем перед cleanup
-          copied = join(tmp, 'final.ogg');
-          await fsp.copyFile(localPath, copied);
-          durationMs = d;
-        });
+        await svc.runWithOutput(
+          [c0, c1],
+          async ({ localPath, durationMs: d }) => {
+            copied = join(tmp, 'final.ogg');
+            await fsp.copyFile(localPath, copied);
+            durationMs = d;
+          },
+        );
         const stat = await fsp.stat(copied);
         expect(stat.size).toBeGreaterThan(0);
         const probed = await probeDurationMs(copied);
-        // ffmpeg возвращает чуть больше 2 с (накладные опуса), допуск ±400 мс.
-        expect(probed).toBeGreaterThanOrEqual(1600);
-        expect(probed).toBeLessThanOrEqual(2400);
-        // Сам сервис рапортует через свой парсер stderr — допуск тот же.
-        expect(durationMs).toBeGreaterThanOrEqual(1600);
-        expect(durationMs).toBeLessThanOrEqual(2400);
+        // Окно: ffmpeg прибавляет немного на opus-overhead. Допуск ±400.
+        expect(probed).toBeGreaterThanOrEqual(2600);
+        expect(probed).toBeLessThanOrEqual(3400);
+        expect(durationMs).toBeGreaterThanOrEqual(2600);
+        expect(durationMs).toBeLessThanOrEqual(3400);
       } finally {
         await fsp.rm(tmp, { recursive: true, force: true });
       }
     }, 30_000);
 
-    it('одиночный чанк — длительность ≈ 1000 мс', async () => {
+    it('одиночный чанк (полный WebM-файл) — длительность ≈ 1000 мс', async () => {
       const tmp = await fsp.mkdtemp(join(os.tmpdir(), 'ffmpeg-spec-'));
       const c0 = join(tmp, 'c0.webm');
       try {
@@ -162,6 +218,32 @@ describe('FfmpegConcatService (KS-3832)', () => {
         await fsp.rm(tmp, { recursive: true, force: true });
       }
     }, 30_000);
+
+    // KS-3877: ключевая регрессионная проверка. Раньше при склейке
+    // через `-f concat` каждый чанк трактовался отдельно, и без
+    // заголовков (chunkN, N≥1) отбрасывался → результат был ровно в
+    // один timeslice. Сейчас байтовая конкатенация даёт суммарную
+    // длительность всех clusters.
+    it('KS-3877: финальная длительность = сумме длительностей всех timeslice-чанков (а не первого)', async () => {
+      const tmp = await fsp.mkdtemp(join(os.tmpdir(), 'ffmpeg-spec-'));
+      const full = join(tmp, 'full.webm');
+      try {
+        // Длинная запись — гарантируем минимум 3 Cluster'а.
+        await genWebm(full, 12);
+        const chunkPaths = [0, 1, 2].map((i) => join(tmp, `c${i}.webm`));
+        await splitWebmIntoTimesliceChunks(full, chunkPaths);
+        let durationMs = 0;
+        await svc.runWithOutput(chunkPaths, async ({ durationMs: d }) => {
+          durationMs = d;
+        });
+        // Если бы возвращался только первый чанк, было бы ~3-4 секунды.
+        // С исправлением — все 3 chunk'а суммарно ≈ полная длительность.
+        expect(durationMs).toBeGreaterThanOrEqual(10_000);
+        expect(durationMs).toBeLessThanOrEqual(13_000);
+      } finally {
+        await fsp.rm(tmp, { recursive: true, force: true });
+      }
+    }, 45_000);
 
     it('пустой список чанков → ошибка', async () => {
       await expect(svc.concatChunksToOgg([])).rejects.toThrow(/empty chunk/);
