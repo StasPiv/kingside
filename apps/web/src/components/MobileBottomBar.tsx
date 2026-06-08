@@ -226,6 +226,19 @@ export function MobileBottomBar() {
                   {t('nav.profile', 'Profile')}
                 </Link>
               ) : null;
+            // KS-3965 / ADR-119 §8 эпик A. Пункт «Лекции» для
+            // авторизованных пользователей в mobile-drawer'е. Ведёт
+            // на корневой `/lectures` (список «Мои лекции» появится
+            // в эпике B).
+            const lecturesItem = user ? (
+              <Link
+                key="lectures"
+                to="/lectures"
+                data-testid="mobile-more-lectures"
+              >
+                {t('nav.lectures', 'Lectures')}
+              </Link>
+            ) : null;
             const settingsItem = user ? (
               <Link
                 key="settings"
@@ -235,7 +248,7 @@ export function MobileBottomBar() {
                 {t('nav.settings', 'Settings')}
               </Link>
             ) : null;
-            if (!profileItem && !settingsItem) return null;
+            if (!profileItem && !lecturesItem && !settingsItem) return null;
             return (
               <div
                 className="mobile-more-group"
@@ -245,6 +258,7 @@ export function MobileBottomBar() {
                   {t('nav.moreAccount', 'Account')}
                 </div>
                 {profileItem}
+                {lecturesItem}
                 {settingsItem}
               </div>
             );

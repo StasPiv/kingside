@@ -262,6 +262,18 @@ export function MainLayout() {
                       <FaUserFriends size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
                       {t('nav.friends', 'Friends')}
                     </Link>
+                    {/* KS-3965 / ADR-119 §8 эпик A. Пункт «Лекции»
+                        раздела для авторизованных пользователей. Ведёт
+                        на список «Мои лекции» (`/lectures`), который
+                        получит наполнение в эпике B после готовности
+                        backend-эндпоинта `GET /my/lectures` из ADR-118. */}
+                    <Link
+                      to="/lectures"
+                      onClick={closeAll}
+                      data-testid="nav-lectures"
+                    >
+                      {t('nav.lectures', 'Lectures')}
+                    </Link>
                     <Link to="/settings" onClick={closeAll}>{t('nav.settings')}</Link>
                     <button onClick={() => { logout(); closeAll(); }}>{t('nav.logout')}</button>
                   </div>
