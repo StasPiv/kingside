@@ -42,6 +42,9 @@ describe('LecturesService', () => {
     liveAnalysis: {
       findUnique: jest.Mock;
     };
+    lectureAccessGrant: {
+      createMany: jest.Mock;
+    };
   };
   let liveAnalysis: {
     createBareLiveSession: jest.Mock;
@@ -83,6 +86,11 @@ describe('LecturesService', () => {
             slug: 'EXIST00000',
             status: 'active',
           }),
+      },
+      // KS-3934 / ADR-118 §2.4.1. Bulk INSERT начального allowlist'а.
+      // По умолчанию `createMany` ничего не делает (BD-no-op).
+      lectureAccessGrant: {
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
     liveAnalysis = {
@@ -258,6 +266,100 @@ describe('LecturesService', () => {
       expect(r.lecture.liveAnalysisId).toBe('la-analysis-bound');
       expect(r.liveAnalysis?.slug).toBe('BOUND00000');
       expect(r.liveAnalysis?.url).toBe('https://kingside.site/live/BOUND00000');
+    });
+
+    // ─── KS-3934 / ADR-118 §2.4.1: initialAccessUserIds + bulk INSERT ─
+
+    it('KS-3934: scheduled + restricted + initialAccessUserIds → bulk INSERT', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-rest-1',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      const userA = '00000000-0000-4000-8000-00000000000a';
+      const userB = '00000000-0000-4000-8000-00000000000b';
+      await service.create('u-1', {
+        title: 'Для двоих',
+        scheduledAt: '2026-07-01T10:00:00Z',
+        visibility: 'restricted',
+        initialAccessUserIds: [userA, userB],
+      });
+      expect(prisma.lecture.create.mock.calls[0][0].data.visibility).toBe(
+        'restricted',
+      );
+      expect(prisma.lectureAccessGrant.createMany).toHaveBeenCalledTimes(1);
+      const args = prisma.lectureAccessGrant.createMany.mock.calls[0][0];
+      expect(args.skipDuplicates).toBe(true);
+      expect(args.data).toEqual([
+        { lectureId: 'l-rest-1', subjectType: 'user', subjectId: userA, grantedById: 'u-1' },
+        { lectureId: 'l-rest-1', subjectType: 'user', subjectId: userB, grantedById: 'u-1' },
+      ]);
+    });
+
+    it('KS-3934: immediate-live + restricted + initialAccessUserIds → bulk INSERT (после создания live)', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-rest-2',
+        ownerId: 'u-1',
+        status: 'live',
+        liveAnalysisId: 'la-1',
+      });
+      const userA = '00000000-0000-4000-8000-00000000000a';
+      await service.create('u-1', {
+        title: 'Live closed',
+        visibility: 'restricted',
+        initialAccessUserIds: [userA],
+      });
+      expect(prisma.lectureAccessGrant.createMany).toHaveBeenCalledTimes(1);
+      const args = prisma.lectureAccessGrant.createMany.mock.calls[0][0];
+      expect(args.data).toEqual([
+        { lectureId: 'l-rest-2', subjectType: 'user', subjectId: userA, grantedById: 'u-1' },
+      ]);
+    });
+
+    it('KS-3934: restricted + пустой initialAccessUserIds → createMany не вызывается', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-rest-3',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      await service.create('u-1', {
+        title: 'Только для меня',
+        scheduledAt: '2026-07-01T10:00:00Z',
+        visibility: 'restricted',
+        initialAccessUserIds: [],
+      });
+      expect(prisma.lectureAccessGrant.createMany).not.toHaveBeenCalled();
+    });
+
+    it('KS-3934: restricted без поля initialAccessUserIds → createMany не вызывается', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-rest-4',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      await service.create('u-1', {
+        title: 'Только для меня',
+        scheduledAt: '2026-07-01T10:00:00Z',
+        visibility: 'restricted',
+      });
+      expect(prisma.lectureAccessGrant.createMany).not.toHaveBeenCalled();
+    });
+
+    it('KS-3934: public + initialAccessUserIds → массив игнорируется (warn в логе)', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-pub-1',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      const userA = '00000000-0000-4000-8000-00000000000a';
+      await service.create('u-1', {
+        title: 'Открытая лекция',
+        scheduledAt: '2026-07-01T10:00:00Z',
+        visibility: 'public',
+        initialAccessUserIds: [userA],
+      });
+      // visibility=public → grants не создаются, даже если массив непустой.
+      expect(prisma.lectureAccessGrant.createMany).not.toHaveBeenCalled();
     });
   });
 

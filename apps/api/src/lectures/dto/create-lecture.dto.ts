@@ -39,10 +39,31 @@ export class CreateLectureDto {
   @IsDateString()
   scheduledAt?: string;
 
-  /** `public` (видна в списке тренера) или `unlisted` (только по прямой ссылке). */
+  /**
+   * KS-3934 / ADR-118 §2.1. Видимость лекции при создании.
+   *   - `public` — публичная (видна в списке тренера).
+   *   - `unlisted` — по прямой ссылке.
+   *   - `restricted` — только владелец + allowlist (см. `initialAccessUserIds`).
+   */
   @IsOptional()
-  @IsIn(['public', 'unlisted'])
-  visibility?: 'public' | 'unlisted';
+  @IsIn(['public', 'unlisted', 'restricted'])
+  visibility?: 'public' | 'unlisted' | 'restricted';
+
+  /**
+   * KS-3934 / ADR-118 §2.4.1. Опционально на создании restricted-лекции:
+   * userId-ы, которым сразу выдать доступ. Без поля или пустой массив —
+   * лекция создаётся открытой только для владельца, allowlist пуст
+   * (тренер добавит учеников через `POST /lectures/:id/access` позже).
+   *
+   * Если visibility != 'restricted' — массив игнорируется (warn в логе).
+   * Дубликаты в массиве защищены `ArrayUnique` на DTO, а bulk INSERT
+   * использует `skipDuplicates: true` как вторая страховка.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  initialAccessUserIds?: string[];
 
   /**
    * KS-3785/KS-3789: при immediate-live (без `scheduledAt`) можно

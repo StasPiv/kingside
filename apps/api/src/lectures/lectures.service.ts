@@ -128,6 +128,21 @@ export class LecturesService {
     // пустой массив там, где клиент хотел бы остаться на default'е.
     const disabledTools = dto.disabledTools;
 
+    // KS-3934 / ADR-118 §2.4.1. Начальный allowlist для restricted-лекции.
+    // Если visibility != 'restricted', а массив всё-таки передали —
+    // молча игнорируем (с warn в логе), чтобы фронт мог отправлять
+    // payload без знания финального visibility. Пустой массив при
+    // restricted допустим (только владелец до первого POST /access).
+    const rawInitialAccessUserIds = dto.initialAccessUserIds ?? [];
+    if (rawInitialAccessUserIds.length > 0 && visibility !== 'restricted') {
+      this.logger.warn(
+        `create: initialAccessUserIds (${rawInitialAccessUserIds.length} entries)` +
+          ` ignored because visibility='${visibility}' is not 'restricted'`,
+      );
+    }
+    const initialAccessUserIds =
+      visibility === 'restricted' ? rawInitialAccessUserIds : [];
+
     // Сценарий «начать сейчас»: scheduledAt отсутствует → лекция
     // сразу live + открывается LiveAnalysis под неё (с привязкой к
     // Analysis если передан analysisId, иначе bare).
@@ -149,8 +164,10 @@ export class LecturesService {
           ...(disabledTools !== undefined ? { disabledTools } : {}),
         },
       });
+      await this.seedInitialAccessGrants(lecture.id, ownerId, initialAccessUserIds);
       this.logger.log(
-        `Lecture created (immediate live): id=${lecture.id} owner=${ownerId} liveAnalysisId=${session.id}`,
+        `Lecture created (immediate live): id=${lecture.id} owner=${ownerId} liveAnalysisId=${session.id}` +
+          ` visibility=${visibility} initialGrants=${initialAccessUserIds.length}`,
       );
       return { lecture, liveAnalysis: session as LectureLiveBinding };
     }
@@ -168,10 +185,46 @@ export class LecturesService {
         ...(disabledTools !== undefined ? { disabledTools } : {}),
       },
     });
+    await this.seedInitialAccessGrants(lecture.id, ownerId, initialAccessUserIds);
     this.logger.log(
-      `Lecture created (scheduled): id=${lecture.id} owner=${ownerId} scheduledAt=${scheduledAt.toISOString()}`,
+      `Lecture created (scheduled): id=${lecture.id} owner=${ownerId} scheduledAt=${scheduledAt.toISOString()}` +
+        ` visibility=${visibility} initialGrants=${initialAccessUserIds.length}`,
     );
     return { lecture, liveAnalysis: null as LectureLiveBinding };
+  }
+
+  /**
+   * KS-3934 / ADR-118 §2.4.1. Bulk INSERT начального allowlist'а после
+   * создания restricted-лекции. Использует `createMany` с
+   * `skipDuplicates: true` — двойная страховка от случайных дублей
+   * в массиве (первая — `ArrayUnique` на DTO).
+   *
+   * Если массив пуст — no-op, БД не дёргаем. Если фронт прислал
+   * userId-ы, которых нет в `users` — на этой стадии не валидируем
+   * (по описанию ADR, валидация делается на стороне `POST /access`,
+   * см. KS-3936 B01); сюда попадают только UUID'ы, прошедшие DTO-
+   * валидацию, и foreign-key constraint на `granted_by_id` (owner)
+   * уже стоит. Для `subject_id` FK нет — это полиморфное поле,
+   * целостность поддерживается hook'ом удаления User (KS-3935 A06).
+   */
+  private async seedInitialAccessGrants(
+    lectureId: string,
+    grantedById: string,
+    userIds: string[],
+  ): Promise<void> {
+    if (userIds.length === 0) return;
+    await this.prisma.lectureAccessGrant.createMany({
+      data: userIds.map((subjectId) => ({
+        lectureId,
+        subjectType: 'user',
+        subjectId,
+        grantedById,
+      })),
+      skipDuplicates: true,
+    });
+    this.logger.log(
+      `seedInitialAccessGrants: lecture=${lectureId} owner=${grantedById} added=${userIds.length}`,
+    );
   }
 
   // ─── Старт ────────────────────────────────────────────────────────
