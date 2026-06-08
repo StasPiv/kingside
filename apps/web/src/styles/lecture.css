@@ -291,7 +291,258 @@
   border-color: var(--border-strong);
 }
 
+/* ============================================================
+ * ADR-119 §8 эпик E (KS-3981): LectureLandingPage адаптив.
+ *
+ * Layout:
+ *  - ≥ 768px: две колонки — основной контент (заголовок + описание
+ *    + CTA) слева, meta-карточка (статус, время) справа.
+ *  - < 768px: один столбец, meta уходит над описанием в виде
+ *    компактного блока (если есть scheduledAt) или прячется
+ *    (если info уже доступно в badge).
+ * ============================================================ */
+
+.lecture-landing-page {
+  padding: 24px 20px 48px;
+  max-width: 1040px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+@media (min-width: 768px) {
+  .lecture-landing-page {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-areas:
+      'header header'
+      'main aside';
+    column-gap: 32px;
+  }
+}
+
+.lecture-landing-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+
+@media (min-width: 768px) {
+  .lecture-landing-page__header {
+    grid-area: header;
+  }
+}
+
+.lecture-landing-page__title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+@media (max-width: 480px) {
+  .lecture-landing-page__title {
+    font-size: 22px;
+  }
+}
+
+.lecture-landing-page__main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .lecture-landing-page__main {
+    grid-area: main;
+  }
+}
+
+.lecture-landing-page__description {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.lecture-landing-page__cta-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lecture-landing-page__cta-body {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.lecture-landing-page__cta-body strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* CTA-кнопка — общая разметка, варианты ниже. */
+.lecture-landing-page__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.lecture-landing-page__cta--primary {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border-color: var(--accent-primary);
+}
+
+.lecture-landing-page__cta--primary:hover,
+.lecture-landing-page__cta--primary:focus-visible {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.lecture-landing-page__cta--disabled,
+.lecture-landing-page__cta[disabled] {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  border-color: var(--border-mid);
+  cursor: not-allowed;
+}
+
+.lecture-landing-page__cta-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ---------- Meta-aside (правая колонка) ---------- */
+.lecture-landing-page__aside {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  align-self: start;
+}
+
+@media (min-width: 768px) {
+  .lecture-landing-page__aside {
+    grid-area: aside;
+    position: sticky;
+    top: 24px;
+  }
+}
+
+.lecture-landing-page__meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lecture-landing-page__meta-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lecture-landing-page__meta-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* ---------- Skeleton-состояние (загрузка) ---------- */
+.lecture-landing-page--loading {
+  /* во время загрузки aside не показывается — оставляем одну колонку */
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas: none !important;
+  max-width: 720px;
+}
+
+.lecture-landing-page__skeleton {
+  display: grid;
+  gap: 14px;
+}
+
+.lecture-landing-page__skeleton-row {
+  height: 16px;
+  background: var(--ov-neutral-15);
+  border-radius: 6px;
+  animation: lecture-landing-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.lecture-landing-page__skeleton-row--title {
+  height: 28px;
+  width: 60%;
+}
+
+.lecture-landing-page__skeleton-row--meta {
+  width: 40%;
+}
+
+.lecture-landing-page__skeleton-row--body {
+  height: 80px;
+}
+
+.lecture-landing-page__skeleton-row--cta {
+  height: 40px;
+  width: 200px;
+}
+
+@keyframes lecture-landing-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lecture-landing-page__skeleton-row {
+    animation: none;
+  }
+}
+
 /* ---------- Mobile ---------- */
+@media (max-width: 480px) {
+  .lecture-landing-page {
+    padding: 16px 16px 32px;
+    gap: 18px;
+  }
+  .lecture-landing-page__aside {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+}
+
+/* ============================================================
+ * Конец ADR-119 §8 эпик E layout-блок.
+ * ============================================================ */
+
+/* ---------- Mobile (unavailable, продолжение) ---------- */
 @media (max-width: 480px) {
   .lecture-unavailable-page {
     padding: 24px 16px 32px;

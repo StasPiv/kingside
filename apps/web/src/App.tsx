@@ -7,6 +7,8 @@ import { LoginPage } from './pages/LoginPage';
 import AiCommentSandboxPage from './pages/dev/AiCommentSandboxPage';
 // KS-3984 dev-only: песочница для приёмочных скриншотов бейджей статусов лекций.
 import LectureStatusBadgesPreviewPage from './pages/dev/LectureStatusBadgesPreviewPage';
+// KS-3981 dev-only: песочница для приёмочных скриншотов LectureLandingPage адаптива.
+import LectureLandingPreviewPage from './pages/dev/LectureLandingPreviewPage';
 import { FeaturesPage } from './pages/FeaturesPage';
 import { DocsUserCoursesPage } from './pages/DocsUserCoursesPage';
 import { DiscoverCoursesPage } from './pages/DiscoverCoursesPage';
@@ -420,6 +422,8 @@ export function App() {
         <Route path="/__dev/ai-comment-panel" element={<AiCommentSandboxPage />} />
         {/* KS-3984 dev-only песочница бейджей статусов лекций. */}
         <Route path="/__dev/lecture-status-badges" element={<LectureStatusBadgesPreviewPage />} />
+        {/* KS-3981 dev-only песочница адаптива LectureLandingPage. */}
+        <Route path="/__dev/lecture-landing" element={<LectureLandingPreviewPage />} />
         <Route path="/features" element={<FeaturesPage />} />
         {/* KS-1895: публичная документация — без ProtectedRoute */}
         <Route path="/docs/user-courses" element={<DocsUserCoursesPage />} />

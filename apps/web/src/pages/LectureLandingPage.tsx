@@ -3,6 +3,11 @@
  * маршруту `/lectures/:id`. Источник данных — `useLectureDetail`
  * (`GET /lectures/:id`).
  *
+ * KS-3981 (ADR-119 §8 эпик E): адаптив — на ≥768px две колонки
+ * (основной контент + meta-aside справа), на <768px один столбец.
+ * Inline-стили заменены на CSS-классы из `lecture.css`. Бейдж
+ * статуса лекции — из `.lecture-status-badge` (KS-3984).
+ *
  * Поведение:
  *  - Пока загрузка — рендерится скелетон.
  *  - 401/403 → редирект на `/lectures/:id/unavailable?reason=forbidden`.
@@ -35,42 +40,13 @@ function LectureLandingSkeleton() {
     <div
       className="lecture-landing-page lecture-landing-page--loading"
       data-testid="lecture-landing-skeleton"
-      style={{ padding: 16, maxWidth: 720, margin: '0 auto' }}
     >
-      <div
-        style={{
-          height: 28,
-          width: '60%',
-          background: '#e5e7eb',
-          borderRadius: 6,
-          marginBottom: 12,
-        }}
-      />
-      <div
-        style={{
-          height: 16,
-          width: '40%',
-          background: '#eef0f3',
-          borderRadius: 6,
-          marginBottom: 24,
-        }}
-      />
-      <div
-        style={{
-          height: 80,
-          background: '#f3f4f6',
-          borderRadius: 8,
-          marginBottom: 24,
-        }}
-      />
-      <div
-        style={{
-          height: 40,
-          width: 200,
-          background: '#e5e7eb',
-          borderRadius: 8,
-        }}
-      />
+      <div className="lecture-landing-page__skeleton">
+        <div className="lecture-landing-page__skeleton-row lecture-landing-page__skeleton-row--title" />
+        <div className="lecture-landing-page__skeleton-row lecture-landing-page__skeleton-row--meta" />
+        <div className="lecture-landing-page__skeleton-row lecture-landing-page__skeleton-row--body" />
+        <div className="lecture-landing-page__skeleton-row lecture-landing-page__skeleton-row--cta" />
+      </div>
     </div>
   );
 }
@@ -86,6 +62,24 @@ function formatScheduledAt(scheduledAt: string | null): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+type LectureStatus = 'live' | 'scheduled' | 'recorded' | 'cancelled';
+
+function statusBadgeClass(status: LectureStatus): string {
+  return `lecture-status-badge lecture-status-badge--${status}`;
+}
+
+function statusLabel(
+  status: LectureStatus,
+  t: (k: string, def: string) => string,
+): string {
+  if (status === 'live') return t('lectureLanding.badge.live', 'Live');
+  if (status === 'scheduled')
+    return t('lectureLanding.badge.scheduled', 'Scheduled');
+  if (status === 'recorded')
+    return t('lectureLanding.badge.recorded', 'Recorded');
+  return t('lectureLanding.badge.cancelled', 'Cancelled');
 }
 
 export function LectureLandingPage() {
@@ -121,130 +115,165 @@ export function LectureLandingPage() {
     return <LectureLandingSkeleton />;
   }
 
-  const status = lecture.status;
+  const status = lecture.status as LectureStatus;
   const slug = lecture.liveAnalysis?.slug ?? null;
+  const scheduledAtFormatted = formatScheduledAt(lecture.scheduledAt);
 
   return (
     <div
       className="lecture-landing-page"
       data-testid="lecture-landing-page"
       data-status={status}
-      style={{ padding: 16, maxWidth: 720, margin: '0 auto' }}
     >
-      <h1
-        data-testid="lecture-landing-title"
-        style={{ marginBottom: 4 }}
-      >
-        {lecture.title}
-      </h1>
-      {/* Описание + автор. ownerUsername в LectureDetail на этом шаге
-          backend не отдаёт — выводим только описание; ссылка на
-          профиль автора появится в эпике B вместе с расширением
-          контракта. */}
-      {lecture.description && (
-        <p
-          data-testid="lecture-landing-description"
-          style={{ margin: '4px 0 16px', opacity: 0.85 }}
+      <header className="lecture-landing-page__header">
+        <h1
+          className="lecture-landing-page__title"
+          data-testid="lecture-landing-title"
         >
-          {lecture.description}
-        </p>
-      )}
+          {lecture.title}
+        </h1>
+        <span
+          className={statusBadgeClass(status)}
+          data-testid="lecture-landing-status-badge"
+        >
+          {statusLabel(status, t)}
+        </span>
+      </header>
 
-      {status === 'scheduled' && (
-        <div data-testid="lecture-landing-scheduled">
-          <p style={{ margin: '12px 0', fontSize: 15 }}>
-            {t(
-              'lectureLanding.scheduled.body',
-              'Lecture is scheduled to start at:',
-            )}{' '}
-            <strong>{formatScheduledAt(lecture.scheduledAt) || '—'}</strong>
-          </p>
-          {/* CTA «Когда начнётся» — статичная отметка, авто-обновление
-              countdown появится в эпике B. */}
-          <button
-            type="button"
-            disabled
-            data-testid="lecture-landing-scheduled-cta"
-            style={{
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: '1px solid #ddd',
-              background: '#f5f5f5',
-              color: '#888',
-              cursor: 'not-allowed',
-              fontSize: 15,
-            }}
+      <main className="lecture-landing-page__main">
+        {/* Описание + автор. ownerUsername в LectureDetail на этом шаге
+            backend не отдаёт — выводим только описание; ссылка на
+            профиль автора появится в эпике B вместе с расширением
+            контракта. */}
+        {lecture.description && (
+          <p
+            className="lecture-landing-page__description"
+            data-testid="lecture-landing-description"
           >
-            {t(
-              'lectureLanding.scheduled.cta',
-              'Waiting for the lecture to start…',
-            )}
-          </button>
-        </div>
-      )}
-
-      {status === 'live' && (
-        <div data-testid="lecture-landing-live">
-          <p style={{ margin: '12px 0', fontSize: 15 }}>
-            {t('lectureLanding.live.body', 'The lecture is live right now.')}
+            {lecture.description}
           </p>
-          {slug ? (
-            <Link
-              to={`/live/${encodeURIComponent(slug)}`}
-              data-testid="lecture-landing-live-cta"
-              style={{
-                display: 'inline-block',
-                padding: '10px 20px',
-                borderRadius: 8,
-                border: 'none',
-                background: '#1976d2',
-                color: '#fff',
-                textDecoration: 'none',
-                fontSize: 15,
-              }}
-            >
-              {t('lectureLanding.live.cta', 'Join broadcast')}
-            </Link>
-          ) : (
-            <p
-              data-testid="lecture-landing-live-no-slug"
-              style={{ opacity: 0.7 }}
+        )}
+
+        {status === 'scheduled' && (
+          <div
+            className="lecture-landing-page__cta-block"
+            data-testid="lecture-landing-scheduled"
+          >
+            <p className="lecture-landing-page__cta-body">
+              {t(
+                'lectureLanding.scheduled.body',
+                'Lecture is scheduled to start at:',
+              )}{' '}
+              <strong>{scheduledAtFormatted || '—'}</strong>
+            </p>
+            {/* CTA «Когда начнётся» — статичная отметка, авто-обновление
+                countdown появится в эпике B. */}
+            <button
+              type="button"
+              disabled
+              data-testid="lecture-landing-scheduled-cta"
+              className="lecture-landing-page__cta lecture-landing-page__cta--disabled"
             >
               {t(
-                'lectureLanding.live.noSlug',
-                'The broadcast link is not ready yet. Please refresh.',
+                'lectureLanding.scheduled.cta',
+                'Waiting for the lecture to start…',
+              )}
+            </button>
+          </div>
+        )}
+
+        {status === 'live' && (
+          <div
+            className="lecture-landing-page__cta-block"
+            data-testid="lecture-landing-live"
+          >
+            <p className="lecture-landing-page__cta-body">
+              {t('lectureLanding.live.body', 'The lecture is live right now.')}
+            </p>
+            {slug ? (
+              <Link
+                to={`/live/${encodeURIComponent(slug)}`}
+                data-testid="lecture-landing-live-cta"
+                className="lecture-landing-page__cta lecture-landing-page__cta--primary"
+              >
+                {t('lectureLanding.live.cta', 'Join broadcast')}
+              </Link>
+            ) : (
+              <p
+                data-testid="lecture-landing-live-no-slug"
+                className="lecture-landing-page__cta-hint"
+              >
+                {t(
+                  'lectureLanding.live.noSlug',
+                  'The broadcast link is not ready yet. Please refresh.',
+                )}
+              </p>
+            )}
+          </div>
+        )}
+
+        {status === 'recorded' && (
+          <div
+            className="lecture-landing-page__cta-block"
+            data-testid="lecture-landing-recorded"
+          >
+            <p className="lecture-landing-page__cta-body">
+              {t(
+                'lectureLanding.recorded.body',
+                'A recording of the lecture is available.',
               )}
             </p>
-          )}
-        </div>
-      )}
+            <Link
+              to={`/lectures/${encodeURIComponent(id)}/replay`}
+              data-testid="lecture-landing-recorded-cta"
+              className="lecture-landing-page__cta lecture-landing-page__cta--primary"
+            >
+              {t('lectureLanding.recorded.cta', 'Watch recording')}
+            </Link>
+          </div>
+        )}
+      </main>
 
-      {status === 'recorded' && (
-        <div data-testid="lecture-landing-recorded">
-          <p style={{ margin: '12px 0', fontSize: 15 }}>
-            {t(
-              'lectureLanding.recorded.body',
-              'A recording of the lecture is available.',
-            )}
-          </p>
-          <Link
-            to={`/lectures/${encodeURIComponent(id)}/replay`}
-            data-testid="lecture-landing-recorded-cta"
-            style={{
-              display: 'inline-block',
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: 'none',
-              background: '#1976d2',
-              color: '#fff',
-              textDecoration: 'none',
-              fontSize: 15,
-            }}
-          >
-            {t('lectureLanding.recorded.cta', 'Watch recording')}
-          </Link>
+      {/* Aside-карточка с meta: статус, время. Расширится в эпике B
+          (тренер, продолжительность, превью FEN). */}
+      <aside
+        className="lecture-landing-page__aside"
+        data-testid="lecture-landing-aside"
+      >
+        <div className="lecture-landing-page__meta-row">
+          <span className="lecture-landing-page__meta-label">
+            {t('lectureLanding.meta.status', 'Status')}
+          </span>
+          <span className="lecture-landing-page__meta-value">
+            <span className={statusBadgeClass(status)}>
+              {statusLabel(status, t)}
+            </span>
+          </span>
         </div>
-      )}
+        {scheduledAtFormatted && (
+          <div className="lecture-landing-page__meta-row">
+            <span className="lecture-landing-page__meta-label">
+              {t('lectureLanding.meta.startsAt', 'Starts at')}
+            </span>
+            <span
+              className="lecture-landing-page__meta-value"
+              data-testid="lecture-landing-meta-starts-at"
+            >
+              {scheduledAtFormatted}
+            </span>
+          </div>
+        )}
+        {slug && (
+          <div className="lecture-landing-page__meta-row">
+            <span className="lecture-landing-page__meta-label">
+              {t('lectureLanding.meta.broadcast', 'Broadcast')}
+            </span>
+            <span className="lecture-landing-page__meta-value">
+              <Link to={`/live/${encodeURIComponent(slug)}`}>{slug}</Link>
+            </span>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }
