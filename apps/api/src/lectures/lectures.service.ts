@@ -576,7 +576,25 @@ export class LecturesService {
     }
     const withLive = this.withLiveAnalysisBinding(row);
     const withPreview = this.withPreviewFen(withLive, row);
-    return this.withAudioInfo(id, withPreview);
+    // KS-3986 / ADR-119 §8: viewerCount для live-лекций с привязкой.
+    // Одна Redis-операция на запрос (GET viewers-key). Для остальных
+    // статусов поле не пишем.
+    let withViewerCount: typeof withPreview & { viewerCount?: number } =
+      withPreview;
+    if (row.status === 'live' && row.liveAnalysisId) {
+      try {
+        const viewerCount =
+          await this.liveAnalysisService.readLiveAnalysisViewerCount(
+            row.liveAnalysisId,
+          );
+        withViewerCount = { ...withPreview, viewerCount };
+      } catch (e) {
+        this.logger.warn(
+          `readLiveAnalysisViewerCount failed lecture=${id} la=${row.liveAnalysisId}: ${(e as Error).message}`,
+        );
+      }
+    }
+    return this.withAudioInfo(id, withViewerCount);
   }
 
   /**

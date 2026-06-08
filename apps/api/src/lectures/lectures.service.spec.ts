@@ -53,6 +53,7 @@ describe('LecturesService', () => {
     createBareLiveSession: jest.Mock;
     create: jest.Mock;
     closeBySlug: jest.Mock;
+    readLiveAnalysisViewerCount: jest.Mock;
   };
   let config: { get: jest.Mock };
   let audioS3: {
@@ -118,6 +119,9 @@ describe('LecturesService', () => {
       closeBySlug: jest
         .fn()
         .mockResolvedValue({ id: 'la-existing', alreadyClosed: false }),
+      // KS-3986 / ADR-119 §8: viewerCount в LectureSummary.getById для
+      // live-лекций. По умолчанию мок возвращает 0.
+      readLiveAnalysisViewerCount: jest.fn().mockResolvedValue(0),
     };
     config = {
       get: jest.fn((key: string) =>
@@ -1001,6 +1005,65 @@ describe('LecturesService', () => {
         slug: 'SLUG000002',
         url: 'https://kingside.site/live/SLUG000002',
       });
+    });
+
+    // ─── KS-3986 / ADR-119 §8: viewerCount ────────────────────────────
+
+    it('KS-3986: live-лекция → viewerCount подмешан из Redis', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-vc',
+        visibility: 'public',
+        status: 'live',
+        liveAnalysisId: 'la-vc',
+        liveAnalysis: { id: 'la-vc', slug: 'VCSL000001' },
+      });
+      liveAnalysis.readLiveAnalysisViewerCount.mockResolvedValueOnce(7);
+      const r = await service.getById('l-vc');
+      expect((r as { viewerCount?: number }).viewerCount).toBe(7);
+      expect(liveAnalysis.readLiveAnalysisViewerCount).toHaveBeenCalledWith(
+        'la-vc',
+      );
+    });
+
+    it('KS-3986: scheduled → viewerCount не вызывается и не пишется', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-sch',
+        visibility: 'public',
+        status: 'scheduled',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      const r = await service.getById('l-sch');
+      expect((r as { viewerCount?: number }).viewerCount).toBeUndefined();
+      expect(liveAnalysis.readLiveAnalysisViewerCount).not.toHaveBeenCalled();
+    });
+
+    it('KS-3986: live БЕЗ liveAnalysisId → viewerCount не пишется', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-live-bare',
+        visibility: 'public',
+        status: 'live',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      const r = await service.getById('l-live-bare');
+      expect((r as { viewerCount?: number }).viewerCount).toBeUndefined();
+      expect(liveAnalysis.readLiveAnalysisViewerCount).not.toHaveBeenCalled();
+    });
+
+    it('KS-3986: ошибка Redis swallowed, viewerCount просто отсутствует', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-vc-err',
+        visibility: 'public',
+        status: 'live',
+        liveAnalysisId: 'la-err',
+        liveAnalysis: { id: 'la-err', slug: 'ERR0000001' },
+      });
+      liveAnalysis.readLiveAnalysisViewerCount.mockRejectedValueOnce(
+        new Error('redis down'),
+      );
+      const r = await service.getById('l-vc-err');
+      expect((r as { viewerCount?: number }).viewerCount).toBeUndefined();
     });
 
     // KS-3835 / ADR-116 §5.1: audio в ответе getById.

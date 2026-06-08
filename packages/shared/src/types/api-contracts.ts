@@ -3566,6 +3566,20 @@ export interface LectureSummary {
    * через batched lookup.
    */
   previewFen?: string;
+
+  /**
+   * KS-3986 / ADR-119 §8. Количество подключённых зрителей к live-
+   * сессии лекции. Заполняется только для `status='live'` с привязкой
+   * к LiveAnalysis (читается из Redis-счётчика `live_analysis:<id>:viewers`).
+   * Для прочих статусов поле отсутствует.
+   *
+   * Сейчас отдаётся только в `GET /lectures/:id` (одна Redis-операция
+   * на запрос). В `GET /my/lectures` поле не заполняется, чтобы не
+   * делать N запросов в Redis при batch-выдаче — фронт может
+   * запросить детали отдельным `GET /lectures/:id` при наведении/
+   * раскрытии плитки.
+   */
+  viewerCount?: number;
 }
 
 /**

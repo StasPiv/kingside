@@ -1511,6 +1511,16 @@ export class LiveAnalysisService implements OnModuleInit {
   }
 
   /**
+   * KS-3986 / ADR-119 §8. Публичный wrapper для `readViewerCount` —
+   * нужен `LecturesService.getById`, чтобы подмешать `viewerCount`
+   * в `LectureSummary` для live-лекции. Возвращает 0, если ключа
+   * нет в Redis.
+   */
+  async readLiveAnalysisViewerCount(liveAnalysisId: string): Promise<number> {
+    return this.readViewerCount(liveAnalysisId);
+  }
+
+  /**
    * Throttled UPDATE `lastActivityAt`. Гарантирует, что в PG не уйдёт
    * больше одного UPDATE per-slug в `LAST_ACTIVITY_THROTTLE_MS` (10s).
    * При `force=true` (reset/close) — UPDATE безусловный.
