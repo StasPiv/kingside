@@ -62,16 +62,21 @@ RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" 
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies (typescript,
 # jest, ts-jest, @nestjs/cli, @types/*, ts-node-dev и т.п.).
 #
-# KS-3924 (ADR ... deploy-perf): `prisma` CLI перенесена в `devDependencies`
+# KS-3924 (deploy-perf): `prisma` CLI перенесена в `devDependencies`
 # пакета `packages/db`, в runtime api больше не нужна — pre-rollout
 # `prisma migrate deploy` теперь выполняется отдельным миграционным
-# образом (`kingside-api-migrations`). После prune из production-tree
-# уходят `prisma` CLI + `@prisma/engines` + транзитивы (`@prisma/config`,
-# `effect`, `fast-check`, `jiti` и т.п.) — суммарно ~170 МБ.
-# Сгенерированный `@prisma/client` уже лежит в `packages/db/dist/generated/prisma`
-# (создан выше через `npm run build` пакета `packages/db` ДО prune),
-# поэтому runtime спокойно работает с `@prisma/client` без CLI.
-RUN npm prune --omit=dev --ignore-scripts
+# образом (`kingside-api-migrations`). Однако `@prisma/client` объявляет
+# `prisma` как `peerDependency` с `optional: true` → npm помечает её
+# `devOptional: true` и `--omit=dev` её НЕ убирает. Поэтому добавлен
+# `--omit=optional`: это убирает прицельно `devOptional`-стек prisma
+# (`@prisma/config`, `@prisma/engines`, `effect`, `fast-check`, `jiti`,
+# `c12` и т.п.) + платформ-специфичные нативные модули, не нужные в
+# linux/x64 контейнере (`@esbuild/darwin-*`, `@rollup/rollup-win32-*`,
+# `fsevents`, `pg-cloudflare`). Сгенерированный `@prisma/client` уже
+# лежит в `packages/db/dist/generated/prisma` (создан выше через
+# `npm run build` пакета `packages/db` ДО prune), runtime работает без
+# CLI.
+RUN npm prune --omit=dev --omit=optional --ignore-scripts
 
 FROM base AS production
 WORKDIR /app
