@@ -7,7 +7,10 @@ import {
 } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { LectureAudioInfo } from '@kingside/shared';
+import type {
+  LectureAudioInfo,
+  LectureDisabledTool,
+} from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
 import { useAuth } from '../context/AuthContext';
@@ -64,6 +67,15 @@ interface LectureSummary {
    * работает в старом timer-based режиме (без `<audio>` в DOM).
    */
   audio?: LectureAudioInfo | null;
+  /**
+   * KS-3907 / ADR-117 §3 (шаг C03). Снэпшот «какие инструменты тренер
+   * запретил ученикам» на момент сохранения лекции (см. backend
+   * `Lecture.disabledTools`, KS-3903). Пустой массив или отсутствие
+   * поля — ученикам в записи доступен полный набор инструментов.
+   * Поле уезжает в `<AnalysisPage studentToolsPolicy={…} />` и в
+   * `replay.disabledTools` (см. `ReplayLectureProps`).
+   */
+  disabledTools?: LectureDisabledTool[];
 }
 
 interface LectureRecording {
@@ -392,6 +404,11 @@ export function LectureReplayPage() {
       startingFen: state.recording.startingFen,
       orientation: state.recording.orientation,
       currentTimeMs,
+      // KS-3907 / ADR-117 C03: дублируем снэпшот настроек лекции в
+      // replay-объект, чтобы он был частью самоописательного
+      // replay-контракта. Фактический фильтр UI применяется через
+      // отдельный пропс `studentToolsPolicy` AnalysisPage (см. ниже).
+      disabledTools: state.lecture.disabledTools ?? [],
     };
   }, [state, currentTimeMs]);
 
@@ -560,7 +577,19 @@ export function LectureReplayPage() {
               flexDirection: 'column',
             }}
           >
-            {replay && <AnalysisPage replay={replay} />}
+            {replay && (
+              <AnalysisPage
+                replay={replay}
+                /* KS-3907 / ADR-117 C03: применяем настройки лекции
+                   как политику для ученика. Replay живёт в
+                   `publicMode=true` (через `isReplay` внутри
+                   AnalysisPage), поэтому studentToolsPolicy
+                   действительно фильтрует UI (engine / ai_comment /
+                   book / меню действий). Пустой массив или
+                   отсутствие поля — ученикам доступен полный набор. */
+                studentToolsPolicy={lecture.disabledTools ?? []}
+              />
+            )}
           </div>
 
           {/* Плеер: progress + play/pause + скорость. Обычный блок,
