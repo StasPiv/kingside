@@ -146,3 +146,182 @@
     box-shadow: none;
   }
 }
+
+/* ============================================================
+ * ADR-119 §8 эпик E (KS-3983): LectureUnavailablePage.
+ *
+ * Полноэкранный центрированный layout: одна большая иконка по
+ * `reason`, заголовок, пояснительный текст, CTA-кнопки в ряд.
+ * Все цвета — через design tokens (light/dark адаптация).
+ * ============================================================ */
+
+.lecture-unavailable-page {
+  /* Полная высота под `MainLayout` (минус хедер/футер). 60vh — чтобы
+     контент гарантированно был «посередине экрана», даже если
+     описание короткое. */
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 20px 48px;
+  max-width: 560px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* ---------- Иконка ---------- */
+.lecture-unavailable-page__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.lecture-unavailable-page__icon svg {
+  width: 40px;
+  height: 40px;
+  display: block;
+}
+
+/* Цветовые акценты по reason. У каждого — мягкая заливка и контрастная
+   обводка/штрих, чтобы значение читалось без подписи. */
+.lecture-unavailable-page[data-reason='cancelled'] .lecture-unavailable-page__icon {
+  background: var(--ov-warning-15);
+  color: var(--warning-strong);
+}
+.lecture-unavailable-page[data-reason='forbidden'] .lecture-unavailable-page__icon {
+  background: var(--ov-danger-15);
+  color: var(--danger-strong);
+}
+.lecture-unavailable-page[data-reason='not-found'] .lecture-unavailable-page__icon {
+  background: var(--ov-neutral-15);
+  color: var(--text-secondary);
+}
+.lecture-unavailable-page[data-reason='load-failed'] .lecture-unavailable-page__icon {
+  background: var(--ov-info-20);
+  color: var(--c-1565c0);
+}
+.lecture-unavailable-page[data-reason='unknown'] .lecture-unavailable-page__icon {
+  background: var(--ov-neutral-15);
+  color: var(--text-secondary);
+}
+
+/* ---------- Текст ---------- */
+.lecture-unavailable-page__title {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.lecture-unavailable-page__body {
+  margin: 0 0 28px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 440px;
+}
+
+/* ---------- Действия ---------- */
+.lecture-unavailable-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  width: 100%;
+  max-width: 440px;
+}
+
+.lecture-unavailable-page__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+/* primary — для retry (главное действие восстановления) */
+.lecture-unavailable-page__action--primary {
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  color: var(--text-on-accent);
+}
+.lecture-unavailable-page__action--primary:hover,
+.lecture-unavailable-page__action--primary:focus-visible {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* secondary — outlined, для «Профиль тренера» */
+.lecture-unavailable-page__action--secondary {
+  background: transparent;
+  border: 1px solid var(--accent-primary);
+  color: var(--accent-primary);
+}
+.lecture-unavailable-page__action--secondary:hover,
+.lecture-unavailable-page__action--secondary:focus-visible {
+  background: var(--accent-soft);
+}
+
+/* tertiary — нейтральная «На главную» */
+.lecture-unavailable-page__action--tertiary {
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text-primary);
+}
+.lecture-unavailable-page__action--tertiary:hover,
+.lecture-unavailable-page__action--tertiary:focus-visible {
+  background: var(--ov-white-05);
+  border-color: var(--border-strong);
+}
+
+/* ---------- Mobile ---------- */
+@media (max-width: 480px) {
+  .lecture-unavailable-page {
+    padding: 24px 16px 32px;
+    min-height: 50vh;
+  }
+  .lecture-unavailable-page__icon {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 16px;
+  }
+  .lecture-unavailable-page__icon svg {
+    width: 32px;
+    height: 32px;
+  }
+  .lecture-unavailable-page__title {
+    font-size: 19px;
+  }
+  .lecture-unavailable-page__body {
+    font-size: 14px;
+    margin-bottom: 22px;
+  }
+  /* На узких экранах кнопки растягиваются на полную ширину, чтобы
+     попасть пальцем — но не больше 320px, иначе теряют вид «pill». */
+  .lecture-unavailable-page__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lecture-unavailable-page__action {
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+}
