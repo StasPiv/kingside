@@ -18,6 +18,7 @@ import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   CreateLectureDto,
+  MyLecturesQueryDto,
   ScheduleQueryDto,
   StartLectureDto,
   UpdateLectureDto,
@@ -159,6 +160,28 @@ export class LecturesController {
     status?: 'scheduled' | 'live' | 'recorded' | 'cancelled',
   ) {
     return this.service.listByCoach(username, status);
+  }
+
+  /**
+   * KS-3937 / ADR-118 §2.4.1. Личный кабинет учеников: лекции, к
+   * которым у текущего пользователя есть доступ — собственные +
+   * allowlist'ом. JWT обязателен (для анонимов список бессмысленен).
+   *
+   * Query: `status?`, `limit?` (1..100, default 50), `offset?`
+   * (>=0, default 0). Сортировка `updatedAt DESC`. Ответ —
+   * `{ items, total, hasMore }`.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('my/lectures')
+  async listMyLectures(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: MyLecturesQueryDto,
+  ) {
+    return this.service.listMyLectures(req.user.id, {
+      status: query.status,
+      limit: query.limit,
+      offset: query.offset,
+    });
   }
 
   /**

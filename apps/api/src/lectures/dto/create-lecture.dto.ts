@@ -3,12 +3,16 @@ import {
   IsArray,
   IsDateString,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   ALL_LECTURE_DISABLED_TOOLS,
   type LectureDisabledTool,
@@ -181,4 +185,33 @@ export class ScheduleQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+}
+
+/**
+ * KS-3937 / ADR-118 §2.4.1. Query для `GET /my/lectures`.
+ *
+ * `status` — опциональный фильтр; `limit` / `offset` — пагинация
+ * (limit clamp'ится сервисом до [1..100], offset до >=0).
+ *
+ * Все числа приходят как строки в query — конвертируем `@Type(() => Number)`,
+ * валидируем `@Min` / `@Max` для подсказки клиенту, итоговую защиту
+ * от out-of-range выполняет сервис.
+ */
+export class MyLecturesQueryDto {
+  @IsOptional()
+  @IsIn(['scheduled', 'live', 'recorded', 'cancelled'])
+  status?: 'scheduled' | 'live' | 'recorded' | 'cancelled';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }

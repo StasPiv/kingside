@@ -35,7 +35,9 @@ describe('LecturesService', () => {
       findMany: jest.Mock;
       update: jest.Mock;
       delete: jest.Mock;
+      count: jest.Mock;
     };
+    $transaction: jest.Mock;
     user: {
       findUnique: jest.Mock;
     };
@@ -69,7 +71,13 @@ describe('LecturesService', () => {
         findMany: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn(),
       },
+      // KS-3937: $transaction([findMany, count]) — для listMyLectures.
+      // По дефолту разворачивает массив промисов в Promise.all-style.
+      $transaction: jest.fn().mockImplementation((arr: Promise<unknown>[]) =>
+        Promise.all(arr),
+      ),
       user: {
         findUnique: jest.fn(),
       },
@@ -759,6 +767,84 @@ describe('LecturesService', () => {
         slug: 'SLUG000003',
         url: 'https://kingside.site/live/SLUG000003',
       });
+    });
+  });
+
+  // ─── KS-3937 / ADR-118 §2.4.1: listMyLectures ─────────────────────
+
+  describe('listMyLectures (KS-3937)', () => {
+    const userId = '11111111-1111-4111-a111-111111111111';
+
+    it('OR(ownerId, accessGrants.some) + сортировка updatedAt DESC', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      await service.listMyLectures(userId);
+      const findArgs = prisma.lecture.findMany.mock.calls[0][0];
+      expect(findArgs.where).toEqual({
+        OR: [
+          { ownerId: userId },
+          {
+            accessGrants: {
+              some: { subjectType: 'user', subjectId: userId },
+            },
+          },
+        ],
+      });
+      expect(findArgs.orderBy).toEqual([{ updatedAt: 'desc' }]);
+    });
+
+    it('фильтр по status добавляется в where', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      await service.listMyLectures(userId, { status: 'live' });
+      const findArgs = prisma.lecture.findMany.mock.calls[0][0];
+      expect(findArgs.where.status).toBe('live');
+    });
+
+    it('пагинация: limit/offset clamp до [1..100] и >=0', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      await service.listMyLectures(userId, { limit: 999, offset: -5 });
+      const findArgs = prisma.lecture.findMany.mock.calls[0][0];
+      expect(findArgs.take).toBe(100);
+      expect(findArgs.skip).toBe(0);
+    });
+
+    it('пагинация: дефолты limit=50, offset=0', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      await service.listMyLectures(userId);
+      const findArgs = prisma.lecture.findMany.mock.calls[0][0];
+      expect(findArgs.take).toBe(50);
+      expect(findArgs.skip).toBe(0);
+    });
+
+    it('hasMore=true когда offset + items < total', async () => {
+      const rows = Array.from({ length: 10 }, (_, i) => ({
+        id: `lec-${i}`,
+        ownerId: userId,
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      }));
+      prisma.lecture.findMany.mockResolvedValueOnce(rows);
+      prisma.lecture.count.mockResolvedValueOnce(42);
+      const r = await service.listMyLectures(userId, { limit: 10, offset: 0 });
+      expect(r.total).toBe(42);
+      expect(r.items).toHaveLength(10);
+      expect(r.hasMore).toBe(true);
+    });
+
+    it('hasMore=false когда offset + items >= total', async () => {
+      const rows = Array.from({ length: 3 }, (_, i) => ({
+        id: `lec-${i}`,
+        ownerId: userId,
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      }));
+      prisma.lecture.findMany.mockResolvedValueOnce(rows);
+      prisma.lecture.count.mockResolvedValueOnce(3);
+      const r = await service.listMyLectures(userId);
+      expect(r.hasMore).toBe(false);
     });
   });
 

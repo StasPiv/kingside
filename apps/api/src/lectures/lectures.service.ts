@@ -474,6 +474,70 @@ export class LecturesService {
     return rows.map((row) => this.withLiveAnalysisBinding(row));
   }
 
+  /**
+   * KS-3937 / ADR-118 §2.4.1. `GET /my/lectures` — личный кабинет
+   * учеников: список лекций, к которым у текущего пользователя есть
+   * доступ. Включает:
+   *   - его собственные (`ownerId = userId`);
+   *   - лекции с allowlist-grant'ом (`subjectType='user', subjectId=userId`).
+   *
+   * Параметры:
+   *   - `status?` — фильтр `scheduled | live | recorded | cancelled`;
+   *     без него все статусы.
+   *   - `limit` (1..100, default 50);
+   *   - `offset` (>=0, default 0).
+   *
+   * Сортировка: `updatedAt DESC` — свежие сверху (изменения тренера,
+   * переходы в live, finalize записи всё двигают наверх).
+   *
+   * Возвращает `{ items, total, hasMore }` — фронт ленивая пагинация.
+   * SQL: `lecture.findMany WHERE OR(ownerId=me, EXISTS grant)`,
+   * Prisma раскрывает в JOIN на `lecture_access_grants` по индексу
+   * `(subject_type, subject_id)` из KS-3930.
+   */
+  async listMyLectures(
+    userId: string,
+    opts: {
+      status?: 'scheduled' | 'live' | 'recorded' | 'cancelled';
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) {
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
+    const offset = Math.max(opts.offset ?? 0, 0);
+
+    const where = {
+      OR: [
+        { ownerId: userId },
+        {
+          accessGrants: {
+            some: { subjectType: 'user' as const, subjectId: userId },
+          },
+        },
+      ],
+      ...(opts.status && { status: opts.status }),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.lecture.findMany({
+        where,
+        orderBy: [{ updatedAt: 'desc' }],
+        take: limit,
+        skip: offset,
+        include: {
+          liveAnalysis: { select: { id: true, slug: true } },
+        },
+      }),
+      this.prisma.lecture.count({ where }),
+    ]);
+
+    return {
+      items: items.map((row) => this.withLiveAnalysisBinding(row)),
+      total,
+      hasMore: offset + items.length < total,
+    };
+  }
+
   async getById(id: string) {
     const row = await this.prisma.lecture.findUnique({
       where: { id },
