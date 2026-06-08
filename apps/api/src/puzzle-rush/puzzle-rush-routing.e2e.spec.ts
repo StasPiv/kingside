@@ -16,6 +16,7 @@ import { PuzzleRushService } from './puzzle-rush.service';
 import { PuzzleController } from '../puzzle/puzzle.controller';
 import { PuzzleService } from '../puzzle/puzzle.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 describe('PuzzleRush + Puzzle route conflict test', () => {
@@ -50,6 +51,16 @@ describe('PuzzleRush + Puzzle route conflict test', () => {
         { provide: PuzzleRushService, useValue: mockPuzzleRushService },
         { provide: PuzzleService, useValue: mockPuzzleService },
         { provide: PrismaService, useValue: {} },
+        // KS-3891 ввёл RedisService в конструктор PuzzleController —
+        // existing e2e test не был обновлён. Для роут-теста Redis не
+        // используется (browse не вызывается), поэтому stub-объект.
+        {
+          provide: RedisService,
+          useValue: {
+            get: jest.fn().mockResolvedValue(null),
+            set: jest.fn().mockResolvedValue('OK'),
+          },
+        },
       ],
     })
       .overrideGuard(JwtAuthGuard)

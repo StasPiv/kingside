@@ -96,6 +96,18 @@ function makeFakeRedis(): {
 }
 const fakeRedis = (): unknown => makeFakeRedis();
 
+/**
+ * KS-3893. `browse` теперь запускает COUNT в фоне через
+ * `void this.spawnBackgroundBrowseTotal(...)`. Тесту нужно дождаться
+ * пока цепочка микротасок добежит до `prisma.$queryRawUnsafe` и
+ * `redis.set`. Достаточно пары итераций event-loop'а.
+ */
+async function flushBackgroundCount(): Promise<void> {
+  for (let i = 0; i < 5; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 describe('puzzle-cursor-codec', () => {
   it('encode → decode round-trip', () => {
     const c = { c: '2026-05-07T10:00:00.000Z', i: 'pz-1' };
@@ -691,53 +703,93 @@ describe('PuzzleController.browse — KS-3670 maxMaiaWeakChoiceProb', () => {
  *    все участвуют в count;
  *  - cursor — НЕ участвует в count.
  */
-describe('PuzzleController.browse — KS-3666 total', () => {
-  it('делает count + data (два $queryRawUnsafe)', async () => {
-    const prisma = makePrisma([makeRow(1), makeRow(2)], 42);
+describe('PuzzleController.browse — KS-3893 total с фоновым COUNT', () => {
+  it('cache hit → total: number, COUNT в БД не идёт', async () => {
+    const prisma = makePrisma([makeRow(1)], 999);
+    const redis = makeFakeRedis();
+    redis.get.mockResolvedValueOnce('42'); // cache hit
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
-      fakeRedis() as any,
+      redis as unknown as never,
     );
     const res = await controller.browse(anonReq, 20);
-    expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+    expect(res.total).toBe(42);
     const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
-    expect(calls.some((c) => c[0].includes('COUNT(*)'))).toBe(true);
-    expect(calls.some((c) => c[0].includes('SELECT p.id'))).toBe(true);
-    expect(res.total).toBe(42);
+    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeUndefined();
+    expect(redis.set).not.toHaveBeenCalled();
   });
 
-  it('total из count, не из rows.length (страница 2 из 42)', async () => {
-    const prisma = makePrisma([makeRow(1), makeRow(2)], 42);
+  it('cache miss → total: null СРАЗУ, COUNT уходит в фон и пишет в Redis', async () => {
+    const prisma = makePrisma([makeRow(1), makeRow(2)], 777);
+    const redis = makeFakeRedis(); // get → null
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
-      fakeRedis() as any,
+      redis as unknown as never,
     );
     const res = await controller.browse(anonReq, 20);
+
+    // KS-3893: на cache miss total приходит как null, не блокируем ответ.
+    expect(res.total).toBeNull();
     expect(res.data).toHaveLength(2);
-    expect(res.total).toBe(42);
+
+    // Фон должен достать COUNT и положить в Redis.
+    await flushBackgroundCount();
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeDefined();
+    expect(redis.set).toHaveBeenCalledTimes(1);
+    const [key, value, mode, ttl] = redis.set.mock.calls[0];
+    expect(String(key)).toContain('puzzles:browse:count:v1:');
+    expect(value).toBe('777');
+    expect(mode).toBe('EX');
+    expect(ttl).toBe(300);
   });
 
-  it('total = 0 когда countRows пустой', async () => {
-    const prisma = {
-      $queryRawUnsafe: jest
-        .fn<Promise<unknown>, [string, ...unknown[]]>()
-        .mockImplementation((sql: string) => {
-          if (sql.includes('COUNT(*)')) return Promise.resolve([]);
-          return Promise.resolve([]);
-        }),
-    } as unknown as PrismaService & { $queryRawUnsafe: jest.Mock };
+  it('cache miss + ошибка Redis на get → total: null без фонового COUNT (нет места куда писать)', async () => {
+    const prisma = makePrisma([makeRow(1)], 5);
+    const redis = makeFakeRedis();
+    redis.get.mockRejectedValueOnce(new Error('redis down'));
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
       prisma,
-      fakeRedis() as any,
+      redis as unknown as never,
     );
     const res = await controller.browse(anonReq, 20);
-    expect(res.total).toBe(0);
+    expect(res.total).toBeNull();
+
+    // Если Redis недоступен — фоновый COUNT не нужен, результат
+    // некуда сохранить. Должен быть ТОЛЬКО dataQuery.
+    await flushBackgroundCount();
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeUndefined();
+    expect(redis.set).not.toHaveBeenCalled();
   });
 
-  it('count использует те же фильтры что dataQuery (source + rating)', async () => {
+  it('KS-3891: count НЕ запускается при наличии cursor (total=null на последующих страницах)', async () => {
+    const prisma = makePrisma([makeRow(1)], 100);
+    const redis = makeFakeRedis();
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      redis as unknown as never,
+    );
+    const cursor = encodePuzzleCursor({
+      c: '2026-05-07T10:00:00.000Z',
+      i: 'pz-5',
+    });
+    const res = await controller.browse(anonReq, 20, cursor);
+    await flushBackgroundCount();
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeUndefined();
+    expect(redis.get).not.toHaveBeenCalled();
+    // dataQuery всё ещё содержит cursor-условие.
+    const dataCall = calls.find((c) => c[0].includes('SELECT p.id'))!;
+    expect(dataCall[0]).toContain('p.created_at <');
+    expect(res.total).toBeNull();
+  });
+
+  it('фоновый count использует те же фильтры что dataQuery (source + rating)', async () => {
     const prisma = makePrisma([], 7);
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
@@ -755,8 +807,10 @@ describe('PuzzleController.browse — KS-3666 total', () => {
       undefined, // hideSolved
       'lichess', // source
     );
+    await flushBackgroundCount();
     const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
     const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall).toBeDefined();
     expect(countCall[0]).toContain('p.source = $');
     expect(countCall[0]).toContain('p.rating >= $');
     expect(countCall[0]).toContain('p.rating <= $');
@@ -765,62 +819,7 @@ describe('PuzzleController.browse — KS-3666 total', () => {
     expect(countCall.slice(1)).toContain(1600);
   });
 
-  it('KS-3891: count НЕ запускается при наличии cursor (total=null на последующих страницах)', async () => {
-    const prisma = makePrisma([makeRow(1)], 100);
-    const controller = new PuzzleController(
-      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
-      prisma,
-      fakeRedis() as any,
-    );
-    const cursor = encodePuzzleCursor({
-      c: '2026-05-07T10:00:00.000Z',
-      i: 'pz-5',
-    });
-    const res = await controller.browse(anonReq, 20, cursor);
-    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
-    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeUndefined();
-    // dataQuery всё ещё содержит cursor-условие.
-    const dataCall = calls.find((c) => c[0].includes('SELECT p.id'))!;
-    expect(dataCall[0]).toContain('p.created_at <');
-    // total на последующих страницах не возвращается.
-    expect(res.total).toBeNull();
-  });
-
-  it('KS-3891: total читается из Redis-кеша, count в БД не идёт', async () => {
-    const prisma = makePrisma([makeRow(1)], 999);
-    const redis = makeFakeRedis();
-    redis.get.mockResolvedValueOnce('42'); // cache hit
-    const controller = new PuzzleController(
-      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
-      prisma,
-      redis as unknown as never,
-    );
-    const res = await controller.browse(anonReq, 20);
-    expect(res.total).toBe(42);
-    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
-    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeUndefined();
-    expect(redis.set).not.toHaveBeenCalled();
-  });
-
-  it('KS-3891: при промахе кеша total считается в БД и пишется в Redis с TTL', async () => {
-    const prisma = makePrisma([makeRow(1)], 777);
-    const redis = makeFakeRedis(); // get → null
-    const controller = new PuzzleController(
-      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
-      prisma,
-      redis as unknown as never,
-    );
-    const res = await controller.browse(anonReq, 20);
-    expect(res.total).toBe(777);
-    expect(redis.set).toHaveBeenCalledTimes(1);
-    const [key, value, mode, ttl] = redis.set.mock.calls[0];
-    expect(String(key)).toContain('puzzles:browse:count:v1:');
-    expect(value).toBe('777');
-    expect(mode).toBe('EX');
-    expect(ttl).toBe(300);
-  });
-
-  it('count НЕ содержит ORDER BY / LIMIT', async () => {
+  it('фоновый count НЕ содержит ORDER BY / LIMIT', async () => {
     const prisma = makePrisma([makeRow(1)], 100);
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
@@ -828,13 +827,15 @@ describe('PuzzleController.browse — KS-3666 total', () => {
       fakeRedis() as any,
     );
     await controller.browse(anonReq, 20);
+    await flushBackgroundCount();
     const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
     const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall).toBeDefined();
     expect(countCall[0]).not.toContain('ORDER BY');
     expect(countCall[0]).not.toContain('LIMIT');
   });
 
-  it('count учитывает minMaiaWeakChoiceProb', async () => {
+  it('фоновый count учитывает minMaiaWeakChoiceProb', async () => {
     const prisma = makePrisma([], 3);
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
@@ -849,14 +850,16 @@ describe('PuzzleController.browse — KS-3666 total', () => {
       undefined, undefined, undefined,
       '0.5', // minMaiaWeakChoiceProb
     );
+    await flushBackgroundCount();
     const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
     const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall).toBeDefined();
     expect(countCall[0]).toMatch(/p\.maia_weak_choice_prob >= \$\d+/);
     expect(countCall[0]).toContain('p.maia_metric_version = 1');
     expect(countCall.slice(1)).toContain(0.5);
   });
 
-  it('count учитывает maxMaiaWeakChoiceProb (диапазон [0.4, 0.7])', async () => {
+  it('фоновый count учитывает maxMaiaWeakChoiceProb (диапазон [0.4, 0.7])', async () => {
     const prisma = makePrisma([], 5);
     const controller = new PuzzleController(
       { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
@@ -872,12 +875,210 @@ describe('PuzzleController.browse — KS-3666 total', () => {
       '0.4',
       '0.7',
     );
+    await flushBackgroundCount();
     const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
     const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall).toBeDefined();
     expect(countCall[0]).toMatch(/p\.maia_weak_choice_prob >= \$\d+/);
     expect(countCall[0]).toMatch(/p\.maia_weak_choice_prob <= \$\d+/);
     expect(countCall.slice(1)).toContain(0.4);
     expect(countCall.slice(1)).toContain(0.7);
+  });
+
+  it('ошибка фонового COUNT не валит ответ (data уже отправлены)', async () => {
+    const prisma = {
+      $queryRawUnsafe: jest
+        .fn<Promise<unknown>, [string, ...unknown[]]>()
+        .mockImplementation((sql: string) => {
+          if (sql.includes('COUNT(*)')) {
+            return Promise.reject(new Error('db down'));
+          }
+          return Promise.resolve([makeRow(1)]);
+        }),
+    } as unknown as PrismaService & { $queryRawUnsafe: jest.Mock };
+    const redis = makeFakeRedis();
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      redis as unknown as never,
+    );
+    const res = await controller.browse(anonReq, 20);
+    expect(res.total).toBeNull();
+    expect(res.data).toHaveLength(1);
+    // Фоновый COUNT упал — Redis НЕ должен получить запись.
+    await flushBackgroundCount();
+    expect(redis.set).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * KS-3893. `/puzzles/browse/count` — выделенный обработчик счётчика.
+ *   - `approx=true` → planner-estimate через EXPLAIN FORMAT JSON.
+ *   - default       → точный путь через Redis + COUNT (как в KS-3891).
+ */
+describe('PuzzleController.browseCount — KS-3893', () => {
+  /**
+   * Prisma-mock с поддержкой EXPLAIN FORMAT JSON: возвращает
+   * структуру `[{ "QUERY PLAN": [{ Plan: { "Plan Rows": N } }] }]`.
+   */
+  function makePrismaWithExplain(opts: {
+    explainRows?: number | null;
+    countTotal?: number;
+    explainShouldThrow?: boolean;
+  }) {
+    const { explainRows = null, countTotal = 0, explainShouldThrow = false } = opts;
+    const queryFn = jest
+      .fn<Promise<unknown>, [string, ...unknown[]]>()
+      .mockImplementation((sql: string) => {
+        if (sql.startsWith('EXPLAIN')) {
+          if (explainShouldThrow) {
+            return Promise.reject(new Error('EXPLAIN failed'));
+          }
+          if (explainRows === null) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve([
+            { 'QUERY PLAN': [{ Plan: { 'Plan Rows': explainRows } }] },
+          ]);
+        }
+        if (sql.includes('COUNT(*)')) {
+          return Promise.resolve([{ total: countTotal }]);
+        }
+        return Promise.resolve([]);
+      });
+    return {
+      $queryRawUnsafe: queryFn,
+    } as unknown as PrismaService & { $queryRawUnsafe: jest.Mock };
+  }
+
+  it('approx=true → EXPLAIN FORMAT JSON, округление до сотен', async () => {
+    const prisma = makePrismaWithExplain({ explainRows: 12347 });
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      fakeRedis() as any,
+    );
+    const res = await controller.browseCount(anonReq, 'true');
+    expect(res).toEqual({ total: 12300, approximate: true });
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    expect(calls[0][0]).toMatch(/^EXPLAIN \(FORMAT JSON\) SELECT COUNT\(\*\)/);
+    // На approx-пути COUNT НЕ выполняется.
+    expect(calls.find((c) => c[0].startsWith('SELECT COUNT'))).toBeUndefined();
+  });
+
+  it('approx=true: planRows < 100 → возвращаем точное значение (без округления)', async () => {
+    const prisma = makePrismaWithExplain({ explainRows: 47 });
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      fakeRedis() as any,
+    );
+    const res = await controller.browseCount(anonReq, 'true');
+    expect(res).toEqual({ total: 47, approximate: true });
+  });
+
+  it('approx=true: EXPLAIN падает → fallback на точный COUNT', async () => {
+    const prisma = makePrismaWithExplain({
+      explainShouldThrow: true,
+      countTotal: 123,
+    });
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      fakeRedis() as any,
+    );
+    const res = await controller.browseCount(anonReq, 'true');
+    expect(res).toEqual({ total: 123, approximate: false });
+  });
+
+  it('без approx → точный путь, Redis cache hit', async () => {
+    const prisma = makePrismaWithExplain({ countTotal: 999 });
+    const redis = makeFakeRedis();
+    redis.get.mockResolvedValueOnce('555');
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      redis as unknown as never,
+    );
+    const res = await controller.browseCount(anonReq);
+    expect(res).toEqual({ total: 555, approximate: false });
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    expect(calls.find((c) => c[0].includes('COUNT(*)'))).toBeUndefined();
+  });
+
+  it('без approx → cache miss → COUNT + запись в Redis', async () => {
+    const prisma = makePrismaWithExplain({ countTotal: 321 });
+    const redis = makeFakeRedis();
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      redis as unknown as never,
+    );
+    const res = await controller.browseCount(anonReq);
+    expect(res).toEqual({ total: 321, approximate: false });
+    expect(redis.set).toHaveBeenCalledTimes(1);
+    const [, value, , ttl] = redis.set.mock.calls[0];
+    expect(value).toBe('321');
+    expect(ttl).toBe(300);
+  });
+
+  it('browseCount уважает source-фильтр', async () => {
+    const prisma = makePrismaWithExplain({ countTotal: 0 });
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      fakeRedis() as any,
+    );
+    await controller.browseCount(
+      anonReq,
+      undefined, // approx
+      undefined, // mine
+      undefined, // themes
+      undefined, // ratingMin
+      undefined, // ratingMax
+      undefined, // hideSolved
+      'lichess', // source
+    );
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    const countCall = calls.find((c) => c[0].includes('COUNT(*)'))!;
+    expect(countCall[0]).toContain('p.source = $');
+    expect(countCall.slice(1)).toContain('lichess');
+  });
+
+  it('approx-EXPLAIN использует тот же WHERE что точный COUNT', async () => {
+    const prisma = makePrismaWithExplain({ explainRows: 500 });
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      fakeRedis() as any,
+    );
+    await controller.browseCount(
+      loginReq('user-1'),
+      'true',     // approx
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'true',     // hideSolved
+      'lichess',
+    );
+    const calls = prisma.$queryRawUnsafe.mock.calls as Array<[string, ...unknown[]]>;
+    const explainCall = calls.find((c) => c[0].startsWith('EXPLAIN'))!;
+    expect(explainCall[0]).toContain('p.source = $');
+    expect(explainCall[0]).toContain('NOT EXISTS');
+    expect(explainCall.slice(1)).toContain('lichess');
+    expect(explainCall.slice(1)).toContain('user-1');
+  });
+
+  it('approx=true: пустой EXPLAIN-результат → fallback на точный', async () => {
+    const prisma = makePrismaWithExplain({ explainRows: null, countTotal: 99 });
+    const controller = new PuzzleController(
+      { buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService,
+      prisma,
+      fakeRedis() as any,
+    );
+    const res = await controller.browseCount(anonReq, 'true');
+    expect(res).toEqual({ total: 99, approximate: false });
   });
 });
 
