@@ -255,10 +255,6 @@ export function useLectureAudioPublisher({
   const deviceIdRef = useRef<string>('');
   if (!deviceIdRef.current) deviceIdRef.current = generateDeviceId();
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // KS-3927: PerformanceObserver на longtask — включается на время
-  // записи, чтобы вычислить, что блокирует основной поток и приводит
-  // к потере аудио-кадров `MediaRecorder`.
-  const longtaskObserverRef = useRef<PerformanceObserver | null>(null);
 
   // Свежие props в замыканиях.
   const lectureIdRef = useRef(lectureId);
@@ -411,16 +407,6 @@ export function useLectureAudioPublisher({
     setIsRecording(false);
     setAudioTrack(null);
     stopHeartbeat();
-    // KS-3927: останавливаем longtask-наблюдатель — за пределами
-    // записи его держать смысла нет.
-    if (longtaskObserverRef.current) {
-      try {
-        longtaskObserverRef.current.disconnect();
-      } catch {
-        /* ignore */
-      }
-      longtaskObserverRef.current = null;
-    }
     clearLock(deviceIdRef.current);
   }, [stopHeartbeat]);
 
@@ -516,30 +502,7 @@ export function useLectureAudioPublisher({
     // peer-connections (`useLectureAudioPeerConnections`). У микрофона
     // ровно один track, остальное — defensive.
     const tracks = stream.getAudioTracks();
-    const primaryTrack = tracks[0] ?? null;
-    setAudioTrack(primaryTrack);
-
-    // KS-3927 диагностика: если аудио-дорожка кратко «глохнет»
-    // (`muted=true`), MediaRecorder в этот момент записывает тишину,
-    // и на склейке возникают провалы в звуке. События `mute`/`unmute`
-    // / `ended` плюс начальное `muted` сразу пишем в журнал.
-    if (primaryTrack) {
-      console.info('[lecture-audio-pub] track ready', {
-        kind: primaryTrack.kind,
-        label: primaryTrack.label,
-        muted: primaryTrack.muted,
-        readyState: primaryTrack.readyState,
-      });
-      primaryTrack.onmute = () => {
-        console.warn('[lecture-audio-pub] track MUTED at', Date.now());
-      };
-      primaryTrack.onunmute = () => {
-        console.info('[lecture-audio-pub] track unmuted at', Date.now());
-      };
-      primaryTrack.onended = () => {
-        console.warn('[lecture-audio-pub] track ENDED at', Date.now());
-      };
-    }
+    setAudioTrack(tracks[0] ?? null);
 
     let recorder: MediaRecorder;
     try {
@@ -555,79 +518,12 @@ export function useLectureAudioPublisher({
     }
     recorderRef.current = recorder;
 
-    // KS-3927 диагностика. При записи лекции `MediaRecorder` в Chrome
-    // может терять аудиокадры, если основной поток заблокирован
-    // надолго. Чтобы найти конкретного виновника без DevTools-
-    // профиля, во время записи слушаем longtask-события и пишем их
-    // в журнал браузера. Виновник будет виден тренеру в консоли
-    // сразу после хода. PerformanceObserver сам по себе ничего не
-    // стоит, наблюдатель будет остановлен в `teardown()`.
-    try {
-      if (
-        typeof window !== 'undefined' &&
-        typeof window.PerformanceObserver !== 'undefined'
-      ) {
-        const supportedTypes = (
-          window.PerformanceObserver as unknown as {
-            supportedEntryTypes?: string[];
-          }
-        ).supportedEntryTypes;
-        if (
-          Array.isArray(supportedTypes) &&
-          supportedTypes.indexOf('longtask') >= 0
-        ) {
-          const observer = new window.PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) {
-              if (entry.duration < 50) continue;
-              console.warn(
-                '[lecture-audio-longtask]',
-                `${Math.round(entry.duration)}ms`,
-                {
-                  startTime: Math.round(entry.startTime),
-                  name: entry.name,
-                  attribution: (
-                    entry as unknown as { attribution?: unknown[] }
-                  ).attribution,
-                },
-              );
-            }
-          });
-          observer.observe({ entryTypes: ['longtask'] });
-          longtaskObserverRef.current = observer;
-        }
-      }
-    } catch (err) {
-      console.info(
-        '[useLectureAudioPublisher] PerformanceObserver(longtask) unsupported',
-        err,
-      );
-    }
-
-    // KS-3927 диагностика: фиксируем время и размер каждого
-    // фрагмента, чтобы заметить нестандартные интервалы (короче
-    // 5 секунд = что-то «пнуло» recorder) или подозрительный
-    // размер.
-    let prevChunkAt = 0;
     recorder.ondataavailable = (ev) => {
       const blob = ev.data;
-      const now = performance.now();
-      const dt = prevChunkAt > 0 ? Math.round(now - prevChunkAt) : null;
-      prevChunkAt = now;
-      console.info('[lecture-audio-pub] dataavailable', {
-        seq: seqRef.current,
-        bytes: blob?.size ?? 0,
-        msSincePrev: dt,
-      });
       if (!blob || blob.size === 0) return;
       const seq = seqRef.current;
       seqRef.current = seq + 1;
       void uploadChunk(seq, blob);
-    };
-    recorder.onpause = () => {
-      console.warn('[lecture-audio-pub] recorder PAUSE at', Date.now());
-    };
-    recorder.onresume = () => {
-      console.info('[lecture-audio-pub] recorder RESUME at', Date.now());
     };
     recorder.onerror = (ev: Event) => {
       const detail =
