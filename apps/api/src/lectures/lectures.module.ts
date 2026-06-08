@@ -4,9 +4,8 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { LiveAnalysisModule } from '../live-analysis/live-analysis.module';
 import { LectureAudioModule } from '../lecture-audio/lecture-audio.module';
 import { LecturesController } from './lectures.controller';
-import { LecturesAccessController } from './lectures-access.controller';
 import { LecturesService } from './lectures.service';
-import { LecturesAccessService } from './lectures-access.service';
+import { LecturesAccessModule } from './lectures-access.module';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1. Модуль лекций тренера.
@@ -18,15 +17,22 @@ import { LecturesAccessService } from './lectures-access.service';
  * `LectureAudioS3Service.signedCloudFrontUrl` — формирование
  * подписанного URL финального аудио в `GET /lectures/:id`.
  *
- * KS-3931 / ADR-118 §2.3: `LecturesAccessService` — единая точка
- * резолва доступа (owner/public/unlisted/restricted). Экспортируется,
- * чтобы `LiveAnalysisGateway` мог использовать тот же резолвер для
- * WS-subscribe (KS-3940 C01).
+ * KS-3940 / ADR-118 §2.3: `LecturesAccessModule` вынесен отдельно
+ * для разрыва циркулярной зависимости с `LiveAnalysisModule`
+ * (gateway вызывает `resolveLectureAccess` при subscribe). Здесь
+ * импортируется ради `assertAccess` в `LecturesController.getById/
+ * getRecording`.
  */
 @Module({
-  imports: [AuthModule, PrismaModule, LiveAnalysisModule, LectureAudioModule],
-  controllers: [LecturesController, LecturesAccessController],
-  providers: [LecturesService, LecturesAccessService],
-  exports: [LecturesService, LecturesAccessService],
+  imports: [
+    AuthModule,
+    PrismaModule,
+    LiveAnalysisModule,
+    LectureAudioModule,
+    LecturesAccessModule,
+  ],
+  controllers: [LecturesController],
+  providers: [LecturesService],
+  exports: [LecturesService],
 })
 export class LecturesModule {}

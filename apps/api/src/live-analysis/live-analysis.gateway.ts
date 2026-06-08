@@ -39,6 +39,7 @@ import {
 import { JwtPayload } from '../auth/jwt.strategy';
 import { LiveAnalysisService } from './live-analysis.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { LecturesAccessService } from '../lectures/lectures-access.service';
 import {
   ClosePayloadDto,
   MovePayloadDto,
@@ -153,6 +154,13 @@ export class LiveAnalysisGateway
     private readonly service: LiveAnalysisService,
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    /**
+     * KS-3940 / ADR-118 §2.4.2. Резолвер доступа к лекции при
+     * subscribe-handshake к restricted-комнате. Сервис живёт в
+     * отдельном `LecturesAccessModule` (см. модуль) — это разрывает
+     * циркулярную зависимость с `LecturesModule`.
+     */
+    private readonly lecturesAccess: LecturesAccessService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -384,6 +392,23 @@ export class LiveAnalysisGateway
     @MessageBody() data: SubscribePayloadDto,
   ): Promise<void> {
     try {
+      // KS-3940 / ADR-118 §2.4.2. Если live-сессия привязана к
+      // restricted-лекции — резолвим доступ ДО tryAcquireViewerSlot
+      // (чтобы не занимать слот у denied-зрителя) и тем более до
+      // join room. При denied: emit ACCESS_DENIED { reason } +
+      // disconnect. Для public/unlisted и для трансляций без
+      // привязки к лекции — ничего не делаем, продолжаем обычный
+      // subscribe-flow.
+      const denyReason = await this.checkLectureAccessForSlug(
+        data.slug,
+        client.data?.user?.id ?? null,
+      );
+      if (denyReason !== null) {
+        client.emit(LiveAnalysisEvents.ACCESS_DENIED, { reason: denyReason });
+        client.disconnect(true);
+        return;
+      }
+
       // KS-3734: лимит зрителей на трансляцию (capacity 1000). Сначала
       // пытаемся занять слот; если переполнено — не отдаём sync и не
       // присоединяем к комнате.
@@ -404,6 +429,36 @@ export class LiveAnalysisGateway
     } catch (e) {
       this.emitError(client, e);
     }
+  }
+
+  /**
+   * KS-3940 / ADR-118 §2.3, §2.4.2. Проверяет доступ зрителя к
+   * лекции, привязанной к live-сессии (если такая есть). Возвращает:
+   *   - `null` — доступ разрешён (или лекции вовсе нет, или
+   *     visibility=public/unlisted, или viewer — owner или в allowlist'е).
+   *   - `'auth_required'` — restricted и зритель не авторизован.
+   *   - `'not_in_allowlist'` — restricted, авторизован, нет grant'а.
+   *
+   * Lookup лекции по `liveAnalysis.slug` идёт одним SELECT'ом, без
+   * захода в `LecturesService` — нам нужны только `{id, ownerId,
+   * visibility}` (тот же узкий набор, что использует `assertAccess`
+   * для REST).
+   */
+  private async checkLectureAccessForSlug(
+    slug: string,
+    viewerUserId: string | null,
+  ): Promise<'auth_required' | 'not_in_allowlist' | null> {
+    const lecture = await this.prisma.lecture.findFirst({
+      where: { liveAnalysis: { slug } },
+      select: { id: true, ownerId: true, visibility: true },
+    });
+    if (!lecture) return null;
+    const result = await this.lecturesAccess.resolveLectureAccess(
+      lecture as { id: string; ownerId: string; visibility: 'public' | 'unlisted' | 'restricted' },
+      viewerUserId,
+    );
+    if (result.allowed) return null;
+    return result.reason;
   }
 
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))

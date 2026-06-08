@@ -25,6 +25,7 @@ describe('LiveAnalysisGateway.handleStatePatch (KS-3775)', () => {
       service as unknown as LiveAnalysisService,
       {} as ConfigService,
       {} as PrismaService,
+      {} as never,
     );
   });
 
@@ -148,6 +149,7 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
       {} as LiveAnalysisService,
       {} as ConfigService,
       prisma as unknown as PrismaService,
+      {} as never,
     );
     (gateway as any).server = makeServer();
     // KS-3889 финал: доставка идёт через `webrtcNs.to(id).emit()` —
@@ -472,6 +474,7 @@ describe('LiveAnalysisGateway pub/sub lecture-tools-changed (KS-3902)', () => {
       {} as unknown as LiveAnalysisService,
       {} as ConfigService,
       {} as PrismaService,
+      {} as never,
     );
     emit = jest.fn();
     to = jest.fn().mockReturnValue({ emit });
@@ -538,5 +541,192 @@ describe('LiveAnalysisGateway pub/sub lecture-tools-changed (KS-3902)', () => {
     );
     expect(to).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// KS-3940 / ADR-118 §2.4.2. handleSubscribe access flow для
+// restricted-лекций. Проверяет lecture-lookup + delegation в
+// LecturesAccessService.resolveLectureAccess + emit ACCESS_DENIED +
+// disconnect при denied. Slot/sync/join не настраиваем — тестируем
+// только access-ветку через приватный checkLectureAccessForSlug
+// + один интеграционный сценарий с handleSubscribe.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('LiveAnalysisGateway.handleSubscribe access flow (KS-3940)', () => {
+  let gateway: LiveAnalysisGateway;
+  let prisma: { lecture: { findFirst: jest.Mock } };
+  let access: { resolveLectureAccess: jest.Mock };
+  let service: { tryAcquireViewerSlot: jest.Mock; getSyncSnapshot: jest.Mock; decrementViewer: jest.Mock };
+
+  beforeEach(() => {
+    prisma = { lecture: { findFirst: jest.fn() } };
+    access = { resolveLectureAccess: jest.fn() };
+    service = {
+      tryAcquireViewerSlot: jest.fn().mockResolvedValue(1),
+      getSyncSnapshot: jest.fn().mockResolvedValue({ slug: 's', startingFen: '', orientation: 'white' }),
+      decrementViewer: jest.fn().mockResolvedValue(0),
+    };
+    gateway = new LiveAnalysisGateway(
+      {} as JwtService,
+      service as unknown as LiveAnalysisService,
+      {} as ConfigService,
+      prisma as unknown as PrismaService,
+      access as never,
+    );
+    (gateway as any).server = { to: jest.fn().mockReturnValue({ emit: jest.fn() }) };
+  });
+
+  function makeClient(userId: string | null): any {
+    return {
+      data: {
+        user: userId ? { id: userId, username: 'u' } : null,
+        subscribedSlugs: new Set(),
+      },
+      emit: jest.fn(),
+      disconnect: jest.fn(),
+      join: jest.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  // ─── private checkLectureAccessForSlug ───────────────────────────
+
+  it('checkLectureAccessForSlug: лекции нет → null (доступ свободен)', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce(null);
+    const r = await (gateway as any).checkLectureAccessForSlug('s', 'u-1');
+    expect(r).toBeNull();
+    expect(access.resolveLectureAccess).not.toHaveBeenCalled();
+  });
+
+  it('checkLectureAccessForSlug: allowed → null', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner',
+      visibility: 'public',
+    });
+    access.resolveLectureAccess.mockResolvedValueOnce({
+      allowed: true,
+      reason: 'public',
+    });
+    const r = await (gateway as any).checkLectureAccessForSlug('s', null);
+    expect(r).toBeNull();
+  });
+
+  it('checkLectureAccessForSlug: denied (auth_required) → возвращает reason', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner',
+      visibility: 'restricted',
+    });
+    access.resolveLectureAccess.mockResolvedValueOnce({
+      allowed: false,
+      reason: 'auth_required',
+    });
+    const r = await (gateway as any).checkLectureAccessForSlug('s', null);
+    expect(r).toBe('auth_required');
+  });
+
+  it('checkLectureAccessForSlug: denied (not_in_allowlist) → возвращает reason', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner',
+      visibility: 'restricted',
+    });
+    access.resolveLectureAccess.mockResolvedValueOnce({
+      allowed: false,
+      reason: 'not_in_allowlist',
+    });
+    const r = await (gateway as any).checkLectureAccessForSlug('s', 'student-x');
+    expect(r).toBe('not_in_allowlist');
+  });
+
+  // ─── handleSubscribe full flow ───────────────────────────────────
+
+  it('handleSubscribe: restricted + anon → emit ACCESS_DENIED + disconnect, slot не занят, sync не отправлен', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner',
+      visibility: 'restricted',
+    });
+    access.resolveLectureAccess.mockResolvedValueOnce({
+      allowed: false,
+      reason: 'auth_required',
+    });
+    const client = makeClient(null);
+    await gateway.handleSubscribe(client, { slug: 'SLUG-ABCDE' } as never);
+    expect(client.emit).toHaveBeenCalledWith(
+      'live-analysis:access-denied',
+      { reason: 'auth_required' },
+    );
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+    expect(service.tryAcquireViewerSlot).not.toHaveBeenCalled();
+    expect(client.join).not.toHaveBeenCalled();
+  });
+
+  it('handleSubscribe: restricted без grant → access-denied (not_in_allowlist)', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner',
+      visibility: 'restricted',
+    });
+    access.resolveLectureAccess.mockResolvedValueOnce({
+      allowed: false,
+      reason: 'not_in_allowlist',
+    });
+    const client = makeClient('student-x');
+    await gateway.handleSubscribe(client, { slug: 'SLUG-ABCDE' } as never);
+    expect(client.emit).toHaveBeenCalledWith(
+      'live-analysis:access-denied',
+      { reason: 'not_in_allowlist' },
+    );
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('handleSubscribe: public → доступ свободен, обычный flow (slot + sync + join)', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner',
+      visibility: 'public',
+    });
+    access.resolveLectureAccess.mockResolvedValueOnce({
+      allowed: true,
+      reason: 'public',
+    });
+    const client = makeClient('viewer-1');
+    await gateway.handleSubscribe(client, { slug: 'SLUG-ABCDE' } as never);
+    expect(client.disconnect).not.toHaveBeenCalled();
+    expect(service.tryAcquireViewerSlot).toHaveBeenCalledWith('SLUG-ABCDE');
+    expect(client.join).toHaveBeenCalled();
+    expect(client.emit).toHaveBeenCalledWith(
+      'live-analysis:sync',
+      expect.any(Object),
+    );
+  });
+
+  it('handleSubscribe: лекции нет (LiveAnalysis без привязки) → обычный flow', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce(null);
+    const client = makeClient(null);
+    await gateway.handleSubscribe(client, { slug: 'SLUG-FREE0' } as never);
+    expect(access.resolveLectureAccess).not.toHaveBeenCalled();
+    expect(client.disconnect).not.toHaveBeenCalled();
+    expect(service.tryAcquireViewerSlot).toHaveBeenCalled();
+    expect(client.join).toHaveBeenCalled();
+  });
+
+  it('handleSubscribe: restricted + owner → доступ свободен (allowed=owner)', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner-1',
+      visibility: 'restricted',
+    });
+    access.resolveLectureAccess.mockResolvedValueOnce({
+      allowed: true,
+      reason: 'owner',
+    });
+    const client = makeClient('owner-1');
+    await gateway.handleSubscribe(client, { slug: 'SLUG-OWN' } as never);
+    expect(client.disconnect).not.toHaveBeenCalled();
+    expect(service.tryAcquireViewerSlot).toHaveBeenCalled();
+    expect(client.join).toHaveBeenCalled();
   });
 });

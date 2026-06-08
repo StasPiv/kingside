@@ -115,6 +115,7 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
       {} as unknown as LiveAnalysisService,
       {} as ConfigService,
       {} as unknown as PrismaService,
+      {} as never,
     );
     serverEmit = jest.fn();
     serverTo = jest.fn().mockReturnValue({ emit: serverEmit });
