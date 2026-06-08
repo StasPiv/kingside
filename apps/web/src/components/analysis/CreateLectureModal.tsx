@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  ALL_LECTURE_DISABLED_TOOLS,
+  type LectureDisabledTool,
+} from '@kingside/shared';
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
 
@@ -70,6 +74,22 @@ export function CreateLectureModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * KS-3911 / ADR-117 B01. UI хранит «разрешённые» (отмеченные галочкой)
+   * инструменты, чтобы дефолт совпадал с UX-ожиданием тренера: открыл
+   * модалку — все галочки стоят, все доступно. На отправку инвертируем
+   * в `disabledTools` через `ALL_LECTURE_DISABLED_TOOLS.filter`.
+   */
+  const [enabledTools, setEnabledTools] = useState<LectureDisabledTool[]>(
+    () => [...ALL_LECTURE_DISABLED_TOOLS],
+  );
+
+  const toggleTool = (tool: LectureDisabledTool) => {
+    setEnabledTools((prev) =>
+      prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool],
+    );
+  };
+
   const trimmedTitle = title.trim();
   const submitDisabled = submitting || trimmedTitle.length === 0;
 
@@ -78,12 +98,21 @@ export function CreateLectureModal({
     setSubmitting(true);
     setError(null);
     try {
+      // KS-3911 / ADR-117 B01. UI хранит «разрешённые» инструменты;
+      // backend ждёт ИНВЕРСНЫЙ список — «отключённые». Считаем как
+      // разность whitelist'а и текущего набора галочек: всё что не
+      // отмечено — попадает в `disabledTools`. Поле отправляем всегда,
+      // даже если массив пуст (=== все инструменты разрешены), чтобы
+      // backend не догадывался по отсутствию ключа.
+      const disabledTools: LectureDisabledTool[] = ALL_LECTURE_DISABLED_TOOLS
+        .filter((tool) => !enabledTools.includes(tool));
       const resp = await api.post<CreateLectureResponse>('/lectures', {
         title: trimmedTitle,
         // Описание опциональное; пустую строку backend не ждёт — отправляем
         // поле только если автор что-то ввёл.
         ...(description.trim() ? { description: description.trim() } : {}),
         analysisId,
+        disabledTools,
       });
       if (!resp.liveAnalysis) {
         // Контракт обещает ненулевой liveAnalysis для immediate-live
@@ -164,6 +193,49 @@ export function CreateLectureModal({
               disabled={submitting}
               style={{ resize: 'vertical', minHeight: 80 }}
             />
+          </div>
+
+          <div
+            className="import-field"
+            data-testid="create-lecture-tools-section"
+          >
+            <label style={{ marginBottom: 6 }}>
+              {t('lectureTools.sectionTitle', 'Student tools access')}
+            </label>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              {ALL_LECTURE_DISABLED_TOOLS.map((tool) => {
+                const checked = enabledTools.includes(tool);
+                return (
+                  <label
+                    key={tool}
+                    htmlFor={`create-lecture-tool-${tool}`}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      cursor: submitting ? 'not-allowed' : 'pointer',
+                      fontWeight: 'normal',
+                    }}
+                  >
+                    <input
+                      id={`create-lecture-tool-${tool}`}
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleTool(tool)}
+                      disabled={submitting}
+                      data-testid={`create-lecture-tool-${tool}`}
+                    />
+                    <span>{t(`lectureTools.tools.${tool}`)}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
 
           {error && (
