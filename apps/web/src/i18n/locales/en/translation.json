@@ -814,7 +814,10 @@
       "descriptionPlaceholder": "Short summary visible to viewers.",
       "submit": "Start lecture",
       "failed": "Failed to start the lecture. Please try again.",
-      "missingLiveSession": "The lecture was created, but no live session was returned. Please try again."
+      "missingLiveSession": "The lecture was created, but no live session was returned. Please try again.",
+      "bindLabel": "Bind to scheduled lecture",
+      "bindNew": "Create a new lecture",
+      "bindHint": "The chosen lecture will go live with this analysis. Title, description, tools and access stay as configured."
     }
   },
   "lectureTools": {
