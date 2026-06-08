@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ALL_LECTURE_DISABLED_TOOLS,
@@ -8,6 +8,7 @@ import {
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
 import { LectureAccessPanel } from '../lecture/LectureAccessPanel';
+import type { UserSearchItem } from '../../hooks/useUserSearch';
 
 /**
  * KS-3789 / ADR-113 §4 эпик 1. Модальное окно «Создать новую лекцию»
@@ -96,6 +97,19 @@ export function CreateLectureModal({
    */
   const [visibility, setVisibility] =
     useState<LectureVisibility>('public');
+  /**
+   * KS-3997 / KS-3934. Локальный буфер выбранных учеников до
+   * создания лекции — отправляется в POST как `initialAccessUserIds`.
+   * Виден только при `visibility === 'restricted'`; при переключении
+   * на public/unlisted очищается (см. effect ниже), чтобы тренер
+   * случайно не отправил лишних id с публичной лекцией.
+   */
+  const [pendingUsers, setPendingUsers] = useState<UserSearchItem[]>([]);
+  useEffect(() => {
+    if (visibility !== 'restricted' && pendingUsers.length > 0) {
+      setPendingUsers([]);
+    }
+  }, [visibility, pendingUsers.length]);
 
   const toggleTool = (tool: LectureDisabledTool) => {
     setEnabledTools((prev) =>
@@ -131,6 +145,13 @@ export function CreateLectureModal({
         // тренером `unlisted`/`restricted` модалка обязана
         // передать значение явно, иначе лекция уйдёт публичной.
         visibility,
+        // KS-3997 / KS-3934. При restricted-видимости передаём
+        // выбранных учеников одним списком — backend сделает
+        // bulk INSERT в `lecture_access_grants`. На других вариантах
+        // visibility поле не отправляем (буфер выше всегда пуст).
+        ...(visibility === 'restricted' && pendingUsers.length > 0
+          ? { initialAccessUserIds: pendingUsers.map((u) => u.id) }
+          : {}),
       });
       if (!resp.liveAnalysis) {
         // Контракт обещает ненулевой liveAnalysis для immediate-live
@@ -256,10 +277,11 @@ export function CreateLectureModal({
             </div>
           </div>
 
-          {/* KS-3973 / ADR-119 C04. Секция «Кто видит эту лекцию».
-              Лекция ещё не создана, поэтому `lectureId={null}` и
-              `hideAllowlist` — список пользователей появится после
-              POST'а в KS-3974 LectureSettingsModal. */}
+          {/* KS-3973 / ADR-119 C04 + KS-3997. Секция «Кто видит эту
+              лекцию». Лекция ещё не создана; при выборе
+              `restricted` рендерим pending-allowlist — поиск +
+              чипы локального буфера. На POST уходит
+              `initialAccessUserIds` (KS-3934). */}
           <div
             className="import-field"
             data-testid="create-lecture-access-section"
@@ -268,8 +290,9 @@ export function CreateLectureModal({
               lectureId={null}
               visibility={visibility}
               onVisibilityChange={setVisibility}
-              hideAllowlist
               disabled={submitting}
+              pendingUsers={pendingUsers}
+              onPendingUsersChange={setPendingUsers}
             />
           </div>
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ALL_LECTURE_DISABLED_TOOLS,
@@ -8,6 +8,7 @@ import {
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
 import { LectureAccessPanel } from '../lecture/LectureAccessPanel';
+import type { UserSearchItem } from '../../hooks/useUserSearch';
 
 /**
  * KS-3802 / KS-3803 / ADR-113 §4 крупная задача 3 + KS-3995 /
@@ -105,6 +106,15 @@ export function ScheduleLectureModal({
   const [enabledTools, setEnabledTools] = useState<LectureDisabledTool[]>(
     () => [...ALL_LECTURE_DISABLED_TOOLS],
   );
+  // KS-3997 / KS-3934. Локальный буфер выбранных учеников до
+  // создания scheduled-лекции. При смене visibility на public/
+  // unlisted очищается, чтобы случайно не отправились лишние ids.
+  const [pendingUsers, setPendingUsers] = useState<UserSearchItem[]>([]);
+  useEffect(() => {
+    if (visibility !== 'restricted' && pendingUsers.length > 0) {
+      setPendingUsers([]);
+    }
+  }, [visibility, pendingUsers.length]);
   const toggleTool = (tool: LectureDisabledTool) => {
     setEnabledTools((prev) =>
       prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool],
@@ -157,6 +167,13 @@ export function ScheduleLectureModal({
           scheduledAt: parsedScheduledAt!.toISOString(),
           visibility,
           disabledTools,
+          // KS-3997 / KS-3934. При restricted шлём выбранных
+          // учеников одним списком — backend bulk-INSERT'ит их в
+          // `lecture_access_grants`. На public/unlisted поле
+          // отсутствует.
+          ...(visibility === 'restricted' && pendingUsers.length > 0
+            ? { initialAccessUserIds: pendingUsers.map((u) => u.id) }
+            : {}),
         });
         onSaved(resp.lecture);
       }
@@ -317,8 +334,9 @@ export function ScheduleLectureModal({
                   lectureId={null}
                   visibility={visibility}
                   onVisibilityChange={setVisibility}
-                  hideAllowlist
                   disabled={submitting}
+                  pendingUsers={pendingUsers}
+                  onPendingUsersChange={setPendingUsers}
                 />
               </div>
             </>

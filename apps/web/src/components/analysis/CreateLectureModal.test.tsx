@@ -126,3 +126,66 @@ describe('<CreateLectureModal> KS-3911', () => {
     expect(body.disabledTools).toEqual([]);
   });
 });
+
+describe('<CreateLectureModal> KS-3997 (initialAccessUserIds)', () => {
+  it('public по умолчанию: initialAccessUserIds в POST нет', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <CreateLectureModal
+        analysisId={ANALYSIS_ID}
+        defaultTitle="Lecture"
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /Start lecture/i }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+    const [, body] = apiPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.visibility).toBe('public');
+    expect(body).not.toHaveProperty('initialAccessUserIds');
+  });
+
+  it('restricted без выбранных пользователей: initialAccessUserIds в POST нет', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <CreateLectureModal
+        analysisId={ANALYSIS_ID}
+        defaultTitle="Lecture"
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByTestId('lecture-access-visibility-restricted'));
+    await user.click(screen.getByRole('button', { name: /Start lecture/i }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+    const [, body] = apiPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.visibility).toBe('restricted');
+    expect(body).not.toHaveProperty('initialAccessUserIds');
+  });
+
+  it('переключение с restricted (+ users) на public очищает буфер: ids в POST нет', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <CreateLectureModal
+        analysisId={ANALYSIS_ID}
+        defaultTitle="Lecture"
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    // restricted → найден ввод поиска
+    await user.click(screen.getByTestId('lecture-access-visibility-restricted'));
+    expect(
+      screen.getByTestId('lecture-access-pending-allowlist'),
+    ).toBeTruthy();
+
+    // переключаемся обратно на public
+    await user.click(screen.getByTestId('lecture-access-visibility-public'));
+
+    await user.click(screen.getByRole('button', { name: /Start lecture/i }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+    const [, body] = apiPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.visibility).toBe('public');
+    expect(body).not.toHaveProperty('initialAccessUserIds');
+  });
+});

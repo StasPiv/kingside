@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { LectureVisibility } from '@kingside/shared';
 import { useLectureAccess } from '../../hooks/useLectureAccess';
 import { UserSearchInline } from '../users/UserSearchInline';
+import type { UserSearchItem } from '../../hooks/useUserSearch';
 
 /**
  * KS-3972 / ADR-119 §8 эпик C (C03). Панель «Доступ учеников».
@@ -64,18 +65,30 @@ const VISIBILITY_OPTIONS: ReadonlyArray<{
 
 export interface LectureAccessPanelProps {
   /**
-   * UUID лекции. Когда лекция ещё не создана (`CreateLectureModal`),
-   * сюда передаётся `null` — список доступа не рендерится, только
-   * группа visibility. Доступ можно будет добавить после первого
-   * `POST /lectures`.
+   * UUID лекции. Когда лекция ещё не создана (`CreateLectureModal`,
+   * `ScheduleLectureModal`), сюда передаётся `null`. В этом случае
+   * родитель может включить локальный сбор allowlist'а через
+   * `pendingUsers` + `onPendingUsersChange` — выбранные пользователи
+   * уйдут одной транзакцией в `initialAccessUserIds` при POST
+   * `/lectures` (KS-3934).
    */
   lectureId: string | null;
   visibility: LectureVisibility;
   onVisibilityChange: (next: LectureVisibility) => void;
-  /** Видимый рендер списка allowlist скрыть полностью (например, в CreateLectureModal). */
+  /** Видимый рендер списка allowlist скрыть полностью. */
   hideAllowlist?: boolean;
   /** Отключить взаимодействие — пока идёт save родителя. */
   disabled?: boolean;
+  /**
+   * KS-3997 / KS-3934. Локальный буфер пользователей до создания
+   * лекции: визуальный список + ввод поиска. Используется когда
+   * `lectureId === null` и тренер выбрал `visibility === 'restricted'`.
+   * Поведение управляется снаружи: родитель сам решает,
+   * чистить ли буфер при смене visibility и как отправить ids
+   * в POST.
+   */
+  pendingUsers?: ReadonlyArray<UserSearchItem>;
+  onPendingUsersChange?: (next: UserSearchItem[]) => void;
 }
 
 export function LectureAccessPanel({
@@ -84,13 +97,23 @@ export function LectureAccessPanel({
   onVisibilityChange,
   hideAllowlist,
   disabled,
+  pendingUsers,
+  onPendingUsersChange,
 }: LectureAccessPanelProps) {
   const { t } = useTranslation();
   const radioGroupId = useId();
   const [lastSearchKey, setLastSearchKey] = useState(0);
 
+  // KS-3997. Существующая лекция → backend-allowlist через хук;
+  // ещё не созданная лекция → локальный буфер `pendingUsers`,
+  // если родитель его прокинул.
   const showAllowlist =
     !hideAllowlist && visibility === 'restricted' && Boolean(lectureId);
+  const showPendingAllowlist =
+    !hideAllowlist &&
+    visibility === 'restricted' &&
+    !lectureId &&
+    Boolean(onPendingUsersChange);
 
   const {
     grants,
@@ -118,6 +141,30 @@ export function LectureAccessPanel({
       setLastSearchKey((n) => n + 1);
     },
     [grantUser],
+  );
+
+  // KS-3997. Локальный буфер до создания лекции.
+  const pendingUserIds = useMemo(
+    () => (pendingUsers ?? []).map((u) => u.id),
+    [pendingUsers],
+  );
+  const handlePendingSelect = useCallback(
+    (user: UserSearchItem) => {
+      if (!onPendingUsersChange) return;
+      const current = pendingUsers ?? [];
+      if (current.some((u) => u.id === user.id)) return;
+      onPendingUsersChange([...current, user]);
+      setLastSearchKey((n) => n + 1);
+    },
+    [pendingUsers, onPendingUsersChange],
+  );
+  const handlePendingRemove = useCallback(
+    (userId: string) => {
+      if (!onPendingUsersChange) return;
+      const current = pendingUsers ?? [];
+      onPendingUsersChange(current.filter((u) => u.id !== userId));
+    },
+    [pendingUsers, onPendingUsersChange],
   );
 
   return (
@@ -171,6 +218,85 @@ export function LectureAccessPanel({
           })}
         </div>
       </fieldset>
+
+      {showPendingAllowlist && (
+        <section
+          aria-labelledby={`${radioGroupId}-pending-allowlist`}
+          data-testid="lecture-access-pending-allowlist"
+          className="lecture-access-panel__allowlist"
+        >
+          <h3
+            id={`${radioGroupId}-pending-allowlist`}
+            className="lecture-access-panel__allowlist-heading"
+          >
+            {t('lectureAccess.allowlist.heading', 'Who has access')}
+          </h3>
+          <UserSearchInline
+            key={lastSearchKey}
+            onSelect={handlePendingSelect}
+            excludeIds={pendingUserIds}
+            disabled={disabled}
+            testIdPrefix="lecture-access-user-search"
+          />
+          {(pendingUsers ?? []).length === 0 ? (
+            <p
+              data-testid="lecture-access-pending-empty"
+              className="lecture-access-panel__state"
+            >
+              {t(
+                'lectureAccess.allowlist.empty',
+                'No one is on the list yet. Search above to add a user.',
+              )}
+            </p>
+          ) : (
+            <ul
+              data-testid="lecture-access-pending-chips"
+              className="lecture-access-panel__chips"
+            >
+              {(pendingUsers ?? []).map((u) => (
+                <li
+                  key={u.id}
+                  data-testid={`lecture-access-pending-chip-${u.id}`}
+                  data-subject={u.id}
+                  className="lecture-access-panel__chip"
+                >
+                  {u.avatarUrl ? (
+                    <img
+                      src={u.avatarUrl}
+                      alt=""
+                      className="lecture-access-panel__chip-avatar"
+                    />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="lecture-access-panel__chip-avatar-fallback"
+                    >
+                      {u.username.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="lecture-access-panel__chip-name">
+                    {u.displayName}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t(
+                      'lectureAccess.allowlist.removeAria',
+                      'Remove {{user}}',
+                      { user: u.displayName },
+                    )}
+                    disabled={disabled}
+                    onClick={() => handlePendingRemove(u.id)}
+                    data-testid={`lecture-access-pending-remove-${u.id}`}
+                    className="lecture-access-panel__chip-remove"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {showAllowlist && (
         <section
