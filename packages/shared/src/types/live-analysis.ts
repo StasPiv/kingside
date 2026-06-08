@@ -10,7 +10,14 @@
  *   §2.2 — транспорт и события WS.
  *   §2.3 — жизненный цикл (создание REST, sync, close).
  *   §2.6 — авторизация (анонимные зрители, owner-only действия).
+ *
+ * KS-3896 / ADR-117: `lectureDisabledTools` в Response/Snapshot и
+ * событие `LECTURE_TOOLS` — фундамент для политики отключения
+ * инструментов ученикам live-сессии лекции. Сам тип
+ * `LectureDisabledTool` живёт в `api-contracts.ts` рядом с
+ * `LectureSummary`.
  */
+import type { LectureDisabledTool } from './api-contracts.js';
 
 // ─── Domain primitives ──────────────────────────────────────────────
 
@@ -111,6 +118,15 @@ export type LiveAnalysisResponse = {
    * побеждает PGN.
    */
   headers?: Record<string, string>;
+  /**
+   * KS-3896 / ADR-117 §2. Снапшот отключённых инструментов лекции
+   * на момент чтения трансляции. Поле опциональное: присутствует
+   * только когда трансляция привязана к лекции (`lectureId !== null`).
+   * Пустой массив = тренер ничего не отключил. Frontend ученика
+   * сверяется с этим значением при mount-фазе, до подписки на WS
+   * (последующие изменения приходят событием `LECTURE_TOOLS`).
+   */
+  lectureDisabledTools?: LectureDisabledTool[];
 };
 
 /**
@@ -304,6 +320,14 @@ export type LiveAnalysisSyncSnapshot = {
    * расчёт на стороне зрителя не требуется.
    */
   currentGlobalIndex?: number;
+  /**
+   * KS-3896 / ADR-117 §2. Снапшот отключённых инструментов лекции
+   * (см. `LiveAnalysisResponse.lectureDisabledTools`). Дублируется в
+   * sync, чтобы при `re-subscribe` ученик гарантированно получил
+   * актуальное состояние без отдельного REST-запроса. Опциональное:
+   * присутствует только для трансляций, привязанных к лекции.
+   */
+  lectureDisabledTools?: LectureDisabledTool[];
 };
 
 /**
@@ -403,6 +427,13 @@ export const LiveAnalysisEvents = {
   VIEWERS: 'live-analysis:viewers',
   CLOSED: 'live-analysis:closed',
   ERROR: 'live-analysis:error',
+  /**
+   * KS-3896 / ADR-117 §3. Тренер изменил `Lecture.disabledTools` —
+   * сервер шлёт `LectureToolsChangedEvent` всем подписчикам
+   * live-сессии (учеников). Полный новый набор, не дельта. Для
+   * трансляций без привязки к лекции событие не эмитится.
+   */
+  LECTURE_TOOLS: 'live-analysis:lecture-tools',
 } as const;
 
 export type LiveAnalysisEventName =

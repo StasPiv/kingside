@@ -3366,9 +3366,60 @@ export type LectureStatus = 'scheduled' | 'live' | 'recorded' | 'cancelled';
 export type LectureVisibility = 'public' | 'unlisted';
 
 /**
+ * KS-3896 / ADR-117 §2. Whitelist инструментов, которые тренер может
+ * принудительно отключить ученикам, подключённым к live-сессии лекции.
+ * Хранится в `Lecture.disabledTools` (jsonb-массив, см. KS-3898), едет
+ * в `LectureSummary`, `LiveAnalysisResponse`, `LiveAnalysisSyncSnapshot`,
+ * а изменения публикуются событием `LECTURE_TOOLS` в namespace
+ * `/live-analysis`.
+ *
+ * Семантика — «отключено для зрителя-ученика». Тренер (`ownerId`)
+ * всегда видит и использует все инструменты независимо от значения.
+ *
+ * Значения:
+ *  - `engine`             — Stockfish-анализ на странице зрителя
+ *    (eval-бар, лучшие ходы, классификации).
+ *  - `book`               — debut book / opening explorer.
+ *  - `ai_comment`         — комментарии LLM по позиции.
+ *  - `analyze_game`       — кнопка «Проанализировать партию»
+ *    (создание Analysis из текущей позиции).
+ *  - `generate_puzzle`    — создание пазла из позиции.
+ *  - `find_by_position`   — поиск по позиции в архиве.
+ *
+ * Whitelist строго закрыт: новое значение требует миграции
+ * `ALL_LECTURE_DISABLED_TOOLS` + ADR-update.
+ */
+export type LectureDisabledTool =
+  | 'engine'
+  | 'book'
+  | 'ai_comment'
+  | 'analyze_game'
+  | 'generate_puzzle'
+  | 'find_by_position';
+
+/**
+ * KS-3896 / ADR-117. Полный список значений `LectureDisabledTool` —
+ * используется как whitelist для валидации (бекенд / DTO) и как
+ * перечисление для UI-чекбоксов (фронт). Помечен `as const` +
+ * `readonly`, чтобы запретить случайный мутирующий push.
+ */
+export const ALL_LECTURE_DISABLED_TOOLS: readonly LectureDisabledTool[] = [
+  'engine',
+  'book',
+  'ai_comment',
+  'analyze_game',
+  'generate_puzzle',
+  'find_by_position',
+] as const;
+
+/**
  * Сводный вид лекции — то, что прилетает в списочных эндпоинтах
  * (`GET /coaches/:username/lectures`, `.../schedule`). DateTime'ы как
  * ISO-строки.
+ *
+ * KS-3896 / ADR-117: добавлено `disabledTools` — текущее значение
+ * запрета инструментов для учеников. Пустой массив = тренер не
+ * выключил ничего, ученикам доступен полный набор.
  */
 export interface LectureSummary {
   id: string;
@@ -3388,6 +3439,28 @@ export interface LectureSummary {
   createdAt: string;
   updatedAt: string;
   liveAnalysis: { id: string; slug: string; url: string } | null;
+  /**
+   * KS-3896 / ADR-117 §2. Инструменты, отключённые тренером для
+   * учеников live-сессии. Backend всегда возвращает массив
+   * (возможно, пустой), фронт не предполагает отсутствие поля.
+   */
+  disabledTools: LectureDisabledTool[];
+}
+
+/**
+ * KS-3896 / ADR-117 §3. Событие `LECTURE_TOOLS` (namespace
+ * `/live-analysis`): тренер изменил набор отключённых инструментов
+ * для учеников. Шлётся всем подписчикам live-сессии лекции, чтобы
+ * ученики применили запрет/разблокировку без перезагрузки.
+ *
+ * `slug` — slug live-analysis сессии (комната подписки), `lectureId`
+ * — id лекции (для соотнесения с локальным состоянием UI ученика).
+ * `disabledTools` — полный новый набор (НЕ дельта).
+ */
+export interface LectureToolsChangedEvent {
+  slug: string;
+  lectureId: string;
+  disabledTools: LectureDisabledTool[];
 }
 
 /**
