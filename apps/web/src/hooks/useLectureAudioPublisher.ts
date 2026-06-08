@@ -490,11 +490,19 @@ export function useLectureAudioPublisher({
 
     let stream: MediaStream;
     try {
+      // KS-3927. Выключаем встроенные `echoCancellation` / `noiseSuppression`
+      // / `autoGainControl` микрофона. В Chrome известны провалы аудио
+      // на активном UI: алгоритм AGC/AEC при графической нагрузке
+      // (анимация хода в react-chessboard, перерисовка боковых
+      // панелей) кратко «приглушает» вход. На записи лекции это
+      // звучит как «вырезание» куска в моменте хода. Голос лектора
+      // пишется в тихом помещении с микрофоном-петличкой —
+      // эхоподавление и шумодав на стороне браузера здесь не нужны.
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
         },
       });
     } catch (e) {
@@ -508,7 +516,30 @@ export function useLectureAudioPublisher({
     // peer-connections (`useLectureAudioPeerConnections`). У микрофона
     // ровно один track, остальное — defensive.
     const tracks = stream.getAudioTracks();
-    setAudioTrack(tracks[0] ?? null);
+    const primaryTrack = tracks[0] ?? null;
+    setAudioTrack(primaryTrack);
+
+    // KS-3927 диагностика: если аудио-дорожка кратко «глохнет»
+    // (`muted=true`), MediaRecorder в этот момент записывает тишину,
+    // и на склейке возникают провалы в звуке. События `mute`/`unmute`
+    // / `ended` плюс начальное `muted` сразу пишем в журнал.
+    if (primaryTrack) {
+      console.info('[lecture-audio-pub] track ready', {
+        kind: primaryTrack.kind,
+        label: primaryTrack.label,
+        muted: primaryTrack.muted,
+        readyState: primaryTrack.readyState,
+      });
+      primaryTrack.onmute = () => {
+        console.warn('[lecture-audio-pub] track MUTED at', Date.now());
+      };
+      primaryTrack.onunmute = () => {
+        console.info('[lecture-audio-pub] track unmuted at', Date.now());
+      };
+      primaryTrack.onended = () => {
+        console.warn('[lecture-audio-pub] track ENDED at', Date.now());
+      };
+    }
 
     let recorder: MediaRecorder;
     try {
@@ -572,12 +603,31 @@ export function useLectureAudioPublisher({
       );
     }
 
+    // KS-3927 диагностика: фиксируем время и размер каждого
+    // фрагмента, чтобы заметить нестандартные интервалы (короче
+    // 5 секунд = что-то «пнуло» recorder) или подозрительный
+    // размер.
+    let prevChunkAt = 0;
     recorder.ondataavailable = (ev) => {
       const blob = ev.data;
+      const now = performance.now();
+      const dt = prevChunkAt > 0 ? Math.round(now - prevChunkAt) : null;
+      prevChunkAt = now;
+      console.info('[lecture-audio-pub] dataavailable', {
+        seq: seqRef.current,
+        bytes: blob?.size ?? 0,
+        msSincePrev: dt,
+      });
       if (!blob || blob.size === 0) return;
       const seq = seqRef.current;
       seqRef.current = seq + 1;
       void uploadChunk(seq, blob);
+    };
+    recorder.onpause = () => {
+      console.warn('[lecture-audio-pub] recorder PAUSE at', Date.now());
+    };
+    recorder.onresume = () => {
+      console.info('[lecture-audio-pub] recorder RESUME at', Date.now());
     };
     recorder.onerror = (ev: Event) => {
       const detail =
