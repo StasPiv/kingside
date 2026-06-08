@@ -24,6 +24,7 @@ describe('UserService', () => {
         update: jest.fn(),
         findUnique: jest.fn(),
         create: jest.fn(),
+        delete: jest.fn(),
       },
       game: {
         findMany: jest.fn(),
@@ -32,6 +33,10 @@ describe('UserService', () => {
       puzzleRushScore: {
         findFirst: jest.fn(),
         count: jest.fn(),
+      },
+      // KS-3935 / ADR-118: cleanup allowlist-grant'ов при удалении user.
+      lectureAccessGrant: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     } as any;
 
@@ -633,6 +638,52 @@ describe('UserService', () => {
       expect(call.where.createdAt).toEqual({
         gte: new Date('2026-01-01'),
         lte: new Date('2026-03-01'),
+      });
+    });
+  });
+
+  // ─── KS-3935 / ADR-118: cleanup lecture_access_grants ────────────
+
+  describe('cleanupAccessGrantsForDeletedUser (KS-3935)', () => {
+    it('удаляет grants по (subject_type=user, subject_id=userId) и возвращает count', async () => {
+      prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 3 });
+      const n = await service.cleanupAccessGrantsForDeletedUser(userId);
+      expect(n).toBe(3);
+      expect(prisma.lectureAccessGrant.deleteMany).toHaveBeenCalledTimes(1);
+      const args = prisma.lectureAccessGrant.deleteMany.mock.calls[0][0];
+      expect(args).toEqual({
+        where: { subjectType: 'user', subjectId: userId },
+      });
+    });
+
+    it('пустой результат — возвращает 0, ошибки не бросает', async () => {
+      prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 0 });
+      const n = await service.cleanupAccessGrantsForDeletedUser(userId);
+      expect(n).toBe(0);
+    });
+  });
+
+  describe('delete (KS-3935)', () => {
+    it('вызывает cleanup ПЕРЕД prisma.user.delete и возвращает deletedAccessGrants', async () => {
+      const callOrder: string[] = [];
+      prisma.lectureAccessGrant.deleteMany.mockImplementationOnce(async () => {
+        callOrder.push('cleanup');
+        return { count: 2 };
+      });
+      prisma.user.delete.mockImplementationOnce(async () => {
+        callOrder.push('userDelete');
+        return { id: userId };
+      });
+      const r = await service.delete(userId);
+      expect(r).toEqual({ deletedAccessGrants: 2 });
+      // Порядок важен: cleanup полиморфных grants ДО prisma.user.delete.
+      // Если перевернуть — Postgres каскадом снесёт grantedBy-grants
+      // первой, но subject-grants (без FK) останутся. Затем delete.user
+      // упадёт если есть зависимости... либо нет, но контракт ADR
+      // требует именно такого порядка для аудита.
+      expect(callOrder).toEqual(['cleanup', 'userDelete']);
+      expect(prisma.user.delete).toHaveBeenCalledWith({
+        where: { id: userId },
       });
     });
   });

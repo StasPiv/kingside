@@ -512,4 +512,60 @@ export class UserService {
     const minutes = Math.floor(initialSec / 60);
     return `${minutes}+${incrementSec}`;
   }
+
+  /**
+   * KS-3935 / ADR-118 §3.2 cleanup. При удалении пользователя нужно
+   * убрать его allowlist-доступы из `lecture_access_grants`: поле
+   * `subject_id` хранит UUID полиморфно (для `'user'` — User.id, для
+   * `'course'` — Course.id), поэтому FK на User там не стоит и
+   * каскадного удаления нет. Чистим обработчиком в коде.
+   *
+   * Цепочка ADR §2.2:
+   *   DELETE FROM lecture_access_grants
+   *   WHERE subject_type = 'user' AND subject_id = :userId;
+   *
+   * Поле `grantedById` к этому случаю не относится — у него есть FK
+   * `granted_by_id → users.id ON DELETE CASCADE` (см. KS-3930), его
+   * Postgres уберёт сам, когда `prisma.user.delete` снесёт запись
+   * пользователя.
+   *
+   * Метод сделан публичным и отдельным от `delete()`, чтобы в
+   * будущем его можно было вызывать из других scenarios очистки
+   * (например, soft-delete + last-cleanup job). Возвращает число
+   * удалённых grant'ов для аудита.
+   */
+  async cleanupAccessGrantsForDeletedUser(userId: string): Promise<number> {
+    const { count } = await this.prisma.lectureAccessGrant.deleteMany({
+      where: { subjectType: 'user', subjectId: userId },
+    });
+    return count;
+  }
+
+  /**
+   * KS-3935 / ADR-118 §3.2. Полное удаление пользователя из системы.
+   * Шаги:
+   *   1. `cleanupAccessGrantsForDeletedUser` — снять все allowlist-
+   *      доступы, выданные этому пользователю на чужие лекции
+   *      (по `subject_id`, без FK).
+   *   2. `prisma.user.delete` — каскадом снимает все остальные
+   *      ссылочные данные (lectures с `ownerId=:userId`, grants
+   *      с `granted_by_id=:userId`, games, attempts и пр.) согласно
+   *      FK ON DELETE CASCADE в schema.prisma.
+   *
+   * Сейчас метод не привязан к публичному REST-эндпоинту — его
+   * вызывают из admin/CLI-скриптов (например, soft-delete cleanup
+   * job). Когда появится self-service «удалить аккаунт», обработчик
+   * соответствующего контроллера должен звать именно этот метод,
+   * а не вызывать `prisma.user.delete` напрямую — иначе access-
+   * grants по subject_id зависнут как orphan-записи.
+   *
+   * @returns число удалённых allowlist-grant'ов (cleanup-step).
+   */
+  async delete(userId: string): Promise<{ deletedAccessGrants: number }> {
+    const deletedAccessGrants = await this.cleanupAccessGrantsForDeletedUser(
+      userId,
+    );
+    await this.prisma.user.delete({ where: { id: userId } });
+    return { deletedAccessGrants };
+  }
 }
