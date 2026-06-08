@@ -315,3 +315,361 @@ describe('LecturesAccessService.assertAccess', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// KS-3936 / ADR-118 §2.4.1. Owner-only allowlist REST API.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('LecturesAccessService — KS-3936 owner allowlist API', () => {
+  let service: LecturesAccessService;
+  let prisma: {
+    lecture: { findUnique: jest.Mock };
+    lectureAccessGrant: {
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+      createMany: jest.Mock;
+      deleteMany: jest.Mock;
+    };
+    user: { findMany: jest.Mock };
+  };
+
+  beforeEach(async () => {
+    prisma = {
+      lecture: { findUnique: jest.fn() },
+      lectureAccessGrant: {
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      user: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        LecturesAccessService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    service = moduleRef.get(LecturesAccessService);
+  });
+
+  function ownedLecture(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'lec-1',
+      ownerId: 'owner-1',
+      status: 'scheduled',
+      visibility: 'restricted',
+      liveAnalysisId: null,
+      ...overrides,
+    };
+  }
+
+  // ─── owner-проверка (через listGrants для краткости) ─────────────
+
+  it('listGrants: 404 если лекции нет', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(null);
+    await expect(service.listGrants('lec-x', 'owner-1')).rejects.toThrow(
+      'Lecture "lec-x" not found',
+    );
+  });
+
+  it('listGrants: 403 если caller не владелец', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(
+      ownedLecture({ ownerId: 'someone-else' }),
+    );
+    await expect(service.listGrants('lec-1', 'owner-1')).rejects.toThrow(
+      'Only the owner can manage access grants',
+    );
+  });
+
+  // ─── listGrants ───────────────────────────────────────────────────
+
+  it('listGrants: пустой allowlist → []', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(ownedLecture());
+    prisma.lectureAccessGrant.findMany.mockResolvedValueOnce([]);
+    const r = await service.listGrants('lec-1', 'owner-1');
+    expect(r).toEqual([]);
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+  });
+
+  it('listGrants: возвращает grants с user-info и displayName=username', async () => {
+    const grantedAt = new Date('2026-06-08T10:00:00Z');
+    prisma.lecture.findUnique.mockResolvedValueOnce(ownedLecture());
+    prisma.lectureAccessGrant.findMany.mockResolvedValueOnce([
+      {
+        id: 'g-1',
+        lectureId: 'lec-1',
+        subjectType: 'user',
+        subjectId: 'student-1',
+        grantedById: 'owner-1',
+        grantedAt,
+      },
+    ]);
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'student-1', username: 'alice' },
+    ]);
+    const r = await service.listGrants('lec-1', 'owner-1');
+    expect(r).toEqual([
+      {
+        grant: {
+          id: 'g-1',
+          lectureId: 'lec-1',
+          subjectType: 'user',
+          subjectId: 'student-1',
+          grantedById: 'owner-1',
+          grantedAt: grantedAt.toISOString(),
+        },
+        user: {
+          id: 'student-1',
+          username: 'alice',
+          displayName: 'alice',
+        },
+      },
+    ]);
+  });
+
+  it('listGrants: orphan grant (user был удалён) — пропускается с warn', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(ownedLecture());
+    prisma.lectureAccessGrant.findMany.mockResolvedValueOnce([
+      {
+        id: 'g-orphan',
+        lectureId: 'lec-1',
+        subjectType: 'user',
+        subjectId: 'ghost-user',
+        grantedById: 'owner-1',
+        grantedAt: new Date(),
+      },
+    ]);
+    prisma.user.findMany.mockResolvedValueOnce([]);
+    const r = await service.listGrants('lec-1', 'owner-1');
+    expect(r).toEqual([]);
+  });
+
+  it('listGrants: фильтр findMany — только subjectType=user, orderBy grantedAt asc', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(ownedLecture());
+    prisma.lectureAccessGrant.findMany.mockResolvedValueOnce([]);
+    await service.listGrants('lec-1', 'owner-1');
+    const args = prisma.lectureAccessGrant.findMany.mock.calls[0][0];
+    expect(args.where).toEqual({ lectureId: 'lec-1', subjectType: 'user' });
+    expect(args.orderBy).toEqual({ grantedAt: 'asc' });
+  });
+
+  // ─── addGrants ────────────────────────────────────────────────────
+
+  it('addGrants: новые userIds → bulk INSERT + актуальный список', async () => {
+    // первый loadOwnedLecture в addGrants, второй — внутри listGrants
+    prisma.lecture.findUnique
+      .mockResolvedValueOnce(ownedLecture())
+      .mockResolvedValueOnce(ownedLecture());
+    prisma.user.findMany
+      .mockResolvedValueOnce([
+        { id: 'student-1' },
+        { id: 'student-2' },
+      ]) // exists check
+      .mockResolvedValueOnce([
+        { id: 'student-1', username: 'alice' },
+        { id: 'student-2', username: 'bob' },
+      ]); // листинг
+    prisma.lectureAccessGrant.findMany
+      .mockResolvedValueOnce([]) // alreadyGranted: пусто
+      .mockResolvedValueOnce([
+        {
+          id: 'g-1',
+          lectureId: 'lec-1',
+          subjectType: 'user',
+          subjectId: 'student-1',
+          grantedById: 'owner-1',
+          grantedAt: new Date(),
+        },
+        {
+          id: 'g-2',
+          lectureId: 'lec-1',
+          subjectType: 'user',
+          subjectId: 'student-2',
+          grantedById: 'owner-1',
+          grantedAt: new Date(),
+        },
+      ]);
+
+    const r = await service.addGrants('lec-1', 'owner-1', [
+      'student-1',
+      'student-2',
+    ]);
+    expect(r.skipped).toEqual([]);
+    expect(r.notFound).toEqual([]);
+    expect(r.grants).toHaveLength(2);
+    expect(prisma.lectureAccessGrant.createMany).toHaveBeenCalledWith({
+      data: [
+        { lectureId: 'lec-1', subjectType: 'user', subjectId: 'student-1', grantedById: 'owner-1' },
+        { lectureId: 'lec-1', subjectType: 'user', subjectId: 'student-2', grantedById: 'owner-1' },
+      ],
+      skipDuplicates: true,
+    });
+  });
+
+  it('addGrants: несуществующие userId → попадают в notFound, INSERT не вызывается для них', async () => {
+    prisma.lecture.findUnique
+      .mockResolvedValueOnce(ownedLecture())
+      .mockResolvedValueOnce(ownedLecture());
+    prisma.user.findMany
+      .mockResolvedValueOnce([{ id: 'student-1' }]) // только один существует
+      .mockResolvedValueOnce([{ id: 'student-1', username: 'alice' }]);
+    prisma.lectureAccessGrant.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'g-1',
+          lectureId: 'lec-1',
+          subjectType: 'user',
+          subjectId: 'student-1',
+          grantedById: 'owner-1',
+          grantedAt: new Date(),
+        },
+      ]);
+
+    const r = await service.addGrants('lec-1', 'owner-1', [
+      'student-1',
+      'ghost-user',
+    ]);
+    expect(r.notFound).toEqual(['ghost-user']);
+    expect(r.skipped).toEqual([]);
+    const createCall = prisma.lectureAccessGrant.createMany.mock.calls[0][0];
+    expect(createCall.data).toEqual([
+      { lectureId: 'lec-1', subjectType: 'user', subjectId: 'student-1', grantedById: 'owner-1' },
+    ]);
+  });
+
+  it('addGrants: уже выданные → попадают в skipped, INSERT их не повторяет', async () => {
+    prisma.lecture.findUnique
+      .mockResolvedValueOnce(ownedLecture())
+      .mockResolvedValueOnce(ownedLecture());
+    prisma.user.findMany
+      .mockResolvedValueOnce([
+        { id: 'student-1' },
+        { id: 'student-2' },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'student-1', username: 'alice' },
+        { id: 'student-2', username: 'bob' },
+      ]);
+    prisma.lectureAccessGrant.findMany
+      .mockResolvedValueOnce([{ subjectId: 'student-1' }]) // student-1 уже в allowlist'е
+      .mockResolvedValueOnce([
+        {
+          id: 'g-1',
+          lectureId: 'lec-1',
+          subjectType: 'user',
+          subjectId: 'student-1',
+          grantedById: 'owner-1',
+          grantedAt: new Date(),
+        },
+        {
+          id: 'g-2',
+          lectureId: 'lec-1',
+          subjectType: 'user',
+          subjectId: 'student-2',
+          grantedById: 'owner-1',
+          grantedAt: new Date(),
+        },
+      ]);
+
+    const r = await service.addGrants('lec-1', 'owner-1', [
+      'student-1',
+      'student-2',
+    ]);
+    expect(r.skipped).toEqual(['student-1']);
+    expect(r.notFound).toEqual([]);
+    const createCall = prisma.lectureAccessGrant.createMany.mock.calls[0][0];
+    expect(createCall.data).toEqual([
+      { lectureId: 'lec-1', subjectType: 'user', subjectId: 'student-2', grantedById: 'owner-1' },
+    ]);
+  });
+
+  it('addGrants: пустой userIds → createMany не вызывается, возвращает текущий список', async () => {
+    prisma.lecture.findUnique
+      .mockResolvedValueOnce(ownedLecture())
+      .mockResolvedValueOnce(ownedLecture());
+    prisma.lectureAccessGrant.findMany.mockResolvedValueOnce([]);
+    const r = await service.addGrants('lec-1', 'owner-1', []);
+    expect(prisma.lectureAccessGrant.createMany).not.toHaveBeenCalled();
+    expect(r).toEqual({ grants: [], skipped: [], notFound: [] });
+  });
+
+  it('addGrants: дубли в userIds (одинаковые id) дедуплицируются до запроса', async () => {
+    prisma.lecture.findUnique
+      .mockResolvedValueOnce(ownedLecture())
+      .mockResolvedValueOnce(ownedLecture());
+    prisma.user.findMany
+      .mockResolvedValueOnce([{ id: 'student-1' }])
+      .mockResolvedValueOnce([{ id: 'student-1', username: 'alice' }]);
+    prisma.lectureAccessGrant.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'g-1',
+          lectureId: 'lec-1',
+          subjectType: 'user',
+          subjectId: 'student-1',
+          grantedById: 'owner-1',
+          grantedAt: new Date(),
+        },
+      ]);
+    await service.addGrants('lec-1', 'owner-1', [
+      'student-1',
+      'student-1',
+      'student-1',
+    ]);
+    const createCall = prisma.lectureAccessGrant.createMany.mock.calls[0][0];
+    // INSERT должен быть один, не три.
+    expect(createCall.data).toHaveLength(1);
+  });
+
+  // ─── revokeGrant ──────────────────────────────────────────────────
+
+  it('revokeGrant: существующий grant удалён, revoked=true', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(ownedLecture());
+    prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 1 });
+    const r = await service.revokeGrant('lec-1', 'owner-1', 'student-1');
+    expect(r).toEqual({
+      revoked: true,
+      lectureStatus: 'scheduled',
+      liveAnalysisId: null,
+    });
+    const args = prisma.lectureAccessGrant.deleteMany.mock.calls[0][0];
+    expect(args).toEqual({
+      where: {
+        lectureId: 'lec-1',
+        subjectType: 'user',
+        subjectId: 'student-1',
+      },
+    });
+  });
+
+  it('revokeGrant: grant не существовал — revoked=false (идемпотентно)', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(ownedLecture());
+    prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 0 });
+    const r = await service.revokeGrant('lec-1', 'owner-1', 'student-x');
+    expect(r.revoked).toBe(false);
+  });
+
+  it('revokeGrant: попытка снять с самого себя → 400', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(ownedLecture());
+    await expect(
+      service.revokeGrant('lec-1', 'owner-1', 'owner-1'),
+    ).rejects.toThrow('Cannot revoke owner from their own lecture');
+    expect(prisma.lectureAccessGrant.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('revokeGrant: возвращает lectureStatus и liveAnalysisId (нужны KS-3940 C01)', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(
+      ownedLecture({ status: 'live', liveAnalysisId: 'la-99' }),
+    );
+    prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 1 });
+    const r = await service.revokeGrant('lec-1', 'owner-1', 'student-1');
+    expect(r).toEqual({
+      revoked: true,
+      lectureStatus: 'live',
+      liveAnalysisId: 'la-99',
+    });
+  });
+});

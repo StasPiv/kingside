@@ -4,6 +4,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { LiveAnalysisModule } from '../live-analysis/live-analysis.module';
 import { LectureAudioModule } from '../lecture-audio/lecture-audio.module';
 import { LecturesController } from './lectures.controller';
+import { LecturesAccessController } from './lectures-access.controller';
 import { LecturesService } from './lectures.service';
 import { LecturesAccessService } from './lectures-access.service';
 
@@ -24,7 +25,7 @@ import { LecturesAccessService } from './lectures-access.service';
  */
 @Module({
   imports: [AuthModule, PrismaModule, LiveAnalysisModule, LectureAudioModule],
-  controllers: [LecturesController],
+  controllers: [LecturesController, LecturesAccessController],
   providers: [LecturesService, LecturesAccessService],
   exports: [LecturesService, LecturesAccessService],
 })
