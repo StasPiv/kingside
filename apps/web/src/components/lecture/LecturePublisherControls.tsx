@@ -6,6 +6,7 @@ import {
   useLectureAudioPublisher,
 } from '../../hooks/useLectureAudioPublisher';
 import { useLectureAudioPeerConnections } from '../../hooks/useLectureAudioPeerConnections';
+import { LectureSettingsModal } from './LectureSettingsModal';
 
 /**
  * KS-3843 / ADR-116 §7.3. UI live-комнаты тренера: кнопка «Включить
@@ -130,6 +131,11 @@ export function LecturePublisherControls({
     'starting' | 'stopping' | 'closing' | null
   >(null);
   const [localError, setLocalError] = useState<Error | null>(null);
+  // KS-3976 / ADR-119 C07. Открыто ли быстрое окно управления
+  // доступом. Открывает `LectureSettingsModal` сразу на вкладке
+  // `access` — тренер может за один клик добавить пользователя в
+  // allowlist прямо из live-комнаты, не выходя из записи.
+  const [accessModalOpen, setAccessModalOpen] = useState(false);
 
   // KS-3844 / ADR-116 §2.4.1. Safari < 14.5 не поддерживает
   // MediaRecorder (или поддерживает без opus). Проверка делается один
@@ -350,6 +356,31 @@ export function LecturePublisherControls({
             { count: peerCount },
           )}
         </div>
+
+        {/* KS-3976 / ADR-119 C07. Кнопка «Доступ» — быстрый
+            короткий путь к управлению allowlist'ом из live-комнаты,
+            не открывая ⋮-меню AnalysisActionsMenu. Открывает
+            `LectureSettingsModal` сразу на вкладке `access`. */}
+        <button
+          type="button"
+          onClick={() => setAccessModalOpen(true)}
+          data-testid="lecture-publisher-access"
+          style={{
+            padding: '6px 12px',
+            borderRadius: 6,
+            border: '1px solid #1976d2',
+            background: '#fff',
+            color: '#1976d2',
+            fontSize: 13,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span aria-hidden="true">🔒</span>
+          {t('lecturePublisher.access', 'Доступ')}
+        </button>
       </div>
 
       {publisher.isRecording && (
@@ -439,6 +470,14 @@ export function LecturePublisherControls({
             </button>
           </div>
         </div>
+      )}
+
+      {accessModalOpen && (
+        <LectureSettingsModal
+          lectureId={lectureId}
+          initialTab="access"
+          onClose={() => setAccessModalOpen(false)}
+        />
       )}
 
       {errorInfo && (
