@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   LectureAudioInfo,
@@ -94,6 +94,12 @@ interface LectureRecording {
 type LoadState =
   | { kind: 'loading' }
   | { kind: 'not-found' }
+  // KS-3977 / ADR-119 D01. Backend вернул 401/403 — у пользователя
+  // нет доступа к лекции (приватная без allowlist'а либо доступ
+  // отозвали уже после открытия страницы). Страница не рендерит
+  // плеер; useEffect ниже уводит пользователя на
+  // `/lectures/:id/unavailable?reason=forbidden`.
+  | { kind: 'forbidden' }
   | { kind: 'no-recording'; lecture: LectureSummary }
   | { kind: 'load-failed' }
   | { kind: 'ready'; lecture: LectureSummary; recording: LectureRecording };
@@ -142,6 +148,8 @@ function formatTime(ms: number): string {
 export function LectureReplayPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
 
@@ -178,16 +186,49 @@ export function LectureReplayPage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        if (e instanceof ApiError && e.status === 404) {
-          setState({ kind: 'not-found' });
-        } else {
-          setState({ kind: 'load-failed' });
+        // KS-3977 / ADR-119 D01. Маппинг HTTP-ошибок на состояния
+        // экрана: 401/403 — отзыв доступа (или открытие чужой
+        // приватной лекции); 404 — лекция не существует; прочее —
+        // сетевая ошибка. По всем кодам, кроме 404 «recording
+        // missing», ниже useEffect отправляет пользователя на
+        // `/lectures/:id/unavailable?reason=...` (тексты по reason —
+        // KS-3964). Сначала же фиксируем состояние, чтобы плеер не
+        // монтировался и не дёргал лишние запросы.
+        if (e instanceof ApiError) {
+          if (e.status === 401 || e.status === 403) {
+            setState({ kind: 'forbidden' });
+            return;
+          }
+          if (e.status === 404) {
+            setState({ kind: 'not-found' });
+            return;
+          }
         }
+        setState({ kind: 'load-failed' });
       });
     return () => {
       cancelled = true;
     };
   }, [id]);
+
+  // KS-3977 / ADR-119 D01. При state.kind === 'forbidden' / 'not-
+  // found' / 'load-failed' уводим пользователя на отдельный экран
+  // «недоступно» с правильным `?reason=`. Inline-fallback (h1+p)
+  // ниже остаётся для одного-двух кадров до того, как navigate
+  // отработает — это безопаснее, чем рисовать «пустоту».
+  useEffect(() => {
+    if (!id) return;
+    let reason: string | null = null;
+    if (state.kind === 'forbidden') reason = 'forbidden';
+    else if (state.kind === 'not-found') reason = 'not-found';
+    else if (state.kind === 'load-failed') reason = 'load-failed';
+    if (reason) {
+      navigate(
+        `/lectures/${encodeURIComponent(id)}/unavailable?reason=${reason}`,
+        { replace: true },
+      );
+    }
+  }, [id, state.kind, navigate]);
 
   // ─── Плеер: state и таймер ─────────────────────────────────────────
   const [currentTimeMs, setCurrentTimeMs] = useState<number>(0);
@@ -397,6 +438,38 @@ export function LectureReplayPage() {
     [hasAudio, durationMs, audioOffsetMs],
   );
 
+  // KS-3977 / ADR-119 D01. Поддержка URL-фрагмента `#t=N` для
+  // глубоких ссылок: ученик получает ссылку «на момент 1:23» как
+  // `/lectures/:id/replay#t=83` (секунды от начала записи). Парсим
+  // фрагмент один раз — когда состояние перешло в `ready` и плеер
+  // знает свою `durationMs`. Применяем через тот же `handleSeek`,
+  // что и slider пользователя: в audio-driven режиме это сдвинет
+  // `audio.currentTime`, в timer-driven — поднимет локальный
+  // `currentTimeMs`. Не зацикливаемся на смене `location.hash`:
+  // после применения seek хеш не очищаем — пользователь может
+  // обновить страницу и попасть в ту же точку.
+  const hashSeekAppliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (state.kind !== 'ready') return;
+    const hash = location.hash || '';
+    if (!hash || hashSeekAppliedRef.current === hash) return;
+    const match = /^#t=(\d+(?:\.\d+)?)$/.exec(hash);
+    if (!match) {
+      hashSeekAppliedRef.current = hash;
+      return;
+    }
+    const seconds = Number(match[1]);
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      hashSeekAppliedRef.current = hash;
+      return;
+    }
+    handleSeek(seconds * 1000);
+    hashSeekAppliedRef.current = hash;
+    // handleSeek стабилен между рендерами в пределах одного режима
+    // (hasAudio/durationMs/audioOffsetMs не меняются на ready);
+    // зависимости описаны явно, чтобы линтер не ругался.
+  }, [state.kind, location.hash, handleSeek]);
+
   const handleSetSpeed = useCallback(
     (s: number) => {
       setSpeed(s);
@@ -483,6 +556,20 @@ export function LectureReplayPage() {
   if (state.kind === 'loading') {
     return (
       <div className="lecture-replay-page">
+        <div className="loading">{t('common.loading', 'Loading...')}</div>
+      </div>
+    );
+  }
+
+  // KS-3977 / ADR-119 D01. До того как useEffect отправит на
+  // `/unavailable`, держим экран в состоянии загрузки, чтобы
+  // пользователь не увидел развалившуюся вёрстку.
+  if (state.kind === 'forbidden') {
+    return (
+      <div
+        className="lecture-replay-page"
+        data-testid="lecture-replay-forbidden"
+      >
         <div className="loading">{t('common.loading', 'Loading...')}</div>
       </div>
     );
