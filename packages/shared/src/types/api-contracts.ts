@@ -3362,8 +3362,85 @@ export interface WebRTCCapacityExceededEvent {
 /** Статусы лекции (соответствуют `LectureStatus` в БД). */
 export type LectureStatus = 'scheduled' | 'live' | 'recorded' | 'cancelled';
 
-/** Видимость (соответствует `LectureVisibility` в БД). */
-export type LectureVisibility = 'public' | 'unlisted';
+/**
+ * Видимость лекции (соответствует `LectureVisibility` в БД).
+ *
+ * KS-3945 / ADR-118 §2.1. Добавлено значение `'restricted'` — третий
+ * уровень доступа поверх существующих `public` и `unlisted`. Для
+ * `restricted` действует allowlist (см. `LectureAccessGrant`):
+ * анонимный зритель получает `auth_required`, авторизованный без
+ * grant'а — `lecture_access_revoked`. Владелец всегда видит свою
+ * лекцию (см. ADR §2.3 резолвер).
+ */
+export type LectureVisibility = 'public' | 'unlisted' | 'restricted';
+
+/**
+ * KS-3945 / ADR-118 §2.2. Дискриминатор полиморфного `subjectId` в
+ * `LectureAccessGrant`. MVP использует только `'user'`; `'course'` —
+ * задел: при попытке создать grant с `subjectType='course'` REST
+ * вернёт `course_access_not_supported` (см. `LectureAccessErrorCode`)
+ * до появления модели Course/Enrollment.
+ */
+export type LectureAccessSubjectType = 'user' | 'course';
+
+/**
+ * KS-3945 / ADR-118 §3.2. Одна запись allowlist'а. Для `subjectType='user'`
+ * `subjectId` — `User.id`, для будущего `'course'` — `Course.id`.
+ * FK на User у `subjectId` нет (поле полиморфно), целостность
+ * поддерживается обработчиком удаления User в `UsersService.delete`
+ * (KS-3935 A06).
+ */
+export interface LectureAccessGrant {
+  id: string;
+  lectureId: string;
+  subjectType: LectureAccessSubjectType;
+  subjectId: string;
+  grantedById: string;
+  /** ISO-строка времени выдачи grant'а. */
+  grantedAt: string;
+}
+
+/**
+ * KS-3945 / ADR-118 §2.4.1. Возвращается из `GET /lectures/:id/access`
+ * (owner-only). Для каждого `subjectType='user'` grant'а сразу подгружен
+ * мини-профиль пользователя — фронт не делает второй REST-запрос
+ * для отображения чипа в UI.
+ */
+export interface LectureAccessGrantWithUser {
+  grant: LectureAccessGrant;
+  user: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+}
+
+/**
+ * KS-3945 / ADR-118 §2.4.1. Коды ошибок, которые backend кладёт в
+ * поле `error` тел 400/401/403-ответов для эндпоинтов лекций.
+ * Фронт мапит их на UX-сообщения (см. ADR-118 §2.4.1 «Коды ошибок
+ * для frontend»).
+ */
+export type LectureAccessErrorCode =
+  | 'auth_required'
+  | 'lecture_access_revoked'
+  | 'lecture_not_found'
+  | 'course_access_not_supported';
+
+/**
+ * KS-3945 / ADR-118 §2.4.2. Payload WS-события `ACCESS_REVOKED`:
+ * тренер снял доступ у уже подключённого зрителя (`revoked`) или
+ * сменил visibility на `restricted` с пустым allowlist'ом
+ * (`visibility-changed`). Эмитируется в `live-analysis` namespace,
+ * после получения подключённый клиент должен отключиться от
+ * комнаты и показать страницу «доступ отозван». См. также
+ * `ACCESS_DENIED` — то же поведение, но в момент `subscribe`.
+ */
+export interface LiveAnalysisAccessRevokedPayload {
+  lectureId: string;
+  reason: 'revoked' | 'visibility-changed';
+}
 
 /**
  * KS-3896 / ADR-117 §2. Whitelist инструментов, которые тренер может
