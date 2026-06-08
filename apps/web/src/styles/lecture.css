@@ -677,14 +677,25 @@
 }
 
 /* На широких экранах строки выстраиваются в таблицу-сетку.
-   Колонки: status / title / visibility / date / actions. */
+   Колонки: status / title / visibility / date / actions.
+   KS-3998: `overflow: hidden` здесь снят — он обрезал поповер
+   ⋮-меню запланированной лекции, пользователь видел пустой
+   белый прямоугольник без пунктов. Скругление углов теперь
+   достигается через `border-radius` на крайних строках. */
 @media (min-width: 720px) {
   .my-lectures-page__list {
     border: 1px solid var(--border-subtle);
     border-radius: 10px;
-    overflow: hidden;
     gap: 0;
     background: var(--bg-surface);
+  }
+  .my-lectures-page__list > li:first-child {
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+  }
+  .my-lectures-page__list > li:last-child {
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
   }
 }
 
@@ -1313,6 +1324,160 @@
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* ---------- Вкладки внутри модалки ---------- */
+.lecture-modal__tablist {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.lecture-modal__tablist::-webkit-scrollbar {
+  display: none;
+}
+
+.lecture-modal__tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.lecture-modal__tab:hover {
+  color: var(--text-primary);
+}
+
+.lecture-modal__tab--active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+  font-weight: 600;
+}
+
+/* ---------- Поля формы внутри модалки ---------- */
+.lecture-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.lecture-modal__field:last-child {
+  margin-bottom: 0;
+}
+
+.lecture-modal__field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lecture-modal__field-optional {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.lecture-modal__input,
+.lecture-modal__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.4;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.lecture-modal__input:focus,
+.lecture-modal__textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.lecture-modal__input:disabled,
+.lecture-modal__textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.lecture-modal__textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+
+/* ---------- Список «Инструменты» ---------- */
+.lecture-modal__tools-section-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lecture-modal__tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lecture-modal__tool-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+.lecture-modal__tool-row:hover {
+  background: var(--ov-white-05);
+}
+
+.lecture-modal__tool-row input[type='checkbox'] {
+  accent-color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.lecture-modal__tool-row[data-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ---------- Строка ошибки внутри модалки ---------- */
+.lecture-modal__error {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--ov-danger-10);
+  border: 1px solid var(--ov-danger-25);
+  color: var(--danger-strong);
+  font-size: 13px;
+}
+
 /* ---------- Mobile bottom-sheet ---------- */
 @media (max-width: 639px) {
   .lecture-modal-overlay {
@@ -1336,6 +1501,9 @@
   }
   .lecture-modal__footer {
     padding: 12px 16px;
+  }
+  .lecture-modal__tablist {
+    padding: 0 12px;
   }
   /* Ручка-индикатор сверху листа. */
   .lecture-modal::before {
