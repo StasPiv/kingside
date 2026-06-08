@@ -179,6 +179,20 @@ export function buildBrowseFilterSql(input: BrowseFilterInput): BrowseFilterResu
   }
 
   // KS-3357 / ADR-080 §4.1.
+  //
+  // KS-3918: переход с `p.themes LIKE '%X%'` на
+  // `string_to_array(p.themes, ' ') @> ARRAY[$X]`. LIKE-substring давал
+  // planner'у плохую оценку кардинальности (rows=275 vs actual 69 309
+  // на проде → Bitmap Heap Scan на 58 490 страницах, 55 с холодного
+  // кеша). `@>` через функциональный GIN на массиве токенов
+  // (миграция `20260608081214_ks3918_puzzles_themes_gin_array_idx`)
+  // даёт точную статистику и убирает false-positive по substring
+  // (theme=`king` больше не подтянет `kingsideAttack`/`queenEndgame`).
+  //
+  // Разделитель — пробел в обоих источниках (lichess + tactic-worker),
+  // см. описание задачи KS-3918. SQL-инъекций нет: тема прошла
+  // whitelist `PRECISION_RELEVANT_THEMES` в `normalizeThemes`, плюс
+  // подставляется через позиционный $-плейсхолдер.
   const themesAndList = normalizeThemes(themesAndParam);
   let themesOrList = normalizeThemes(themesOrParam);
   if (themesOrList.length === 0 && themes) {
@@ -191,19 +205,29 @@ export function buildBrowseFilterSql(input: BrowseFilterInput): BrowseFilterResu
     throw new BadRequestException('themesOr[] limit 10');
   }
   if (themesAndList.length > 0) {
+    // AND: одно условие `@> ARRAY[t1, t2, ...]` — containment с
+    // несколькими элементами означает «все обязательны». Точно
+    // соответствует прежней семантике AND-цепочки LIKE.
+    const phs: string[] = [];
     for (const t of themesAndList) {
-      const ph = next();
-      params.push(`%${t}%`);
-      conditions.push(`p.themes LIKE ${ph}`);
+      phs.push(next());
+      params.push(t);
     }
+    conditions.push(
+      `string_to_array(p.themes, ' ') @> ARRAY[${phs.join(', ')}]::text[]`,
+    );
   }
   if (themesOrList.length > 0) {
-    const orParts = themesOrList.map((t) => {
-      const ph = next();
-      params.push(`%${t}%`);
-      return `p.themes LIKE ${ph}`;
-    });
-    conditions.push(`(${orParts.join(' OR ')})`);
+    // OR: оператор `&&` (массив перекрывается с другим хотя бы одним
+    // элементом). Семантика «хотя бы одна из тем», как раньше OR-LIKE.
+    const phs: string[] = [];
+    for (const t of themesOrList) {
+      phs.push(next());
+      params.push(t);
+    }
+    conditions.push(
+      `string_to_array(p.themes, ' ') && ARRAY[${phs.join(', ')}]::text[]`,
+    );
   }
 
   if (ratingMinStr) {

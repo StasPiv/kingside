@@ -289,8 +289,12 @@ describe('PuzzleService', () => {
       const [sql, ...sqlParams] = prisma.$queryRawUnsafe.mock.calls[0];
       expect(sql).toContain('ORDER BY random()');
       expect(sql).toContain('LIMIT 5');
-      // параметры (rating min, rating max, source, theme)
-      expect(sqlParams).toEqual(expect.arrayContaining([1000, 1500, 'lichess', '%fork%']));
+      // KS-3918: тема теперь подставляется как точный токен в массив
+      // (containment через `string_to_array @> ARRAY[…]::text[]`), без
+      // обёртки `%…%` substring-match.
+      expect(sql).toMatch(/string_to_array\(p\.themes, ' '\) @> ARRAY\[\$\d+\]::text\[\]/);
+      expect(sqlParams).toEqual(expect.arrayContaining([1000, 1500, 'lichess', 'fork']));
+      expect(sqlParams).not.toEqual(expect.arrayContaining(['%fork%']));
       expect(res).toHaveLength(1);
       expect(res[0].id).toBe('p1');
     });

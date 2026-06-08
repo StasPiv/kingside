@@ -277,11 +277,17 @@ export class PuzzleService {
         i++;
       }
       if (filters?.themes && filters.themes.length > 0) {
+        // KS-3918: AND-цепочка тем через containment по массиву токенов.
+        // См. комментарий в `puzzle-browse-filter.ts`.
+        const themePhs: string[] = [];
         for (const theme of filters.themes) {
-          conds.push(`p.themes LIKE $${i}`);
-          ps.push(`%${theme}%`);
+          themePhs.push(`$${i}`);
+          ps.push(theme);
           i++;
         }
+        conds.push(
+          `string_to_array(p.themes, ' ') @> ARRAY[${themePhs.join(', ')}]::text[]`,
+        );
       }
       if (filters?.solutionMode) {
         conds.push(`p.solution_mode = $${i}`);
@@ -404,6 +410,12 @@ export class PuzzleService {
     }
 
     if (themes && themes.length > 0) {
+      // KS-3918 TODO. Здесь сохраняем Prisma-way `contains` (LIKE
+      // substring) — этот путь использует findMany с обязательным
+      // диапазоном рейтинга и LIMIT, planner справляется с оценкой за
+      // счёт rating-фильтра. Переход на raw SQL с `string_to_array @>`
+      // для устранения false-positives substring-match — отдельная
+      // задача (там нужна переписка под $queryRawUnsafe + ручной orderBy).
       where.AND = themes.map((theme) => ({
         themes: { contains: theme },
       }));
@@ -469,10 +481,18 @@ export class PuzzleService {
       paramsList.push(source);
     }
     if (themes && themes.length > 0) {
+      // KS-3918: containment по массиву токенов вместо LIKE substring.
+      // Здесь ORDER BY random() — холодный кеш не критичен, но переход
+      // полезен ради устранения false-positives (см. комментарий в
+      // `puzzle-browse-filter.ts`).
+      const themePhs: string[] = [];
       for (const theme of themes) {
-        conditions.push(`p.themes LIKE $${idx++}`);
-        paramsList.push(`%${theme}%`);
+        themePhs.push(`$${idx++}`);
+        paramsList.push(theme);
       }
+      conditions.push(
+        `string_to_array(p.themes, ' ') @> ARRAY[${themePhs.join(', ')}]::text[]`,
+      );
     }
     if (excludeIds && excludeIds.length > 0) {
       const placeholders = excludeIds.map(() => `$${idx++}`).join(', ');

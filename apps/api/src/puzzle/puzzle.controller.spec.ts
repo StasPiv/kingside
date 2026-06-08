@@ -175,7 +175,7 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     expect(params).toContain('pz-prev');
   });
 
-  it('themes ANY-of: OR-цепочка LIKE', async () => {
+  it('KS-3918 themes ANY-of: containment по массиву токенов через `&&`', async () => {
     const prisma = makePrisma([]);
     const controller = new PuzzleController({ buildBrowseEnrichments: () => ({}) } as unknown as PuzzleService, prisma, fakeRedis() as any);
 
@@ -188,11 +188,17 @@ describe('PuzzleController.browse — KS-2560 cursor', () => {
     );
 
     const [sql, ...params] = getDataCall(prisma);
-    // OR-выражение: (p.themes LIKE $X OR p.themes LIKE $Y OR p.themes LIKE $Z).
-    expect(sql).toMatch(/p\.themes LIKE \$\d+ OR p\.themes LIKE \$\d+ OR p\.themes LIKE \$\d+/);
-    expect(params).toContain('%fork%');
-    expect(params).toContain('%pin%');
-    expect(params).toContain('%mate%');
+    // KS-3918: вместо OR-LIKE-цепочки теперь один `string_to_array @>`,
+    // даёт planner'у точную статистику и убирает substring false-positives.
+    expect(sql).toMatch(
+      /string_to_array\(p\.themes, ' '\) && ARRAY\[\$\d+, \$\d+, \$\d+\]::text\[\]/,
+    );
+    expect(params).toContain('fork');
+    expect(params).toContain('pin');
+    expect(params).toContain('mate');
+    // Старого паттерна substring-match быть не должно.
+    expect(sql).not.toMatch(/p\.themes LIKE/);
+    expect(params).not.toContain('%fork%');
   });
 
   it('ratingMin/ratingMax → BETWEEN-условия', async () => {

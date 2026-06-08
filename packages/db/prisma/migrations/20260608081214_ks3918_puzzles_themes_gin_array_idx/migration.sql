@@ -1,0 +1,43 @@
+-- KS-3918. Запрос `/puzzles/browse?themes=<X>&hideSolved=true&source=lichess`
+-- падает в холодном кеше на ~55 секунд (EXPLAIN ANALYZE с прод, см. KS-3918).
+--
+-- Корневая причина: planner недооценивает кардинальность LIKE-подстроки
+-- на `puzzles_themes_trgm_idx` (KS-3234) в 252 раза (rows=275 vs actual
+-- 69 309 для `themes LIKE '%queenEndgame%'`). Из-за плохой оценки выбирает
+-- Bitmap Heap Scan + Top-N Sort вместо Backward Index Scan по
+-- `puzzles_created_at_idx` + filter. Heap Blocks Read = 58 490 → I/O 14 с.
+-- При истинной оценке 1.16% популярности темы top-31 набирался бы через
+-- ~2 700 свежих строк (≈30 индексных страниц, миллисекунды).
+--
+-- Решение: функциональный GIN-индекс на массиве токенов
+-- `string_to_array(themes, ' ')`. Запросы переписываются с `LIKE '%X%'`
+-- на `string_to_array(themes, ' ') @> ARRAY['X']`. Контейнмент-оператор
+-- даёт planner'у точную статистику по кардинальности из GIN, поэтому
+-- выбирается правильный план (либо Backward Index Scan по созданным
+-- индексам, либо точный Bitmap по новому без false-positive по подстрокам).
+--
+-- Дополнительно как side-effect устраняется логический баг: LIKE-substring
+-- даёт false-positives (theme=`king` подтягивает `kingsideAttack`,
+-- `queenEndgame`, `pawnEndgame`, ...). После перехода на `@> ARRAY[…]` —
+-- только точные токены.
+--
+-- Разделитель тем — ВСЕГДА пробел в обоих источниках (см. KS-3918 анализ
+-- devops 2026-06-08): lichess-import — `themes` колонка из
+-- lichess_db_puzzle.csv (5 939 980 строк), tactic-worker — `allThemes.join(' ')`
+-- (11 724 generated-строк). Запятых ни в одном источнике нет.
+--
+-- Старый `puzzles_themes_trgm_idx` оставляем: его использует
+-- `PuzzleService.findPuzzles` / `getThemeStats` через LIKE substring,
+-- плюс он нужен для поисков по подстроке (если когда-нибудь появится).
+-- 272 MB на проде — не критично.
+--
+-- Не использую `CREATE INDEX CONCURRENTLY` — Prisma migrate оборачивает
+-- .sql в транзакцию (см. KS-3234, прямая попытка падала с
+-- `CREATE INDEX CONCURRENTLY cannot run inside a transaction block`).
+-- Обычный CREATE INDEX берёт SHARE lock на `puzzles` — блокирует только
+-- writes (INSERT/UPDATE/DELETE), SELECT'ы идут параллельно. Writes в
+-- puzzles редкие (batch-импорт CLI tactic-worker и `POST /puzzles/batch`),
+-- на время сборки индекса (минуты на 6M строк) импорты постоят в очереди.
+
+CREATE INDEX IF NOT EXISTS puzzles_themes_array_gin_idx
+  ON puzzles USING gin (string_to_array(themes, ' '));
