@@ -224,6 +224,19 @@ services:
 
   # KS-1918: одноразовая миграция broadcasts_kingside для локали.
   # Запуск: docker compose --profile migrate up broadcasts-migrate
+  # KS-3924: лёгкий migration-образ для api. Используется в проде через
+  # Fargate run-task (см. scripts/deploy-aws.sh, kingside-api-migrate task-def).
+  # Локально — только для проверки сборки (`docker compose build api-migrations`).
+  # Профиль `migrate` исключает сервис из дефолтного `compose up`.
+  api-migrations:
+    image: kingside-api-migrations:local
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile.migrations
+    restart: "no"
+    profiles:
+      - migrate
+
   broadcasts-migrate:
     image: kingside-broadcast-service:latest
     restart: "no"

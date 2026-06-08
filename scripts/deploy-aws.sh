@@ -353,8 +353,15 @@ ECR_URI_ARCHIVE_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-
 # ECS service'а нет — pipeline аналогичен archive-importer-adhoc (build → push :<sha> →
 # register task-def revision → atomic :latest без update-service / smoke).
 ECR_URI_TACTIC_WORKER="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-tactic-worker"
+# KS-3924: отдельный ECR-repo для лёгкого migration-образа api. Содержит
+# node:20-slim + prisma CLI + packages/db/prisma. Используется только для
+# pre-rollout `prisma migrate deploy` через Fargate run-task (см. ниже).
+# Production-образ kingside-api сам по себе после KS-3924 не содержит prisma
+# CLI / @prisma/engines — экономия ~170 МБ в распакованном виде.
+ECR_URI_API_MIGRATIONS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api-migrations"
 # Короткие имена ECR-repo для aws ecr put-image / batch-get-image.
 ECR_REPO_API="kingside-api"
+ECR_REPO_API_MIGRATIONS="kingside-api-migrations"  # KS-3924
 ECR_REPO_GAME="kingside-game-service"
 ECR_REPO_BROADCAST_SERVICE="kingside-broadcast-service"
 ECR_REPO_ARCHIVE_SERVICE="kingside-archive-service"
@@ -366,6 +373,12 @@ ECS_SERVICE="kingside-api"
 ECS_SERVICE_GAME="kingside-game-service"
 # Task-def families (ECS task-definition name, не ECS-service).
 TD_FAMILY_API="kingside-api"
+# KS-3924: отдельный task-def family для pre-rollout миграций. Bootstrap-ится
+# идемпотентно из kingside-api на первом запуске (см. ensure_migrate_task_def_family),
+# дальше каждый деплой регистрирует новую revision с обновлённым migration-образом.
+# Контейнер исполняет ENTRYPOINT migration-образа (`npx prisma migrate deploy`),
+# DATABASE_URL/secrets берутся из унаследованной от kingside-api environment.
+TD_FAMILY_API_MIGRATE="kingside-api-migrate"
 TD_FAMILY_GAME="kingside-game-service"
 TD_FAMILY_BROADCAST_SERVICE="kingside-broadcast-service"
 TD_FAMILY_ARCHIVE_SERVICE="kingside-archive-service"
@@ -905,6 +918,55 @@ register_or_get_task_def() {
     register_new_task_def_with_image "$family" "$new_image"
 }
 
+# KS-3924: идемпотентное создание ECR-repository. Используется для
+# kingside-api-migrations при первом деплое после внедрения migration-образа.
+# Существующие репозитории трогать не нужно — RepositoryAlreadyExistsException
+# проглатывается, exit code не меняется.
+ensure_ecr_repo() {
+    local repo_name=$1
+    if aws ecr describe-repositories --repository-names "$repo_name" \
+            --query 'repositories[0].repositoryName' --output text 2>/dev/null \
+            | grep -qx "$repo_name"; then
+        return 0
+    fi
+    echo "[ecr] Creating repository $repo_name..."
+    aws ecr create-repository --repository-name "$repo_name" \
+        --image-tag-mutability MUTABLE \
+        --image-scanning-configuration scanOnPush=false \
+        --query 'repository.repositoryArn' --output text
+}
+
+# KS-3924: регистрирует новую revision task-def family для migration-образа,
+# клонируя текущую активную revision исходного family (kingside-api production).
+# Так env/secrets/DATABASE_URL/IAM-роли всегда остаются в синхроне с production —
+# любые правки kingside-api автоматически подтягиваются в migrate family на
+# ближайшем деплое. Меняются только .family и .containerDefinitions[].image.
+# healthCheck из production-образа в migration-контейнере не сработает
+# (контейнер выходит после `prisma migrate deploy`), но run-task оценивает
+# только exit code, так что это нейтрально.
+register_migrate_task_def_revision() {
+    local mig_family=$1
+    local src_family=$2
+    local new_image=$3
+    ensure_jq
+    local tmp
+    tmp=$(mktemp)
+    aws ecs describe-task-definition --task-definition "$src_family" \
+        --query 'taskDefinition' --output json \
+        | jq --arg fam "$mig_family" --arg img "$new_image" '
+            .family = $fam
+            | .containerDefinitions |= map(.image = $img)
+            | del(
+                .taskDefinitionArn, .revision, .status, .compatibilities,
+                .requiresAttributes, .registeredAt, .registeredBy,
+                .deregisteredAt, .enableFaultInjection
+              )
+          ' > "$tmp"
+    aws ecs register-task-definition --cli-input-json "file://$tmp" \
+        --query 'taskDefinition.taskDefinitionArn' --output text
+    rm -f "$tmp"
+}
+
 # KS-1897: переключает target task-def у EventBridge Scheduler на новую revision.
 # AWS Scheduler требует полный объект расписания на update-schedule (имя, cron,
 # FlexibleTimeWindow, Target). Получаем текущее через get-schedule, заменяем
@@ -1280,6 +1342,41 @@ if $DEPLOY_API; then
     fi
     _perf_stamp "api_docker_push_done"
 
+    # KS-3924: отдельный лёгкий migration-образ (node:20-slim + prisma CLI +
+    # packages/db/prisma). Используется в pre-rollout `prisma migrate deploy`
+    # вместо production-образа. Освобождает production от prisma CLI и
+    # @prisma/engines (~170 МБ в распакованном виде, см. KS-3718).
+    NEW_MIG_IMAGE="${ECR_URI_API_MIGRATIONS}:${DEPLOY_SHA}"
+    ensure_ecr_repo "$ECR_REPO_API_MIGRATIONS"
+
+    echo "[api] Building migrations image (tag=$DEPLOY_SHA)..."
+    MIG_BUILD_LOG="$REPO_DIR/logs/api-migrations-build-${DEPLOY_SHA}.log"
+    set +e
+    docker build --progress=plain -t "kingside-api-migrations:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/scripts/Dockerfile.migrations" "$REPO_DIR" 2>&1 \
+        | _with_ts | tee "$MIG_BUILD_LOG"
+    MIG_BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$MIG_BUILD_RC" -ne 0 ]; then
+        echo "  ERROR: migrations image build failed (rc=$MIG_BUILD_RC). Full log: $MIG_BUILD_LOG"
+        tail -80 "$MIG_BUILD_LOG" || true
+        exit "$MIG_BUILD_RC"
+    fi
+    _perf_stamp "api_migrations_build_done"
+
+    echo "[api] Pushing ${ECR_REPO_API_MIGRATIONS}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-api-migrations:${DEPLOY_SHA}" "$NEW_MIG_IMAGE"
+    MIG_PUSH_LOG="$REPO_DIR/logs/api-migrations-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_MIG_IMAGE" 2>&1 | _with_ts | tee "$MIG_PUSH_LOG" | tail -3
+    MIG_PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$MIG_PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: migrations push failed (rc=$MIG_PUSH_RC). Full log: $MIG_PUSH_LOG"
+        exit "$MIG_PUSH_RC"
+    fi
+    _perf_stamp "api_migrations_push_done"
+
     echo "[api] Registering new task-def revision with image=:${DEPLOY_SHA}..."
     # KS-2108/KS-2109: admin endpoints (feature flags) требуют список логинов
     # в KS_ADMIN_USERS, default-deny если не задано. Прокидываем через
@@ -1304,12 +1401,21 @@ if $DEPLOY_API; then
     # 16-04-2026). Старый путь `apps/api/prisma/migrations` не существует —
     # это и приводило к тихому пропуску миграций до KS-3491.
     if should_run_migrate "api" "packages/db/prisma/migrations"; then
-        echo "[api] Running Prisma migrations on new revision..."
+        echo "[api] Running Prisma migrations on dedicated migration image..."
         ensure_migrate_network
+        # KS-3924: migrate бежит не на production-образе, а на отдельном
+        # kingside-api-migrations. На каждый деплой регистрируем новую revision
+        # `kingside-api-migrate`, клонируя текущую активную production-revision
+        # `kingside-api` (env/secrets/DATABASE_URL/IAM-роли всегда в синхроне).
+        # Команду не override-им — ENTRYPOINT migration-образа уже
+        # `npx prisma migrate deploy`. WORKDIR /app, schema лежит в
+        # /app/prisma/schema.prisma (см. scripts/Dockerfile.migrations).
+        NEW_MIG_TD_ARN=$(register_migrate_task_def_revision \
+            "$TD_FAMILY_API_MIGRATE" "$TD_FAMILY_API" "$NEW_MIG_IMAGE")
+        echo "  migrate task-def: $NEW_MIG_TD_ARN"
         MIGRATE_TASK=$(aws ecs run-task \
-            --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_ARN" --launch-type FARGATE \
+            --cluster "$ECS_CLUSTER" --task-definition "$NEW_MIG_TD_ARN" --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
-            --overrides '{"containerOverrides":[{"name":"kingside-api","command":["sh","-c","cd /app/apps/api && npx prisma migrate deploy"]}]}' \
             --query 'tasks[0].taskArn' --output text)
         aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
         MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \

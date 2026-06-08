@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+#
+# KS-3924: лёгкий образ для запуска `prisma migrate deploy` в pre-rollout Fargate
+# task. Отделён от production-образа `kingside-api`, чтобы:
+#   - `prisma` CLI и `@prisma/engines` (~170 МБ) ушли из production node_modules
+#     (см. KS-3718, KS-3058);
+#   - cold start Fargate task для миграций был быстрее (меньше слой ECR pull).
+#
+# Контекст сборки: корень репозитория ($REPO_DIR), запуск из scripts/deploy-aws.sh
+# через `docker build -f scripts/Dockerfile.migrations`.
+#
+# Содержит ТОЛЬКО:
+#   - node:20-slim + openssl (зависимость query/schema-engine);
+#   - prisma@6.19.2 CLI + @prisma/engines (выкачивается postinstall'ом под
+#     debian-openssl-3.0.x — совпадает с binaryTargets в schema.prisma);
+#   - packages/db/prisma/* (schema + migrations).
+#
+# НЕ содержит: application-кода api, @prisma/client, generated client,
+# packages/* кроме schema/migrations, никаких aws/python/opencv-зависимостей.
+
+FROM node:20-slim
+
+# OpenSSL нужен query-engine'у/schema-engine'у Prisma. ca-certificates — для
+# postinstall (скачивает движки из binaries.prisma.sh).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Изолированный package.json в /app — не тащим monorepo lock сюда, чтобы не
+# инвалидировать кэш этого слоя на любые изменения root package-lock.json.
+# Версия prisma пиннится явно (синхронизировано с packages/db/package.json:
+# "prisma": "^6.19.2", фактически разрешено в 6.19.3 — задаём ровно её).
+RUN npm init -y --silent \
+    && npm install --no-audit --no-fund prisma@6.19.3
+
+# Только prisma-каталог: schema.prisma + migrations/. Никакого src/, dist/,
+# generated/ — `migrate deploy` ничего из этого не использует.
+COPY packages/db/prisma ./prisma
+
+# `prisma migrate deploy` по дефолту читает ./prisma/schema.prisma. DATABASE_URL
+# берётся из env (передаётся task-def'ом из Secrets Manager, как у production).
+ENTRYPOINT ["npx", "prisma", "migrate", "deploy"]
