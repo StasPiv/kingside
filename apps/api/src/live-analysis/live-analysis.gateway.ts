@@ -36,6 +36,10 @@ import {
   type WebRTCPeerJoinedEvent,
   type WebRTCPeerLeftEvent,
 } from '@kingside/shared';
+import type {
+  LectureAccessRevokedEvent,
+  LiveAnalysisAccessRevokedPayload,
+} from '@kingside/shared';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { LiveAnalysisService } from './live-analysis.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -114,6 +118,15 @@ export class LiveAnalysisGateway
   private static readonly CHANNEL_LECTURE_TOOLS_CHANGED =
     'lecture-tools-changed';
 
+  /**
+   * KS-3943 / ADR-118 §2.5, §3.4. Имя Redis-канала revoke-события.
+   * Параллельно с `lecture-tools-changed` — обрабатывается этим же
+   * gateway'ем. Имя строкой захардкожено намеренно: не вводить
+   * импорт `LecturesAccessService` ради одной константы.
+   */
+  private static readonly CHANNEL_LECTURE_ACCESS_REVOKED =
+    'lecture-access-revoked';
+
   /** Throttle для эмита `viewers` per-slug: не чаще раза в N мс. */
   private static readonly VIEWERS_THROTTLE_MS = 2000;
   private readonly viewersThrottle = new Map<string, number>();
@@ -174,6 +187,7 @@ export class LiveAnalysisGateway
         LiveAnalysisService.CHANNEL_SYNC,
         LiveAnalysisService.CHANNEL_CLOSED,
         LiveAnalysisGateway.CHANNEL_LECTURE_TOOLS_CHANGED,
+        LiveAnalysisGateway.CHANNEL_LECTURE_ACCESS_REVOKED,
       )
       .catch((e) =>
         this.logger.error(`Redis subscribe failed: ${(e as Error).message}`),
@@ -223,10 +237,138 @@ export class LiveAnalysisGateway
             LiveAnalysisEvents.LECTURE_TOOLS,
             payload as LectureToolsChangedEvent,
           );
+      } else if (
+        channel === LiveAnalysisGateway.CHANNEL_LECTURE_ACCESS_REVOKED
+      ) {
+        // KS-3943 / ADR-118 §2.5. Тренер снял доступ у ученика
+        // (`reason='revoked'`) или сменил visibility на restricted с
+        // пустым allowlist'ом (`reason='visibility-changed'`).
+        // Обрабатываем отдельным async-методом — нужен fetchSockets +
+        // per-socket резолвер, синхронно не сделать.
+        if (
+          typeof payload.lectureId !== 'string' ||
+          !Array.isArray(payload.revokedUserIds) ||
+          (payload.reason !== 'revoked' &&
+            payload.reason !== 'visibility-changed')
+        ) {
+          this.logger.warn(
+            `lecture-access-revoked: malformed payload, ignored: ${message}`,
+          );
+          return;
+        }
+        void this.handleLectureAccessRevoked(
+          payload as LectureAccessRevokedEvent,
+        ).catch((e) =>
+          this.logger.warn(
+            `handleLectureAccessRevoked failed: ${(e as Error).message}`,
+          ),
+        );
       }
     } catch (e) {
       this.logger.warn(`pub/sub parse error: ${(e as Error).message}`);
     }
+  }
+
+  /**
+   * KS-3943 / ADR-118 §2.5. Применить revoke-событие к подключённым
+   * сокетам комнаты `live-analysis:<slug>`. Для каждого сокета решает,
+   * нужно ли его отключать:
+   *   - `reason='revoked'`: проверяем `client.data.user?.id ∈ revokedUserIds`.
+   *     Owner в этом списке не может оказаться (REST-side `revokeGrant`
+   *     бросает 400 на self-revoke, KS-3936).
+   *   - `reason='visibility-changed'`: пересчитываем доступ через
+     `resolveLectureAccess` — теперь лекция уже `restricted`, в БД
+   *     `visibility='restricted'`. Owner получает `allowed=owner`,
+   *     анонимы — `auth_required`, остальные без grant'а —
+   *     `not_in_allowlist`. Отключаем всех `denied`.
+   *
+   * Помеченным сокетам сначала эмитим `live-analysis:access-revoked`
+   * с payload `{ lectureId, reason }`, затем `socket.disconnect(true)`.
+   * `disconnect(true)` запускает существующий `handleDisconnect`,
+   * который сделает viewer-decrement + WebRTC peer-cleanup (ADR-116
+   * §2.2) автоматически — отдельной логики не пишем.
+   */
+  private async handleLectureAccessRevoked(
+    event: LectureAccessRevokedEvent,
+  ): Promise<void> {
+    const room = this.roomFor(event.slug);
+    let sockets: Array<{
+      id: string;
+      data: { user?: { id: string } | null };
+      emit: (event: string, payload: unknown) => void;
+      disconnect: (close?: boolean) => void;
+    }> = [];
+    try {
+      // socket.io 4.x: fetchSockets() возвращает RemoteSocket-обёртку
+      // даже для локальных сокетов. У них есть `id`, `data`, `emit`,
+      // `disconnect`.
+      sockets = (await this.server.in(room).fetchSockets()) as never;
+    } catch (e) {
+      this.logger.warn(
+        `handleLectureAccessRevoked: fetchSockets failed for room=${room}: ${(e as Error).message}`,
+      );
+      return;
+    }
+    if (sockets.length === 0) return;
+
+    // Для visibility-changed нужно подгрузить лекцию один раз и
+    // прогнать резолвер по каждому подключённому юзеру.
+    let lectureForResolver: {
+      id: string;
+      ownerId: string;
+      visibility: 'public' | 'unlisted' | 'restricted';
+    } | null = null;
+    if (event.reason === 'visibility-changed') {
+      const lec = await this.prisma.lecture.findUnique({
+        where: { id: event.lectureId },
+        select: { id: true, ownerId: true, visibility: true },
+      });
+      if (!lec) {
+        this.logger.warn(
+          `handleLectureAccessRevoked: lecture=${event.lectureId} not found, skipping visibility-changed pass`,
+        );
+        return;
+      }
+      lectureForResolver = lec as {
+        id: string;
+        ownerId: string;
+        visibility: 'public' | 'unlisted' | 'restricted';
+      };
+    }
+
+    const revokedSet = new Set(event.revokedUserIds);
+    const payload: LiveAnalysisAccessRevokedPayload = {
+      lectureId: event.lectureId,
+      reason: event.reason,
+    };
+
+    let revokedCount = 0;
+    for (const sock of sockets) {
+      const userId = sock.data?.user?.id ?? null;
+      let shouldRevoke = false;
+      if (event.reason === 'revoked') {
+        shouldRevoke = userId !== null && revokedSet.has(userId);
+      } else {
+        // visibility-changed
+        if (lectureForResolver) {
+          const result = await this.lecturesAccess.resolveLectureAccess(
+            lectureForResolver,
+            userId,
+          );
+          shouldRevoke = !result.allowed;
+        }
+      }
+      if (shouldRevoke) {
+        sock.emit(LiveAnalysisEvents.ACCESS_REVOKED, payload);
+        sock.disconnect(true);
+        revokedCount++;
+      }
+    }
+    this.logger.log(
+      `lecture-access-revoked applied: lecture=${event.lectureId}` +
+        ` slug=${event.slug} reason=${event.reason}` +
+        ` checked=${sockets.length} revoked=${revokedCount}`,
+    );
   }
 
   async onModuleDestroy(): Promise<void> {

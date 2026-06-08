@@ -730,3 +730,183 @@ describe('LiveAnalysisGateway.handleSubscribe access flow (KS-3940)', () => {
     expect(client.join).toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// KS-3943 / ADR-118 §2.5. handleLectureAccessRevoked: pub/sub-handler
+// для канала `lecture-access-revoked`. Перебирает подключённых
+// сокетов комнаты, эмитит ACCESS_REVOKED и disconnect'ит тех, у кого
+// нет доступа.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('LiveAnalysisGateway.handleLectureAccessRevoked (KS-3943)', () => {
+  let gateway: LiveAnalysisGateway;
+  let prisma: { lecture: { findUnique: jest.Mock } };
+  let access: { resolveLectureAccess: jest.Mock };
+  let sockets: Array<{
+    id: string;
+    data: { user: { id: string } | null };
+    emit: jest.Mock;
+    disconnect: jest.Mock;
+  }>;
+
+  function makeSocket(
+    id: string,
+    user: { id: string } | null,
+  ): typeof sockets[number] {
+    return {
+      id,
+      data: { user },
+      emit: jest.fn(),
+      disconnect: jest.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    prisma = { lecture: { findUnique: jest.fn() } };
+    access = { resolveLectureAccess: jest.fn() };
+    sockets = [];
+    gateway = new LiveAnalysisGateway(
+      {} as JwtService,
+      {} as unknown as LiveAnalysisService,
+      {} as ConfigService,
+      prisma as unknown as PrismaService,
+      access as never,
+    );
+    (gateway as any).server = {
+      in: jest.fn().mockReturnValue({
+        fetchSockets: jest.fn().mockImplementation(async () => sockets),
+      }),
+    };
+  });
+
+  function invoke(payload: unknown): void {
+    (gateway as any).handleRedisMessage(
+      'lecture-access-revoked',
+      JSON.stringify(payload),
+    );
+  }
+
+  async function waitMicro() {
+    // handleRedisMessage запускает handler как `void promise.catch(...)` —
+    // даём eventloop'у прокрутить микротаски.
+    await new Promise((r) => setImmediate(r));
+  }
+
+  // ─── malformed payload ──────────────────────────────────────────
+
+  it('игнорирует payload без lectureId / revokedUserIds / reason', async () => {
+    invoke({ slug: 'SLG1', revokedUserIds: [], reason: 'revoked' }); // нет lectureId
+    invoke({ slug: 'SLG1', lectureId: 'lec', reason: 'revoked' }); // нет revokedUserIds
+    invoke({ slug: 'SLG1', lectureId: 'lec', revokedUserIds: [], reason: 'other' }); // bad reason
+    await waitMicro();
+    expect((gateway as any).server.in).not.toHaveBeenCalled();
+  });
+
+  // ─── reason='revoked' ───────────────────────────────────────────
+
+  it("reason=revoked: эмитит и disconnect'ит сокеты с user.id ∈ revokedUserIds", async () => {
+    const s1 = makeSocket('S1', { id: 'student-1' });
+    const s2 = makeSocket('S2', { id: 'student-2' });
+    const s3 = makeSocket('S3', { id: 'student-3' });
+    sockets = [s1, s2, s3];
+
+    invoke({
+      lectureId: 'lec-1',
+      slug: 'SLG1',
+      revokedUserIds: ['student-1', 'student-3'],
+      reason: 'revoked',
+    });
+    await waitMicro();
+
+    expect(s1.emit).toHaveBeenCalledWith('live-analysis:access-revoked', {
+      lectureId: 'lec-1',
+      reason: 'revoked',
+    });
+    expect(s1.disconnect).toHaveBeenCalledWith(true);
+    expect(s2.emit).not.toHaveBeenCalled();
+    expect(s2.disconnect).not.toHaveBeenCalled();
+    expect(s3.emit).toHaveBeenCalled();
+    expect(s3.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('reason=revoked: anon socket (user=null) — никогда не в revokedUserIds, не трогаем', async () => {
+    const anon = makeSocket('Sa', null);
+    sockets = [anon];
+    invoke({
+      lectureId: 'lec-1',
+      slug: 'SLG1',
+      revokedUserIds: ['student-1'],
+      reason: 'revoked',
+    });
+    await waitMicro();
+    expect(anon.disconnect).not.toHaveBeenCalled();
+  });
+
+  // ─── reason='visibility-changed' ────────────────────────────────
+
+  it('reason=visibility-changed: owner НЕ отключается, anon отключается, allowlist пропускается, без grant отключается', async () => {
+    const owner = makeSocket('So', { id: 'owner-1' });
+    const anon = makeSocket('Sa', null);
+    const inList = makeSocket('Si', { id: 'student-in' });
+    const outList = makeSocket('Sx', { id: 'student-out' });
+    sockets = [owner, anon, inList, outList];
+
+    prisma.lecture.findUnique.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner-1',
+      visibility: 'restricted',
+    });
+
+    access.resolveLectureAccess.mockImplementation(async (_lec, uid) => {
+      if (uid === 'owner-1') return { allowed: true, reason: 'owner' };
+      if (uid === null) return { allowed: false, reason: 'auth_required' };
+      if (uid === 'student-in') return { allowed: true, reason: 'allowlisted' };
+      return { allowed: false, reason: 'not_in_allowlist' };
+    });
+
+    invoke({
+      lectureId: 'lec-1',
+      slug: 'SLG1',
+      revokedUserIds: [],
+      reason: 'visibility-changed',
+    });
+    await waitMicro();
+
+    expect(owner.disconnect).not.toHaveBeenCalled();
+    expect(inList.disconnect).not.toHaveBeenCalled();
+    expect(anon.emit).toHaveBeenCalledWith('live-analysis:access-revoked', {
+      lectureId: 'lec-1',
+      reason: 'visibility-changed',
+    });
+    expect(anon.disconnect).toHaveBeenCalledWith(true);
+    expect(outList.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('reason=visibility-changed + лекции нет (удалена) → skip, никого не трогаем', async () => {
+    const s = makeSocket('S1', { id: 'student-1' });
+    sockets = [s];
+    prisma.lecture.findUnique.mockResolvedValueOnce(null);
+    invoke({
+      lectureId: 'lec-deleted',
+      slug: 'SLG1',
+      revokedUserIds: [],
+      reason: 'visibility-changed',
+    });
+    await waitMicro();
+    expect(s.disconnect).not.toHaveBeenCalled();
+  });
+
+  // ─── комната пуста ───────────────────────────────────────────────
+
+  it('комната пуста — ранний выход без чтения лекции', async () => {
+    sockets = [];
+    invoke({
+      lectureId: 'lec-1',
+      slug: 'SLG1',
+      revokedUserIds: [],
+      reason: 'visibility-changed',
+    });
+    await waitMicro();
+    expect(prisma.lecture.findUnique).not.toHaveBeenCalled();
+  });
+});
