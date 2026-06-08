@@ -100,6 +100,37 @@ type LoadState =
 
 const SPEEDS: ReadonlyArray<number> = [1, 1.5, 2];
 
+/**
+ * KS-3927. Вернуть индекс последнего записанного события, `t` которого
+ * не превышает текущую позицию плеера, либо `-1` если таких событий нет.
+ *
+ * Используется в `LectureReplayPage`, чтобы пересоздавать `replay`-проп
+ * только при пересечении границы события — между событиями ссылка на
+ * `replay` стабильна и `AnalysisPage` не дёргается на каждый кадр
+ * плеера (60 Hz). Раньше каждый кадр обновлял `replay.currentTimeMs`
+ * (real time), что вызывало ре-рендер всей AnalysisPage и блокировало
+ * main thread на ходах настолько, что аудио прерывалось щелчками.
+ *
+ * Алгоритм — бинарный поиск по отсортированному массиву (`events`
+ * приходит уже отсортирован по `t` из backend'а, KS-3793). Сложность
+ * O(log N) на кадр.
+ *
+ * Экспорт нужен для unit-теста (`LectureReplayPage.findApplicableEventIndex.test.ts`).
+ */
+export function findApplicableEventIndex(
+  events: ReadonlyArray<{ t: number }>,
+  currentTimeMs: number,
+): number {
+  let lo = 0;
+  let hi = events.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (events[mid].t <= currentTimeMs) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo - 1;
+}
+
 function formatTime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '0:00';
   const totalSec = Math.floor(ms / 1000);
@@ -395,22 +426,57 @@ export function LectureReplayPage() {
   // пересчитывается сама.
 
   // ─── replay-проп для AnalysisPage ──────────────────────────────────
+  // KS-3927. Раньше объект `replay` пересоздавался на каждый кадр
+  // воспроизведения (60 Hz через RAF в audio-driven и timer-driven
+  // режимах), что вызывало ре-рендер всего `AnalysisPage` 60 раз в
+  // секунду. Сам пересчёт состояния доски (`applyReplayTree`) защищён
+  // сигнатурой и не делает работы между событиями, но реконсиляция
+  // глубокого дерева компонентов вместе с диффом chess-движка
+  // занимала достаточно времени, чтобы блокировать main thread в
+  // момент очередного state-patch'а — браузер прерывал декодирование
+  // аудио, и слышался щелчок.
+  //
+  // Решение: пересоздавать ссылку `replay` только при пересечении
+  // границы события (`reset` / `state-patch`). Между событиями
+  // `replay.currentTimeMs` остаётся равен моменту последнего
+  // применённого события — `AnalysisPage` не дёргается, аудио
+  // продолжает декодироваться без прерываний. UI плеера
+  // (slider/время) по-прежнему привязан к локальному
+  // `currentTimeMs`, обновляется каждый кадр и работает без задержек.
+  const applicableEventIndex = useMemo(() => {
+    if (state.kind !== 'ready') return -1;
+    return findApplicableEventIndex(
+      state.recording.events,
+      currentTimeMs,
+    );
+  }, [state, currentTimeMs]);
+
   const replay: ReplayLectureProps | null = useMemo(() => {
     if (state.kind !== 'ready') return null;
+    // `replay.currentTimeMs` для AnalysisPage — момент последнего
+    // применённого события, а не текущий тик плеера. Этого
+    // достаточно applier'у в AnalysisPage (он ищет последний
+    // reset/state-patch с `t <= currentTimeMs`); UI плеера
+    // показывает реальное время через `currentTimeMs` из локального
+    // state.
+    const stableCurrentTimeMs =
+      applicableEventIndex >= 0
+        ? state.recording.events[applicableEventIndex].t
+        : 0;
     return {
       lectureId: state.lecture.id,
       events: state.recording.events,
       durationMs: state.recording.durationMs,
       startingFen: state.recording.startingFen,
       orientation: state.recording.orientation,
-      currentTimeMs,
+      currentTimeMs: stableCurrentTimeMs,
       // KS-3907 / ADR-117 C03: дублируем снэпшот настроек лекции в
       // replay-объект, чтобы он был частью самоописательного
       // replay-контракта. Фактический фильтр UI применяется через
       // отдельный пропс `studentToolsPolicy` AnalysisPage (см. ниже).
       disabledTools: state.lecture.disabledTools ?? [],
     };
-  }, [state, currentTimeMs]);
+  }, [state, applicableEventIndex]);
 
   // ─── Render ────────────────────────────────────────────────────────
 
