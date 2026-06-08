@@ -855,6 +855,76 @@ describe('LecturesService', () => {
       const r = await service.listMyLectures(userId);
       expect(r.hasMore).toBe(false);
     });
+
+    // ─── KS-3985 / ADR-119 §8: previewFen ──────────────────────────
+
+    it('KS-3985: live + liveAnalysis.startingFen → previewFen в items', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([
+        {
+          id: 'lec-live',
+          status: 'live',
+          ownerId: userId,
+          liveAnalysisId: 'la-1',
+          liveAnalysis: { id: 'la-1', slug: 'S1', startingFen: 'startFEN' },
+          recording: null,
+        },
+      ]);
+      prisma.lecture.count.mockResolvedValueOnce(1);
+      const r = await service.listMyLectures(userId);
+      expect((r.items[0] as { previewFen?: string }).previewFen).toBe(
+        'startFEN',
+      );
+    });
+
+    it('KS-3985: recorded + recording.startingFen → previewFen', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([
+        {
+          id: 'lec-rec',
+          status: 'recorded',
+          ownerId: userId,
+          liveAnalysisId: null,
+          liveAnalysis: null,
+          recording: { startingFen: 'recFEN' },
+        },
+      ]);
+      prisma.lecture.count.mockResolvedValueOnce(1);
+      const r = await service.listMyLectures(userId);
+      expect((r.items[0] as { previewFen?: string }).previewFen).toBe(
+        'recFEN',
+      );
+    });
+
+    it('KS-3985: scheduled → previewFen отсутствует', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([
+        {
+          id: 'lec-sch',
+          status: 'scheduled',
+          ownerId: userId,
+          liveAnalysisId: null,
+          liveAnalysis: null,
+          recording: null,
+        },
+      ]);
+      prisma.lecture.count.mockResolvedValueOnce(1);
+      const r = await service.listMyLectures(userId);
+      expect((r.items[0] as { previewFen?: string }).previewFen).toBeUndefined();
+    });
+
+    it('KS-3985: live + startingFen=null → previewFen отсутствует', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([
+        {
+          id: 'lec-live-null',
+          status: 'live',
+          ownerId: userId,
+          liveAnalysisId: 'la-1',
+          liveAnalysis: { id: 'la-1', slug: 'S1', startingFen: null },
+          recording: null,
+        },
+      ]);
+      prisma.lecture.count.mockResolvedValueOnce(1);
+      const r = await service.listMyLectures(userId);
+      expect((r.items[0] as { previewFen?: string }).previewFen).toBeUndefined();
+    });
   });
 
   // ─── getById ──────────────────────────────────────────────────────

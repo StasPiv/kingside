@@ -532,14 +532,20 @@ export class LecturesService {
         take: limit,
         skip: offset,
         include: {
-          liveAnalysis: { select: { id: true, slug: true } },
+          liveAnalysis: {
+            select: { id: true, slug: true, startingFen: true },
+          },
+          // KS-3985 / ADR-119 §8: previewFen для `recorded`-лекций.
+          recording: { select: { startingFen: true } },
         },
       }),
       this.prisma.lecture.count({ where }),
     ]);
 
     return {
-      items: items.map((row) => this.withLiveAnalysisBinding(row)),
+      items: items.map((row) =>
+        this.withPreviewFen(this.withLiveAnalysisBinding(row), row),
+      ),
       total,
       hasMore: offset + items.length < total,
     };
@@ -549,7 +555,9 @@ export class LecturesService {
     const row = await this.prisma.lecture.findUnique({
       where: { id },
       include: {
-        liveAnalysis: { select: { id: true, slug: true } },
+        liveAnalysis: {
+          select: { id: true, slug: true, startingFen: true },
+        },
         // KS-3835 / ADR-116 §5.1: audio-метаданные для replay-плеера.
         audio: {
           select: {
@@ -559,13 +567,16 @@ export class LecturesService {
             container: true,
           },
         },
+        // KS-3985 / ADR-119 §8: previewFen для `recorded`-лекций.
+        recording: { select: { startingFen: true } },
       },
     });
     if (!row) {
       throw new NotFoundException(`Lecture "${id}" not found`);
     }
     const withLive = this.withLiveAnalysisBinding(row);
-    return this.withAudioInfo(id, withLive);
+    const withPreview = this.withPreviewFen(withLive, row);
+    return this.withAudioInfo(id, withPreview);
   }
 
   /**
@@ -883,6 +894,39 @@ export class LecturesService {
         url: `${baseUrl}/live/${liveAnalysis.slug}`,
       },
     };
+  }
+
+  /**
+   * KS-3985 / ADR-119 §8. Подмешать `previewFen` в выходной объект.
+   * Принимает второй аргумент `raw` — исходный Prisma-row, в котором
+   * ещё доступны поля `liveAnalysis.startingFen` и `recording.startingFen`
+   * (после `withLiveAnalysisBinding` `liveAnalysis` уже сжат до
+   * `{id,slug,url}`, поэтому подсматриваем «сырые» поля отдельно).
+   *
+   * Правила (см. ADR §8):
+   *   - `live`     → `liveAnalysis.startingFen` (нет startingFen → undefined).
+   *   - `recorded` → `recording.startingFen`.
+   *   - `scheduled`/`cancelled` → `undefined`.
+   *
+   * Возвращаем `undefined` (не пишем поле) когда значения нет —
+   * фронт показывает дефолтную начальную позицию.
+   */
+  private withPreviewFen<T>(
+    out: T,
+    raw: {
+      status: string;
+      liveAnalysis?: { startingFen?: string | null } | null;
+      recording?: { startingFen?: string | null } | null;
+    },
+  ): T & { previewFen?: string } {
+    let previewFen: string | undefined;
+    if (raw.status === 'live') {
+      previewFen = raw.liveAnalysis?.startingFen ?? undefined;
+    } else if (raw.status === 'recorded') {
+      previewFen = raw.recording?.startingFen ?? undefined;
+    }
+    if (previewFen === undefined) return out as T & { previewFen?: string };
+    return { ...(out as object), previewFen } as T & { previewFen?: string };
   }
 
   // ─── KS-3864: удаление и принудительное завершение ────────────────

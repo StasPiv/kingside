@@ -3546,6 +3546,26 @@ export interface LectureSummary {
    * (возможно, пустой), фронт не предполагает отсутствие поля.
    */
   disabledTools: LectureDisabledTool[];
+  /**
+   * KS-3985 / ADR-119 §8. Стартовая FEN-позиция для preview-доски
+   * на landing / в плитке списка. Источник:
+   *   - `live`     → `LiveAnalysis.startingFen` (см. примечание ниже).
+   *   - `recorded` → `LectureRecording.startingFen`.
+   *   - `scheduled` / `cancelled` → `null`.
+   *
+   * Поле опциональное: если фронт получает старую версию API без
+   * `previewFen`, должен показать дефолтную начальную позицию.
+   *
+   * Примечание про live: ADR-119 §8 называет источником
+   * `LiveAnalysis.currentFen`, но текущий FEN живёт в Redis-state
+   * и для batch-выдачи `GET /my/lectures` (до 100 элементов) дал
+   * бы N запросов в Redis на каждый запрос. Используем DB-поле
+   * `startingFen` — это стартовая позиция автора, для лендинга
+   * достаточно репрезентативно (доска не пустая, отражает дебют).
+   * При необходимости current можно подмешать в отдельной задаче
+   * через batched lookup.
+   */
+  previewFen?: string;
 }
 
 /**
