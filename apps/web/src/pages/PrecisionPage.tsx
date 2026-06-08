@@ -273,8 +273,6 @@ export function PrecisionPage() {
     loadingMore,
     error,
     hasMore,
-    total,
-    totalApproximate,
     loadMore,
     patchLocally,
     removeLocally,
@@ -816,10 +814,6 @@ export function PrecisionPage() {
         <PrecisionDifficultySlider
           value={maiaRange}
           onChange={setMaiaRange}
-          loadedCount={puzzles.length}
-          hasMore={hasMore}
-          total={total}
-          totalApproximate={totalApproximate}
         />
         {/* KS-3382: compact-bar со статистикой (точность/удержано-упущено)
             убран — рейтинг-pill в шапке достаточно, подробная статистика

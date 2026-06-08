@@ -89,29 +89,13 @@ interface BrowseResponse {
   data: BrowsePuzzleDto[];
   nextCursor: string | null;
   /**
-   * KS-3920 (откат части KS-3893). Backend больше не считает точное
-   * количество — `total` в `/puzzles/browse` всегда `null`. Точное
-   * число пазлов под фильтры технически отсутствует: каталог
-   * `lichess_puzzles` слишком большой для COUNT(*) на каждом
-   * запросе, а Redis-кеш точного значения был источником высокой
-   * нагрузки. Поле оставлено в типе как опциональное только для
-   * прямой совместимости со старым сервером.
+   * KS-3920 (откат части KS-3893) / KS-3922. Backend больше не считает
+   * точное количество — `total` в `/puzzles/browse` всегда `null`,
+   * клиент это поле не использует (счётчик «Найдено: …» убран в
+   * KS-3922). Сохранено в типе как опциональное только для прямой
+   * совместимости со старым сервером и для парсера ответа.
    */
   total?: number | null;
-}
-
-/**
- * KS-3894 / KS-3920. Ответ обработчика `/puzzles/browse/count`.
- * Параметры фильтра те же что у `/browse`, кроме `limit`/`cursor`.
- *
- * После KS-3919/KS-3920 значение `approximate` всегда `true` —
- * число вычисляется через planner-estimate EXPLAIN (миллисекунды,
- * округление до сотен). Параметр `approx` больше не передаётся —
- * единственный режим работы.
- */
-interface CountResponse {
-  total: number;
-  approximate: boolean;
 }
 
 export interface InfinitePuzzleFilters {
@@ -195,28 +179,6 @@ export interface InfinitePuzzlesState {
   error: string | null;
   /** `true` пока сервер прислал не `null` в `nextCursor`. */
   hasMore: boolean;
-  /**
-   * KS-3666 / KS-3672. Число пазлов под текущие фильтры
-   * (`/puzzles/browse` `total` или `/puzzles/browse/count`).
-   * `null` пока первая страница не загружена, либо если backend
-   * поле не вернул (старый ответ).
-   *
-   * Под cursor-пагинацией значение стабильно между страницами —
-   * берём из первой ответа и не обновляем (refetch вызывает сброс).
-   *
-   * KS-3894: значение проходит через две фазы:
-   *  1. Approximate (planner-estimate) — приходит за миллисекунды.
-   *  2. Exact (Redis-кеш / COUNT) — заменяет approximate.
-   * Различать фазы через `totalApproximate`.
-   */
-  total: number | null;
-  /**
-   * KS-3894. `true` пока `total` — приблизительный planner-estimate;
-   * `false` когда пришёл точный count (или `total` из cache-hit
-   * `/browse`). При `null` total флаг трактуется как «нет данных»,
-   * UI fallback'ится на «загружено + N+».
-   */
-  totalApproximate: boolean;
   /** Запросить следующую страницу. Игнорируется, если `hasMore=false`. */
   loadMore: () => void;
   /** Удаляет пазл из локального состояния (после backend `DELETE`). */
@@ -272,24 +234,6 @@ function buildQuery(
   return params.toString();
 }
 
-/**
- * KS-3894. Query для `/puzzles/browse/count` — те же фильтры что у
- * `/browse`, без `limit`/`cursor`. Когда `approx=true`, backend
- * считает через EXPLAIN (planner-estimate, миллисекунды).
- */
-/**
- * KS-3894 / KS-3920. Query для `/puzzles/browse/count` — те же
- * фильтры что у `/browse`, без `limit`/`cursor`. После KS-3919 на
- * стороне backend остался один обработчик — он всегда возвращает
- * planner-estimate (`approximate: true`). Параметр `approx`
- * больше не передаётся.
- */
-function buildCountQuery(filters: InfinitePuzzleFilters): string {
-  const params = new URLSearchParams();
-  appendFilterParams(params, filters);
-  return params.toString();
-}
-
 export function useInfinitePuzzles(
   filters: InfinitePuzzleFilters,
 ): InfinitePuzzlesState {
@@ -298,16 +242,6 @@ export function useInfinitePuzzles(
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // KS-3666 / KS-3672 / KS-3920. Число пазлов под фильтры. `null` —
-  // пока ответ от `/puzzles/browse/count` не пришёл. Значение всегда
-  // приблизительное (planner-estimate), точного backend больше не
-  // считает (см. KS-3919).
-  const [total, setTotal] = useState<number | null>(null);
-  // KS-3894 / KS-3920. После отката точного COUNT поле, по сути,
-  // фиксированное: `true` когда `total !== null`. Оставлено в
-  // состоянии чтобы существующие потребители (PrecisionDifficultySlider)
-  // не ломались на типе.
-  const [totalApproximate, setTotalApproximate] = useState<boolean>(false);
 
   // KS-2149-pattern: seq-guard. Каждое новое требование (init / loadMore)
   // увеличивает счётчик; ответы со старыми seq игнорируются.
@@ -368,15 +302,12 @@ export function useInfinitePuzzles(
     setError(null);
     setPuzzles([]);
     setNextCursor(null);
-    // KS-3672 / KS-3920: сбрасываем total — для новых фильтров
-    // будет получен ответом /browse/count. До этого UI показывает
-    // fallback «N+» по loadedCount/hasMore.
-    setTotal(null);
-    setTotalApproximate(false);
 
-    // KS-3894 / KS-3920. AbortController отменяет inflight'ы при
-    // смене фильтра. seqRef-guard ниже всё равно отбросит
-    // устаревшие ответы, но реальная отмена экономит сеть.
+    // KS-3922. AbortController отменяет inflight `/puzzles/browse`
+    // при смене фильтра. seqRef-guard ниже всё равно отбросит
+    // устаревшие ответы, но реальная отмена экономит сеть. Второй
+    // запрос `/puzzles/browse/count` был удалён вместе с подписью
+    // «Найдено: …» — счётчик в каталоге задач больше не показываем.
     const abortCtrl = new AbortController();
     const signal = abortCtrl.signal;
     const isAborted = (e: unknown): boolean =>
@@ -384,15 +315,6 @@ export function useInfinitePuzzles(
         signal.aborted) ||
       (e instanceof DOMException && e.name === 'AbortError');
 
-    // KS-3894 / KS-3920. Параллельно стартуют два запроса:
-    //   1) основной список `/puzzles/browse` — всегда `total: null`
-    //      (см. KS-3919 backend);
-    //   2) приблизительный счётчик `/puzzles/browse/count` —
-    //      planner-estimate, миллисекунды.
-    // Точного счётчика больше нет: второй запрос (без approx)
-    // удалён вместе с защитой от прыжка «N → ~N».
-
-    // 1. Основной список.
     api
       .get<BrowseResponse>(
         `/puzzles/browse?${buildQuery(filters, null)}`,
@@ -403,13 +325,6 @@ export function useInfinitePuzzles(
         setPuzzles(res.data ?? []);
         setNextCursor(res.nextCursor ?? null);
         cursorRef.current = res.nextCursor ?? null;
-        // KS-3920: backend `/browse` теперь всегда отдаёт total=null.
-        // Поле обработано на случай старого backend'а — чтобы число
-        // не было хуже, чем приблизительное из /count.
-        if (typeof res.total === 'number') {
-          setTotal(res.total);
-          setTotalApproximate(false);
-        }
       })
       .catch((e) => {
         if (mySeq !== seqRef.current) return;
@@ -422,25 +337,6 @@ export function useInfinitePuzzles(
       .finally(() => {
         if (mySeq !== seqRef.current) return;
         setLoading(false);
-      });
-
-    // 2. Приблизительный счётчик. Один обработчик, без параметра
-    //    approx. Ошибка/таймаут — best effort: UI откатывается на
-    //    fallback «loadedCount + N+».
-    api
-      .get<CountResponse>(
-        `/puzzles/browse/count?${buildCountQuery(filters)}`,
-        { signal },
-      )
-      .then((res) => {
-        if (mySeq !== seqRef.current) return;
-        setTotal(res.total);
-        setTotalApproximate(true);
-      })
-      .catch((e) => {
-        if (mySeq !== seqRef.current) return;
-        if (isAborted(e)) return;
-        // Approx-count — best effort. Ошибку проглатываем.
       });
 
     return () => {
@@ -509,8 +405,6 @@ export function useInfinitePuzzles(
     loadingMore,
     error,
     hasMore: nextCursor !== null,
-    total,
-    totalApproximate,
     loadMore,
     removeLocally,
     patchLocally,

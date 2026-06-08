@@ -19,6 +19,14 @@
  * Если `value`/`onChange` не переданы (legacy-тест) — fallback на
  * uncontrolled-режим, начальное значение из localStorage через
  * `readPrecisionMaiaRange()`.
+ *
+ * KS-3922. Подпись «Найдено: …» под слайдером удалена. Backend
+ * (KS-3919) больше не считает точное число пазлов под фильтры, а
+ * планировщик-estimate на узких выборках сильно занижал значение
+ * («~1» при реальных 4+ задачах) — это вводило пользователя в
+ * заблуждение. Свойства `loadedCount`, `hasMore`, `total`,
+ * `totalApproximate` оставлены в интерфейсе для прямой совместимости
+ * со старыми caller'ами, но компонент их игнорирует.
  */
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -45,32 +53,13 @@ export interface PrecisionDifficultySliderProps {
    * опционален (компонент обновит внутренний state сам).
    */
   onChange?: (value: PrecisionMaiaRange) => void;
-  /**
-   * Кол-во пазлов, уже загруженных текущим запросом каталога. Если
-   * задан — под слайдером показывается «Найдено: N» / «N+» с учётом
-   * `hasMore`. Используется как fallback, если `total` не пришёл от
-   * backend'а (KS-3666 ещё не развёрнут / ошибка ответа).
-   */
+  /** @deprecated KS-3922: подпись «Найдено» удалена, пропс игнорируется. */
   loadedCount?: number;
-  /**
-   * `true` если у текущего запроса есть ещё страницы. С `loadedCount`
-   * используется для индикации «N+» в fallback-ветке.
-   */
+  /** @deprecated KS-3922: подпись «Найдено» удалена, пропс игнорируется. */
   hasMore?: boolean;
-  /**
-   * KS-3666 / KS-3672. Точное число пазлов под фильтры, пришедшее в
-   * `/puzzles/browse` (`total`). Если задано — подпись показывает
-   * именно его («Найдено: N»). `null`/`undefined` — fallback на
-   * `loadedCount + hasMore`.
-   */
+  /** @deprecated KS-3922: подпись «Найдено» удалена, пропс игнорируется. */
   total?: number | null;
-  /**
-   * KS-3894. `true` если `total` пришёл из `/puzzles/browse/count?
-   * approx=true` — planner-estimate, округлённый до сотен. UI
-   * показывает «Найдено: ~N» (с префиксом `~`). Когда точный
-   * `/browse/count` ответит, родитель снимает флаг и UI заменяет
-   * подпись на «Найдено: N» без префикса.
-   */
+  /** @deprecated KS-3922: подпись «Найдено» удалена, пропс игнорируется. */
   totalApproximate?: boolean;
 }
 
@@ -84,12 +73,11 @@ function clampStep(raw: number): number {
 export function PrecisionDifficultySlider({
   value: controlledValue,
   onChange,
-  loadedCount,
-  hasMore,
-  total,
-  // KS-3920: после удаления точного COUNT свойство больше не влияет
-  // на подпись (подпись всегда «~N» при заданном total). Оставлено
-  // в API для прямой совместимости со старыми caller'ами.
+  // KS-3922: пропсы счётчика сохранены в типе для прямой
+  // совместимости со старыми caller'ами, но компонент их не читает.
+  loadedCount: _loadedCount,
+  hasMore: _hasMore,
+  total: _total,
   totalApproximate: _totalApproximate,
 }: PrecisionDifficultySliderProps) {
   const { t } = useTranslation();
@@ -134,31 +122,6 @@ export function PrecisionDifficultySlider({
 
   const minPercent = Math.round(value.min * 100);
   const maxPercent = Math.round(value.max * 100);
-
-  // KS-3672 / KS-3920: приоритет — total из backend'а; fallback на
-  // loadedCount+hasMore только если total не пришёл.
-  //
-  // После KS-3919 backend больше не считает точное число —
-  // `/puzzles/browse/count` всегда отдаёт planner-estimate
-  // (`approximate: true`). Подпись «Найдено: ~N» постоянная, никакой
-  // подмены на «Найдено: N» больше не происходит. Свойство
-  // `totalApproximate` оставлено для прямой совместимости со
-  // старыми caller'ами и тестами (на UI всегда показываем
-  // приблизительное обозначение «~N» когда total известен).
-  let hint: string | null = null;
-  if (typeof total === 'number' && total >= 0) {
-    hint = t('precision.difficulty.foundApprox', 'Найдено: ~{{count}}', {
-      count: total,
-    });
-  } else if (loadedCount != null && loadedCount >= 0) {
-    hint = hasMore
-      ? t('precision.difficulty.foundMore', 'Найдено: {{count}}+', {
-          count: loadedCount,
-        })
-      : t('precision.difficulty.found', 'Найдено: {{count}}', {
-          count: loadedCount,
-        });
-  }
 
   return (
     <div
@@ -217,14 +180,6 @@ export function PrecisionDifficultySlider({
           onChange={(e) => handleMaxChange(Number(e.target.value))}
         />
       </div>
-      {hint != null && (
-        <span
-          className="precision-difficulty-filter__hint"
-          data-testid="precision-difficulty-filter-hint"
-        >
-          {hint}
-        </span>
-      )}
     </div>
   );
 }

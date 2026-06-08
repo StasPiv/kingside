@@ -1,5 +1,5 @@
 /**
- * KS-3654 → KS-3657 → KS-3665 / ADR-106 §2.6. Тесты
+ * KS-3654 → KS-3657 → KS-3665 / ADR-106 §2.6 / KS-3922. Тесты
  * `<PrecisionDifficultySlider />`.
  *
  * Покрытие:
@@ -11,9 +11,10 @@
  *    range-ключ + legacy single-key для обратной совместимости);
  *  - смена → вызов `onChange` с корректным `{min, max}` объектом;
  *  - clamp: нижняя граница не может превысить верхнюю и наоборот;
- *  - подсказка «Найдено: N» / «Найдено: N+» по `loadedCount` + `hasMore`;
- *  - подсказка скрыта без `loadedCount`;
- *  - подпись значения отображает оба процента (например, «30% – 100%»).
+ *  - подпись значения отображает оба процента (например, «30% – 100%»);
+ *  - KS-3922: подсказка «Найдено: …» удалена; пропсы счётчика
+ *    (`loadedCount`, `hasMore`, `total`, `totalApproximate`) принимаются
+ *    для прямой совместимости, но никакой подписи не рендерят.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { fireEvent } from '@testing-library/react';
@@ -183,117 +184,30 @@ describe('<PrecisionDifficultySlider /> — controlled-режим (KS-3665)', ()
   });
 });
 
-describe('<PrecisionDifficultySlider /> — подсказка "Найдено"', () => {
-  it('loadedCount задан, hasMore=false → "Найдено: N"', () => {
-    renderWithProviders(
-      <PrecisionDifficultySlider loadedCount={5} hasMore={false} />,
-    );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('5');
-    expect(hint.textContent).not.toContain('+');
-  });
-
-  it('loadedCount задан, hasMore=true → "Найдено: N+"', () => {
-    renderWithProviders(
-      <PrecisionDifficultySlider loadedCount={20} hasMore={true} />,
-    );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('20');
-    expect(hint.textContent).toContain('+');
-  });
-
-  it('loadedCount === 0 (пустая выдача) → подсказка показывается с 0', () => {
-    renderWithProviders(
-      <PrecisionDifficultySlider loadedCount={0} hasMore={false} />,
-    );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('0');
-  });
-
-  it('подсказка скрыта, если loadedCount не передан', () => {
+describe('<PrecisionDifficultySlider /> — KS-3922: подпись «Найдено» удалена', () => {
+  it('без пропсов счётчика — подпись не рендерится', () => {
     renderWithProviders(<PrecisionDifficultySlider />);
     expect(
       screen.queryByTestId('precision-difficulty-filter-hint'),
     ).toBeNull();
   });
 
-  it('KS-3920: total задан → "Найдено: ~N" с префиксом «~» (после удаления точного COUNT всегда приблизительно)', () => {
+  it('пропсы loadedCount/hasMore переданы — подпись всё равно не рендерится', () => {
     renderWithProviders(
-      <PrecisionDifficultySlider
-        loadedCount={20}
-        hasMore={true}
-        total={137}
-      />,
+      <PrecisionDifficultySlider loadedCount={20} hasMore={true} />,
     );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('137');
-    expect(hint.textContent).toContain('~');
-    expect(hint.textContent).not.toContain('+');
-    expect(hint.textContent).not.toContain('20');
+    expect(
+      screen.queryByTestId('precision-difficulty-filter-hint'),
+    ).toBeNull();
   });
 
-  it('KS-3920: total=0 → "Найдено: ~0"', () => {
+  it('пропсы total/totalApproximate переданы — подпись всё равно не рендерится', () => {
     renderWithProviders(
-      <PrecisionDifficultySlider loadedCount={0} hasMore={false} total={0} />,
+      <PrecisionDifficultySlider total={137} totalApproximate={true} />,
     );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('0');
-    expect(hint.textContent).toContain('~');
-    expect(hint.textContent).not.toContain('+');
-  });
-
-  it('KS-3672: total=null → fallback на loadedCount + hasMore', () => {
-    renderWithProviders(
-      <PrecisionDifficultySlider
-        loadedCount={20}
-        hasMore={true}
-        total={null}
-      />,
-    );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('20');
-    expect(hint.textContent).toContain('+');
-    expect(hint.textContent).not.toContain('~');
-  });
-
-  it('KS-3672: total=undefined → fallback на loadedCount + hasMore', () => {
-    renderWithProviders(
-      <PrecisionDifficultySlider loadedCount={20} hasMore={false} />,
-    );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('20');
-    expect(hint.textContent).not.toContain('+');
-    expect(hint.textContent).not.toContain('~');
-  });
-
-  it('KS-3920: total + totalApproximate=true → "Найдено: ~N" (поведение совпадает с дефолтом)', () => {
-    renderWithProviders(
-      <PrecisionDifficultySlider total={200} totalApproximate={true} />,
-    );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('200');
-    expect(hint.textContent).toContain('~');
-    expect(hint.textContent).not.toContain('+');
-  });
-
-  it('KS-3920: totalApproximate=false игнорируется — подпись всегда «~N» при заданном total', () => {
-    // После KS-3919 точного COUNT нет; даже если caller передаст
-    // totalApproximate=false (наследие старого backend'а), UI
-    // показывает приблизительное обозначение.
-    renderWithProviders(
-      <PrecisionDifficultySlider total={137} totalApproximate={false} />,
-    );
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('137');
-    expect(hint.textContent).toContain('~');
-    expect(hint.textContent).not.toContain('+');
-  });
-
-  it('KS-3920: totalApproximate undefined → «~N»', () => {
-    renderWithProviders(<PrecisionDifficultySlider total={42} />);
-    const hint = screen.getByTestId('precision-difficulty-filter-hint');
-    expect(hint.textContent).toContain('42');
-    expect(hint.textContent).toContain('~');
+    expect(
+      screen.queryByTestId('precision-difficulty-filter-hint'),
+    ).toBeNull();
   });
 });
 

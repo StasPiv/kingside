@@ -1,6 +1,8 @@
 /**
- * KS-2561: тесты `useInfinitePuzzles`. Проверяем cursor pagination,
- * race-guard на смене фильтров, локальные операции (remove/patch).
+ * KS-2561 / KS-3922: тесты `useInfinitePuzzles`. Проверяем cursor
+ * pagination, race-guard на смене фильтров, локальные операции
+ * (remove/patch). После KS-3922 хук больше не дёргает
+ * `/puzzles/browse/count` — счётчик в каталоге задач убран.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -28,10 +30,10 @@ const PUZZLE_B = { ...PUZZLE_A, id: 'b' };
 const PUZZLE_C = { ...PUZZLE_A, id: 'c' };
 
 /**
- * Helper: фильтрует mock.calls по типу запроса. После KS-3894 хук
- * параллельно с `/puzzles/browse` дёргает `/puzzles/browse/count`
- * (approx + exact). Существующие тесты, проверяющие порядок и
- * количество вызовов `apiGet`, опираются именно на browse-вызовы.
+ * KS-3922: после удаления `/puzzles/browse/count` все вызовы — это
+ * `/puzzles/browse`. Helper остался для совместимости с уже
+ * существующими тестами и как defensive-фильтр на случай, если
+ * кто-то добавит count-запрос обратно.
  */
 function browseCalls(): unknown[][] {
   return apiGet.mock.calls.filter(
@@ -42,25 +44,10 @@ function browseCalls(): unknown[][] {
 
 beforeEach(() => {
   apiGet.mockReset();
-  // KS-3894. Дефолт для `/puzzles/browse/count`: «висящий» Promise.
-  // Тесты, не интересующиеся approx/exact-count, не указывают для
-  // этих запросов `mockResolvedValueOnce` — `mockImplementation`
-  // ловит их. Очередь `mockResolvedValueOnce` имеет приоритет над
-  // `mockImplementation`, поэтому существующие тесты на /browse
-  // и loadMore продолжают работать как раньше: first-once → init,
-  // second-once → loadMore.
-  apiGet.mockImplementation((path: unknown) => {
-    if (
-      typeof path === 'string' &&
-      path.startsWith('/puzzles/browse/count')
-    ) {
-      // Никогда не резолвится — count-логика в этих тестах не
-      // тестируется и не должна влиять на total.
-      return new Promise<never>(() => {});
-    }
-    // Дефолт для /browse, если тест не выставил mockResolvedValueOnce.
-    return Promise.resolve({ data: [], nextCursor: null });
-  });
+  // Дефолт для /browse, если тест не выставил mockResolvedValueOnce.
+  apiGet.mockImplementation(() =>
+    Promise.resolve({ data: [], nextCursor: null }),
+  );
 });
 
 afterEach(() => {
@@ -188,99 +175,6 @@ describe('useInfinitePuzzles KS-2561', () => {
     const url = apiGet.mock.calls[0][0] as string;
     expect(url).toMatch(/minMaiaWeakChoiceProb=0\.3/);
     expect(url).toMatch(/maxMaiaWeakChoiceProb=0\.7/);
-  });
-
-  it('KS-3672: total из ответа /puzzles/browse прокидывается в state', async () => {
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: null,
-      total: 42,
-    });
-    const { result } = renderHook(() => useInfinitePuzzles({ limit: 10 }));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.total).toBe(42);
-  });
-
-  it('KS-3672: backend не прислал total → state = null (fallback', async () => {
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: null,
-    });
-    const { result } = renderHook(() => useInfinitePuzzles({ limit: 10 }));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.total).toBeNull();
-  });
-
-  it('KS-3892: loadMore с total=null НЕ перезаписывает total с первой страницы', async () => {
-    // KS-3891 backend: COUNT(*) только на первой странице, чтобы не
-    // делать тяжёлый запрос на каждом скроллинге. На последующих
-    // страницах backend возвращает `total: null`. Хук должен сохранить
-    // значение, пришедшее с первой страницы.
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: 'cur1',
-      total: 137,
-    });
-    const { result } = renderHook(() => useInfinitePuzzles({ limit: 1 }));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.total).toBe(137);
-
-    // Вторая страница: backend (после KS-3891) присылает total: null.
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_B],
-      nextCursor: 'cur2',
-      total: null,
-    });
-    act(() => result.current.loadMore());
-    await waitFor(() => expect(result.current.loadingMore).toBe(false));
-    expect(result.current.puzzles.map((p) => p.id)).toEqual(['a', 'b']);
-    // Главное: счётчик «Найдено: 137» не сбросился.
-    expect(result.current.total).toBe(137);
-
-    // Третья страница: total: null (вариант — поле вообще отсутствует).
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_C],
-      nextCursor: null,
-    });
-    act(() => result.current.loadMore());
-    await waitFor(() => expect(result.current.loadingMore).toBe(false));
-    expect(result.current.total).toBe(137);
-  });
-
-  it('KS-3672: смена фильтров → total сбрасывается до прихода нового ответа', async () => {
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: null,
-      total: 42,
-    });
-    const { result, rerender } = renderHook(
-      ({ filters }: { filters: Parameters<typeof useInfinitePuzzles>[0] }) =>
-        useInfinitePuzzles(filters),
-      {
-        initialProps: {
-          filters: { limit: 10 } as Parameters<typeof useInfinitePuzzles>[0],
-        },
-      },
-    );
-    await waitFor(() => expect(result.current.total).toBe(42));
-
-    // Новые фильтры → effect успевает обнулить total до прихода ответа.
-    // Используем "висящий" промис, чтобы зафиксировать промежуточное
-    // состояние total=null между сбросом и следующим успехом.
-    let resolveSecond: (v: unknown) => void = () => {};
-    apiGet.mockReturnValueOnce(
-      new Promise((res) => {
-        resolveSecond = res;
-      }),
-    );
-    rerender({
-      filters: { limit: 10, minMaiaWeakChoiceProb: 0.5 } as Parameters<
-        typeof useInfinitePuzzles
-      >[0],
-    });
-    await waitFor(() => expect(result.current.total).toBeNull());
-    resolveSecond({ data: [PUZZLE_B], nextCursor: null, total: 7 });
-    await waitFor(() => expect(result.current.total).toBe(7));
   });
 
   it('KS-3657: смена minMaiaWeakChoiceProb → новый запрос', async () => {
@@ -457,112 +351,28 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(browseCalls()).toHaveLength(2);
   });
 
-  // === KS-3894 / KS-3920: параллельные /browse + /browse/count
-  // После KS-3919 точного COUNT больше нет — один запрос на счётчик,
-  // всегда `approximate: true`.
-
-  it('KS-3920: при инициализации стартуют 2 параллельных запроса (browse + browse/count)', async () => {
+  it('KS-3922: запрос /puzzles/browse/count не уходит ни при инициализации, ни на loadMore', async () => {
     apiGet.mockResolvedValueOnce({
       data: [PUZZLE_A],
       nextCursor: 'cur1',
-      total: null,
     });
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useInfinitePuzzles({ source: 'lichess', hideSolved: true, limit: 30 }),
     );
-    await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const calls = apiGet.mock.calls.map((c) => c[0] as string);
-    // /browse
-    expect(calls.some((u) => u.startsWith('/puzzles/browse?'))).toBe(true);
-    // /browse/count — один, БЕЗ параметра approx (он удалён в KS-3919).
-    const countUrls = calls.filter((u) =>
-      u.startsWith('/puzzles/browse/count'),
-    );
-    expect(countUrls.length).toBe(1);
-    expect(countUrls[0]).not.toMatch(/approx/);
-  });
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-  it('KS-3920: фильтры пробрасываются в count-запрос (без limit/cursor)', async () => {
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null, total: null });
-    renderHook(() =>
-      useInfinitePuzzles({
-        ratingMin: 1200,
-        themes: ['mateIn1'],
-        hideSolved: true,
-        source: 'lichess',
-        limit: 30,
-      }),
-    );
-    await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const countUrl = (apiGet.mock.calls.find(
-      (c) =>
-        typeof c[0] === 'string' &&
-        (c[0] as string).startsWith('/puzzles/browse/count'),
-    )?.[0] as string) ?? '';
-    expect(countUrl).toMatch(/ratingMin=1200/);
-    expect(countUrl).toMatch(/themes=mateIn1/);
-    expect(countUrl).toMatch(/hideSolved=true/);
-    expect(countUrl).toMatch(/source=lichess/);
-    expect(countUrl).not.toMatch(/limit=/);
-    expect(countUrl).not.toMatch(/cursor=/);
-    expect(countUrl).not.toMatch(/approx/);
-  });
-
-  it('KS-3920: ответ /browse/count ставит total и totalApproximate=true', async () => {
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: 'cur1',
-      total: null,
-    });
-    apiGet.mockResolvedValueOnce({ total: 200, approximate: true });
-
-    const { result } = renderHook(() =>
-      useInfinitePuzzles({ source: 'lichess', limit: 30 }),
-    );
-    await waitFor(() => expect(result.current.total).toBe(200));
-    expect(result.current.totalApproximate).toBe(true);
-  });
-
-  it('KS-3920: loadMore НЕ дёргает /browse/count, total стабилен', async () => {
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: 'cur1',
-      total: null,
-    });
-    apiGet.mockResolvedValueOnce({ total: 200, approximate: true });
-    const { result } = renderHook(() =>
-      useInfinitePuzzles({ source: 'lichess', limit: 1 }),
-    );
-    await waitFor(() => expect(result.current.total).toBe(200));
-    expect(result.current.totalApproximate).toBe(true);
-
-    const countCallsBefore = apiGet.mock.calls.filter(
-      (c) =>
-        typeof c[0] === 'string' &&
-        (c[0] as string).startsWith('/puzzles/browse/count'),
-    ).length;
-
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_B],
-      nextCursor: null,
-      total: null,
-    });
+    apiGet.mockResolvedValueOnce({ data: [PUZZLE_B], nextCursor: null });
     act(() => result.current.loadMore());
     await waitFor(() => expect(result.current.loadingMore).toBe(false));
 
-    const countCallsAfter = apiGet.mock.calls.filter(
-      (c) =>
-        typeof c[0] === 'string' &&
-        (c[0] as string).startsWith('/puzzles/browse/count'),
-    ).length;
-    expect(countCallsAfter).toBe(countCallsBefore);
-    // total стабилен (KS-3892 паттерн).
-    expect(result.current.total).toBe(200);
-    expect(result.current.totalApproximate).toBe(true);
+    const urls = apiGet.mock.calls.map((c) => c[0] as string);
+    expect(urls.every((u) => !u.startsWith('/puzzles/browse/count'))).toBe(
+      true,
+    );
   });
 
-  it('KS-3920: смена фильтров отменяет inflight через AbortController', async () => {
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null, total: null });
+  it('KS-3922: смена фильтров отменяет inflight /puzzles/browse через AbortController', async () => {
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
     const { rerender } = renderHook(
       ({ filters }: { filters: Parameters<typeof useInfinitePuzzles>[0] }) =>
         useInfinitePuzzles(filters),
@@ -576,30 +386,25 @@ describe('useInfinitePuzzles KS-2561', () => {
       },
     );
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    // Берём signal'ы count-запросов первого поколения.
-    const firstGenInits = apiGet.mock.calls
-      .filter(
-        (c) =>
-          typeof c[0] === 'string' &&
-          (c[0] as string).startsWith('/puzzles/browse/count'),
-      )
-      .map((c) => c[1] as { signal?: AbortSignal });
+    // Берём signal первого browse-запроса.
+    const firstGenInits = apiGet.mock.calls.map(
+      (c) => c[1] as { signal?: AbortSignal } | undefined,
+    );
     expect(firstGenInits.length).toBeGreaterThan(0);
-    // До смены — не отменены.
     firstGenInits.forEach((init) => {
-      expect(init.signal?.aborted).toBe(false);
+      expect(init?.signal?.aborted).toBe(false);
     });
 
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null, total: null });
+    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
     rerender({
       filters: { source: 'lichess', limit: 30, ratingMin: 1500 } as Parameters<
         typeof useInfinitePuzzles
       >[0],
     });
 
-    // После rerender — старые signal'ы должны быть aborted.
+    // После rerender старые signal'ы должны быть aborted.
     firstGenInits.forEach((init) => {
-      expect(init.signal?.aborted).toBe(true);
+      expect(init?.signal?.aborted).toBe(true);
     });
   });
 
