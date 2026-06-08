@@ -5,6 +5,8 @@ import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
 // KS-3680 dev-only: песочница для приёмочных скриншотов AI-панели.
 import AiCommentSandboxPage from './pages/dev/AiCommentSandboxPage';
+// KS-3984 dev-only: песочница для приёмочных скриншотов бейджей статусов лекций.
+import LectureStatusBadgesPreviewPage from './pages/dev/LectureStatusBadgesPreviewPage';
 import { FeaturesPage } from './pages/FeaturesPage';
 import { DocsUserCoursesPage } from './pages/DocsUserCoursesPage';
 import { DiscoverCoursesPage } from './pages/DiscoverCoursesPage';
@@ -416,6 +418,8 @@ export function App() {
         <Route index element={<HomePage />} />
         {/* KS-3680 dev-only песочница AI-панели. */}
         <Route path="/__dev/ai-comment-panel" element={<AiCommentSandboxPage />} />
+        {/* KS-3984 dev-only песочница бейджей статусов лекций. */}
+        <Route path="/__dev/lecture-status-badges" element={<LectureStatusBadgesPreviewPage />} />
         <Route path="/features" element={<FeaturesPage />} />
         {/* KS-1895: публичная документация — без ProtectedRoute */}
         <Route path="/docs/user-courses" element={<DocsUserCoursesPage />} />

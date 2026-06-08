@@ -1,0 +1,148 @@
+/* ============================================================
+ * ADR-119 §8 эпик E (KS-3984): единая цветовая схема бейджей
+ * статусов лекций.
+ *
+ * Применяется ко всем местам, где показывается статус лекции:
+ *  - карточка в `MyLecturesPage` (KS-3980, эпик B);
+ *  - заголовок `LectureLandingPage` (KS-3981, эпик A);
+ *  - превью «Связанная лекция» внутри `AnalysisPage`;
+ *  - возможные виджеты на профиле тренера / лендинге.
+ *
+ * Семантика статусов:
+ *  - live      — лекция идёт сейчас (зелёный, пульсирующая точка);
+ *  - scheduled — назначена на будущее время (нейтральный серый);
+ *  - recorded  — есть готовая запись (синий);
+ *  - cancelled — отменена (приглушённый/dim текст без заливки).
+ *
+ * Класс-обёртка `.lecture-status-badge` задаёт геометрию pill-chip
+ * и базовую типографику; модификаторы `--<status>` — цветовую
+ * заливку и текстовый тон. Все цвета — через design tokens, чтобы
+ * автоматически адаптироваться к light/dark теме.
+ * ============================================================ */
+
+.lecture-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
+  user-select: none;
+}
+
+/* Точка-индикатор слева. Базовая — статичная окружность; для
+   `live` ниже переопределяется на пульсирующую. */
+.lecture-status-badge::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ---------- live (зелёный + пульс) ---------- */
+.lecture-status-badge--live {
+  background: var(--ov-success-20);
+  border-color: var(--ov-success-30);
+  color: var(--success-strong);
+}
+
+.lecture-status-badge--live::before {
+  background: var(--c-22c55e);
+  box-shadow: 0 0 0 0 var(--ov-success-35);
+  animation: lecture-status-badge-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes lecture-status-badge-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--ov-success-35);
+    transform: scale(1);
+  }
+  60% {
+    box-shadow: 0 0 0 7px var(--ov-success-00, rgba(34, 197, 94, 0));
+    transform: scale(1.05);
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--ov-success-00, rgba(34, 197, 94, 0));
+    transform: scale(1);
+  }
+}
+
+/* ---------- scheduled (нейтральный серый) ---------- */
+.lecture-status-badge--scheduled {
+  background: var(--ov-neutral-15);
+  border-color: var(--ov-neutral-25);
+  color: var(--text-secondary);
+}
+
+.lecture-status-badge--scheduled::before {
+  background: var(--text-muted);
+}
+
+/* ---------- recorded (синий) ---------- */
+.lecture-status-badge--recorded {
+  background: var(--ov-info-20);
+  border-color: var(--ov-info-40);
+  color: var(--c-1565c0);
+}
+
+.lecture-status-badge--recorded::before {
+  background: var(--c-1976d2);
+}
+
+/* ---------- cancelled (приглушённый) ---------- */
+.lecture-status-badge--cancelled {
+  background: transparent;
+  border-color: var(--border-mid);
+  color: var(--text-dim);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.lecture-status-badge--cancelled::before {
+  background: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* ---------- Размерные модификаторы ----------
+   Базовый размер подходит для карточек списка. На крупных
+   заголовках (`LectureLandingPage`) удобнее `--lg`, на компактных
+   списках/чипах в фильтрах — `--sm`. */
+.lecture-status-badge--sm {
+  padding: 2px 8px;
+  font-size: 11px;
+  gap: 5px;
+}
+.lecture-status-badge--sm::before {
+  width: 6px;
+  height: 6px;
+}
+
+.lecture-status-badge--lg {
+  padding: 5px 14px;
+  font-size: 13px;
+  gap: 7px;
+}
+.lecture-status-badge--lg::before {
+  width: 8px;
+  height: 8px;
+}
+
+/* ---------- Reduced motion ----------
+   Пользователи с `prefers-reduced-motion` не должны видеть пульс. */
+@media (prefers-reduced-motion: reduce) {
+  .lecture-status-badge--live::before {
+    animation: none;
+    box-shadow: none;
+  }
+}
