@@ -3443,6 +3443,30 @@ export interface LiveAnalysisAccessRevokedPayload {
 }
 
 /**
+ * KS-3942 / ADR-118 §2.5. Служебное pub/sub-событие между REST и
+ * gateway (Redis-канал `lecture-access-revoked`). REST публикует,
+ * gateway подписан — на получение проходится по сокетам комнаты
+ * `live-analysis:<slug>`, тем, чей `client.data.user?.id` входит в
+ * `revokedUserIds`, эмитит `live-analysis:access-revoked`
+ * и `socket.disconnect(true)`. Для `reason='visibility-changed'`
+ * `revokedUserIds` может быть пустым массивом — gateway сам
+ * пересчитывает доступ каждого подключённого по `resolveLectureAccess`.
+ */
+export interface LectureAccessRevokedEvent {
+  lectureId: string;
+  /** slug привязанной LiveAnalysis — ключ комнаты в gateway. */
+  slug: string;
+  /**
+   * Список userId, у которых доступ снят. Для `reason='revoked'`
+   * обычно один элемент (одного ученика убрали из allowlist). Для
+   * `reason='visibility-changed'` массив может быть пустым: gateway
+   * сам пересчитает каждого подключённого через резолвер.
+   */
+  revokedUserIds: string[];
+  reason: 'revoked' | 'visibility-changed';
+}
+
+/**
  * KS-3896 / ADR-117 §2. Whitelist инструментов, которые тренер может
  * принудительно отключить ученикам, подключённым к live-сессии лекции.
  * Хранится в `Lecture.disabledTools` (jsonb-массив, см. KS-3898), едет

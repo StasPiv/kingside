@@ -17,6 +17,7 @@ import {
 } from '../lecture-audio/lecture-audio.service';
 import { RedisService } from '../redis/redis.service';
 import { CreateLectureDto, UpdateLectureDto } from './dto/create-lecture.dto';
+import { LecturesAccessService } from './lectures-access.service';
 
 /**
  * KS-3785/KS-3789. Возвращаемое значение POST/start: запись Lecture
@@ -68,6 +69,12 @@ export class LecturesService {
     private readonly audioS3: LectureAudioS3Service,
     private readonly audioService: LectureAudioService,
     private readonly redis: RedisService,
+    /**
+     * KS-3942 / ADR-118 §2.5. publishRevokeEvent при сценарии
+     * `PATCH visibility: public|unlisted → restricted` в live —
+     * gateway отключит подключённых зрителей вне allowlist'а.
+     */
+    private readonly lecturesAccess: LecturesAccessService,
   ) {}
 
   /**
@@ -715,6 +722,30 @@ export class LecturesService {
         ` fields=${Object.keys(data).join(',') || '-'}` +
         ` status=${lecture.status}`,
     );
+
+    // KS-3942 / ADR-118 §2.5. Если visibility сменилась с
+    // `public`/`unlisted` на `restricted` в live-лекции с привязкой,
+    // публикуем revoke-event со списком пустых `revokedUserIds` и
+    // reason `visibility-changed` — gateway сам пересчитает каждого
+    // подключённого через резолвер и отключит тех, у кого нет
+    // grant'а. Если visibility сменилась обратно (restricted →
+    // public/unlisted) — никаких событий: доступ только расширился,
+    // живые соединения работают как раньше.
+    if (
+      dto.visibility !== undefined &&
+      lecture.visibility !== 'restricted' &&
+      updated.visibility === 'restricted' &&
+      updated.status === 'live' &&
+      updated.liveAnalysisId !== null &&
+      updated.liveAnalysis?.slug
+    ) {
+      await this.lecturesAccess.publishRevokeEvent({
+        lectureId: updated.id,
+        slug: updated.liveAnalysis.slug,
+        revokedUserIds: [],
+        reason: 'visibility-changed',
+      });
+    }
 
     // KS-3901 / ADR-117 §3. Уведомить WebSocket-шлюз об изменении
     // `disabledTools`, если:

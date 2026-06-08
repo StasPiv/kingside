@@ -7,7 +7,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { LectureAccessRevokedEvent } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 
 /**
  * KS-3931 / ADR-118 §2.3. Подмножество полей `Lecture`, которое нужно
@@ -66,7 +68,18 @@ export type LectureAccessResult =
 export class LecturesAccessService {
   private readonly logger = new Logger(LecturesAccessService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  /**
+   * KS-3942 / ADR-118 §2.5, §3.4. Имя Redis-канала, в который REST
+   * публикует revoke-event для gateway. Параллельно с
+   * `lecture-tools-changed` (KS-3902) — оба канала обслуживает
+   * один `LiveAnalysisGateway`.
+   */
+  static readonly CHANNEL_LECTURE_ACCESS_REVOKED = 'lecture-access-revoked';
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   async resolveLectureAccess(
     lecture: LectureForAccessCheck,
@@ -208,6 +221,7 @@ export class LecturesAccessService {
     status: string;
     visibility: 'public' | 'unlisted' | 'restricted';
     liveAnalysisId: string | null;
+    liveAnalysisSlug: string | null;
   }> {
     const lecture = await this.prisma.lecture.findUnique({
       where: { id: lectureId },
@@ -217,6 +231,7 @@ export class LecturesAccessService {
         status: true,
         visibility: true,
         liveAnalysisId: true,
+        liveAnalysis: { select: { slug: true } },
       },
     });
     if (!lecture) {
@@ -225,13 +240,45 @@ export class LecturesAccessService {
     if (lecture.ownerId !== ownerId) {
       throw new ForbiddenException('Only the owner can manage access grants');
     }
-    return lecture as {
-      id: string;
-      ownerId: string;
-      status: string;
-      visibility: 'public' | 'unlisted' | 'restricted';
-      liveAnalysisId: string | null;
+    return {
+      id: lecture.id,
+      ownerId: lecture.ownerId,
+      status: lecture.status as string,
+      visibility: lecture.visibility as
+        | 'public'
+        | 'unlisted'
+        | 'restricted',
+      liveAnalysisId: lecture.liveAnalysisId,
+      liveAnalysisSlug: lecture.liveAnalysis?.slug ?? null,
     };
+  }
+
+  /**
+   * KS-3942 / ADR-118 §2.5. Опубликовать revoke-event в Redis для
+   * gateway. Ошибки публикации (Redis недоступен и т.п.) логируем
+   * и проглатываем — REST-ответ клиенту не должен падать из-за
+   * временной потери pub/sub: тренер увидит результат в ответе
+   * (grant удалён / visibility сменился), ученики при следующем
+   * обращении к /live-analyses или /lectures получат 403, а
+   * существующие WS-соединения отключатся при следующем
+   * gateway-рестарте или вручную (см. KS-3940 subscribe-resolver).
+   */
+  async publishRevokeEvent(event: LectureAccessRevokedEvent): Promise<void> {
+    try {
+      await this.redis.publish(
+        LecturesAccessService.CHANNEL_LECTURE_ACCESS_REVOKED,
+        JSON.stringify(event),
+      );
+      this.logger.log(
+        `publish lecture-access-revoked: lecture=${event.lectureId}` +
+          ` slug=${event.slug} reason=${event.reason}` +
+          ` revoked=[${event.revokedUserIds.join(',')}]`,
+      );
+    } catch (e) {
+      this.logger.warn(
+        `publish lecture-access-revoked failed lecture=${event.lectureId}: ${(e as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -441,6 +488,23 @@ export class LecturesAccessService {
     this.logger.log(
       `revokeGrant: lecture=${lectureId} owner=${ownerId} target=${targetUserId} deleted=${deleted.count}`,
     );
+    // KS-3942 / ADR-118 §2.5. Если grant реально удалён И лекция в
+    // эфире с привязкой к LiveAnalysis — публикуем revoke-event,
+    // чтобы gateway отключил пользователя из live-комнаты. Для
+    // scheduled/recorded/cancelled — slug нет смысла, gateway
+    // нечего делать (нет live-комнаты).
+    if (
+      deleted.count > 0 &&
+      lecture.status === 'live' &&
+      lecture.liveAnalysisSlug
+    ) {
+      await this.publishRevokeEvent({
+        lectureId: lecture.id,
+        slug: lecture.liveAnalysisSlug,
+        revokedUserIds: [targetUserId],
+        reason: 'revoked',
+      });
+    }
     return {
       revoked: deleted.count > 0,
       lectureStatus: lecture.status,

@@ -14,6 +14,7 @@ import {
   NoChunksError,
 } from '../lecture-audio/lecture-audio.service';
 import { RedisService } from '../redis/redis.service';
+import { LecturesAccessService } from './lectures-access.service';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1. Unit-тесты `LecturesService`.
@@ -62,6 +63,7 @@ describe('LecturesService', () => {
   };
   let audioService: { finalizeRecording: jest.Mock };
   let redis: { publish: jest.Mock };
+  let lecturesAccessMock: { publishRevokeEvent: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -143,6 +145,12 @@ describe('LecturesService', () => {
     redis = {
       publish: jest.fn().mockResolvedValue(1),
     };
+    // KS-3942: LecturesAccessService инжектится для publishRevokeEvent
+    // в `update` при visibility: public/unlisted → restricted в live.
+    // По дефолту мок ничего не делает (publish — no-op).
+    lecturesAccessMock = {
+      publishRevokeEvent: jest.fn().mockResolvedValue(undefined),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LecturesService,
@@ -152,6 +160,7 @@ describe('LecturesService', () => {
         { provide: LectureAudioS3Service, useValue: audioS3 },
         { provide: LectureAudioService, useValue: audioService },
         { provide: RedisService, useValue: redis },
+        { provide: LecturesAccessService, useValue: lecturesAccessMock },
       ],
     }).compile();
     service = module.get(LecturesService);
@@ -1434,6 +1443,102 @@ describe('LecturesService', () => {
       // значит обращения не было.
       const args = prisma.lecture.update.mock.calls[0][0];
       expect(args.data).toEqual({ visibility: 'public' });
+    });
+
+    // ─── KS-3942 / ADR-118 §2.5: revoke event при visibility-changed ─
+
+    it('KS-3942: visibility public → restricted в live + binding → publishRevokeEvent (visibility-changed, [])', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'public',
+        liveAnalysisId: 'la-1',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'restricted',
+        liveAnalysisId: 'la-1',
+        liveAnalysis: { id: 'la-1', slug: 'LIVESLG042' },
+      });
+      await service.update('l-1', 'u-1', { visibility: 'restricted' });
+      expect(lecturesAccessMock.publishRevokeEvent).toHaveBeenCalledTimes(1);
+      const payload = lecturesAccessMock.publishRevokeEvent.mock.calls[0][0];
+      expect(payload).toEqual({
+        lectureId: 'l-1',
+        slug: 'LIVESLG042',
+        revokedUserIds: [],
+        reason: 'visibility-changed',
+      });
+    });
+
+    it('KS-3942: visibility unlisted → restricted в live + binding → publishRevokeEvent', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'unlisted',
+        liveAnalysisId: 'la-1',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'restricted',
+        liveAnalysisId: 'la-1',
+        liveAnalysis: { id: 'la-1', slug: 'LIVESLG043' },
+      });
+      await service.update('l-1', 'u-1', { visibility: 'restricted' });
+      expect(lecturesAccessMock.publishRevokeEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('KS-3942: visibility restricted → public — publish НЕ вызывается (доступ только расширяется)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'restricted',
+        liveAnalysisId: 'la-1',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'public',
+        liveAnalysisId: 'la-1',
+        liveAnalysis: { id: 'la-1', slug: 'LIVESLG044' },
+      });
+      await service.update('l-1', 'u-1', { visibility: 'public' });
+      expect(lecturesAccessMock.publishRevokeEvent).not.toHaveBeenCalled();
+    });
+
+    it('KS-3942: visibility public → restricted в scheduled — publish НЕ вызывается (нет live комнаты)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        visibility: 'public',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        visibility: 'restricted',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { visibility: 'restricted' });
+      expect(lecturesAccessMock.publishRevokeEvent).not.toHaveBeenCalled();
+    });
+
+    it('KS-3942: visibility public → restricted в live БЕЗ liveAnalysisId — publish НЕ вызывается', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'public',
+        liveAnalysisId: null,
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'restricted',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { visibility: 'restricted' });
+      expect(lecturesAccessMock.publishRevokeEvent).not.toHaveBeenCalled();
     });
   });
 

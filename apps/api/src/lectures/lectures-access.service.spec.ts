@@ -19,6 +19,17 @@ import {
   type LectureForAccessCheck,
 } from './lectures-access.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
+
+/**
+ * KS-3942: общий мок Redis для всех describe-блоков. Большинство
+ * методов резолвера в Redis не пишут — только `publishRevokeEvent`,
+ * `revokeGrant` и `LecturesService.update`. По умолчанию `publish`
+ * — успешный no-op.
+ */
+const makeRedisMock = () => ({
+  publish: jest.fn().mockResolvedValue(1),
+});
 
 describe('LecturesAccessService.resolveLectureAccess', () => {
   let service: LecturesAccessService;
@@ -44,6 +55,7 @@ describe('LecturesAccessService.resolveLectureAccess', () => {
       providers: [
         LecturesAccessService,
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: makeRedisMock() },
       ],
     }).compile();
     service = moduleRef.get(LecturesAccessService);
@@ -215,6 +227,7 @@ describe('LecturesAccessService.assertAccess', () => {
       providers: [
         LecturesAccessService,
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: makeRedisMock() },
       ],
     }).compile();
     service = moduleRef.get(LecturesAccessService);
@@ -337,6 +350,7 @@ describe('LecturesAccessService.assertAccessForLiveAnalysisSlug (KS-3941)', () =
       providers: [
         LecturesAccessService,
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: makeRedisMock() },
       ],
     }).compile();
     service = moduleRef.get(LecturesAccessService);
@@ -425,6 +439,7 @@ describe('LecturesAccessService — KS-3936 owner allowlist API', () => {
     };
     user: { findMany: jest.Mock };
   };
+  let redis: ReturnType<typeof makeRedisMock>;
 
   beforeEach(async () => {
     prisma = {
@@ -437,10 +452,12 @@ describe('LecturesAccessService — KS-3936 owner allowlist API', () => {
       },
       user: { findMany: jest.fn().mockResolvedValue([]) },
     };
+    redis = makeRedisMock();
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         LecturesAccessService,
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
     service = moduleRef.get(LecturesAccessService);
@@ -764,5 +781,80 @@ describe('LecturesAccessService — KS-3936 owner allowlist API', () => {
       lectureStatus: 'live',
       liveAnalysisId: 'la-99',
     });
+  });
+
+  // ─── KS-3942 / ADR-118 §2.5: Redis publish lecture-access-revoked ──
+
+  it('KS-3942: revokeGrant при live + slug → publish (reason=revoked, revokedUserIds=[targetUserId])', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(
+      ownedLecture({
+        status: 'live',
+        liveAnalysisId: 'la-99',
+        liveAnalysis: { slug: 'LIVESLG001' },
+      }),
+    );
+    prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 1 });
+    await service.revokeGrant('lec-1', 'owner-1', 'student-1');
+    expect(redis.publish).toHaveBeenCalledTimes(1);
+    const [channel, msg] = redis.publish.mock.calls[0];
+    expect(channel).toBe('lecture-access-revoked');
+    expect(JSON.parse(msg)).toEqual({
+      lectureId: 'lec-1',
+      slug: 'LIVESLG001',
+      revokedUserIds: ['student-1'],
+      reason: 'revoked',
+    });
+  });
+
+  it('KS-3942: revokeGrant при scheduled — publish НЕ вызывается', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(
+      ownedLecture({
+        status: 'scheduled',
+        liveAnalysisId: null,
+      }),
+    );
+    prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 1 });
+    await service.revokeGrant('lec-1', 'owner-1', 'student-1');
+    expect(redis.publish).not.toHaveBeenCalled();
+  });
+
+  it('KS-3942: revokeGrant при live без slug — publish НЕ вызывается', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(
+      ownedLecture({
+        status: 'live',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      }),
+    );
+    prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 1 });
+    await service.revokeGrant('lec-1', 'owner-1', 'student-1');
+    expect(redis.publish).not.toHaveBeenCalled();
+  });
+
+  it('KS-3942: revokeGrant при count=0 (grant отсутствовал) — publish НЕ вызывается', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(
+      ownedLecture({
+        status: 'live',
+        liveAnalysisId: 'la-99',
+        liveAnalysis: { slug: 'LIVESLG001' },
+      }),
+    );
+    prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 0 });
+    await service.revokeGrant('lec-1', 'owner-1', 'student-1');
+    expect(redis.publish).not.toHaveBeenCalled();
+  });
+
+  it('KS-3942: ошибка Redis publish не валит REST-ответ (publish swallowed)', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(
+      ownedLecture({
+        status: 'live',
+        liveAnalysisId: 'la-99',
+        liveAnalysis: { slug: 'LIVESLG001' },
+      }),
+    );
+    prisma.lectureAccessGrant.deleteMany.mockResolvedValueOnce({ count: 1 });
+    redis.publish.mockRejectedValueOnce(new Error('redis down'));
+    const r = await service.revokeGrant('lec-1', 'owner-1', 'student-1');
+    expect(r.revoked).toBe(true);
   });
 });

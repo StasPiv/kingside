@@ -106,6 +106,9 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
       audioS3 as unknown as LectureAudioS3Service,
       audioService as unknown as LectureAudioService,
       redis as unknown as RedisService,
+      // KS-3942: lecturesAccess (publishRevokeEvent) — в KS-3904 не задействуется,
+      // подставляем пустую заглушку через `as never`.
+      { publishRevokeEvent: jest.fn() } as never,
     );
 
     // Gateway собираем тоже вручную; зависимости не используются в
