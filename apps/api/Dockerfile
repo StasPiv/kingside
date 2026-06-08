@@ -80,6 +80,50 @@ COPY apps/api/package.json ./apps/api/
 # для скачивания board-recognition моделей из S3 (замена aws s3 cp).
 COPY apps/api/scripts ./apps/api/scripts
 
+# KS-3709 / ADR-... Запекание board-recognition моделей в образ. На каждом
+# запуске контейнера entrypoint раньше делал три последовательных aws s3 cp
+# (~7 с старта). Если версия моделей в env совпадает с той, что зашита
+# в образ — entrypoint увидит совпадение в /var/cache/board-recog/baked-versions
+# и пропустит сетевые загрузки. При смене версии в env (без пересборки)
+# entrypoint скачает свежие модели по медленному пути (параллельно через &).
+#
+# Версии переопределяются через --build-arg при docker build. Если у
+# сборочного хоста нет доступа к S3 — bake пропускается (rm -f), и старт
+# контейнера обойдётся обычной runtime-загрузкой (без регрессии).
+ARG BOARD_RECOG_MODEL_VERSION=2.7.0
+ARG BOARD_FINDBOARDS_MODEL_VERSION=1.1.0
+ARG BOARD_RECOG_MODEL_BUCKET=kingside-ml
+ARG BOARD_RECOG_MODEL_REGION=eu-central-1
+RUN mkdir -p /var/cache/board-recog && \
+    BUCKET="${BOARD_RECOG_MODEL_BUCKET}" \
+    REGION="${BOARD_RECOG_MODEL_REGION}" \
+    VRECOG="${BOARD_RECOG_MODEL_VERSION}" \
+    VFIND="${BOARD_FINDBOARDS_MODEL_VERSION}" \
+    sh -c '\
+      bake() { \
+        kind="$1"; key="$2"; out="$3"; \
+        if node /app/apps/api/scripts/download-model.mjs \
+            --bucket "$BUCKET" --key "$key" --out "$out" --region "$REGION" --quiet; then \
+          echo "[docker-build] baked $kind: $out ($(stat -c %s "$out") bytes)"; \
+          return 0; \
+        fi; \
+        echo "[docker-build] WARN: failed to bake $kind from s3://$BUCKET/$key — entrypoint will download at runtime"; \
+        rm -f "$out"; \
+        return 1; \
+      }; \
+      RECOG_OK=0; FIND_OK=0; \
+      if bake board-recog       "models/board-recog/v${VRECOG}/model.onnx"            /var/cache/board-recog/model.onnx;            then RECOG_OK=1; fi; \
+      bake corner-detector      "models/board-recog/v${VRECOG}/corner_detector.onnx" /var/cache/board-recog/corner_detector.onnx || true; \
+      if bake find-boards       "models/board-recog/findboards_v${VFIND}/model.onnx" /var/cache/board-recog/findboards.onnx;       then FIND_OK=1; fi; \
+      { \
+        [ "$RECOG_OK" = "1" ] && echo "BOARD_RECOG_MODEL_VERSION=${VRECOG}"; \
+        [ "$FIND_OK"  = "1" ] && echo "BOARD_FINDBOARDS_MODEL_VERSION=${VFIND}"; \
+      } > /var/cache/board-recog/baked-versions; \
+      echo "[docker-build] baked-versions manifest:"; \
+      cat /var/cache/board-recog/baked-versions || true; \
+      exit 0 \
+    '
+
 # KS-2363 / KS-2364: inference-зависимости для board-recognition.
 # Используются board_recognize.py / board_detect.py когда
 # BOARD_RECOG_MODEL_VERSION выставлен; в disabled-режиме Python вообще не
