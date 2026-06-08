@@ -6,10 +6,13 @@ FROM node:20-slim AS base
 #
 # KS-2363 / ADR-040: для board-recognition нужен Python 3 + OpenCV + ONNX
 # runtime. Системные либы (libgl1/libglib2.0-0/libsm6/libxext6) — для
-# `import cv2` под opencv-python-headless и Pillow; awscli — entrypoint
-# скачивает модель из S3 при старте, если задан BOARD_RECOG_MODEL_VERSION.
+# `import cv2` под opencv-python-headless и Pillow.
 # Python pip-пакеты (onnxruntime/numpy/opencv-python-headless/Pillow)
 # ставим в финальной production-стадии — см. ниже.
+#
+# KS-3717: awscli (apt) убран — он тянул ~80 МБ python+boto. Скачивание
+# моделей в entrypoint переведено на node-скрипт apps/api/scripts/
+# download-model.mjs через @aws-sdk/client-s3 (он уже в dependencies).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
     python3 \
@@ -19,7 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    awscli \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
@@ -74,6 +76,9 @@ COPY --from=build /app/packages/db ./packages/db
 COPY --from=build /app/packages/board-image-to-fen ./packages/board-image-to-fen
 COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY apps/api/package.json ./apps/api/
+# KS-3717: entrypoint вызывает node /app/apps/api/scripts/download-model.mjs
+# для скачивания board-recognition моделей из S3 (замена aws s3 cp).
+COPY apps/api/scripts ./apps/api/scripts
 
 # KS-2363 / KS-2364: inference-зависимости для board-recognition.
 # Используются board_recognize.py / board_detect.py когда

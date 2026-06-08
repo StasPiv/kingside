@@ -50,7 +50,9 @@ download_board_recog_model() {
   fi
   mkdir -p "$(dirname "$target")"
   echo "[entrypoint] downloading board-recog model: $s3_uri -> $target"
-  if aws s3 cp "$s3_uri" "$target" --region "$region"; then
+  # KS-3717: awscli удалён из образа; используем node-скрипт с @aws-sdk/client-s3.
+  if node /app/apps/api/scripts/download-model.mjs \
+      --bucket "$bucket" --key "$key" --out "$target" --region "$region"; then
     echo "[entrypoint] board-recog model ready: $target ($(stat -c %s "$target") bytes)"
   else
     echo "[entrypoint] WARN: failed to download $s3_uri — board-recognition will start in error state." >&2
@@ -82,7 +84,10 @@ download_corner_detector() {
   fi
   mkdir -p "$(dirname "$target")"
   echo "[entrypoint] checking for corner_detector: $s3_uri"
-  if aws s3 cp "$s3_uri" "$target" --region "$region" 2>/dev/null; then
+  # KS-3717: awscli удалён; --quiet подавляет stderr для опционального файла
+  # (раньше использовалось `2>/dev/null` рядом с `aws s3 cp`).
+  if node /app/apps/api/scripts/download-model.mjs \
+      --bucket "$bucket" --key "$key" --out "$target" --region "$region" --quiet; then
     echo "[entrypoint] corner_detector ready: $target ($(stat -c %s "$target") bytes)"
     export BOARD_DETECT_NN_MODEL="$target"
   else
@@ -117,7 +122,9 @@ download_find_boards_model() {
   fi
   mkdir -p "$(dirname "$target")"
   echo "[entrypoint] downloading find-boards model: $s3_uri -> $target"
-  if aws s3 cp "$s3_uri" "$target" --region "$region"; then
+  # KS-3717: awscli удалён из образа; используем node-скрипт с @aws-sdk/client-s3.
+  if node /app/apps/api/scripts/download-model.mjs \
+      --bucket "$bucket" --key "$key" --out "$target" --region "$region"; then
     echo "[entrypoint] find-boards model ready: $target ($(stat -c %s "$target") bytes)"
     export BOARD_FINDBOARDS_MODEL_PATH="$target"
   else
