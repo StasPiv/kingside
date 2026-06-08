@@ -355,4 +355,122 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
       document.querySelectorAll('.analysis-mobile-section--tree').length,
     ).toBe(0);
   });
+
+  // === KS-3909 / ADR-117 C05 ===
+
+  it('KS-3909: showEnginePanel=false → desktop engine-panel и mobile-таб отсутствуют', () => {
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({ showEnginePanel: false, mobileTab: 'moves' })}
+      />,
+    );
+    // Desktop engine-panel (analysis-panel header с testid'ом не помечен,
+    // но содержит engineName) удалён — проверяем через mobile-секцию.
+    expect(
+      document.querySelector('.analysis-mobile-section--engine'),
+    ).toBeNull();
+    // Mobile-таб «Engine» отсутствует.
+    expect(
+      document.querySelector('[data-testid="analysis-mobile-tab-engine"]'),
+    ).toBeNull();
+    // Прочие вкладки на месте.
+    expect(
+      document.querySelector('[data-testid="analysis-mobile-tab-moves"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="analysis-mobile-tab-tree"]'),
+    ).not.toBeNull();
+  });
+
+  it('KS-3909: showAiPanel=false → desktop AI-блок и mobile-таб AI отсутствуют', () => {
+    const aiCtl = {
+      state: { kind: 'idle' as const },
+      request: vi.fn(),
+      regenerate: vi.fn(),
+      softCounter: { used: 0, limit: 20, windowMin: 20 },
+      overlay: null,
+      overlayHidden: false,
+      toggleOverlay: vi.fn(),
+    };
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({
+          aiPositionComment: aiCtl,
+          showAiPanel: false,
+          mobileTab: 'moves',
+        })}
+      />,
+    );
+    expect(
+      document.querySelector('[data-testid="analysis-ai-panel"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="analysis-mobile-tab-ai"]'),
+    ).toBeNull();
+  });
+
+  it('KS-3909: showBookPanel=false → desktop ArchiveTreePanel отсутствует', () => {
+    renderWithProviders(
+      <AnalysisSidebar {...makeProps({ showBookPanel: false })} />,
+    );
+    expect(document.querySelector('.archive-tree-panel')).toBeNull();
+  });
+
+  it('KS-3909: активна mobileTab=engine, флаг скрывает → переключение на moves', () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({
+          showEnginePanel: false,
+          mobileTab: 'engine',
+          onMobileTabChange: onChange,
+        })}
+      />,
+    );
+    expect(onChange).toHaveBeenCalledWith('moves');
+  });
+
+  it('KS-3909: активна mobileTab=ai, флаг скрывает → переключение на moves', () => {
+    const onChange = vi.fn();
+    const aiCtl = {
+      state: { kind: 'idle' as const },
+      request: vi.fn(),
+      regenerate: vi.fn(),
+      softCounter: { used: 0, limit: 20, windowMin: 20 },
+      overlay: null,
+      overlayHidden: false,
+      toggleOverlay: vi.fn(),
+    };
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({
+          aiPositionComment: aiCtl,
+          showAiPanel: false,
+          mobileTab: 'ai',
+          onMobileTabChange: onChange,
+        })}
+      />,
+    );
+    expect(onChange).toHaveBeenCalledWith('moves');
+  });
+
+  it('KS-3909: все флаги true (default) → ни одна вкладка не переключается, все блоки на месте', () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <AnalysisSidebar
+        {...makeProps({
+          mobileTab: 'engine',
+          onMobileTabChange: onChange,
+        })}
+      />,
+    );
+    expect(onChange).not.toHaveBeenCalled();
+    // Mobile-табы engine, tree присутствуют.
+    expect(
+      document.querySelector('[data-testid="analysis-mobile-tab-engine"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="analysis-mobile-tab-tree"]'),
+    ).not.toBeNull();
+  });
 });

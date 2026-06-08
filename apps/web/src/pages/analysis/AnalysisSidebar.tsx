@@ -375,6 +375,35 @@ export function AnalysisSidebar({
     if (focusModeActive && sheet.snap === 'peek') sheet.setSnap('half');
   };
 
+  // KS-3909 / ADR-117 C05. Если активная mobile-вкладка относится к
+  // скрытому инструменту — переключаем на первую видимую. Приоритет
+  // фолбэка: moves → tree → ai → engine (см. описание задачи).
+  // `moves` и `tree` всегда видимы — они не привязаны к политике
+  // инструментов. `engine` зависит от showEnginePanel, `ai` — от
+  // showAiPanel.
+  useEffect(() => {
+    const isVisible = (tab: AnalysisMobileTab): boolean => {
+      switch (tab) {
+        case 'engine':
+          return showEnginePanel;
+        case 'ai':
+          return showAiPanel;
+        case 'moves':
+        case 'tree':
+          return true;
+        default:
+          return true;
+      }
+    };
+    if (isVisible(mobileTab)) return;
+    // Фолбэк-приоритет — фиксированный (moves → tree → ai → engine).
+    const priority: AnalysisMobileTab[] = ['moves', 'tree', 'ai', 'engine'];
+    const next = priority.find((t) => isVisible(t));
+    if (next && next !== mobileTab) {
+      onMobileTabChange(next);
+    }
+  }, [mobileTab, showEnginePanel, showAiPanel, onMobileTabChange]);
+
   return (
     <div className="analysis-sidebar" data-testid="analysis-sidebar">
       {/* KS-3603 (ADR-100 §8): source-link для авто-аннотированных
@@ -781,15 +810,19 @@ export function AnalysisSidebar({
           >
             {t('review.moves', 'Moves')}
           </button>
-          <button
-            className={`analysis-mobile-tab${
-              mobileTab === 'engine' ? ' active' : ''
-            }`}
-            data-testid="analysis-mobile-tab-engine"
-            onClick={() => handleTabTap('engine')}
-          >
-            {t('analysis.engine', 'Engine')}
-          </button>
+          {/* KS-3909: вкладка «Engine» скрывается, если ученикам
+              лекции запрещён инструмент engine. */}
+          {showEnginePanel && (
+            <button
+              className={`analysis-mobile-tab${
+                mobileTab === 'engine' ? ' active' : ''
+              }`}
+              data-testid="analysis-mobile-tab-engine"
+              onClick={() => handleTabTap('engine')}
+            >
+              {t('analysis.engine', 'Engine')}
+            </button>
+          )}
           <button
             className={`analysis-mobile-tab${
               mobileTab === 'tree' ? ' active' : ''
@@ -800,18 +833,25 @@ export function AnalysisSidebar({
             {t('archive.tree', 'Tree')}
           </button>
           {/* KS-3687: 4-я mobile-вкладка «AI». Кнопка показывается всегда —
-              если контроллер не пришёл, секция ниже просто пустая. */}
-          <button
-            className={`analysis-mobile-tab${
-              mobileTab === 'ai' ? ' active' : ''
-            }`}
-            data-testid="analysis-mobile-tab-ai"
-            onClick={() => handleTabTap('ai')}
-          >
-            {t('analysis.aiTab.title', 'AI')}
-          </button>
+              если контроллер не пришёл, секция ниже просто пустая.
+              KS-3909: вкладка скрывается, если ученикам лекции запрещён
+              инструмент ai_comment. */}
+          {showAiPanel && (
+            <button
+              className={`analysis-mobile-tab${
+                mobileTab === 'ai' ? ' active' : ''
+              }`}
+              data-testid="analysis-mobile-tab-ai"
+              onClick={() => handleTabTap('ai')}
+            >
+              {t('analysis.aiTab.title', 'AI')}
+            </button>
+          )}
         </div>
         <div className="analysis-mobile-panel__content">
+          {/* KS-3909: mobile-секция engine монтируется только если
+              панель видима ученику. */}
+          {showEnginePanel && (
           <div
             className={`analysis-mobile-section analysis-mobile-section--engine${
               mobileTab === 'engine' ? ' active' : ''
@@ -986,6 +1026,7 @@ export function AnalysisSidebar({
               {/* KS-3590: mobile-кнопка KS-3579 удалена (см. desktop). */}
             </div>
           </div>
+          )}
           <div
             className={`analysis-mobile-section analysis-mobile-section--moves${
               mobileTab === 'moves' ? ' active' : ''
@@ -1018,8 +1059,11 @@ export function AnalysisSidebar({
           )}
           {/* KS-3687: 4-я mobile-вкладка «AI». Lazy-mount по mobileTab —
               панель не дёргает свои эффекты, пока пользователь не открыл
-              вкладку (как сделано для `tree`). */}
-          {mobileTab === 'ai' && aiPositionComment && (
+              вкладку (как сделано для `tree`).
+              KS-3909: дополнительно гейтится showAiPanel — useEffect выше
+              переключит mobileTab на видимую вкладку, но добавляем
+              `showAiPanel` в условие как защиту от рассинхронизации. */}
+          {showAiPanel && mobileTab === 'ai' && aiPositionComment && (
             <div className="analysis-mobile-section analysis-mobile-section--ai active">
               <div className="analysis-panel-body">
                 <AiPositionCommentPanel
