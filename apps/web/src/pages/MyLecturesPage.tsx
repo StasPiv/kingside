@@ -39,7 +39,7 @@ import type {
 import { api } from '../api';
 import { ApiError } from '../ApiError';
 import { useMyLectures } from '../hooks/useMyLectures';
-import { LectureToolsSettingsModal } from '../components/lecture/LectureToolsSettingsModal';
+import { LectureSettingsModal } from '../components/lecture/LectureSettingsModal';
 
 type StatusFilter = LectureStatus | 'all';
 type VisibilityFilter = LectureVisibility | 'all';
@@ -595,9 +595,9 @@ export function MyLecturesPage() {
       )}
 
       {settingsLecture && (
-        <LectureToolsSettingsModal
+        <LectureSettingsModal
           lectureId={settingsLecture.id}
-          initialDisabledTools={settingsLecture.disabledTools ?? []}
+          initialTab="tools"
           onClose={() => setSettingsLecture(null)}
           onSaved={() => {
             setSettingsLecture(null);

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ALL_LECTURE_DISABLED_TOOLS,
@@ -8,6 +8,7 @@ import {
 } from '@kingside/shared';
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
+import { useLectureDetail } from '../../hooks/useLectureDetail';
 import { LectureAccessPanel } from './LectureAccessPanel';
 
 /**
@@ -31,9 +32,12 @@ import { LectureAccessPanel } from './LectureAccessPanel';
  *    подписываться не нужно: `LectureAccessPanel` сам управляет
  *    своим состоянием.
  *
- * Layout (KS-3982) подключит вкладки и sliding-sheet на mobile;
- * inline-стили здесь — функциональный уровень. Все ключевые
- * элементы помечены `data-testid` для тестов и стилизации.
+ * KS-3982 (ADR-119 §8 эпик E): встроенные стили заменены на
+ * CSS-классы `.lecture-modal*` из `lecture.css`. На ≥640px —
+ * центральная карточка, на <640px — выдвижной лист снизу с
+ * ручкой-индикатором; вкладки переключаются единым стилем с
+ * подсветкой активной. ARIA-роли (`tablist`/`tab`/`tabpanel`) и
+ * `data-testid` сохранены.
  */
 
 type Tab = 'main' | 'access' | 'tools';
@@ -49,7 +53,7 @@ const TABS: ReadonlyArray<{
 ];
 
 interface LectureSettingsModalProps {
-  lecture: LectureSummary;
+  lectureId: string;
   onClose: () => void;
   /**
    * Вызывается после успешного PATCH. Родитель обновляет свой
@@ -58,41 +62,66 @@ interface LectureSettingsModalProps {
    * `LectureAccessPanel`.
    */
   onSaved?: (updated: LectureSummary) => void;
+  /**
+   * KS-3975 / ADR-119 C06. Вкладка, которая открывается первой.
+   * `AnalysisActionsMenu` для пункта «Доступ учеников» передаёт
+   * `'access'`; для «Настройки инструментов» — `'tools'`;
+   * по умолчанию `'main'`.
+   */
+  initialTab?: Tab;
 }
 
 export function LectureSettingsModal({
-  lecture,
+  lectureId,
   onClose,
   onSaved,
+  initialTab = 'main',
 }: LectureSettingsModalProps) {
   const { t } = useTranslation();
   const tabsLabelId = useId();
 
-  const [tab, setTab] = useState<Tab>('main');
+  const [tab, setTab] = useState<Tab>(initialTab);
 
-  const [title, setTitle] = useState<string>(lecture.title);
-  const [description, setDescription] = useState<string>(
-    lecture.description ?? '',
-  );
-  const [visibility, setVisibility] = useState<LectureVisibility>(
-    lecture.visibility,
-  );
-  // UI хранит «разрешённые» инструменты (галочка = разрешено).
-  // Конвертация в backend-формат `disabledTools` происходит при
-  // отправке PATCH'а — единый источник правды между этой модалкой
-  // и `LectureToolsSettingsModal` (KS-3912) / `CreateLectureModal`
-  // (KS-3911).
-  const initialEnabled = ALL_LECTURE_DISABLED_TOOLS.filter(
-    (tool) => !(lecture.disabledTools ?? []).includes(tool),
-  );
+  // KS-3975 / ADR-119 C06. Полный snapshot лекции получаем сами
+  // через `useLectureDetail` — родители (AnalysisPage,
+  // MyLecturesPage) держат разные неполные «слепки» (`LectureSummary`
+  // в shared / локальный тип в LectureReplayPage). Один источник
+  // правды для form-state модалки — отдельный REST-запрос.
+  const { lecture, loading, error: detailError } =
+    useLectureDetail(lectureId);
+
+  const [title, setTitle] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
+  const [visibility, setVisibility] =
+    useState<LectureVisibility>('public');
   const [enabledTools, setEnabledTools] =
-    useState<LectureDisabledTool[]>(initialEnabled);
+    useState<LectureDisabledTool[]>([...ALL_LECTURE_DISABLED_TOOLS]);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Когда `useLectureDetail` дотянул полный snapshot, инициализируем
+  // form-state. Делаем это один раз — пользовательский ввод после
+  // первой гидрации не сбрасываем (если модалка ещё открыта и
+  // пришёл повторный fetch, например после refetch на сохранении —
+  // полагаемся на `onSaved` + закрытие модалки).
+  useEffect(() => {
+    if (!lecture || hydrated) return;
+    setTitle(lecture.title);
+    setDescription(lecture.description ?? '');
+    setVisibility(lecture.visibility);
+    setEnabledTools(
+      ALL_LECTURE_DISABLED_TOOLS.filter(
+        (tool) => !(lecture.disabledTools ?? []).includes(tool),
+      ),
+    );
+    setHydrated(true);
+  }, [lecture, hydrated]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const trimmedTitle = title.trim();
-  const submitDisabled = submitting || trimmedTitle.length === 0;
+  const submitDisabled =
+    submitting || !hydrated || trimmedTitle.length === 0;
 
   const handleSubmit = async () => {
     if (submitDisabled) return;
@@ -103,7 +132,7 @@ export function LectureSettingsModal({
     );
     try {
       const updated = await api.patch<LectureSummary>(
-        `/lectures/${encodeURIComponent(lecture.id)}`,
+        `/lectures/${encodeURIComponent(lectureId)}`,
         {
           title: trimmedTitle,
           description: description.trim() ? description.trim() : null,
@@ -136,35 +165,34 @@ export function LectureSettingsModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="lecture-modal-overlay" onClick={onClose}>
       <div
-        className="modal-content"
+        className="lecture-modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 560 }}
         data-testid="lecture-settings-modal"
         data-active-tab={tab}
+        role="dialog"
+        aria-modal="true"
       >
-        <div className="modal-header">
-          <h2>{t('lectureSettings.title', 'Lecture settings')}</h2>
+        <header className="lecture-modal__header">
+          <h2 className="lecture-modal__title">
+            {t('lectureSettings.title', 'Lecture settings')}
+          </h2>
           <button
-            className="modal-close"
+            type="button"
+            className="lecture-modal__close"
             onClick={onClose}
             aria-label={t('common.close', 'Close')}
           >
             ×
           </button>
-        </div>
+        </header>
 
         <div
           role="tablist"
           aria-labelledby={tabsLabelId}
           data-testid="lecture-settings-tablist"
-          style={{
-            display: 'flex',
-            gap: 4,
-            borderBottom: '1px solid #e5e7eb',
-            marginBottom: 16,
-          }}
+          className="lecture-modal__tablist"
         >
           {TABS.map((opt) => {
             const isActive = tab === opt.value;
@@ -178,17 +206,10 @@ export function LectureSettingsModal({
                 id={`${tabsLabelId}-${opt.value}-tab`}
                 data-testid={`lecture-settings-tab-${opt.value}`}
                 onClick={() => setTab(opt.value)}
-                style={{
-                  padding: '8px 14px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: isActive
-                    ? '2px solid #1976d2'
-                    : '2px solid transparent',
-                  color: isActive ? '#1976d2' : 'inherit',
-                  fontWeight: isActive ? 600 : 400,
-                  cursor: 'pointer',
-                }}
+                className={
+                  'lecture-modal__tab' +
+                  (isActive ? ' lecture-modal__tab--active' : '')
+                }
               >
                 {t(opt.labelKey, opt.fallback)}
               </button>
@@ -197,7 +218,37 @@ export function LectureSettingsModal({
         </div>
 
         <div className="import-form">
-          {tab === 'main' && (
+          {loading && !hydrated && (
+            <div
+              data-testid="lecture-settings-loading"
+              style={{ padding: 16, opacity: 0.7 }}
+            >
+              {t('common.loading', 'Loading…')}
+            </div>
+          )}
+          {detailError && !hydrated && (
+            <div
+              className="error"
+              data-testid="lecture-settings-load-error"
+              style={{ padding: 8 }}
+            >
+              {detailError === 'forbidden'
+                ? t(
+                    'lectureSettings.loadForbidden',
+                    'Only the lecture owner can edit settings.',
+                  )
+                : detailError === 'not-found'
+                  ? t(
+                      'lectureSettings.loadNotFound',
+                      'Lecture not found.',
+                    )
+                  : t(
+                      'lectureSettings.loadFailed',
+                      'Failed to load lecture details. Please try again.',
+                    )}
+            </div>
+          )}
+          {hydrated && tab === 'main' && (
             <div
               id={`${tabsLabelId}-main`}
               role="tabpanel"
@@ -239,7 +290,7 @@ export function LectureSettingsModal({
             </div>
           )}
 
-          {tab === 'access' && (
+          {hydrated && tab === 'access' && (
             <div
               id={`${tabsLabelId}-access`}
               role="tabpanel"
@@ -247,15 +298,15 @@ export function LectureSettingsModal({
               data-testid="lecture-settings-panel-access"
             >
               <LectureAccessPanel
-                lectureId={lecture.id}
+                lectureId={lectureId}
                 visibility={visibility}
                 onVisibilityChange={setVisibility}
-                disabled={submitting}
+                disabled={submitting || !hydrated}
               />
             </div>
           )}
 
-          {tab === 'tools' && (
+          {hydrated && tab === 'tools' && (
             <div
               id={`${tabsLabelId}-tools`}
               role="tabpanel"

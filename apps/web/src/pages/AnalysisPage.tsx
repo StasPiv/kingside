@@ -89,7 +89,7 @@ import { useLectureLookupBySlug } from '../hooks/useLectureLookupBySlug';
 // KS-3789 / ADR-113 §4 эпик 1: модальное окно создания лекции
 // и мгновенного запуска live-сессии.
 import { CreateLectureModal } from '../components/analysis/CreateLectureModal';
-import { LectureToolsSettingsModal } from '../components/lecture/LectureToolsSettingsModal';
+import { LectureSettingsModal } from '../components/lecture/LectureSettingsModal';
 // KS-3747 / ADR-111 §7: проп `liveSession` — AnalysisPage становится
 // просмотрщиком трансляции (mode='viewer') или подключается к ней как
 // автор (mode='owner', фактическое использование — KS-3748). Хук тот же
@@ -567,8 +567,16 @@ export type BuildItemsContext = {
    */
   ownerLectureSettings?: {
     status: 'scheduled' | 'live' | 'recorded' | 'cancelled';
-    /** Callback на клик; открывает модальное окно у родителя. */
-    onOpen: () => void;
+    /**
+     * Открыть модалку настроек на вкладке «Инструменты». Используется
+     * пунктом меню «Lecture settings for students» (KS-3912).
+     */
+    onOpenTools: () => void;
+    /**
+     * KS-3975 / ADR-119 C06. Открыть модалку настроек на вкладке
+     * «Доступ» — пункт меню «Student access».
+     */
+    onOpenAccess: () => void;
   };
 };
 
@@ -879,14 +887,13 @@ export function buildAnalysisActionsItems(
   }
 
   // KS-3912 / ADR-117 B02. Пункт «Настройки лекции для учеников» —
-  // тренер открывает модальное окно с чекбоксами и сохраняет PATCH
-  // /lectures/:id. Виден когда родитель прокинул контекст лекции и
-  // статус не `cancelled`. На `publicMode` не смотрим (модалка нужна
-  // и в recorded-режиме внутри LectureReplayPage, где AnalysisPage
-  // сидит в publicMode=true). На guest-state не реагируем — пункт
-  // показывается только когда родитель в принципе передал
-  // `ownerLectureSettings`, а это бывает только при наличии лекции
-  // у тренера.
+  // тренер открывает модальное окно настроек на вкладке
+  // «Инструменты». KS-3975 / ADR-119 C06 добавляет рядом пункт
+  // «Доступ учеников», который открывает ту же модалку на вкладке
+  // «Доступ». Оба пункта видны когда родитель прокинул контекст
+  // лекции и статус не `cancelled`. На `publicMode` не смотрим
+  // (модалка нужна и в recorded-режиме внутри LectureReplayPage,
+  // где AnalysisPage сидит в publicMode=true).
   if (
     ownerLectureSettings &&
     ownerLectureSettings.status !== 'cancelled'
@@ -895,7 +902,13 @@ export function buildAnalysisActionsItems(
       id: 'lecture-tools-settings',
       group: 'broadcast',
       label: t('lectureTools.modalTitle', 'Lecture settings for students'),
-      onClick: ownerLectureSettings.onOpen,
+      onClick: ownerLectureSettings.onOpenTools,
+    });
+    items.push({
+      id: 'lecture-access-settings',
+      group: 'broadcast',
+      label: t('lectureAccess.menuItem', 'Student access'),
+      onClick: ownerLectureSettings.onOpenAccess,
     });
   }
 
@@ -2795,11 +2808,13 @@ function AnalysisPageInner({
   // `useLectureLookupBySlug` (она не успевала за `MediaRecorder` —
   // чанки не отправлялись).
   const [activeLectureId, setActiveLectureId] = useState<string | null>(null);
-  // KS-3912 / ADR-117 B02. Открыто ли модальное окно «Настройки лекции
-  // для учеников». Сам snapshot настроек (lectureId, disabledTools,
-  // status) приходит из пропса `lectureSettings` — родитель
-  // (LectureReplayPage) формирует его из ответа `GET /lectures/:id`.
-  const [lectureSettingsOpen, setLectureSettingsOpen] = useState(false);
+  // KS-3912 / ADR-117 B02 + KS-3975 / ADR-119 C06. Состояние модалки
+  // настроек лекции. `null` — закрыто; объект с `tab` — открыто на
+  // конкретной вкладке (`tools` — пункт «Lecture settings for
+  // students», `access` — пункт «Student access»).
+  const [lectureSettingsOpen, setLectureSettingsOpen] = useState<
+    null | 'main' | 'access' | 'tools'
+  >(null);
   // Локальная копия `disabledTools` для оптимистического UI: после
   // успешного PATCH в модалке здесь обновляется значение, чтобы
   // следующее открытие модалки сразу видело свежее состояние и
@@ -3913,7 +3928,9 @@ function AnalysisPageInner({
                     ownerLectureSettings: lectureSettings
                       ? {
                           status: lectureSettings.status,
-                          onOpen: () => setLectureSettingsOpen(true),
+                          onOpenTools: () => setLectureSettingsOpen('tools'),
+                          onOpenAccess: () =>
+                            setLectureSettingsOpen('access'),
                         }
                       : undefined,
                   })}
@@ -4205,15 +4222,13 @@ function AnalysisPageInner({
           чтобы родитель синхронизировал свою копию (например,
           `lecture.disabledTools` в `LectureReplayPage`). */}
       {lectureSettingsOpen && lectureSettings && (
-        <LectureToolsSettingsModal
+        <LectureSettingsModal
           lectureId={lectureSettings.lectureId}
-          initialDisabledTools={
-            effectiveLectureDisabledTools ?? lectureSettings.disabledTools
-          }
-          onClose={() => setLectureSettingsOpen(false)}
-          onSaved={(disabledTools) => {
-            setLectureSettingsDisabledTools(disabledTools);
-            onLectureSettingsSaved?.(disabledTools);
+          initialTab={lectureSettingsOpen}
+          onClose={() => setLectureSettingsOpen(null)}
+          onSaved={(updated) => {
+            setLectureSettingsDisabledTools(updated.disabledTools ?? []);
+            onLectureSettingsSaved?.(updated.disabledTools ?? []);
           }}
         />
       )}
