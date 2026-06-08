@@ -53,6 +53,7 @@ import { openingTrainerApi } from '../api/openingTrainerApi';
 // KS-3331 (ADR-078 §5.3): добавить анализ в существующий репертуар.
 import { AddToRepertoireModal } from './openingTrainer/AddToRepertoireModal';
 import type {
+  LectureDisabledTool,
   OpeningRepertoireDto,
   OpeningRepertoireWithStatsDto,
 } from '@kingside/shared';
@@ -291,6 +292,26 @@ type MoveData = {
  */
 interface AnalysisPageProps {
   publicMode?: boolean;
+  /**
+   * KS-3908 / ADR-117 C04. Политика отключения инструментов для
+   * учеников лекции. Применяется ТОЛЬКО когда страница открыта в
+   * учебном режиме (`publicMode=true` — viewer-live лекции).
+   * У владельца (`publicMode=false`) политика игнорируется: тренер
+   * всегда видит полный набор инструментов.
+   *
+   * Производные:
+   *   - showEnginePanel  = !policy.includes('engine')     || !publicMode
+   *   - showAiPanel      = !policy.includes('ai_comment') || !publicMode
+   *   - showBookPanel    = !policy.includes('book')       || !publicMode
+   *
+   * Когда `showEnginePanel=false`, обёртка `useEngine` идёт
+   * `enabled=false`: Stockfish WASM не инициализируется (~6 МБ
+   * экономии у ученика), external bridge не подключается.
+   * Аналогично `showAiPanel=false` — `useAiPositionComment`
+   * `enabled=false`: LLM-квота не тратится, Stockfish-зонд не
+   * запускается.
+   */
+  studentToolsPolicy?: LectureDisabledTool[];
   /**
    * KS-3182 (ADR-072 §7 F2): embedded-режим — AnalysisPage встроен в
    * другой контейнер (шаг урока «Партия»). Поведение:
@@ -799,6 +820,7 @@ export function AnalysisPage({
   embeddedPgn,
   liveSession,
   replay,
+  studentToolsPolicy,
 }: AnalysisPageProps = {}) {
   const params = useParams<{
     id?: string;
@@ -829,6 +851,7 @@ export function AnalysisPage({
       embeddedPgn={embeddedPgn}
       liveSession={liveSession}
       replay={replay}
+      studentToolsPolicy={studentToolsPolicy}
     />
   );
 }
@@ -839,6 +862,7 @@ function AnalysisPageInner({
   embeddedPgn,
   liveSession,
   replay,
+  studentToolsPolicy,
 }: AnalysisPageProps) {
   // KS-3182: embedded === read-only во всех точках, где `publicMode`
   // используется как гейт мутаций (autosave, share, title-edit,
@@ -858,6 +882,22 @@ function AnalysisPageInner({
   // тот же publicMode-флаг, что и для viewer-live.
   const isReplay = !!replay;
   const publicMode = publicModeProp || embedded || isViewerLive || isReplay;
+  // KS-3908 / ADR-117 C04. Производные флаги доступа учеников к
+  // инструментам. Формула из ADR: запрет применяется ТОЛЬКО в
+  // publicMode (viewer-live лекции). У владельца страница работает
+  // как обычно.
+  //
+  // Эти три флага управляют:
+  //   - монтажом панелей в `AnalysisSidebar` (engine/AI/book);
+  //   - параметром `enabled` в обёртках `useEngine` /
+  //     `useAiPositionComment` — чтобы у ученика реально не
+  //     инициализировался Stockfish WASM и не тратилась LLM-квота.
+  const showEnginePanel =
+    !studentToolsPolicy?.includes('engine') || !publicMode;
+  const showAiPanel =
+    !studentToolsPolicy?.includes('ai_comment') || !publicMode;
+  const showBookPanel =
+    !studentToolsPolicy?.includes('book') || !publicMode;
   // Add class to body/app for mobile layout (fallback for browsers without :has() support)
   useEffect(() => {
     // KS-3182: body-class `has-analysis-page` нужна mobile-layout'у
@@ -1789,6 +1829,9 @@ function AnalysisPageInner({
     autoStart: analysisEnabled,
     // KS-3597: Maia top-N (или null) для sortMode=maia.
     searchmoves: maiaTopMoves.length > 0 ? maiaTopMoves : null,
+    // KS-3908 / ADR-117 C04. Когда ученикам лекции запрещён движок,
+    // обёртка возвращает заглушку и WASM не инициализируется.
+    enabled: showEnginePanel,
   });
 
   const lastLinesRef = useRef<EvalLine[]>([]);
@@ -2453,6 +2496,10 @@ function AnalysisPageInner({
           }
         : null,
     engineProbe: engineProbeForAi,
+    // KS-3908 / ADR-117 C04. Когда ученикам лекции запрещён
+    // ai_comment, хук работает в no-op режиме — `request`/`regenerate`
+    // ничего не делают, LLM-квота не тратится.
+    enabled: showAiPanel,
   });
 
   // KS-3726. Текущий комментарий узла дерева, на котором стоит
@@ -3626,6 +3673,10 @@ function AnalysisPageInner({
                 <AnalysisActionsMenu
                   open={showOverflowMenu}
                   onClose={() => setShowOverflowMenu(false)}
+                  // KS-3908 / ADR-117 C04. Прокидываем политику —
+                  // C03 будет фильтровать пункты analyze_game /
+                  // generate_puzzle / find_by_position на основе её.
+                  studentToolsPolicy={studentToolsPolicy}
                   items={buildAnalysisActionsItems({
                     t,
                     gameId,
@@ -3817,6 +3868,10 @@ function AnalysisPageInner({
       </div>
 
       <AnalysisSidebar
+        // KS-3908 / ADR-117 C04: производные от studentToolsPolicy.
+        showEnginePanel={showEnginePanel}
+        showAiPanel={showAiPanel}
+        showBookPanel={showBookPanel}
         gameInfo={gameInfo}
         activeSource={activeSource}
         bridgePromoDismissed={bridgePromoDismissed}

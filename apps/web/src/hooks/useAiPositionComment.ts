@@ -147,6 +147,17 @@ export interface UseAiPositionCommentOptions {
   /** `null` → состояние `unauthenticated`, кнопка disabled. */
   user: { id: string } | null;
   /**
+   * KS-3908 / ADR-117 C04. Когда `false`, хук не отправляет запросы
+   * к `/analyses/position/comment` (`request`/`regenerate` — no-op),
+   * не запускает `evalTrace` (Stockfish-WASM-зонд) и не использует
+   * `engineProbe`. UI-side caller также не должен рендерить
+   * AI-панель — но если каким-то путём `request()` всё же будет
+   * вызван, LLM-квота тратиться не будет.
+   *
+   * По умолчанию `true` — поведение совместимо с прежними caller'ами.
+   */
+  enabled?: boolean;
+  /**
    * Комментарий узла текущего хода в дереве разбора (KS-3725: caller
    * должен искать через `searchInHistory(history, currentGlobalIndex)`,
    * а не по array-индексу — `globalIndex` сквозной по всему дереву и
@@ -399,6 +410,7 @@ export function useAiPositionComment(
     engineEvalCp,
     engineBestLine,
     engineProbe,
+    enabled = true,
   } = options;
   const normalizedFen = normalizeFen(fen);
   // KS-3680: важно сравнивать пользователя по `id`, а не по ссылке.
@@ -714,13 +726,18 @@ export function useAiPositionComment(
     [fen, normalizedFen, userId, language, engineEvalCp],
   );
 
+  // KS-3908: если хук выключен политикой лекции (ученикам запретили
+  // «ai_comment»), `request`/`regenerate` — no-op. LLM-квота
+  // не тратится, Stockfish-зонд не активируется.
   const request = useCallback(() => {
+    if (!enabled) return;
     void doRequest({ ignoreCache: false });
-  }, [doRequest]);
+  }, [doRequest, enabled]);
 
   const regenerate = useCallback(() => {
+    if (!enabled) return;
     void doRequest({ ignoreCache: true });
-  }, [doRequest]);
+  }, [doRequest, enabled]);
 
   // Cleanup: при размонтировании отменяем активный запрос.
   useEffect(() => {

@@ -56,6 +56,42 @@ describe('useAiPositionComment', () => {
     fetchSpy.mockRestore();
   });
 
+  it('KS-3908: enabled=false → request/regenerate не отправляют HTTP, evalTrace не вызывается', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    fetchSpy.mockResolvedValue(jsonResponse({ comment: 'should-not-arrive' }));
+    const { result } = renderHook(() =>
+      useAiPositionComment({
+        fen: FEN_A,
+        user: { id: 'u1' },
+        enabled: false,
+      }),
+    );
+    // Активный вызов request — должен быть no-op.
+    act(() => result.current.request());
+    // Никаких сетевых вызовов, никакого evalTrace.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(evalTrace).not.toHaveBeenCalled();
+    // Состояние не уходит в loading.
+    expect(result.current.state.kind).not.toBe('loading');
+
+    // regenerate тоже no-op.
+    act(() => result.current.regenerate());
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('KS-3908: enabled=true (по умолчанию) → старое поведение сохраняется', async () => {
+    (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'space', value_mg: 0.1, value_eg: 0 },
+    ]);
+    fetchSpy.mockResolvedValue(jsonResponse({ comment: 'ok' }));
+    const { result } = renderHook(() =>
+      useAiPositionComment({ fen: FEN_A, user: { id: 'u1' } }),
+    );
+    act(() => result.current.request());
+    await waitFor(() => expect(result.current.state.kind).toBe('success'));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('гость → state.kind=unauthenticated, fetch не вызывается', async () => {
     const { result } = renderHook(() =>
       useAiPositionComment({ fen: FEN_A, user: null }),

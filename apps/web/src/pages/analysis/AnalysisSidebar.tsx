@@ -57,6 +57,21 @@ export type AnalysisPanelKey = 'gameInfo' | 'engine' | 'moves' | 'ai' | 'book';
 export type AnalysisMobileTab = 'moves' | 'engine' | 'tree' | 'ai';
 
 export interface AnalysisSidebarProps {
+  /**
+   * KS-3908 / ADR-117 C04. Производные флаги политики доступа
+   * учеников к инструментам. В режиме лекции (viewer-live) тренер
+   * может отключить engine / AI / book — соответствующие панели
+   * не должны рендериться. По умолчанию — `true` (полный набор).
+   *
+   * Реальное гейтование рендера панелей сейчас выполняется в самих
+   * местах рендера (engine-panel / ai-panel / opening-explorer).
+   * Сначала добавлены пропы, чтобы C03 (UI-сторона) могла
+   * подключиться без дополнительного API-расширения.
+   */
+  showEnginePanel?: boolean;
+  showAiPanel?: boolean;
+  showBookPanel?: boolean;
+
   /* ---------- desktop-only мета ---------- */
   gameInfo?: GameMetaInfo;
 
@@ -242,6 +257,9 @@ export function AnalysisSidebar({
   aiPositionComment,
   onAddAiCommentToMove,
   currentMoveComment,
+  showEnginePanel = true,
+  showAiPanel = true,
+  showBookPanel = true,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
   // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
@@ -408,7 +426,10 @@ export function AnalysisSidebar({
         </div>
       )}
 
-      {/* Desktop: Engine panel (collapsible) */}
+      {/* Desktop: Engine panel (collapsible).
+          KS-3908 / ADR-117 C04: при `showEnginePanel=false` (тренер
+          отнял `engine` у учеников лекции) панель не рендерится. */}
+      {showEnginePanel && (
       <div className="analysis-panel analysis-desktop-only">
         <div
           className="analysis-panel-header"
@@ -632,10 +653,12 @@ export function AnalysisSidebar({
           </div>
         )}
       </div>
+      )}
 
       {/* KS-3687: Desktop AI panel — отдельный collapsible-блок над
-          ArchiveTreePanel. Контроллер приходит из AnalysisPage. */}
-      {aiPositionComment && (
+          ArchiveTreePanel. Контроллер приходит из AnalysisPage.
+          KS-3908: при `showAiPanel=false` панель не рендерится. */}
+      {showAiPanel && aiPositionComment && (
         <div className="analysis-panel analysis-desktop-only" data-testid="analysis-ai-panel">
           <div
             className="analysis-panel-header"
@@ -668,7 +691,10 @@ export function AnalysisSidebar({
 
       {/* Desktop: Archive tree panel (Database). KS-3696 — теперь часть
           accordion: сворачивание контролируется panelStates.book +
-          togglePanel('book'). */}
+          togglePanel('book').
+          KS-3908: при `showBookPanel=false` (запрет «book» у учеников
+          лекции) панель не рендерится. */}
+      {showBookPanel && (
       <div className="analysis-desktop-only">
         <ArchiveTreePanel
           currentFen={currentFen}
@@ -679,6 +705,7 @@ export function AnalysisSidebar({
           onToggleCollapsed={() => onTogglePanel('book')}
         />
       </div>
+      )}
 
       {/* Desktop: Moves panel (collapsible) */}
       <div className="analysis-panel analysis-panel--flex analysis-desktop-only">

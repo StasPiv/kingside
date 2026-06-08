@@ -27,6 +27,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useIsMobile } from '../../hooks/useIsMobile';
+import type { LectureDisabledTool } from '@kingside/shared';
 
 export type AnalysisActionGroup =
   | 'gamePosition' // FEN / Game info / Find games
@@ -63,6 +64,15 @@ export interface AnalysisActionsMenuProps {
   items: AnalysisActionItem[];
   /** Режим рендера. Дефолт — `'auto'` (по `useIsMobile()`). */
   mode?: AnalysisActionsMenuMode;
+  /**
+   * KS-3908 / ADR-117 C04. Список инструментов, запрещённых учителем
+   * для учеников лекции. Меню само по себе items не модифицирует —
+   * сейчас политика прокидывается «для будущих C03 шагов» (фильтрация
+   * пунктов `analyze_game` / `generate_puzzle` / `find_by_position`
+   * добавится отдельным шагом). Сделано опционально, чтобы старые
+   * caller'ы не ломались.
+   */
+  studentToolsPolicy?: LectureDisabledTool[];
 }
 
 const GROUP_ORDER: AnalysisActionGroup[] = [
@@ -120,6 +130,9 @@ export function AnalysisActionsMenu({
   onClose,
   items,
   mode = 'auto',
+  // KS-3908: пока не используется внутри (C03 подключит), пробрасываем
+  // через пропсы чтобы зафиксировать API.
+  studentToolsPolicy: _studentToolsPolicy,
 }: AnalysisActionsMenuProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();

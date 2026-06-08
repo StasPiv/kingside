@@ -23,6 +23,19 @@ type UseEngineOptions = {
   depth?: number;
   multiPv?: number;
   /**
+   * KS-3908 / ADR-117 C04. Когда `false` — обёртка не запускает
+   * движок: `autoStart` принудительно `false`, `evaluate`/`init`/
+   * `stop`/`setOption` становятся no-op, в lines возвращается
+   * пустой массив. WASM-воркер не инициализируется (Stockfish 18
+   * WASM весит ~6 МБ — у учеников лекции, которым `engine`
+   * запрещён, это пустая трата трафика и батареи). External
+   * bridge тоже не подключается (externalConfig игнорируется).
+   * По умолчанию `true` — поведение совместимо со старыми
+   * use-site'ами (никто из них флаг не передаёт → движок работает
+   * как раньше).
+   */
+  enabled?: boolean;
+  /**
    * KS-3404: бесконечный анализ без потолка глубины (`go infinite`) для
    * встроенного WASM-движка. Применяется только к WASM; внешний (bridge)
    * движок продолжает работать со своим `depth=99` (см. AnalysisPage —
@@ -104,7 +117,15 @@ export function useEngine(options: UseEngineOptions): EngineResult {
     infinite = false,
     autoStart = true,
     searchmoves = null,
+    enabled = true,
   } = options;
+  // KS-3908 / ADR-117 C04: гейт. Когда `enabled=false`, форсируем
+  // autoStart=false, обнуляем external config, не пересылаем
+  // searchmoves в подлежащие хуки, и в результирующем EngineResult
+  // отдаём заглушки. WASM-init происходит ленивo по первому
+  // `init()`/`evaluate()` — мы их превращаем в no-op, поэтому
+  // воркер не появится в памяти.
+  const effectiveAutoStart = enabled && autoStart;
 
   // KS-3112: debounce параметров engine. UI-state продолжает идти
   // напрямую через `multiPv`/`depth` от useEngineConfig (optimistic UI —
@@ -128,23 +149,59 @@ export function useEngine(options: UseEngineOptions): EngineResult {
     depth: debouncedDepth,
     multiPv: debouncedMultiPv,
     // KS-3404: infinite только для WASM-источника (внешний bridge — depth 99).
-    infinite: source === 'wasm' && infinite,
+    infinite: source === 'wasm' && infinite && enabled,
     // KS-3596: searchmoves только для wasm — у external поддержка не
     // подтверждена R-этапом (KS-3595). External всё равно получает
     // массив (proxy через bridge), но `supportsSearchmoves: false`
     // подсказывает caller'у деградировать UX.
-    searchmoves: source === 'wasm' ? debouncedSearchmoves : null,
+    // KS-3908: при `enabled=false` searchmoves не нужны (всё равно не
+    // запускаем анализ).
+    searchmoves:
+      source === 'wasm' && enabled ? debouncedSearchmoves : null,
+    autoStart: effectiveAutoStart,
   });
 
   const external = useExternalEngine({
-    config: source === 'external' ? externalConfig : null,
+    // KS-3908: при `enabled=false` external bridge тоже отключаем —
+    // не открываем соединение, не отправляем go.
+    config: enabled && source === 'external' ? externalConfig : null,
     depth: debouncedDepth,
     multiPv: debouncedMultiPv,
-    autoStart: autoStart && source === 'external',
-    searchmoves: source === 'external' ? debouncedSearchmoves : null,
+    autoStart: effectiveAutoStart && source === 'external',
+    searchmoves:
+      enabled && source === 'external' ? debouncedSearchmoves : null,
   });
 
   return useMemo(() => {
+    // KS-3908 / ADR-117 C04. Когда движок выключен (учитель отнял
+    // право «engine» у учеников), отдаём заглушку: пустые lines,
+    // no-op мутаторы. UI-side эта ветка не должна рендерить
+    // engine-panel (по флагу `showEnginePanel`), но если каким-то
+    // упрощением вызывает `evaluate()` — никакого WASM init не
+    // произойдёт.
+    if (!enabled) {
+      const noop = () => {};
+      return {
+        state: 'idle',
+        lines: [],
+        analysisFen: null,
+        bestMove: null,
+        evaluate: noop,
+        stop: noop,
+        setOption: noop,
+        init: noop,
+        cleanup: noop,
+        isReady: false,
+        engineName: '',
+        engineSource: source,
+        errorMessage: null,
+        loadProgress: 0,
+        errorReason: null,
+        // false — caller не должен пытаться задействовать sort=maia
+        // через searchmoves: они всё равно не уйдут.
+        supportsSearchmoves: false,
+      };
+    }
     if (source === 'external') {
       return {
         state: external.state,
@@ -188,5 +245,5 @@ export function useEngine(options: UseEngineOptions): EngineResult {
       // KS-3595 подтвердил). UI может включать sort=maia без оговорок.
       supportsSearchmoves: true,
     };
-  }, [source, wasm, external, externalConfig]);
+  }, [source, wasm, external, externalConfig, enabled]);
 }
