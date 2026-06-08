@@ -64,6 +64,14 @@ export interface PrecisionDifficultySliderProps {
    * `loadedCount + hasMore`.
    */
   total?: number | null;
+  /**
+   * KS-3894. `true` если `total` пришёл из `/puzzles/browse/count?
+   * approx=true` — planner-estimate, округлённый до сотен. UI
+   * показывает «Найдено: ~N» (с префиксом `~`). Когда точный
+   * `/browse/count` ответит, родитель снимает флаг и UI заменяет
+   * подпись на «Найдено: N» без префикса.
+   */
+  totalApproximate?: boolean;
 }
 
 function clampStep(raw: number): number {
@@ -79,6 +87,7 @@ export function PrecisionDifficultySlider({
   loadedCount,
   hasMore,
   total,
+  totalApproximate,
 }: PrecisionDifficultySliderProps) {
   const { t } = useTranslation();
   const isControlled = controlledValue !== undefined;
@@ -123,13 +132,21 @@ export function PrecisionDifficultySlider({
   const minPercent = Math.round(value.min * 100);
   const maxPercent = Math.round(value.max * 100);
 
-  // KS-3672: приоритет — точный total из backend'а; fallback на
+  // KS-3672: приоритет — total из backend'а; fallback на
   // loadedCount+hasMore только если total не пришёл.
+  // KS-3894: если total пришёл из approx-count (`totalApproximate=true`),
+  // показываем «Найдено: ~N» — пользователь понимает, что число
+  // приблизительное. Когда подоспеет точный count, родитель снимет
+  // флаг и подпись сменится на «Найдено: N» без префикса.
   let hint: string | null = null;
   if (typeof total === 'number' && total >= 0) {
-    hint = t('precision.difficulty.found', 'Найдено: {{count}}', {
-      count: total,
-    });
+    hint = totalApproximate
+      ? t('precision.difficulty.foundApprox', 'Найдено: ~{{count}}', {
+          count: total,
+        })
+      : t('precision.difficulty.found', 'Найдено: {{count}}', {
+          count: total,
+        });
   } else if (loadedCount != null && loadedCount >= 0) {
     hint = hasMore
       ? t('precision.difficulty.foundMore', 'Найдено: {{count}}+', {
