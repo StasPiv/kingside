@@ -816,6 +816,20 @@
       "missingLiveSession": "The lecture was created, but no live session was returned. Please try again."
     }
   },
+  "lectureTools": {
+    "modalTitle": "Lecture settings for students",
+    "sectionTitle": "Student tools access",
+    "tools": {
+      "engine": "Engine",
+      "book": "Database",
+      "ai_comment": "AI comment",
+      "analyze_game": "Analyze game",
+      "generate_puzzle": "Generate puzzle",
+      "find_by_position": "Find by position"
+    },
+    "saveSuccess": "Settings saved",
+    "saveError": "Failed to save settings. Please try again."
+  },
   "liveAnalysisViewer": {
     "defaultTitle": "Live analysis",
     "byOwner": "by",

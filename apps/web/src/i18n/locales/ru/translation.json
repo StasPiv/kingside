@@ -826,6 +826,20 @@
       "missingLiveSession": "Лекция создана, но сессия трансляции не получена. Попробуйте ещё раз."
     }
   },
+  "lectureTools": {
+    "modalTitle": "Настройки лекции для учеников",
+    "sectionTitle": "Доступ учеников к инструментам",
+    "tools": {
+      "engine": "Движок",
+      "book": "База партий",
+      "ai_comment": "AI-комментарий",
+      "analyze_game": "Разбор партии",
+      "generate_puzzle": "Создать задачу",
+      "find_by_position": "Поиск по позиции"
+    },
+    "saveSuccess": "Настройки сохранены",
+    "saveError": "Не удалось сохранить настройки. Попробуйте ещё раз."
+  },
   "liveAnalysisViewer": {
     "defaultTitle": "Живой разбор",
     "byOwner": "автор:",
