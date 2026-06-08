@@ -13,6 +13,7 @@ import {
   LectureAudioService,
   NoChunksError,
 } from '../lecture-audio/lecture-audio.service';
+import { RedisService } from '../redis/redis.service';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1. Unit-тесты `LecturesService`.
@@ -55,6 +56,7 @@ describe('LecturesService', () => {
     isDisabled: jest.Mock;
   };
   let audioService: { finalizeRecording: jest.Mock };
+  let redis: { publish: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -122,6 +124,9 @@ describe('LecturesService', () => {
         offsetMs: 0,
       }),
     };
+    redis = {
+      publish: jest.fn().mockResolvedValue(1),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LecturesService,
@@ -130,6 +135,7 @@ describe('LecturesService', () => {
         { provide: ConfigService, useValue: config },
         { provide: LectureAudioS3Service, useValue: audioS3 },
         { provide: LectureAudioService, useValue: audioService },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
     service = module.get(LecturesService);
@@ -971,6 +977,123 @@ describe('LecturesService', () => {
       const args = prisma.lecture.update.mock.calls[0][0];
       expect(args.data.title).toBe('Новое');
       expect(args.data.disabledTools).toEqual(['ai_comment']);
+    });
+
+    // ─── KS-3901 / ADR-117 §3: Redis publish lecture-tools-changed ────
+
+    it('KS-3901: publish в Redis при live + liveAnalysisId — payload {slug, lectureId, disabledTools}', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: 'la-1',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: 'la-1',
+        disabledTools: ['engine', 'book'],
+        liveAnalysis: { id: 'la-1', slug: 'LIVESLUG01' },
+      });
+      await service.update('l-1', 'u-1', {
+        disabledTools: ['engine', 'book'],
+      });
+      expect(redis.publish).toHaveBeenCalledTimes(1);
+      const [channel, payload] = redis.publish.mock.calls[0];
+      expect(channel).toBe('lecture-tools-changed');
+      expect(JSON.parse(payload)).toEqual({
+        slug: 'LIVESLUG01',
+        lectureId: 'l-1',
+        disabledTools: ['engine', 'book'],
+      });
+    });
+
+    it('KS-3901: не публикует в Redis при scheduled (нет подписчиков в эфире)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        disabledTools: ['engine'],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { disabledTools: ['engine'] });
+      expect(redis.publish).not.toHaveBeenCalled();
+    });
+
+    it('KS-3901: не публикует в Redis при recorded', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+        disabledTools: ['ai_comment'],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { disabledTools: ['ai_comment'] });
+      expect(redis.publish).not.toHaveBeenCalled();
+    });
+
+    it('KS-3901: не публикует в Redis для live без liveAnalysisId', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: null,
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: null,
+        disabledTools: ['engine'],
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { disabledTools: ['engine'] });
+      expect(redis.publish).not.toHaveBeenCalled();
+    });
+
+    it('KS-3901: не публикует если PATCH без disabledTools (живая лекция, но поле не менялось)', async () => {
+      // Два мока findUnique: первый для гейта, второй для re-read'а
+      // в no-op-ветке (см. KS-3900 update).
+      prisma.lecture.findUnique
+        .mockResolvedValueOnce({
+          ...scheduled,
+          status: 'live',
+          liveAnalysisId: 'la-1',
+        })
+        .mockResolvedValueOnce({
+          ...scheduled,
+          status: 'live',
+          liveAnalysisId: 'la-1',
+          liveAnalysis: { id: 'la-1', slug: 'LIVESLUG03' },
+        });
+      // Только disabledTools-PATCH разрешён в live, но мы тестируем
+      // что без поля publish не идёт (пустой PATCH в live — no-op).
+      const res = await service.update('l-1', 'u-1', {});
+      expect(redis.publish).not.toHaveBeenCalled();
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
+      expect(res.id).toBe('l-1');
+    });
+
+    it('KS-3901: ошибка Redis publish не валит REST-ответ', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: 'la-1',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: 'la-1',
+        disabledTools: ['engine'],
+        liveAnalysis: { id: 'la-1', slug: 'LIVESLUG02' },
+      });
+      redis.publish.mockRejectedValueOnce(new Error('redis down'));
+      const res = await service.update('l-1', 'u-1', {
+        disabledTools: ['engine'],
+      });
+      expect(res.id).toBe('l-1');
+      expect(redis.publish).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { LectureToolsChangedEvent } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
 import { LectureAudioS3Service } from '../lecture-audio/lecture-audio-s3.service';
@@ -14,6 +15,7 @@ import {
   LectureAudioService,
   NoChunksError,
 } from '../lecture-audio/lecture-audio.service';
+import { RedisService } from '../redis/redis.service';
 import { CreateLectureDto, UpdateLectureDto } from './dto/create-lecture.dto';
 
 /**
@@ -48,12 +50,24 @@ type LectureLiveBinding = { id: string; slug: string; url: string } | null;
 export class LecturesService {
   private readonly logger = new Logger(LecturesService.name);
 
+  /**
+   * KS-3901 / ADR-117 §3. Имя Redis-канала для уведомления
+   * WebSocket-шлюза об изменении `disabledTools` идущей лекции.
+   * Подписчик — `LiveAnalysisGateway` (A05, KS-3902), который
+   * транслирует событие подписанным сокетам как WS-событие
+   * `live-analysis:lecture-tools`. Имя канала не путать с WS-именем:
+   * REST-сервер общается со шлюзом через служебный pub/sub,
+   * пользователи получают человекочитаемое WS-имя.
+   */
+  static readonly CHANNEL_LECTURE_TOOLS_CHANGED = 'lecture-tools-changed';
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly liveAnalysisService: LiveAnalysisService,
     private readonly config: ConfigService,
     private readonly audioS3: LectureAudioS3Service,
     private readonly audioService: LectureAudioService,
+    private readonly redis: RedisService,
   ) {}
 
   /**
@@ -574,7 +588,62 @@ export class LecturesService {
         ` fields=${Object.keys(data).join(',') || '-'}` +
         ` status=${lecture.status}`,
     );
+
+    // KS-3901 / ADR-117 §3. Уведомить WebSocket-шлюз об изменении
+    // `disabledTools`, если:
+    //   - в payload было поле `disabledTools` (иначе значение не
+    //     менялось);
+    //   - лекция в статусе `live` (вне эфира подписчиков нет);
+    //   - есть привязка к LiveAnalysis (slug — ключ комнаты в gateway).
+    // Это покрывает требование «publish при live + привязка»; для
+    // scheduled/recorded/cancelled или для лекций без `liveAnalysisId`
+    // тихо пропускаем.
+    if (
+      dto.disabledTools !== undefined &&
+      updated.status === 'live' &&
+      updated.liveAnalysisId !== null &&
+      updated.liveAnalysis?.slug
+    ) {
+      await this.publishLectureToolsChanged({
+        slug: updated.liveAnalysis.slug,
+        lectureId: updated.id,
+        disabledTools: updated.disabledTools as LectureToolsChangedEvent['disabledTools'],
+      });
+    }
+
     return this.withLiveAnalysisBinding(updated);
+  }
+
+  /**
+   * KS-3901 / ADR-117 §3. Опубликовать событие об изменении
+   * `disabledTools` в Redis-канал `lecture-tools-changed`. Slug —
+   * ключ комнаты подписчиков live-сессии в `LiveAnalysisGateway`
+   * (см. KS-3902 A05).
+   *
+   * Ошибки публикации (Redis недоступен) логируются и проглатываются —
+   * REST-ответ клиенту не должен валиться из-за временной потери pub/sub.
+   * Тренер увидит обновлённое значение в HTTP-ответе; ученики не
+   * получат push, но при следующем `re-subscribe` подхватят актуальное
+   * значение из snapshot'а (`lectureDisabledTools` в `LiveAnalysisSyncSnapshot`,
+   * KS-3896 D01).
+   */
+  private async publishLectureToolsChanged(
+    payload: LectureToolsChangedEvent,
+  ): Promise<void> {
+    try {
+      await this.redis.publish(
+        LecturesService.CHANNEL_LECTURE_TOOLS_CHANGED,
+        JSON.stringify(payload),
+      );
+      this.logger.log(
+        `publish lecture-tools-changed: lecture=${payload.lectureId}` +
+          ` slug=${payload.slug} tools=[${payload.disabledTools.join(',')}]`,
+      );
+    } catch (e) {
+      this.logger.warn(
+        `publish lecture-tools-changed failed lecture=${payload.lectureId}: ${(e as Error).message}`,
+      );
+    }
   }
 
   /**
