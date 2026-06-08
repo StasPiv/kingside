@@ -1,4 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -89,6 +95,54 @@ export class LecturesAccessService {
           : { allowed: false, reason: 'not_in_allowlist' };
       }
     }
+  }
+
+  /**
+   * KS-3932 / ADR-118 §2.4.1. Обёртка для REST-эндпоинтов: подгрузить
+   * минимальные поля лекции, проверить доступ и бросить нужный
+   * HttpException при denied. Возвращает прочитанную «лёгкую» запись —
+   * вызывающий может переиспользовать `id` без повторного select'а.
+   *
+   * Контракт ошибок:
+   *   - лекция не найдена → 404 `NotFoundException` (стандарт Nest,
+   *     контроллер сам форматирует тело);
+   *   - `auth_required` → 401 `{ error: 'auth_required' }`;
+   *   - `not_in_allowlist` → 403 `{ error: 'lecture_access_revoked' }`.
+   *
+   * Используется в `LecturesController.getById` и `.getRecording`
+   * после `OptionalJwtGuard`. Тот же метод подойдёт для будущих
+   * REST-эндпоинтов, которым нужна та же проверка (resolve-аудио и
+   * т.п.).
+   */
+  async assertAccess(
+    lectureId: string,
+    viewerUserId: string | null,
+  ): Promise<LectureForAccessCheck> {
+    const lecture = await this.prisma.lecture.findUnique({
+      where: { id: lectureId },
+      select: { id: true, ownerId: true, visibility: true },
+    });
+    if (!lecture) {
+      throw new NotFoundException(`Lecture "${lectureId}" not found`);
+    }
+    const result = await this.resolveLectureAccess(
+      lecture as LectureForAccessCheck,
+      viewerUserId,
+    );
+    if (result.allowed) {
+      return lecture as LectureForAccessCheck;
+    }
+    if (result.reason === 'auth_required') {
+      throw new HttpException(
+        { error: 'auth_required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    // result.reason === 'not_in_allowlist'
+    throw new HttpException(
+      { error: 'lecture_access_revoked' },
+      HttpStatus.FORBIDDEN,
+    );
   }
 
   /**

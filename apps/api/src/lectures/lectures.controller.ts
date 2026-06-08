@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   CreateLectureDto,
@@ -22,6 +23,7 @@ import {
   UpdateLectureDto,
 } from './dto/create-lecture.dto';
 import { LecturesService } from './lectures.service';
+import { LecturesAccessService } from './lectures-access.service';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1: REST-эндпоинты лекций.
@@ -36,7 +38,10 @@ import { LecturesService } from './lectures.service';
  */
 @Controller()
 export class LecturesController {
-  constructor(private readonly service: LecturesService) {}
+  constructor(
+    private readonly service: LecturesService,
+    private readonly access: LecturesAccessService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Post('lectures')
@@ -107,8 +112,21 @@ export class LecturesController {
     return this.service.forceEnd(id, req.user.id);
   }
 
+  /**
+   * KS-3932 / ADR-118 §2.4.1. Опциональный JWT + резолвер доступа.
+   * Поведение:
+   *   - `public` / `unlisted` → отдаём как и раньше;
+   *   - `restricted` без JWT → 401 `{ error: 'auth_required' }`;
+   *   - `restricted` без grant'а → 403 `{ error: 'lecture_access_revoked' }`;
+   *   - owner всегда видит свою лекцию (даже restricted).
+   */
+  @UseGuards(OptionalJwtGuard)
   @Get('lectures/:id')
-  getById(@Param('id', ParseUUIDPipe) id: string) {
+  async getById(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    await this.access.assertAccess(id, req.user?.id ?? null);
     return this.service.getById(id);
   }
 
@@ -117,10 +135,20 @@ export class LecturesController {
    * Cache-Control immutable безопасен: запись по id не перезаписывается,
    * `LectureRecording.id` — UUID, агрессивное кеширование CDN/браузера
    * не приведёт к рассинхронизации.
+   *
+   * KS-3932 / ADR-118 §2.4.1: тот же контракт 401/403, что и getById.
+   * Доступ проверяется ДО возврата записи; при denied никаких заголовков
+   * Cache-Control в ответе нет (Nest сериализует HttpException без них),
+   * так что 401/403 не попадает в CDN-кеш.
    */
+  @UseGuards(OptionalJwtGuard)
   @Get('lectures/:id/recording')
   @Header('Cache-Control', 'public, max-age=31536000, immutable')
-  getRecording(@Param('id', ParseUUIDPipe) id: string) {
+  async getRecording(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    await this.access.assertAccess(id, req.user?.id ?? null);
     return this.service.getRecordingByLectureId(id);
   }
 
