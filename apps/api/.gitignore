@@ -3,3 +3,10 @@ node_modules
 .env
 
 /src/generated/prisma
+
+# KS-3709: запечённые board-recognition модели скачивает deploy-скрипт
+# devops в .bake-cache/ перед docker build. Сами .onnx-файлы в git не
+# нужны, но каталог должен существовать (для `COPY apps/api/.bake-cache/`
+# в Dockerfile) — храним только .keep.
+.bake-cache/*
+!.bake-cache/.keep
