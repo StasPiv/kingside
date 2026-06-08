@@ -25,10 +25,11 @@ import { UserSearchInline } from '../users/UserSearchInline';
  * списком (с `errorCode` для специфических сообщений вида
  * `course_access_not_supported`).
  *
- * Layout (KS-3982) позже превратит панель в bottom-sheet на mobile;
- * сейчас разметка осознанно flow-я с inline-стилями, чтобы не
- * блокировать прогресс эпика. Все ключевые элементы помечены
- * `data-testid`.
+ * KS-3982: встроенные стили заменены на CSS-классы из
+ * `apps/web/src/styles/lecture.css`. Сама панель — оформление
+ * содержимого; оболочка (выдвижной лист на mobile / центральная
+ * модалка на desktop) реализуется через классы `.lecture-modal*`
+ * в `LectureSettingsModal` (C05) и `CreateLectureModal`.
  */
 
 const VISIBILITY_OPTIONS: ReadonlyArray<{
@@ -127,28 +128,24 @@ export function LectureAccessPanel({
     >
       <fieldset
         disabled={disabled}
-        style={{ border: 'none', padding: 0, margin: 0 }}
+        className="lecture-access-panel__visibility"
         data-testid="lecture-access-visibility-group"
       >
-        <legend style={{ fontWeight: 600, marginBottom: 8 }}>
+        <legend className="lecture-access-panel__legend">
           {t('lectureAccess.heading', 'Who can see this lecture')}
         </legend>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="lecture-access-panel__visibility-list">
           {VISIBILITY_OPTIONS.map((opt) => {
             const id = `${radioGroupId}-${opt.value}`;
+            const isActive = visibility === opt.value;
             return (
               <label
                 key={opt.value}
                 htmlFor={id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                  cursor: disabled ? 'not-allowed' : 'pointer',
-                  padding: 8,
-                  borderRadius: 6,
-                  background: visibility === opt.value ? '#f0f4ff' : 'transparent',
-                }}
+                className={
+                  'lecture-access-panel__option' +
+                  (isActive ? ' lecture-access-panel__option--active' : '')
+                }
                 data-testid={`lecture-access-visibility-${opt.value}`}
               >
                 <input
@@ -156,16 +153,16 @@ export function LectureAccessPanel({
                   type="radio"
                   name={radioGroupId}
                   value={opt.value}
-                  checked={visibility === opt.value}
+                  checked={isActive}
                   onChange={() => onVisibilityChange(opt.value)}
                   disabled={disabled}
-                  style={{ marginTop: 3 }}
+                  className="lecture-access-panel__option-radio"
                 />
-                <span style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 500 }}>
+                <span className="lecture-access-panel__option-text">
+                  <span className="lecture-access-panel__option-title">
                     {t(opt.labelKey, opt.fallback)}
                   </span>
-                  <span style={{ fontSize: 12, opacity: 0.75 }}>
+                  <span className="lecture-access-panel__option-hint">
                     {t(opt.hintKey, opt.hintFallback)}
                   </span>
                 </span>
@@ -179,11 +176,11 @@ export function LectureAccessPanel({
         <section
           aria-labelledby={`${radioGroupId}-allowlist`}
           data-testid="lecture-access-allowlist"
-          style={{ marginTop: 16 }}
+          className="lecture-access-panel__allowlist"
         >
           <h3
             id={`${radioGroupId}-allowlist`}
-            style={{ margin: '0 0 8px', fontSize: 14 }}
+            className="lecture-access-panel__allowlist-heading"
           >
             {t('lectureAccess.allowlist.heading', 'Who has access')}
           </h3>
@@ -197,103 +194,77 @@ export function LectureAccessPanel({
           />
 
           {grantsLoading && (
-            <div
+            <p
               data-testid="lecture-access-loading"
-              style={{ opacity: 0.7, fontSize: 13, marginTop: 8 }}
+              className="lecture-access-panel__state"
             >
               {t('common.loading', 'Loading…')}
-            </div>
+            </p>
           )}
           {grantsError === 'forbidden' && !grantsLoading && (
-            <div
-              className="error"
+            <p
               data-testid="lecture-access-forbidden"
-              style={{ marginTop: 8 }}
+              className="lecture-access-panel__state lecture-access-panel__state--error"
             >
               {t(
                 'lectureAccess.allowlist.forbidden',
                 'Only the lecture owner can manage access.',
               )}
-            </div>
+            </p>
           )}
           {grantsError === 'load-failed' && !grantsLoading && (
-            <div
-              className="error"
+            <p
               data-testid="lecture-access-load-failed"
-              style={{ marginTop: 8 }}
+              className="lecture-access-panel__state lecture-access-panel__state--error"
             >
               {t(
                 'lectureAccess.allowlist.loadFailed',
                 'Failed to load access list. Please retry.',
               )}
-            </div>
+            </p>
           )}
 
           {!grantsLoading && !grantsError && grants.length === 0 && (
-            <div
+            <p
               data-testid="lecture-access-empty"
-              style={{ opacity: 0.7, fontSize: 13, marginTop: 8 }}
+              className="lecture-access-panel__state"
             >
               {t(
                 'lectureAccess.allowlist.empty',
                 'No one is on the list yet. Search above to add a user.',
               )}
-            </div>
+            </p>
           )}
 
           {!grantsLoading && !grantsError && grants.length > 0 && (
             <ul
               data-testid="lecture-access-chips"
-              style={{
-                listStyle: 'none',
-                padding: 0,
-                margin: '12px 0 0',
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 8,
-              }}
+              className="lecture-access-panel__chips"
             >
               {grants.map((g) => (
                 <li
                   key={g.grant.id}
                   data-testid={`lecture-access-chip-${g.grant.id}`}
                   data-subject={g.grant.subjectId}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '4px 10px',
-                    borderRadius: 999,
-                    background: '#eef0f3',
-                    fontSize: 13,
-                  }}
+                  className="lecture-access-panel__chip"
                 >
                   {g.user.avatarUrl ? (
                     <img
                       src={g.user.avatarUrl}
                       alt=""
-                      width={20}
-                      height={20}
-                      style={{ borderRadius: '50%', objectFit: 'cover' }}
+                      className="lecture-access-panel__chip-avatar"
                     />
                   ) : (
                     <span
                       aria-hidden="true"
-                      style={{
-                        width: 20,
-                        height: 20,
-                        borderRadius: '50%',
-                        background: '#ccd1d9',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 10,
-                      }}
+                      className="lecture-access-panel__chip-avatar-fallback"
                     >
                       {g.user.username.slice(0, 1).toUpperCase()}
                     </span>
                   )}
-                  <span>{g.user.displayName}</span>
+                  <span className="lecture-access-panel__chip-name">
+                    {g.user.displayName}
+                  </span>
                   <button
                     type="button"
                     aria-label={t(
@@ -306,14 +277,7 @@ export function LectureAccessPanel({
                       void revokeGrant(g.grant.id);
                     }}
                     data-testid={`lecture-access-remove-${g.grant.id}`}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: disabled ? 'not-allowed' : 'pointer',
-                      padding: 0,
-                      fontSize: 14,
-                      lineHeight: 1,
-                    }}
+                    className="lecture-access-panel__chip-remove"
                   >
                     ×
                   </button>
@@ -323,11 +287,10 @@ export function LectureAccessPanel({
           )}
 
           {lastMutationError && (
-            <div
-              className="error"
+            <p
               data-testid="lecture-access-mutation-error"
               data-error-code={lastMutationError.errorCode ?? ''}
-              style={{ marginTop: 8 }}
+              className="lecture-access-panel__state lecture-access-panel__state--error"
             >
               {lastMutationError.errorCode === 'course_access_not_supported'
                 ? t(
@@ -335,7 +298,7 @@ export function LectureAccessPanel({
                     'Course-based access is not supported yet.',
                   )
                 : lastMutationError.message}
-            </div>
+            </p>
           )}
         </section>
       )}

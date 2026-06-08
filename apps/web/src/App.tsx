@@ -11,6 +11,8 @@ import LectureStatusBadgesPreviewPage from './pages/dev/LectureStatusBadgesPrevi
 import LectureLandingPreviewPage from './pages/dev/LectureLandingPreviewPage';
 // KS-3980 dev-only: песочница для приёмочных скриншотов MyLecturesPage.
 import MyLecturesPreviewPage from './pages/dev/MyLecturesPreviewPage';
+// KS-3982 dev-only: песочница для приёмочных скриншотов LectureAccessPanel + оболочки.
+import LectureAccessPreviewPage from './pages/dev/LectureAccessPreviewPage';
 import { FeaturesPage } from './pages/FeaturesPage';
 import { DocsUserCoursesPage } from './pages/DocsUserCoursesPage';
 import { DiscoverCoursesPage } from './pages/DiscoverCoursesPage';
@@ -453,6 +455,8 @@ export function App() {
         <Route path="/__dev/lecture-landing" element={<LectureLandingPreviewPage />} />
         {/* KS-3980 dev-only песочница MyLecturesPage. */}
         <Route path="/__dev/my-lectures" element={<MyLecturesPreviewPage />} />
+        {/* KS-3982 dev-only песочница LectureAccessPanel + оболочки модалки/листа. */}
+        <Route path="/__dev/lecture-access" element={<LectureAccessPreviewPage />} />
         <Route path="/features" element={<FeaturesPage />} />
         {/* KS-1895: публичная документация — без ProtectedRoute */}
         <Route path="/docs/user-courses" element={<DocsUserCoursesPage />} />
