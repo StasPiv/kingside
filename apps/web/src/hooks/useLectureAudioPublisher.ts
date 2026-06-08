@@ -594,11 +594,41 @@ export function useLectureAudioPublisher({
       return;
     }
     if (recorder.state !== 'inactive') {
-      try {
-        recorder.stop();
-      } catch {
-        /* ignore */
-      }
+      // KS-3927 follow-up. Раньше сразу после `recorder.stop()`
+      // вызывался `teardown()`, который останавливает все треки
+      // `MediaStream`. По спецификации `recorder.stop()` шлёт
+      // финальный `ondataavailable` (с остатком записи < 5 секунд)
+      // и затем `onstop`; оба колбэка асинхронны. Если поток успеет
+      // остановиться раньше, чем кодировщик допишет финальный
+      // фрагмент, последний кусок аудио теряется — пользователь
+      // в `track.ogg` слышит, что запись обрывается раньше, чем
+      // тренер реально закончил. Ждём `onstop`, и только потом
+      // делаем `teardown`.
+      await new Promise<void>((resolve) => {
+        const originalOnStop = recorder.onstop;
+        const finish = (ev: Event) => {
+          if (typeof originalOnStop === 'function') {
+            try {
+              originalOnStop.call(recorder, ev);
+            } catch {
+              /* defensive */
+            }
+          }
+          recorder.onstop = originalOnStop;
+          resolve();
+        };
+        recorder.onstop = finish as MediaRecorder['onstop'];
+        try {
+          recorder.stop();
+        } catch {
+          // Если `stop()` бросил (например, recorder уже inactive
+          // на момент гонки), `onstop` может никогда не прийти —
+          // снимаем обработчик и продолжаем teardown, чтобы не
+          // зависнуть.
+          recorder.onstop = originalOnStop;
+          resolve();
+        }
+      });
     }
     setRecorderEndedAtClient(endedClient);
     teardown();
