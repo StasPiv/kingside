@@ -362,6 +362,8 @@ export class LiveAnalysisService implements OnModuleInit {
 
     const state = await this.readRedisState(row.id);
     const viewerCount = await this.readViewerCount(row.id);
+    const lectureDisabledTools =
+      await this.loadLiveLectureDisabledToolsForResponse(row.id);
     return this.toResponse(row, publicBaseUrl, {
       currentFen:
         state?.currentFen ??
@@ -371,6 +373,7 @@ export class LiveAnalysisService implements OnModuleInit {
       orientation: state?.orientation ?? 'white',
       viewerCount,
       currentPgn: state?.currentPgn,
+      lectureDisabledTools,
     });
   }
 
@@ -395,6 +398,8 @@ export class LiveAnalysisService implements OnModuleInit {
 
     const state = await this.readRedisState(found.id);
     const viewerCount = await this.readViewerCount(found.id);
+    const lectureDisabledTools =
+      await this.loadLiveLectureDisabledToolsForResponse(found.id);
 
     return this.toResponse(found, publicBaseUrl, {
       currentFen: state?.currentFen ?? found.startingFen ?? LiveAnalysisService.INITIAL_FEN,
@@ -406,6 +411,7 @@ export class LiveAnalysisService implements OnModuleInit {
       // KS-3775: headers больше не дублируем — фронт извлекает их
       // из самого PGN.
       currentPgn: state?.currentPgn,
+      lectureDisabledTools,
     });
   }
 
@@ -1584,6 +1590,15 @@ export class LiveAnalysisService implements OnModuleInit {
       /** KS-3743 / ADR-111: опц., если автор уже присылал state-patch. */
       currentPgn?: string;
       headers?: Record<string, string>;
+      /**
+       * KS-3903 / ADR-117 §2. Снапшот политики отключения инструментов
+       * у привязанной live-лекции. Передаётся вызывающим методом —
+       * `getBySlug`, `findActiveByAnalysisId` через
+       * `loadLiveLectureDisabledToolsForResponse`. По контракту KS-3903:
+       * undefined и для отсутствующей привязки, и для пустого массива
+       * (фронт читает «нет ограничений» по undefined одинаково).
+       */
+      lectureDisabledTools?: string[];
     },
   ): LiveAnalysisResponse {
     return {
@@ -1605,7 +1620,38 @@ export class LiveAnalysisService implements OnModuleInit {
       analysisId: row.analysisId,
       ...(extras.currentPgn !== undefined && { currentPgn: extras.currentPgn }),
       ...(extras.headers !== undefined && { headers: extras.headers }),
+      // KS-3903 / ADR-117 §2.
+      ...(extras.lectureDisabledTools !== undefined && {
+        lectureDisabledTools:
+          extras.lectureDisabledTools as LiveAnalysisResponse['lectureDisabledTools'],
+      }),
     };
+  }
+
+  /**
+   * KS-3903 / ADR-117 §2. Загрузить `disabledTools` привязанной к
+   * этой live-сессии лекции для `LiveAnalysisResponse`. Контракт:
+   *
+   *   - Лекция должна быть в статусе `live` (других подписчиков на
+   *     политику инструментов нет: для scheduled/recorded/cancelled
+   *     зрителей в эфире нет).
+   *   - Возвращаем `undefined`, если привязки нет ИЛИ массив пустой.
+   *     Это отличается от `getSyncSnapshot` (KS-3902), где `[]`
+   *     подмешивается — там snapshot строится для активной WS-сессии,
+   *     `[]` ≡ «явно ничего не отключено». В REST-Response
+   *     `undefined` и `[]` для фронта эквивалентны, поэтому скрываем
+   *     лишнюю информацию (см. описание задачи KS-3903).
+   */
+  private async loadLiveLectureDisabledToolsForResponse(
+    liveAnalysisId: string,
+  ): Promise<string[] | undefined> {
+    const lecture = await this.prisma.lecture.findFirst({
+      where: { liveAnalysisId, status: 'live' },
+      select: { disabledTools: true },
+    });
+    if (!lecture) return undefined;
+    if (lecture.disabledTools.length === 0) return undefined;
+    return lecture.disabledTools;
   }
 
   // Redis key naming — `live_analysis:<id>:<suffix>`, см. ADR §2.1.

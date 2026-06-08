@@ -691,6 +691,35 @@ describe('LecturesService', () => {
       expect(r.visibility).toBe('unlisted');
     });
 
+    it('KS-3903: disabledTools проходит в LectureDetail из Prisma findUnique', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-tools',
+        visibility: 'public',
+        status: 'live',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        disabledTools: ['engine', 'book'],
+      });
+      const r = await service.getById('l-tools');
+      expect((r as { disabledTools: string[] }).disabledTools).toEqual([
+        'engine',
+        'book',
+      ]);
+    });
+
+    it('KS-3903: пустой disabledTools тоже проходит как []', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-tools-empty',
+        visibility: 'public',
+        status: 'scheduled',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        disabledTools: [],
+      });
+      const r = await service.getById('l-tools-empty');
+      expect((r as { disabledTools: string[] }).disabledTools).toEqual([]);
+    });
+
     it('KS-3787: live-лекция отдаёт liveAnalysis с id, slug, url', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         id: 'l-2',

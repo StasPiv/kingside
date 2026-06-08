@@ -407,6 +407,138 @@ describe('LiveAnalysisService', () => {
       );
       expect(resp).toBeNull();
     });
+
+    it('KS-3903: подмешивает lectureDisabledTools при привязанной live-лекции', async () => {
+      prisma.liveAnalysis.findFirst.mockResolvedValueOnce({
+        id: 'la-99',
+        slug: 'ACTIVE0001',
+        ownerId: 'u-1',
+        title: 'Live',
+        startingFen: null,
+        status: 'active',
+        createdAt: new Date(),
+        closedAt: null,
+        analysisId: 'a-1',
+        owner: { username: 'alice' },
+      });
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        disabledTools: ['engine', 'ai_comment'],
+      });
+      const resp = await service.findActiveByAnalysisId(
+        'u-1',
+        'a-1',
+        'https://k.s',
+      );
+      expect(resp!.lectureDisabledTools).toEqual(['engine', 'ai_comment']);
+      // findFirst идёт по liveAnalysisId + status='live'.
+      const args = prisma.lecture.findFirst.mock.calls.find((c) =>
+        (c[0] as { where?: { liveAnalysisId?: string } }).where?.liveAnalysisId === 'la-99',
+      );
+      expect(args).toBeDefined();
+      expect((args![0] as { where: { status: string } }).where.status).toBe(
+        'live',
+      );
+    });
+
+    it('KS-3903: без привязки → поле lectureDisabledTools отсутствует', async () => {
+      prisma.liveAnalysis.findFirst.mockResolvedValueOnce({
+        id: 'la-100',
+        slug: 'ACTIVE0002',
+        ownerId: 'u-1',
+        title: null,
+        startingFen: null,
+        status: 'active',
+        createdAt: new Date(),
+        closedAt: null,
+        analysisId: 'a-1',
+        owner: { username: 'alice' },
+      });
+      // По дефолту prisma.lecture.findFirst → null.
+      const resp = await service.findActiveByAnalysisId(
+        'u-1',
+        'a-1',
+        'https://k.s',
+      );
+      expect(resp!.lectureDisabledTools).toBeUndefined();
+    });
+
+    it('KS-3903: привязка есть, но disabledTools=[] → поле скрыто', async () => {
+      prisma.liveAnalysis.findFirst.mockResolvedValueOnce({
+        id: 'la-101',
+        slug: 'ACTIVE0003',
+        ownerId: 'u-1',
+        title: null,
+        startingFen: null,
+        status: 'active',
+        createdAt: new Date(),
+        closedAt: null,
+        analysisId: 'a-1',
+        owner: { username: 'alice' },
+      });
+      prisma.lecture.findFirst.mockResolvedValueOnce({ disabledTools: [] });
+      const resp = await service.findActiveByAnalysisId(
+        'u-1',
+        'a-1',
+        'https://k.s',
+      );
+      expect(resp!.lectureDisabledTools).toBeUndefined();
+    });
+  });
+
+  // ─── KS-3903 / ADR-117 §2: getBySlug подмешивает lectureDisabledTools ───
+
+  describe('getBySlug (KS-3903 lectureDisabledTools)', () => {
+    function baseRow() {
+      return {
+        id: 'la-1',
+        slug: 'GETSLUG001',
+        ownerId: 'u-1',
+        title: null,
+        startingFen: null,
+        status: 'active' as const,
+        createdAt: new Date(),
+        closedAt: null,
+        analysisId: null,
+        owner: { username: 'alice' },
+      };
+    }
+
+    it('без привязанной лекции → поле lectureDisabledTools отсутствует', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce(baseRow());
+      const resp = await service.getBySlug('GETSLUG001', 'https://k.s');
+      expect(resp.lectureDisabledTools).toBeUndefined();
+    });
+
+    it('привязанная live-лекция с непустым disabledTools → массив в Response', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce(baseRow());
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        disabledTools: ['engine', 'book'],
+      });
+      const resp = await service.getBySlug('GETSLUG001', 'https://k.s');
+      expect(resp.lectureDisabledTools).toEqual(['engine', 'book']);
+    });
+
+    it('привязанная лекция, но disabledTools=[] → поле скрыто', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce(baseRow());
+      prisma.lecture.findFirst.mockResolvedValueOnce({ disabledTools: [] });
+      const resp = await service.getBySlug('GETSLUG001', 'https://k.s');
+      expect(resp.lectureDisabledTools).toBeUndefined();
+    });
+
+    it('findFirst идёт по liveAnalysisId + status=live (фильтрация по эфиру)', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValueOnce(baseRow());
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        disabledTools: ['engine'],
+      });
+      await service.getBySlug('GETSLUG001', 'https://k.s');
+      const call = prisma.lecture.findFirst.mock.calls.find((c) =>
+        (c[0] as { where?: { liveAnalysisId?: string } }).where?.liveAnalysisId === 'la-1',
+      );
+      expect(call).toBeDefined();
+      expect((call![0] as { where: { status: string } }).where.status).toBe(
+        'live',
+      );
+    });
   });
 
   // ─── applyMove (KS-3780+: ретранслятор, без chess.js валидации) ───
