@@ -457,9 +457,11 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(browseCalls()).toHaveLength(2);
   });
 
-  // === KS-3894: параллельные /browse + /browse/count?approx + /browse/count
+  // === KS-3894 / KS-3920: параллельные /browse + /browse/count
+  // После KS-3919 точного COUNT больше нет — один запрос на счётчик,
+  // всегда `approximate: true`.
 
-  it('KS-3894: при инициализации стартуют 3 параллельных запроса (browse + approx-count + exact-count)', async () => {
+  it('KS-3920: при инициализации стартуют 2 параллельных запроса (browse + browse/count)', async () => {
     apiGet.mockResolvedValueOnce({
       data: [PUZZLE_A],
       nextCursor: 'cur1',
@@ -469,24 +471,18 @@ describe('useInfinitePuzzles KS-2561', () => {
       useInfinitePuzzles({ source: 'lichess', hideSolved: true, limit: 30 }),
     );
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    // Должны быть три URL'а.
     const calls = apiGet.mock.calls.map((c) => c[0] as string);
+    // /browse
     expect(calls.some((u) => u.startsWith('/puzzles/browse?'))).toBe(true);
-    expect(
-      calls.some(
-        (u) =>
-          u.startsWith('/puzzles/browse/count?') && u.includes('approx=true'),
-      ),
-    ).toBe(true);
-    expect(
-      calls.some(
-        (u) =>
-          u.startsWith('/puzzles/browse/count?') && !u.includes('approx='),
-      ),
-    ).toBe(true);
+    // /browse/count — один, БЕЗ параметра approx (он удалён в KS-3919).
+    const countUrls = calls.filter((u) =>
+      u.startsWith('/puzzles/browse/count'),
+    );
+    expect(countUrls.length).toBe(1);
+    expect(countUrls[0]).not.toMatch(/approx/);
   });
 
-  it('KS-3894: фильтры пробрасываются в count-запросы (без limit/cursor)', async () => {
+  it('KS-3920: фильтры пробрасываются в count-запрос (без limit/cursor)', async () => {
     apiGet.mockResolvedValueOnce({ data: [], nextCursor: null, total: null });
     renderHook(() =>
       useInfinitePuzzles({
@@ -498,31 +494,27 @@ describe('useInfinitePuzzles KS-2561', () => {
       }),
     );
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    const countApproxUrl = (apiGet.mock.calls.find(
+    const countUrl = (apiGet.mock.calls.find(
       (c) =>
         typeof c[0] === 'string' &&
-        (c[0] as string).startsWith('/puzzles/browse/count') &&
-        (c[0] as string).includes('approx=true'),
+        (c[0] as string).startsWith('/puzzles/browse/count'),
     )?.[0] as string) ?? '';
-    expect(countApproxUrl).toMatch(/ratingMin=1200/);
-    expect(countApproxUrl).toMatch(/themes=mateIn1/);
-    expect(countApproxUrl).toMatch(/hideSolved=true/);
-    expect(countApproxUrl).toMatch(/source=lichess/);
-    // Никакого limit/cursor в /count.
-    expect(countApproxUrl).not.toMatch(/limit=/);
-    expect(countApproxUrl).not.toMatch(/cursor=/);
+    expect(countUrl).toMatch(/ratingMin=1200/);
+    expect(countUrl).toMatch(/themes=mateIn1/);
+    expect(countUrl).toMatch(/hideSolved=true/);
+    expect(countUrl).toMatch(/source=lichess/);
+    expect(countUrl).not.toMatch(/limit=/);
+    expect(countUrl).not.toMatch(/cursor=/);
+    expect(countUrl).not.toMatch(/approx/);
   });
 
-  it('KS-3894: approx-count ставит total и totalApproximate=true', async () => {
-    // /browse приходит с total=null (cache miss).
+  it('KS-3920: ответ /browse/count ставит total и totalApproximate=true', async () => {
     apiGet.mockResolvedValueOnce({
       data: [PUZZLE_A],
       nextCursor: 'cur1',
       total: null,
     });
-    // /count?approx=true приходит быстро.
     apiGet.mockResolvedValueOnce({ total: 200, approximate: true });
-    // /count exact — висит (mockImplementation в beforeEach).
 
     const { result } = renderHook(() =>
       useInfinitePuzzles({ source: 'lichess', limit: 30 }),
@@ -531,84 +523,18 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(result.current.totalApproximate).toBe(true);
   });
 
-  it('KS-3894: exact-count перетирает approx и снимает флаг', async () => {
+  it('KS-3920: loadMore НЕ дёргает /browse/count, total стабилен', async () => {
     apiGet.mockResolvedValueOnce({
       data: [PUZZLE_A],
       nextCursor: 'cur1',
       total: null,
     });
     apiGet.mockResolvedValueOnce({ total: 200, approximate: true });
-    apiGet.mockResolvedValueOnce({ total: 137, approximate: false });
-
-    const { result } = renderHook(() =>
-      useInfinitePuzzles({ source: 'lichess', limit: 30 }),
-    );
-    await waitFor(() => expect(result.current.total).toBe(137));
-    expect(result.current.totalApproximate).toBe(false);
-  });
-
-  it('KS-3894: cache hit total в /browse — флаг approximate=false, approx-ответ не подменяет', async () => {
-    // /browse сразу возвращает точное число (Redis cache hit).
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: 'cur1',
-      total: 42,
-    });
-    // approx-ответ приходит позже, но НЕ должен подменить.
-    apiGet.mockResolvedValueOnce({ total: 100, approximate: true });
-    apiGet.mockResolvedValueOnce({ total: 42, approximate: false });
-
-    const { result } = renderHook(() =>
-      useInfinitePuzzles({ source: 'lichess', limit: 30 }),
-    );
-    await waitFor(() => expect(result.current.total).toBe(42));
-    // Даже после микротасков approx не должен сбить значение на 100.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(result.current.total).toBe(42);
-    expect(result.current.totalApproximate).toBe(false);
-  });
-
-  it('KS-3894: approx-ответ опоздал и пришёл после exact → НЕ подменяет точное число', async () => {
-    // /browse — total:null (cache miss).
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: 'cur1',
-      total: null,
-    });
-    // approx — отложенный (resolve вручную позже).
-    let resolveApprox: (v: unknown) => void = () => {};
-    apiGet.mockReturnValueOnce(
-      new Promise((res) => {
-        resolveApprox = res;
-      }),
-    );
-    // exact — приходит сразу.
-    apiGet.mockResolvedValueOnce({ total: 137, approximate: false });
-
-    const { result } = renderHook(() =>
-      useInfinitePuzzles({ source: 'lichess', limit: 30 }),
-    );
-    await waitFor(() => expect(result.current.total).toBe(137));
-
-    // Теперь резолвим approx — он уже опоздал.
-    act(() => resolveApprox({ total: 200, approximate: true }));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(result.current.total).toBe(137);
-    expect(result.current.totalApproximate).toBe(false);
-  });
-
-  it('KS-3894: loadMore НЕ дёргает /browse/count', async () => {
-    apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A],
-      nextCursor: 'cur1',
-      total: null,
-    });
-    apiGet.mockResolvedValueOnce({ total: 200, approximate: true });
-    apiGet.mockResolvedValueOnce({ total: 137, approximate: false });
     const { result } = renderHook(() =>
       useInfinitePuzzles({ source: 'lichess', limit: 1 }),
     );
-    await waitFor(() => expect(result.current.total).toBe(137));
+    await waitFor(() => expect(result.current.total).toBe(200));
+    expect(result.current.totalApproximate).toBe(true);
 
     const countCallsBefore = apiGet.mock.calls.filter(
       (c) =>
@@ -616,7 +542,6 @@ describe('useInfinitePuzzles KS-2561', () => {
         (c[0] as string).startsWith('/puzzles/browse/count'),
     ).length;
 
-    // loadMore → новый /browse, но НЕ /count.
     apiGet.mockResolvedValueOnce({
       data: [PUZZLE_B],
       nextCursor: null,
@@ -631,12 +556,12 @@ describe('useInfinitePuzzles KS-2561', () => {
         (c[0] as string).startsWith('/puzzles/browse/count'),
     ).length;
     expect(countCallsAfter).toBe(countCallsBefore);
-    // total стабилен на 137 (KS-3892).
-    expect(result.current.total).toBe(137);
-    expect(result.current.totalApproximate).toBe(false);
+    // total стабилен (KS-3892 паттерн).
+    expect(result.current.total).toBe(200);
+    expect(result.current.totalApproximate).toBe(true);
   });
 
-  it('KS-3894: смена фильтров отменяет inflight через AbortController', async () => {
+  it('KS-3920: смена фильтров отменяет inflight через AbortController', async () => {
     apiGet.mockResolvedValueOnce({ data: [], nextCursor: null, total: null });
     const { rerender } = renderHook(
       ({ filters }: { filters: Parameters<typeof useInfinitePuzzles>[0] }) =>

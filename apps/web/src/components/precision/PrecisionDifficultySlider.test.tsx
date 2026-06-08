@@ -217,7 +217,7 @@ describe('<PrecisionDifficultySlider /> — подсказка "Найдено"'
     ).toBeNull();
   });
 
-  it('KS-3672: total задан → "Найдено: N" без плюса (точное число)', () => {
+  it('KS-3920: total задан → "Найдено: ~N" с префиксом «~» (после удаления точного COUNT всегда приблизительно)', () => {
     renderWithProviders(
       <PrecisionDifficultySlider
         loadedCount={20}
@@ -227,16 +227,18 @@ describe('<PrecisionDifficultySlider /> — подсказка "Найдено"'
     );
     const hint = screen.getByTestId('precision-difficulty-filter-hint');
     expect(hint.textContent).toContain('137');
+    expect(hint.textContent).toContain('~');
     expect(hint.textContent).not.toContain('+');
     expect(hint.textContent).not.toContain('20');
   });
 
-  it('KS-3672: total=0 → "Найдено: 0"', () => {
+  it('KS-3920: total=0 → "Найдено: ~0"', () => {
     renderWithProviders(
       <PrecisionDifficultySlider loadedCount={0} hasMore={false} total={0} />,
     );
     const hint = screen.getByTestId('precision-difficulty-filter-hint');
     expect(hint.textContent).toContain('0');
+    expect(hint.textContent).toContain('~');
     expect(hint.textContent).not.toContain('+');
   });
 
@@ -251,6 +253,7 @@ describe('<PrecisionDifficultySlider /> — подсказка "Найдено"'
     const hint = screen.getByTestId('precision-difficulty-filter-hint');
     expect(hint.textContent).toContain('20');
     expect(hint.textContent).toContain('+');
+    expect(hint.textContent).not.toContain('~');
   });
 
   it('KS-3672: total=undefined → fallback на loadedCount + hasMore', () => {
@@ -260,9 +263,10 @@ describe('<PrecisionDifficultySlider /> — подсказка "Найдено"'
     const hint = screen.getByTestId('precision-difficulty-filter-hint');
     expect(hint.textContent).toContain('20');
     expect(hint.textContent).not.toContain('+');
+    expect(hint.textContent).not.toContain('~');
   });
 
-  it('KS-3894: total + totalApproximate=true → "Найдено: ~N" с префиксом «~»', () => {
+  it('KS-3920: total + totalApproximate=true → "Найдено: ~N" (поведение совпадает с дефолтом)', () => {
     renderWithProviders(
       <PrecisionDifficultySlider total={200} totalApproximate={true} />,
     );
@@ -272,21 +276,24 @@ describe('<PrecisionDifficultySlider /> — подсказка "Найдено"'
     expect(hint.textContent).not.toContain('+');
   });
 
-  it('KS-3894: total + totalApproximate=false → "Найдено: N" без «~»', () => {
+  it('KS-3920: totalApproximate=false игнорируется — подпись всегда «~N» при заданном total', () => {
+    // После KS-3919 точного COUNT нет; даже если caller передаст
+    // totalApproximate=false (наследие старого backend'а), UI
+    // показывает приблизительное обозначение.
     renderWithProviders(
       <PrecisionDifficultySlider total={137} totalApproximate={false} />,
     );
     const hint = screen.getByTestId('precision-difficulty-filter-hint');
     expect(hint.textContent).toContain('137');
-    expect(hint.textContent).not.toContain('~');
+    expect(hint.textContent).toContain('~');
     expect(hint.textContent).not.toContain('+');
   });
 
-  it('KS-3894: total + totalApproximate undefined → ведёт себя как exact', () => {
+  it('KS-3920: totalApproximate undefined → «~N»', () => {
     renderWithProviders(<PrecisionDifficultySlider total={42} />);
     const hint = screen.getByTestId('precision-difficulty-filter-hint');
     expect(hint.textContent).toContain('42');
-    expect(hint.textContent).not.toContain('~');
+    expect(hint.textContent).toContain('~');
   });
 });
 

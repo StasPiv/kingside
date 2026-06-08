@@ -87,7 +87,10 @@ export function PrecisionDifficultySlider({
   loadedCount,
   hasMore,
   total,
-  totalApproximate,
+  // KS-3920: после удаления точного COUNT свойство больше не влияет
+  // на подпись (подпись всегда «~N» при заданном total). Оставлено
+  // в API для прямой совместимости со старыми caller'ами.
+  totalApproximate: _totalApproximate,
 }: PrecisionDifficultySliderProps) {
   const { t } = useTranslation();
   const isControlled = controlledValue !== undefined;
@@ -132,21 +135,21 @@ export function PrecisionDifficultySlider({
   const minPercent = Math.round(value.min * 100);
   const maxPercent = Math.round(value.max * 100);
 
-  // KS-3672: приоритет — total из backend'а; fallback на
+  // KS-3672 / KS-3920: приоритет — total из backend'а; fallback на
   // loadedCount+hasMore только если total не пришёл.
-  // KS-3894: если total пришёл из approx-count (`totalApproximate=true`),
-  // показываем «Найдено: ~N» — пользователь понимает, что число
-  // приблизительное. Когда подоспеет точный count, родитель снимет
-  // флаг и подпись сменится на «Найдено: N» без префикса.
+  //
+  // После KS-3919 backend больше не считает точное число —
+  // `/puzzles/browse/count` всегда отдаёт planner-estimate
+  // (`approximate: true`). Подпись «Найдено: ~N» постоянная, никакой
+  // подмены на «Найдено: N» больше не происходит. Свойство
+  // `totalApproximate` оставлено для прямой совместимости со
+  // старыми caller'ами и тестами (на UI всегда показываем
+  // приблизительное обозначение «~N» когда total известен).
   let hint: string | null = null;
   if (typeof total === 'number' && total >= 0) {
-    hint = totalApproximate
-      ? t('precision.difficulty.foundApprox', 'Найдено: ~{{count}}', {
-          count: total,
-        })
-      : t('precision.difficulty.found', 'Найдено: {{count}}', {
-          count: total,
-        });
+    hint = t('precision.difficulty.foundApprox', 'Найдено: ~{{count}}', {
+      count: total,
+    });
   } else if (loadedCount != null && loadedCount >= 0) {
     hint = hasMore
       ? t('precision.difficulty.foundMore', 'Найдено: {{count}}+', {
