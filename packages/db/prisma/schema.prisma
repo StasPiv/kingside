@@ -2216,6 +2216,13 @@ model Lecture {
   /// LectureAudioChunk.
   audio          LectureAudio?
   audioChunks    LectureAudioChunk[]
+  /// KS-3898 / ADR-117 §2. Набор инструментов, отключённых тренером
+  /// для учеников live-сессии. Пустой массив = ничего не отключено
+  /// (ученикам доступен полный набор). Допустимые значения см.
+  /// `LectureDisabledTool` в `packages/shared/src/types/api-contracts.ts`;
+  /// валидация — на стороне DTO (A02 / KS-3899). Изменения публикуются
+  /// событием `live-analysis:lecture-tools` (KS-3896 D01).
+  disabledTools  String[]           @default([]) @map("disabled_tools")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 

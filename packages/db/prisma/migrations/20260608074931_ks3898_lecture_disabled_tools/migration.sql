@@ -1,0 +1,14 @@
+-- KS-3898 / ADR-117 §2. Хранилище для политики отключения инструментов
+-- учеников live-сессии лекции. Тренер выставляет массив строк
+-- (whitelist на стороне DTO в A02 / KS-3899); ученики применяют
+-- запрет при mount-фазе зрителя.
+--
+-- Дефолт `'{}'` (пустой text[]) — существующие записи получают
+-- «ничего не отключено», новый ALTER не требует backfill'а.
+--
+-- Примечание про shadow-database: `prisma migrate dev` падает на
+-- legacy миграции KS-3234 из-за отсутствия расширения `pg_trgm` в
+-- shadow-БД (devops issue, не блокер). Миграция сгенерирована
+-- вручную как одиночный ALTER TABLE; на проде применяется
+-- `prisma migrate deploy` в docker-entrypoint apps/api.
+ALTER TABLE "lectures" ADD COLUMN "disabled_tools" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
