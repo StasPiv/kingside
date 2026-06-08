@@ -1,4 +1,6 @@
 import {
+  ArrayUnique,
+  IsArray,
   IsDateString,
   IsIn,
   IsNotEmpty,
@@ -7,6 +9,10 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import {
+  ALL_LECTURE_DISABLED_TOOLS,
+  type LectureDisabledTool,
+} from '@kingside/shared';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1. Тело `POST /lectures`.
@@ -53,6 +59,23 @@ export class CreateLectureDto {
   @IsOptional()
   @IsUUID('4')
   analysisId?: string;
+
+  /**
+   * KS-3899 / ADR-117 §2. Инструменты, отключённые тренером для
+   * учеников live-сессии. Опционально на создании — без поля или
+   * пустой массив означает «ничего не отключено». Whitelist значений
+   * — `ALL_LECTURE_DISABLED_TOOLS` (см. `@kingside/shared`). Невалидное
+   * значение в массиве → 400.
+   *
+   * `ArrayUnique` страхует от дубликатов («engine», «engine») — БД
+   * хранит `text[]` без констрейнта уникальности, контракт же
+   * ожидает множество.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(ALL_LECTURE_DISABLED_TOOLS as readonly string[], { each: true })
+  disabledTools?: LectureDisabledTool[];
 }
 
 /**
@@ -96,6 +119,19 @@ export class UpdateLectureDto {
   @IsOptional()
   @IsIn(['public', 'unlisted'])
   visibility?: 'public' | 'unlisted';
+
+  /**
+   * KS-3899 / ADR-117 §2. Полный новый набор отключённых инструментов
+   * (НЕ дельта). Пустой массив = снять все ограничения. Whitelist —
+   * `ALL_LECTURE_DISABLED_TOOLS`. Изменения тренером публикуются всем
+   * подписчикам live-сессии через WS-событие
+   * `live-analysis:lecture-tools` (KS-3896 D01).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(ALL_LECTURE_DISABLED_TOOLS as readonly string[], { each: true })
+  disabledTools?: LectureDisabledTool[];
 }
 
 /**
