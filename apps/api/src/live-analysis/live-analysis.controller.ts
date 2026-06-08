@@ -17,10 +17,12 @@ import type {
   LiveAnalysisResponse,
 } from '@kingside/shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { CreateLiveAnalysisDto } from './dto/create-live-analysis.dto';
 import { LiveAnalysisService } from './live-analysis.service';
 import { LiveAnalysisGateway } from './live-analysis.gateway';
+import { LecturesAccessService } from '../lectures/lectures-access.service';
 
 /**
  * KS-3732 / ADR-110 §2.3, §2.6: REST-эндпоинты live-трансляции анализа.
@@ -42,6 +44,12 @@ export class LiveAnalysisController {
     private readonly service: LiveAnalysisService,
     private readonly gateway: LiveAnalysisGateway,
     private readonly config: ConfigService,
+    /**
+     * KS-3941 / ADR-118 §2.4.2. Резолвер доступа к лекции при REST
+     * snapshot `GET /live-analyses/:slug`. Поднимаем 401/403 в
+     * формате ADR до того, как сервис прочитает live-state.
+     */
+    private readonly lecturesAccess: LecturesAccessService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -92,8 +100,25 @@ export class LiveAnalysisController {
     return found;
   }
 
+  /**
+   * KS-3941 / ADR-118 §2.4.2. Опциональный JWT + резолвер доступа к
+   * привязанной лекции. Если live-сессия связана с restricted-лекцией:
+   *   - anon → 401 `{error:'auth_required'}`;
+   *   - auth без grant'а → 403 `{error:'lecture_access_revoked'}`;
+   *   - owner → пропускаем (allowed='owner').
+   * Для public/unlisted и для трансляций без привязки к лекции —
+   * прежнее поведение, без какой-либо проверки.
+   */
+  @UseGuards(OptionalJwtGuard)
   @Get(':slug')
-  getBySlug(@Param('slug') slug: string): Promise<LiveAnalysisResponse> {
+  async getBySlug(
+    @Request() req: AuthenticatedRequest,
+    @Param('slug') slug: string,
+  ): Promise<LiveAnalysisResponse> {
+    await this.lecturesAccess.assertAccessForLiveAnalysisSlug(
+      slug,
+      req.user?.id ?? null,
+    );
     return this.service.getBySlug(slug, this.publicBaseUrl());
   }
 

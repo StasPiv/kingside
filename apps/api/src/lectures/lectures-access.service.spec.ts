@@ -317,6 +317,99 @@ describe('LecturesAccessService.assertAccess', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// KS-3941 / ADR-118 §2.4.2. assertAccessForLiveAnalysisSlug — для
+// REST snapshot `GET /live-analyses/:slug`.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('LecturesAccessService.assertAccessForLiveAnalysisSlug (KS-3941)', () => {
+  let service: LecturesAccessService;
+  let prisma: {
+    lecture: { findFirst: jest.Mock };
+    lectureAccessGrant: { findFirst: jest.Mock };
+  };
+
+  beforeEach(async () => {
+    prisma = {
+      lecture: { findFirst: jest.fn() },
+      lectureAccessGrant: { findFirst: jest.fn() },
+    };
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        LecturesAccessService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    service = moduleRef.get(LecturesAccessService);
+  });
+
+  it('лекции к слугу нет → не бросает (LiveAnalysis без привязки)', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce(null);
+    await expect(
+      service.assertAccessForLiveAnalysisSlug('SLUG-FREE', 'u-1'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('public lecture → не бросает', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner-1',
+      visibility: 'public',
+    });
+    await expect(
+      service.assertAccessForLiveAnalysisSlug('SLUG-PUB', null),
+    ).resolves.toBeUndefined();
+  });
+
+  it('restricted + anon → 401 {error:auth_required}', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner-1',
+      visibility: 'restricted',
+    });
+    let captured: HttpException | null = null;
+    try {
+      await service.assertAccessForLiveAnalysisSlug('SLUG-RES', null);
+    } catch (e) {
+      captured = e as HttpException;
+    }
+    expect(captured).toBeInstanceOf(HttpException);
+    expect(captured!.getStatus()).toBe(401);
+    expect(captured!.getResponse()).toEqual({ error: 'auth_required' });
+  });
+
+  it('restricted + auth без grant → 403 {error:lecture_access_revoked}', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner-1',
+      visibility: 'restricted',
+    });
+    prisma.lectureAccessGrant.findFirst.mockResolvedValueOnce(null);
+    let captured: HttpException | null = null;
+    try {
+      await service.assertAccessForLiveAnalysisSlug('SLUG-RES', 'student-x');
+    } catch (e) {
+      captured = e as HttpException;
+    }
+    expect(captured).toBeInstanceOf(HttpException);
+    expect(captured!.getStatus()).toBe(403);
+    expect(captured!.getResponse()).toEqual({
+      error: 'lecture_access_revoked',
+    });
+  });
+
+  it('restricted + owner → не бросает', async () => {
+    prisma.lecture.findFirst.mockResolvedValueOnce({
+      id: 'lec-1',
+      ownerId: 'owner-1',
+      visibility: 'restricted',
+    });
+    await expect(
+      service.assertAccessForLiveAnalysisSlug('SLUG-RES', 'owner-1'),
+    ).resolves.toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // KS-3936 / ADR-118 §2.4.1. Owner-only allowlist REST API.
 // ─────────────────────────────────────────────────────────────────────
 

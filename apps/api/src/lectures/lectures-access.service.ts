@@ -147,6 +147,46 @@ export class LecturesAccessService {
     );
   }
 
+  /**
+   * KS-3941 / ADR-118 §2.4.2. Обёртка для REST live-analysis snapshot
+   * (`GET /live-analyses/:slug`): если live-сессия привязана к
+   * restricted-лекции — проверяем доступ, иначе разрешаем.
+   *
+   * Контракт ошибок:
+   *   - `auth_required` → 401 `{ error: 'auth_required' }`;
+   *   - `not_in_allowlist` → 403 `{ error: 'lecture_access_revoked' }`.
+   *
+   * Лекция может отсутствовать (LiveAnalysis без привязки) — это не
+   * ошибка: возвращаем без действий. Если slug сам по себе не
+   * существует — это валидируется ниже в `service.getBySlug` (404),
+   * сюда подобный кейс попадает с `lecture=null`, и доступ свободен.
+   */
+  async assertAccessForLiveAnalysisSlug(
+    slug: string,
+    viewerUserId: string | null,
+  ): Promise<void> {
+    const lecture = await this.prisma.lecture.findFirst({
+      where: { liveAnalysis: { slug } },
+      select: { id: true, ownerId: true, visibility: true },
+    });
+    if (!lecture) return;
+    const result = await this.resolveLectureAccess(
+      lecture as LectureForAccessCheck,
+      viewerUserId,
+    );
+    if (result.allowed) return;
+    if (result.reason === 'auth_required') {
+      throw new HttpException(
+        { error: 'auth_required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    throw new HttpException(
+      { error: 'lecture_access_revoked' },
+      HttpStatus.FORBIDDEN,
+    );
+  }
+
   // ─── KS-3936 / ADR-118 §2.4.1 — owner-only allowlist REST API ────
 
   /**
