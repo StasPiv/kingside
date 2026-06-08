@@ -29,6 +29,11 @@ WORKDIR /app
 
 FROM base AS build
 WORKDIR /app
+# KS-3924: cache-bust для invalidate'а слоя `npm ci` после переноса prisma
+# в devDependencies. Docker buildkit на предыдущей выкладке закешировал
+# `RUN npm ci`, несмотря на изменения в package-lock.json — приходится
+# менять что-то в build-контексте перед COPY package-lock.json, чтобы
+# хеш слоёв поехал. Эту строку можно удалить в следующем коммите.
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
