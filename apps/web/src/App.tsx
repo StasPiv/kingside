@@ -30,6 +30,10 @@ import { PlayersPage } from './pages/PlayersPage';
 import { PlayerProfilePage } from './pages/PlayerProfilePage';
 import { CoachProfilePage } from './pages/CoachProfilePage';
 import { LectureReplayPage } from './pages/LectureReplayPage';
+import { LectureLandingPage } from './pages/LectureLandingPage';
+import { LectureUnavailablePage } from './pages/LectureUnavailablePage';
+import { LectureLivePage } from './pages/LectureLivePage';
+import { LecturesListPage } from './pages/LecturesListPage';
 import { MessagesPage } from './pages/MessagesPage';
 import { LiveGamesPage } from './pages/LiveGamesPage';
 import { WatchGamePage } from './pages/WatchGamePage';
@@ -796,9 +800,22 @@ export function App() {
         <Route path="/player/:username" element={<PlayerProfilePage />} />
         {/* KS-3787 / ADR-113 §4 эпик 1: публичная витрина тренера. */}
         <Route path="/coach/:username" element={<CoachProfilePage />} />
-        {/* KS-3794 / ADR-113 §4 крупная задача 2: воспроизведение
-            записи лекции с плеером (play/pause/seek/speed). */}
-        <Route path="/lectures/:id" element={<LectureReplayPage />} />
+        {/* KS-3962 / ADR-119 §8 эпик A. Маршруты раздела «Лекции».
+            `/lectures/:id` теперь ведёт на лендинг лекции (KS-3963 даст
+            ему наполнение); плеер записи переехал на специальный
+            подпуть `/lectures/:id/replay`. Дополнительные маршруты —
+            экран live-эфира (`/lectures/:id/live`) и экран
+            «недоступно» (`/lectures/:id/unavailable`). Корневой
+            `/lectures` — будущий список «Мои лекции» (эпик B, зависит
+            от backend KS-119 §`GET /my/lectures`). */}
+        <Route path="/lectures" element={<LecturesListPage />} />
+        <Route path="/lectures/:id" element={<LectureLandingPage />} />
+        <Route path="/lectures/:id/live" element={<LectureLivePage />} />
+        <Route path="/lectures/:id/replay" element={<LectureReplayPage />} />
+        <Route
+          path="/lectures/:id/unavailable"
+          element={<LectureUnavailablePage />}
+        />
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
