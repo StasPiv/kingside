@@ -108,6 +108,12 @@ export class LecturesService {
     const description = dto.description ?? null;
     const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null;
 
+    // KS-3900 / ADR-117 §2. `disabledTools` опционален: если не передан,
+    // Prisma подставит DB-default (`{}` — пустой text[]). Передаём
+    // только когда DTO явно указало значение, чтобы не «фиксировать»
+    // пустой массив там, где клиент хотел бы остаться на default'е.
+    const disabledTools = dto.disabledTools;
+
     // Сценарий «начать сейчас»: scheduledAt отсутствует → лекция
     // сразу live + открывается LiveAnalysis под неё (с привязкой к
     // Analysis если передан analysisId, иначе bare).
@@ -126,6 +132,7 @@ export class LecturesService {
           status: 'live',
           startedAt: new Date(),
           liveAnalysisId: session.id,
+          ...(disabledTools !== undefined ? { disabledTools } : {}),
         },
       });
       this.logger.log(
@@ -144,6 +151,7 @@ export class LecturesService {
         visibility,
         scheduledAt,
         status: 'scheduled',
+        ...(disabledTools !== undefined ? { disabledTools } : {}),
       },
     });
     this.logger.log(
@@ -478,11 +486,25 @@ export class LecturesService {
   }
 
   /**
-   * KS-3800 / ADR-113 §4 крупная задача 3. PATCH запланированной
-   * лекции. Доступно только для `status='scheduled'`; для любого
-   * другого статуса (live/recorded/cancelled) — 400. Передаваемые
-   * поля (title, description, scheduledAt, visibility) применяются
-   * выборочно (PATCH-семантика).
+   * KS-3800 / ADR-113 §4 крупная задача 3. PATCH лекции. Семантика
+   * статусного гейта (KS-3900 / ADR-117 §2):
+   *
+   *   - Поля `title`, `description`, `scheduledAt`, `visibility` —
+   *     scheduled-only: их можно править, только если лекция в статусе
+   *     `scheduled`. В live / recorded / cancelled — `BadRequestException`.
+   *   - Поле `disabledTools` (ADR-117) — разрешено в любом статусе.
+   *     Тренеру нужно уметь включать/выключать инструменты учеников
+   *     прямо во время идущей лекции и даже после её завершения
+   *     (replay-режим recorded). Это явное расширение в KS-3900.
+   *
+   * Совмещённая правка `{ title, disabledTools }` в live: трактуется
+   * по строгому правилу — если хотя бы одно scheduled-only поле в
+   * payload, а статус не `scheduled`, отвергаем запрос целиком
+   * (`BadRequestException`). Это безопаснее, чем «частичное применение»
+   * с молчаливым игнором: клиент видит ошибку и понимает, что
+   * `disabledTools` не сохранился, а не подумает, что title тоже ушёл.
+   *
+   * Пустой payload (DTO без полей) — no-op: возвращаем текущую запись.
    */
   async update(id: string, ownerId: string, dto: UpdateLectureDto) {
     const lecture = await this.prisma.lecture.findUnique({ where: { id } });
@@ -492,23 +514,53 @@ export class LecturesService {
     if (lecture.ownerId !== ownerId) {
       throw new ForbiddenException('Only the owner can update this lecture');
     }
-    if (lecture.status !== 'scheduled') {
-      throw new BadRequestException(
-        `Cannot update a lecture in status "${lecture.status}" — only scheduled lectures are editable`,
-      );
-    }
-    const data: {
+
+    // KS-3900: scheduled-only поля выделяем отдельно от disabledTools.
+    const scheduledOnlyData: {
       title?: string;
       description?: string | null;
       scheduledAt?: Date;
       visibility?: 'public' | 'unlisted';
     } = {};
-    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.title !== undefined) scheduledOnlyData.title = dto.title;
     if (dto.description !== undefined) {
-      data.description = dto.description === '' ? null : dto.description;
+      scheduledOnlyData.description =
+        dto.description === '' ? null : dto.description;
     }
-    if (dto.scheduledAt !== undefined) data.scheduledAt = new Date(dto.scheduledAt);
-    if (dto.visibility !== undefined) data.visibility = dto.visibility;
+    if (dto.scheduledAt !== undefined) {
+      scheduledOnlyData.scheduledAt = new Date(dto.scheduledAt);
+    }
+    if (dto.visibility !== undefined) {
+      scheduledOnlyData.visibility = dto.visibility;
+    }
+    const hasScheduledOnlyEdits = Object.keys(scheduledOnlyData).length > 0;
+
+    if (hasScheduledOnlyEdits && lecture.status !== 'scheduled') {
+      throw new BadRequestException(
+        `Cannot edit fields [${Object.keys(scheduledOnlyData).join(', ')}]` +
+          ` in status "${lecture.status}" — these fields are editable only` +
+          ` while the lecture is scheduled. Use disabledTools alone for` +
+          ` lectures already started or finished.`,
+      );
+    }
+
+    // disabledTools — разрешено всегда (любой статус).
+    const data: typeof scheduledOnlyData & { disabledTools?: string[] } = {
+      ...scheduledOnlyData,
+    };
+    if (dto.disabledTools !== undefined) {
+      data.disabledTools = dto.disabledTools;
+    }
+
+    if (Object.keys(data).length === 0) {
+      // No-op PATCH: ничего не меняем, возвращаем текущую запись для
+      // консистентности контракта (контроллер ожидает Lecture, не 204).
+      const fresh = await this.prisma.lecture.findUnique({
+        where: { id },
+        include: { liveAnalysis: { select: { id: true, slug: true } } },
+      });
+      return this.withLiveAnalysisBinding(fresh!);
+    }
 
     const updated = await this.prisma.lecture.update({
       where: { id },
@@ -517,7 +569,11 @@ export class LecturesService {
         liveAnalysis: { select: { id: true, slug: true } },
       },
     });
-    this.logger.log(`Lecture updated: id=${id} owner=${ownerId} fields=${Object.keys(data).join(',') || '-'}`);
+    this.logger.log(
+      `Lecture updated: id=${id} owner=${ownerId}` +
+        ` fields=${Object.keys(data).join(',') || '-'}` +
+        ` status=${lecture.status}`,
+    );
     return this.withLiveAnalysisBinding(updated);
   }
 

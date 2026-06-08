@@ -188,6 +188,50 @@ describe('LecturesService', () => {
       expect(data.visibility).toBe('unlisted');
     });
 
+    it('KS-3900: scheduled + disabledTools передаётся в Prisma create', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-tools-1',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      await service.create('u-1', {
+        title: 'Урок с фильтром инструментов',
+        scheduledAt: '2026-06-07T18:00:00.000Z',
+        disabledTools: ['engine', 'book'],
+      });
+      const data = prisma.lecture.create.mock.calls[0][0].data;
+      expect(data.disabledTools).toEqual(['engine', 'book']);
+    });
+
+    it('KS-3900: scheduled без disabledTools → Prisma create без поля (DB default подхватится)', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-tools-2',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      await service.create('u-1', {
+        title: 'Без фильтра',
+        scheduledAt: '2026-06-07T18:00:00.000Z',
+      });
+      const data = prisma.lecture.create.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('disabledTools');
+    });
+
+    it('KS-3900: immediate-live + disabledTools передаётся в Prisma create', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-tools-3',
+        ownerId: 'u-1',
+        status: 'live',
+        liveAnalysisId: 'la-1',
+      });
+      await service.create('u-1', {
+        title: 'Live с фильтром',
+        disabledTools: ['analyze_game', 'generate_puzzle'],
+      });
+      const data = prisma.lecture.create.mock.calls[0][0].data;
+      expect(data.disabledTools).toEqual(['analyze_game', 'generate_puzzle']);
+    });
+
     it('KS-3789: immediate-live с analysisId использует LiveAnalysisService.create', async () => {
       prisma.lecture.create.mockResolvedValueOnce({
         id: 'l-4',
@@ -816,16 +860,117 @@ describe('LecturesService', () => {
       expect(args.data.description).toBeNull();
     });
 
-    it('PATCH без полей → пустой UPDATE data', async () => {
+    it('KS-3900: PATCH без полей → no-op, prisma.update не вызывается', async () => {
+      prisma.lecture.findUnique
+        .mockResolvedValueOnce(scheduled) // первый findUnique для гейта
+        .mockResolvedValueOnce({
+          ...scheduled,
+          liveAnalysisId: null,
+          liveAnalysis: null,
+        }); // второй — re-read для возврата
+      const res = await service.update('l-1', 'u-1', {});
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
+      expect(res.id).toBe('l-1');
+    });
+
+    // ─── KS-3900 / ADR-117: disabledTools во всех статусах ────────────
+
+    it('KS-3900: disabledTools правится в scheduled — успех', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
       prisma.lecture.update.mockResolvedValueOnce({
         ...scheduled,
+        disabledTools: ['engine'],
         liveAnalysisId: null,
         liveAnalysis: null,
       });
-      await service.update('l-1', 'u-1', {});
+      await service.update('l-1', 'u-1', { disabledTools: ['engine'] });
       const args = prisma.lecture.update.mock.calls[0][0];
-      expect(args.data).toEqual({});
+      expect(args.data).toEqual({ disabledTools: ['engine'] });
+    });
+
+    it('KS-3900: disabledTools правится в live — успех (расширенный гейт ADR-117)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        disabledTools: ['engine', 'book'],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {
+        disabledTools: ['engine', 'book'],
+      });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ disabledTools: ['engine', 'book'] });
+    });
+
+    it('KS-3900: disabledTools правится в recorded — успех (replay-режим)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+        disabledTools: [],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { disabledTools: [] });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ disabledTools: [] });
+    });
+
+    it('KS-3900: disabledTools правится в cancelled — успех', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'cancelled',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'cancelled',
+        disabledTools: ['engine'],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { disabledTools: ['engine'] });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ disabledTools: ['engine'] });
+    });
+
+    it('KS-3900: совмещённый PATCH {title, disabledTools} в live → 400, ничего не записано', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      await expect(
+        service.update('l-1', 'u-1', {
+          title: 'не пройдёт',
+          disabledTools: ['engine'],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
+    });
+
+    it('KS-3900: совмещённый PATCH {title, disabledTools} в scheduled — оба поля применяются', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        title: 'Новое',
+        disabledTools: ['ai_comment'],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {
+        title: 'Новое',
+        disabledTools: ['ai_comment'],
+      });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data.title).toBe('Новое');
+      expect(args.data.disabledTools).toEqual(['ai_comment']);
     });
   });
 
