@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import {
   ALL_LECTURE_DISABLED_TOOLS,
   type LectureDisabledTool,
+  type LectureVisibility,
 } from '@kingside/shared';
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
+import { LectureAccessPanel } from '../lecture/LectureAccessPanel';
 
 /**
  * KS-3789 / ADR-113 §4 эпик 1. Модальное окно «Создать новую лекцию»
@@ -83,6 +85,17 @@ export function CreateLectureModal({
   const [enabledTools, setEnabledTools] = useState<LectureDisabledTool[]>(
     () => [...ALL_LECTURE_DISABLED_TOOLS],
   );
+  /**
+   * KS-3973 / ADR-119 §8 эпик C (C04). Visibility лекции, выбирается
+   * через `LectureAccessPanel` в compact-режиме (allowlist скрыт,
+   * пока лекция не создана). Дефолт — `'public'`, как и в backend
+   * по умолчанию. При выбранном `'restricted'` лекция создаётся
+   * сразу с пустым allowlist'ом — тренер откроет настройки лекции
+   * и добавит пользователей через тот же `LectureAccessPanel`
+   * (уже с `lectureId`, см. KS-3974).
+   */
+  const [visibility, setVisibility] =
+    useState<LectureVisibility>('public');
 
   const toggleTool = (tool: LectureDisabledTool) => {
     setEnabledTools((prev) =>
@@ -113,6 +126,11 @@ export function CreateLectureModal({
         ...(description.trim() ? { description: description.trim() } : {}),
         analysisId,
         disabledTools,
+        // KS-3973 / ADR-119 C04. visibility отправляем всегда —
+        // backend по умолчанию ставит `public`, но при выборе
+        // тренером `unlisted`/`restricted` модалка обязана
+        // передать значение явно, иначе лекция уйдёт публичной.
+        visibility,
       });
       if (!resp.liveAnalysis) {
         // Контракт обещает ненулевой liveAnalysis для immediate-live
@@ -236,6 +254,23 @@ export function CreateLectureModal({
                 );
               })}
             </div>
+          </div>
+
+          {/* KS-3973 / ADR-119 C04. Секция «Кто видит эту лекцию».
+              Лекция ещё не создана, поэтому `lectureId={null}` и
+              `hideAllowlist` — список пользователей появится после
+              POST'а в KS-3974 LectureSettingsModal. */}
+          <div
+            className="import-field"
+            data-testid="create-lecture-access-section"
+          >
+            <LectureAccessPanel
+              lectureId={null}
+              visibility={visibility}
+              onVisibilityChange={setVisibility}
+              hideAllowlist
+              disabled={submitting}
+            />
           </div>
 
           {error && (
