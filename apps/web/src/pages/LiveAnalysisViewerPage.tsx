@@ -9,6 +9,7 @@ import type {
 import { api } from '../api';
 import { ApiError } from '../ApiError';
 import { useLiveAnalysisSocket } from '../hooks/useLiveAnalysisSocket';
+import { useLectureToolsPolicy } from '../hooks/useLectureToolsPolicy';
 import { deserializeLiveTree } from '../review/utils/liveTreeCodec';
 import { AnalysisPage } from './AnalysisPage';
 
@@ -145,6 +146,22 @@ export function LiveAnalysisViewerPage() {
     onSync: handleSync,
   });
 
+  // KS-3906 / ADR-117 §3 (шаг C02). Политика «какие инструменты тренер
+  // отключил ученикам» — для AnalysisPage в режиме зрителя живой
+  // лекции. Начальное значение — из REST-snapshot (`snapshot
+  // .lectureDisabledTools`, см. KS-3896 / `LiveAnalysisResponse`).
+  // После подписки на WS события `LECTURE_TOOLS` хук сам подменяет
+  // значение. До приезда snapshot-а и для трансляций без лекции
+  // (`lectureDisabledTools === undefined`) хук возвращает пустой
+  // массив — AnalysisPage показывает полный набор инструментов.
+  // Пока snapshot не загружен / трансляция уже закрыта, slug в хуке
+  // отключаем — иначе хук подпишется на чужую комнату или будет
+  // держать listener в закрытой.
+  const studentToolsPolicy = useLectureToolsPolicy(
+    !snapshot || closedReason ? null : slug ?? null,
+    snapshot?.lectureDisabledTools,
+  );
+
   // KS-3863: компактные значки лекции (запись для тренера и иконка
   // голоса для зрителя) рендерятся внутри `AnalysisPage` (рядом с
   // `LiveBroadcastBadge`), а не отдельным блоком на этой странице —
@@ -228,7 +245,11 @@ export function LiveAnalysisViewerPage() {
           AnalysisPage при смене slug — иначе при переходе зрителя с
           трансляции A на B в том же окне в Movelist оставалось дерево
           PGN от A (внутренний review-state не сбрасывался). */}
-      <AnalysisPage key={slug} liveSession={{ slug, mode: 'viewer' }} />
+      <AnalysisPage
+        key={slug}
+        liveSession={{ slug, mode: 'viewer' }}
+        studentToolsPolicy={studentToolsPolicy}
+      />
 
       {closedReason && (
         <div
