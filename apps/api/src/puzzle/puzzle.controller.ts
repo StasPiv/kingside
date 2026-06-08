@@ -16,7 +16,6 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { PuzzleService } from './puzzle.service';
@@ -63,21 +62,16 @@ function extractPlanRowsEstimate(
 
 @Controller('puzzles')
 export class PuzzleController {
-  /**
-   * KS-3891. TTL кэша `total` для `/puzzles/browse` (сек). Count при
-   * `hideSolved=true` + `source='lichess'` упирается в Parallel Seq
-   * Scan на ~6M строк `puzzles` (см. EXPLAIN ANALYZE в задаче, ~10 с
-   * на запрос). Само значение редко меняется в окне 5 минут (новые
-   * lichess-пазлы заливаются батчами, не «в реальном времени»), а
-   * UI-счётчик «Найдено: N» не критичен к небольшой stale-задержке.
-   */
-  private static readonly BROWSE_TOTAL_CACHE_TTL_SEC = 300;
-  /**
-   * KS-3891. Префикс ключа в Redis. Ключ строится как hash от
-   * нормализованных фильтров + userId (для запросов с hideSolved
-   * это per-user). Подробности см. `cacheKeyForBrowseTotal`.
-   */
-  private static readonly BROWSE_TOTAL_CACHE_PREFIX = 'puzzles:browse:count:v1';
+  // KS-3919: точный COUNT и Redis-кеш total в `/puzzles/browse`
+  // полностью убраны. На проде под фильтром `themes + hideSolved +
+  // source=lichess` фоновый COUNT занимал ~57 секунд (Bitmap Heap
+  // Scan на 58 489 страниц для проверки `is_public AND source='lichess'`).
+  // Приблизительная оценка от планировщика PostgreSQL через
+  // `EXPLAIN (FORMAT JSON)` (см. `/puzzles/browse/count`) даёт
+  // результат за единицы миллисекунд с погрешностью ±5-20%, чего
+  // достаточно для UI-счётчика «Найдено: ~N». `RedisService` в
+  // конструкторе оставлен — нужен для DI-теста модуля и других
+  // потенциальных потребителей.
 
   constructor(
     private readonly puzzleService: PuzzleService,
@@ -316,16 +310,10 @@ export class PuzzleController {
     const next = (): string => `$${idx++}`;
     const blundererEloExpr = filter.blundererEloExpr;
 
-    // KS-3666: snapshot WHERE-условий и параметров ДО добавления
-    // курсора/solvedStatus/limit. На этом срезе строится `countQuery`
-    // (total = общее число подходящих под фильтры пазлов, не
-    // зависит от позиции пагинации — стабильно при переходе на
-    // следующую страницу).
-    const filterConditionsSnapshot = [...conditions];
-    const filterParamsSnapshot = [...params];
-
     // KS-2560 keyset cursor: `(created_at, id) < (cursor.c, cursor.i)`.
     // Декодируем cursor; если невалидный — игнорируем (первая страница).
+    // KS-3919: snapshot фильтров для count удалён — точный COUNT в
+    // `/puzzles/browse` больше не выполняется ни синхронно, ни в фоне.
     const decoded = decodePuzzleCursor(cursor);
     if (decoded) {
       const phC = next();
@@ -415,30 +403,16 @@ export class PuzzleController {
       }>
     >(dataQuery, ...params);
 
-    // KS-3893. На первой странице (cursor отсутствует):
-    //   1. Cache hit → `total: number` без обращения к БД.
-    //   2. Cache miss → `total: null` СРАЗУ; параллельно запускается
-    //      фоновый COUNT с записью в Redis (без блокировки ответа).
-    //   Это убирает COUNT из критического пути — список приходит
-    //   за ~600 мс независимо от состояния кеша.
-    // На последующих страницах (cursor задан) — `total: null`,
-    //   фронт KS-3892 хранит значение с первой страницы.
-    let totalPromise: Promise<number | null>;
-    if (decoded) {
-      totalPromise = Promise.resolve(null);
-    } else {
-      totalPromise = this.peekBrowseTotalFromCacheOrSpawn(
-        filterConditionsSnapshot,
-        filterParamsSnapshot,
-        userId,
-      );
-    }
-
-    const [rows, totalOrNull] = await Promise.all([
-      dataRowsPromise,
-      totalPromise,
-    ]);
-    const total = totalOrNull;
+    // KS-3919. `total` в `/puzzles/browse` всегда `null`. Раньше
+    // (KS-3893) на cache miss запускался фоновый COUNT с записью в
+    // Redis, но на проде под фильтром `themes + hideSolved + source=lichess`
+    // он занимал ~57 секунд — тащит 58 000 heap-страниц для проверки
+    // `is_public AND source='lichess'`. Точного числа в каталоге задач
+    // больше не считаем; UI получает приблизительную оценку через
+    // отдельный `GET /puzzles/browse/count` (EXPLAIN FORMAT JSON,
+    // см. `estimateBrowseTotal`).
+    const rows = await dataRowsPromise;
+    const total: number | null = null;
 
     const hasMore = rows.length > take;
     const slice = hasMore ? rows.slice(0, take) : rows;
@@ -507,19 +481,26 @@ export class PuzzleController {
   }
 
   /**
-   * GET /puzzles/browse/count — точный или приблизительный счётчик
-   * подходящих под фильтры задач (KS-3893).
+   * GET /puzzles/browse/count — приблизительный счётчик подходящих под
+   * фильтры задач (KS-3919).
    *
-   *  - `approx=true` → `EXPLAIN (FORMAT JSON)` над тем же countQuery,
-   *    возвращает planner-estimate. Время — миллисекунды (planner не
-   *    выполняет запрос, только строит план). Округляем до сотен —
-   *    отдавать «Найдено: ~12 347» нет смысла, погрешность ±5–20%.
-   *    Без обращения к Redis.
-   *  - `approx=false` (default) → точный путь через `resolveBrowseTotal`
-   *    (Redis-кеш из KS-3891 + fallback на COUNT).
+   * Реализация — `EXPLAIN (FORMAT JSON) SELECT COUNT(*)…`, парсим
+   * `Plan.Plan Rows` (оценка планировщика без выполнения запроса).
+   * Время — единицы миллисекунд. Округление до сотен (1234 → 1200);
+   * для значений <100 — точное (чтобы UI не показывал «~0» / «~50»
+   * на узком фильтре).
    *
-   * Контракт ответа: `{ total: number, approximate: boolean }`.
-   * Никаких `null` — счётчик в этом эндпоинте всегда число.
+   * История: до KS-3919 endpoint поддерживал параметр `approx` и точный
+   * путь через Redis-кеш + COUNT. Точный COUNT под `themes + hideSolved
+   * + source=lichess` занимал на проде ~57 секунд (Bitmap Heap Scan на
+   * 58 000 страниц для проверки `is_public AND source='lichess'`), тогда
+   * как UI-счётчик «Найдено: ~N» прекрасно работает на приблизительной
+   * оценке. Точный путь убран, параметр `approx` тоже — endpoint
+   * всегда возвращает приблизительный результат.
+   *
+   * Контракт ответа: `{ total: number, approximate: true }`. Поле
+   * `approximate` оставлено для совместимости с frontend KS-3894:
+   * приходит всегда `true`.
    *
    * Фильтр-параметры идентичны `/puzzles/browse`, кроме пагинационных
    * (`limit`, `cursor`).
@@ -528,7 +509,6 @@ export class PuzzleController {
   @Get('browse/count')
   async browseCount(
     @Request() req: AuthenticatedRequest,
-    @Query('approx') approxParam?: string,
     @Query('mine') mine?: string,
     @Query('themes') themes?: string,
     @Query('ratingMin') ratingMinStr?: string,
@@ -543,7 +523,7 @@ export class PuzzleController {
     @Query('themesOr') themesOrParam?: string | string[],
     @Query('minMaiaWeakChoiceProb') minMaiaWeakChoiceProbStr?: string,
     @Query('maxMaiaWeakChoiceProb') maxMaiaWeakChoiceProbStr?: string,
-  ): Promise<{ total: number; approximate: boolean }> {
+  ): Promise<{ total: number; approximate: true }> {
     const userId = req.user?.id ?? null;
     const filter = buildBrowseFilterSql({
       userId,
@@ -563,26 +543,17 @@ export class PuzzleController {
       maxMaiaWeakChoiceProb: maxMaiaWeakChoiceProbStr,
     });
 
-    const wantApprox = approxParam === 'true';
-    if (wantApprox) {
-      try {
-        const estimate = await this.estimateBrowseTotal(
-          filter.conditions,
-          filter.params,
-        );
-        return { total: estimate, approximate: true };
-      } catch {
-        // Approx-путь не должен ломать ответ — fallback на точный.
-        // (Например, неподдерживаемая версия PG, нет прав на EXPLAIN.)
-      }
-    }
-
-    const total = await this.resolveBrowseTotal(
+    // KS-3919: всегда `EXPLAIN (FORMAT JSON)` без fallback'а на точный
+    // COUNT. Если EXPLAIN по какой-либо причине упадёт (неподдерживаемая
+    // версия PG, отсутствуют права), `estimateBrowseTotal` бросает
+    // исключение — оно превращается в 500 Nest-ом. Это правильное
+    // поведение: молчаливый fallback скрывал бы реальные проблемы
+    // конфигурации БД, а точный путь мы удалили.
+    const estimate = await this.estimateBrowseTotal(
       filter.conditions,
       filter.params,
-      userId,
     );
-    return { total, approximate: false };
+    return { total: estimate, approximate: true };
   }
 
   /**
@@ -783,128 +754,22 @@ export class PuzzleController {
   }
 
   /**
-   * KS-3891. Получить total с кешем. Cache key — sha256 от
-   * нормализованных условий, параметров и userId. TTL — 5 минут.
-   * При промахе ходит в БД, при ошибках Redis — fallback на прямой
-   * count (хуже по скорости, но не ломает запрос).
-   */
-  private async resolveBrowseTotal(
-    filterConditions: string[],
-    filterParams: unknown[],
-    userId: string | null,
-  ): Promise<number> {
-    const key = this.cacheKeyForBrowseTotal(
-      filterConditions,
-      filterParams,
-      userId,
-    );
-    try {
-      const cached = await this.redis.get(key);
-      if (cached !== null) {
-        const parsed = Number.parseInt(cached, 10);
-        if (Number.isFinite(parsed)) return parsed;
-      }
-    } catch {
-      // Redis недоступен — продолжаем напрямую к БД.
-    }
-    const total = await this.runCountQuery(filterConditions, filterParams);
-    try {
-      await this.redis.set(
-        key,
-        String(total),
-        'EX',
-        PuzzleController.BROWSE_TOTAL_CACHE_TTL_SEC,
-      );
-    } catch {
-      // Не блокируем ответ из-за ошибки записи в Redis.
-    }
-    return total;
-  }
-
-  /**
-   * KS-3893. Read-only обращение к Redis для `/puzzles/browse`:
-   *   - hit  → возвращаем число (без COUNT, без I/O в БД).
-   *   - miss → возвращаем `null` СРАЗУ, в фоне запускаем COUNT и
-   *     кладём результат в Redis для следующих запросов. Фоновый
-   *     COUNT не блокирует ответ (`void` — promise отвязан).
+   * KS-3893 / KS-3919. Approximate count через `EXPLAIN (FORMAT JSON)`
+   * — даёт оценку планировщика за единицы миллисекунд без выполнения
+   * самого запроса. Результат округляется до сотен (1234 → 1200);
+   * для значений <100 — точное значение (иначе UI показывал бы
+   * «~0» / «~50» на очень узком фильтре).
    *
-   * Этим достигается цель KS-3893: при cold cache список приходит
-   * за ~600 мс (data-query), точное число пользователь получает
-   * отдельным вызовом `/puzzles/browse/count`. На warm cache
-   * (повторный заход с теми же фильтрами или другой пользователь
-   * с такой же нормализацией ключа) total возвращается тем же
-   * ответом за единицы миллисекунд.
-   */
-  private async peekBrowseTotalFromCacheOrSpawn(
-    filterConditions: string[],
-    filterParams: unknown[],
-    userId: string | null,
-  ): Promise<number | null> {
-    const key = this.cacheKeyForBrowseTotal(
-      filterConditions,
-      filterParams,
-      userId,
-    );
-    try {
-      const cached = await this.redis.get(key);
-      if (cached !== null) {
-        const parsed = Number.parseInt(cached, 10);
-        if (Number.isFinite(parsed)) return parsed;
-      }
-    } catch {
-      // Redis недоступен — продолжаем без блокировки: total=null,
-      // фоновый count тоже не запускаем (некуда писать результат).
-      return null;
-    }
-    // Cache miss: total=null сразу + fire-and-forget COUNT в фоне.
-    void this.spawnBackgroundBrowseTotal(
-      key,
-      [...filterConditions],
-      [...filterParams],
-    );
-    return null;
-  }
-
-  /**
-   * KS-3893. Фоновый COUNT: считает точное значение и кладёт в
-   * Redis по тому же ключу из `peekBrowseTotalFromCacheOrSpawn`.
-   * Все ошибки (БД/Redis) проглатываются — фон не должен ронять
-   * ответ. При следующем запросе с теми же фильтрами клиент
-   * получит готовое число из кеша.
-   */
-  private async spawnBackgroundBrowseTotal(
-    key: string,
-    filterConditions: string[],
-    filterParams: unknown[],
-  ): Promise<void> {
-    try {
-      const total = await this.runCountQuery(filterConditions, filterParams);
-      try {
-        await this.redis.set(
-          key,
-          String(total),
-          'EX',
-          PuzzleController.BROWSE_TOTAL_CACHE_TTL_SEC,
-        );
-      } catch {
-        // Записать не смогли — следующий запрос пересчитает.
-      }
-    } catch {
-      // COUNT упал (например, отвалился пул) — следующий запрос
-      // повторит попытку, метрики Prisma зарегистрируют ошибку.
-    }
-  }
-
-  /**
-   * KS-3893. Approximate count через `EXPLAIN (FORMAT JSON)` — даёт
-   * planner-estimate за миллисекунды без выполнения запроса.
-   * Результат округляется до сотен (1234 → 1200), для значений
-   * <100 — оставляем точное (чтобы UI не показывал «~0» / «~50»
-   * при очень узком фильтре).
+   * `Plan."Plan Rows"` — стандартное поле `EXPLAIN FORMAT JSON`
+   * (PostgreSQL docs `60.5. Sample Output`). Доступно с PG 9.x;
+   * на проде PG 16.
    *
-   * `Plan."Plan Rows"` — стандартное поле EXPLAIN FORMAT JSON
-   * (см. docs PostgreSQL `60.5. Sample Output`). Доступно с PG 9.x;
-   * на проде PG 16 (см. docker-compose).
+   * KS-3919: точный COUNT через Redis-кеш удалён, оценка планировщика
+   * стала единственным источником значения для `/puzzles/browse/count`.
+   * Если EXPLAIN отказался отдавать `Plan.Plan Rows` — бросаем
+   * исключение, Nest вернёт 500: это правильное поведение, любой
+   * fallback на точный путь скрывал бы реальные проблемы конфигурации
+   * БД, а точного пути больше нет.
    */
   private async estimateBrowseTotal(
     filterConditions: string[],
@@ -921,44 +786,5 @@ export class PuzzleController {
     }
     if (planRows < 100) return planRows;
     return Math.round(planRows / 100) * 100;
-  }
-
-  /**
-   * KS-3893. Чистый SELECT COUNT(*) — общий путь для синхронного
-   * resolve и для фоновой записи в кеш. Возвращает 0 если строк
-   * нет (пустой результат COUNT не бывает, но `?? 0` страхует TS).
-   */
-  private async runCountQuery(
-    filterConditions: string[],
-    filterParams: unknown[],
-  ): Promise<number> {
-    const countWhere = filterConditions.join(' AND ');
-    const countQuery = `SELECT COUNT(*)::int AS total FROM puzzles p WHERE ${countWhere}`;
-    const countRows = await this.prisma.$queryRawUnsafe<
-      Array<{ total: number }>
-    >(countQuery, ...filterParams);
-    return countRows[0]?.total ?? 0;
-  }
-
-  /**
-   * KS-3891. Нормализованный ключ кеша для total. На вход — список
-   * SQL-условий и упорядоченный массив подставленных параметров;
-   * формируем устойчивую строку и считаем sha256 — компактно и
-   * безопасно для длинных query.
-   */
-  private cacheKeyForBrowseTotal(
-    filterConditions: string[],
-    filterParams: unknown[],
-    userId: string | null,
-  ): string {
-    const hash = createHash('sha256');
-    hash.update(filterConditions.join('|'));
-    hash.update('::params::');
-    hash.update(JSON.stringify(filterParams));
-    hash.update('::user::');
-    hash.update(userId ?? 'anon');
-    return `${PuzzleController.BROWSE_TOTAL_CACHE_PREFIX}:${hash
-      .digest('hex')
-      .slice(0, 32)}`;
   }
 }
