@@ -1,26 +1,27 @@
 /**
- * KS-3982 dev-only песочница: рендерит разметку `LectureAccessPanel`
- * со статическими данными внутри оболочки модалки/выдвижного листа
- * для приёмочных скриншотов KS-3982.
+ * KS-3982 dev-only песочница: рендерит разметку `LectureSettingsModal`
+ * + `LectureAccessPanel` со статическими данными для приёмочных
+ * скриншотов оболочки модалки/выдвижного листа.
  *
  * Доступ: `/__dev/lecture-access` (роут в `App.tsx`).
  *
  * Демонстрирует:
- *  - три варианта visibility (public / unlisted / restricted) с
- *    подсветкой выбранного;
- *  - allowlist с участниками для `restricted`;
- *  - оболочку модалки с заголовком и кнопками;
- *  - на mobile — выдвижной лист снизу с ручкой-индикатором.
+ *  - три вкладки модалки (General / Access / Tools) с подсветкой
+ *    активной;
+ *  - на вкладке Access — `LectureAccessPanel` (три варианта
+ *    доступа + список участников);
+ *  - оболочку модалки с заголовком, кнопками «Отмена»/«Сохранить»;
+ *  - на узком экране — выдвижной лист снизу с ручкой-индикатором.
  */
 import { useState } from 'react';
 
 type Visibility = 'public' | 'unlisted' | 'restricted';
+type Tab = 'main' | 'access' | 'tools';
 
 interface Grant {
   id: string;
   username: string;
   displayName: string;
-  avatarUrl?: string;
 }
 
 const GRANTS: Grant[] = [
@@ -30,7 +31,7 @@ const GRANTS: Grant[] = [
   { id: 'g4', username: 'olga_m', displayName: 'Ольга Морозова' },
 ];
 
-const OPTIONS: ReadonlyArray<{
+const VIS_OPTIONS: ReadonlyArray<{
   value: Visibility;
   title: string;
   hint: string;
@@ -52,6 +53,19 @@ const OPTIONS: ReadonlyArray<{
   },
 ];
 
+const TOOLS = [
+  { key: 'analysis', label: 'Engine analysis' },
+  { key: 'arrows', label: 'Arrows & highlights' },
+  { key: 'chat', label: 'Chat' },
+  { key: 'questions', label: 'Questions in chat' },
+];
+
+const TABS: ReadonlyArray<{ value: Tab; label: string }> = [
+  { value: 'main', label: 'General' },
+  { value: 'access', label: 'Access' },
+  { value: 'tools', label: 'Tools' },
+];
+
 function AccessPanel({
   visibility,
   setVisibility,
@@ -69,7 +83,7 @@ function AccessPanel({
           Who can see this lecture
         </legend>
         <div className="lecture-access-panel__visibility-list">
-          {OPTIONS.map((opt) => {
+          {VIS_OPTIONS.map((opt) => {
             const active = opt.value === visibility;
             return (
               <label
@@ -107,14 +121,7 @@ function AccessPanel({
           </h3>
           <input
             placeholder="Search users by username…"
-            style={{
-              padding: '8px 12px',
-              borderRadius: 6,
-              border: '1px solid var(--border-mid)',
-              background: 'var(--bg-input)',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-            }}
+            className="lecture-modal__input"
           />
           <ul className="lecture-access-panel__chips">
             {GRANTS.map((g) => (
@@ -145,22 +152,27 @@ function AccessPanel({
 }
 
 export default function LectureAccessPreviewPage() {
+  const [tab, setTab] = useState<Tab>('access');
   const [visibility, setVisibility] = useState<Visibility>('restricted');
+  const [title, setTitle] = useState('Защита Каро-Канн: главные линии');
+  const [description, setDescription] = useState(
+    'Разбираем тонкости главных линий за обе стороны.',
+  );
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({
+    analysis: true,
+    arrows: true,
+    chat: true,
+    questions: false,
+  });
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'var(--ov-black-55)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 200,
-      }}
-      className="lecture-modal-overlay"
-    >
-      <div className="lecture-modal">
+    <div className="lecture-modal-overlay">
+      <div
+        className="lecture-modal"
+        role="dialog"
+        aria-modal="true"
+        data-active-tab={tab}
+      >
         <header className="lecture-modal__header">
           <h2 className="lecture-modal__title">Lecture settings</h2>
           <button
@@ -171,17 +183,97 @@ export default function LectureAccessPreviewPage() {
             ×
           </button>
         </header>
-        <div className="lecture-modal__body">
-          <AccessPanel
-            visibility={visibility}
-            setVisibility={setVisibility}
-          />
+
+        <div role="tablist" className="lecture-modal__tablist">
+          {TABS.map((opt) => {
+            const active = opt.value === tab;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(opt.value)}
+                data-testid={`landing-preview-switch-${opt.value}`}
+                className={
+                  'lecture-modal__tab' +
+                  (active ? ' lecture-modal__tab--active' : '')
+                }
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
+
+        <div className="lecture-modal__body">
+          {tab === 'main' && (
+            <div>
+              <div className="lecture-modal__field">
+                <label className="lecture-modal__field-label">Title</label>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={200}
+                  className="lecture-modal__input"
+                />
+              </div>
+              <div className="lecture-modal__field">
+                <label className="lecture-modal__field-label">
+                  Description
+                  <span className="lecture-modal__field-optional">
+                    optional
+                  </span>
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={4}
+                  className="lecture-modal__textarea"
+                />
+              </div>
+            </div>
+          )}
+          {tab === 'access' && (
+            <AccessPanel
+              visibility={visibility}
+              setVisibility={setVisibility}
+            />
+          )}
+          {tab === 'tools' && (
+            <div>
+              <p className="lecture-modal__tools-section-title">
+                Student tools access
+              </p>
+              <div className="lecture-modal__tools-list">
+                {TOOLS.map((tool) => (
+                  <label key={tool.key} className="lecture-modal__tool-row">
+                    <input
+                      type="checkbox"
+                      checked={enabled[tool.key]}
+                      onChange={() =>
+                        setEnabled((p) => ({ ...p, [tool.key]: !p[tool.key] }))
+                      }
+                    />
+                    <span>{tool.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         <footer className="lecture-modal__footer">
-          <button type="button" className="lecture-modal__btn lecture-modal__btn--ghost">
+          <button
+            type="button"
+            className="lecture-modal__btn lecture-modal__btn--ghost"
+          >
             Cancel
           </button>
-          <button type="button" className="lecture-modal__btn lecture-modal__btn--primary">
+          <button
+            type="button"
+            className="lecture-modal__btn lecture-modal__btn--primary"
+          >
             Save
           </button>
         </footer>

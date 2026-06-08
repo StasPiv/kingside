@@ -217,20 +217,20 @@ export function LectureSettingsModal({
           })}
         </div>
 
-        <div className="import-form">
+        <div className="lecture-modal__body">
           {loading && !hydrated && (
-            <div
+            <p
               data-testid="lecture-settings-loading"
-              style={{ padding: 16, opacity: 0.7 }}
+              className="lecture-access-panel__state"
             >
               {t('common.loading', 'Loading…')}
-            </div>
+            </p>
           )}
           {detailError && !hydrated && (
-            <div
-              className="error"
+            <p
               data-testid="lecture-settings-load-error"
-              style={{ padding: 8 }}
+              className="lecture-modal__error"
+              role="alert"
             >
               {detailError === 'forbidden'
                 ? t(
@@ -246,7 +246,7 @@ export function LectureSettingsModal({
                       'lectureSettings.loadFailed',
                       'Failed to load lecture details. Please try again.',
                     )}
-            </div>
+            </p>
           )}
           {hydrated && tab === 'main' && (
             <div
@@ -255,8 +255,11 @@ export function LectureSettingsModal({
               aria-labelledby={`${tabsLabelId}-main-tab`}
               data-testid="lecture-settings-panel-main"
             >
-              <div className="import-field">
-                <label htmlFor="lecture-settings-title">
+              <div className="lecture-modal__field">
+                <label
+                  className="lecture-modal__field-label"
+                  htmlFor="lecture-settings-title"
+                >
                   {t('lecture.create.fieldTitle', 'Title')}
                 </label>
                 <input
@@ -267,12 +270,16 @@ export function LectureSettingsModal({
                   maxLength={200}
                   disabled={submitting}
                   data-testid="lecture-settings-title-input"
+                  className="lecture-modal__input"
                 />
               </div>
-              <div className="import-field">
-                <label htmlFor="lecture-settings-description">
+              <div className="lecture-modal__field">
+                <label
+                  className="lecture-modal__field-label"
+                  htmlFor="lecture-settings-description"
+                >
                   {t('lecture.create.fieldDescription', 'Description')}
-                  <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 'normal' }}>
+                  <span className="lecture-modal__field-optional">
                     {t('common.optional', 'optional')}
                   </span>
                 </label>
@@ -283,7 +290,7 @@ export function LectureSettingsModal({
                   rows={4}
                   maxLength={2000}
                   disabled={submitting}
-                  style={{ resize: 'vertical', minHeight: 80 }}
+                  className="lecture-modal__textarea"
                   data-testid="lecture-settings-description-input"
                 />
               </div>
@@ -313,30 +320,18 @@ export function LectureSettingsModal({
               aria-labelledby={`${tabsLabelId}-tools-tab`}
               data-testid="lecture-settings-panel-tools"
             >
-              <label style={{ marginBottom: 6, fontWeight: 600 }}>
+              <p className="lecture-modal__tools-section-title">
                 {t('lectureTools.sectionTitle', 'Student tools access')}
-              </label>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                  marginTop: 8,
-                }}
-              >
+              </p>
+              <div className="lecture-modal__tools-list">
                 {ALL_LECTURE_DISABLED_TOOLS.map((tool) => {
                   const checked = enabledTools.includes(tool);
                   return (
                     <label
                       key={tool}
                       htmlFor={`lecture-settings-tool-${tool}`}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        cursor: submitting ? 'not-allowed' : 'pointer',
-                        fontWeight: 'normal',
-                      }}
+                      className="lecture-modal__tool-row"
+                      data-disabled={submitting ? 'true' : 'false'}
                     >
                       <input
                         id={`lecture-settings-tool-${tool}`}
@@ -355,27 +350,37 @@ export function LectureSettingsModal({
           )}
 
           {error && (
-            <div
-              className="error"
+            <p
               data-testid="lecture-settings-error"
-              style={{ marginTop: 8 }}
+              className="lecture-modal__error"
+              role="alert"
             >
               {error}
-            </div>
+            </p>
           )}
+        </div>
 
+        <footer className="lecture-modal__footer">
           <button
-            className="import-btn"
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="lecture-modal__btn lecture-modal__btn--ghost"
+          >
+            {t('common.cancel', 'Cancel')}
+          </button>
+          <button
+            type="button"
             onClick={() => void handleSubmit()}
             disabled={submitDisabled}
             data-testid="lecture-settings-save"
-            style={{ marginTop: 16 }}
+            className="lecture-modal__btn lecture-modal__btn--primary"
           >
             {submitting
               ? t('common.loading', 'Loading…')
               : t('lectureSettings.save', 'Save')}
           </button>
-        </div>
+        </footer>
       </div>
     </div>
   );
