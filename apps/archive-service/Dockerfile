@@ -23,6 +23,9 @@ RUN cd apps/archive-service && npx nest build
 # KS-3051 (ADR-045 E4): отбросить devDependencies из node_modules.
 # archive-service не запускает миграции через ECS run-task (deploy-perf
 # baseline это подтверждает — отсутствует archive_migrate_done).
+# KS-3924: `prisma` CLI вынесена в `devDependencies` пакета
+# `packages/archive-db` — после prune из production-tree уходят
+# `prisma` + `@prisma/engines` + транзитивы.
 RUN npm prune --omit=dev --ignore-scripts
 
 FROM base AS production

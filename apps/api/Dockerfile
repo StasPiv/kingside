@@ -55,12 +55,17 @@ RUN npx tsc --build packages/board-image-to-fen
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies (typescript,
-# jest, ts-jest, @nestjs/cli, @types/*, ts-node-dev и т.п.). `prisma` CLI
-# и `@prisma/client` остаются — `prisma` теперь в `dependencies` пакета
-# packages/db (нужен в runtime для pre-rollout миграций через
-# `aws ecs run-task` на этом же образе). `@prisma/engines` (schema-engine)
-# уже скачан postinstall'ом выше — prune его не трогает (transitive
-# runtime dep пакета prisma).
+# jest, ts-jest, @nestjs/cli, @types/*, ts-node-dev и т.п.).
+#
+# KS-3924 (ADR ... deploy-perf): `prisma` CLI перенесена в `devDependencies`
+# пакета `packages/db`, в runtime api больше не нужна — pre-rollout
+# `prisma migrate deploy` теперь выполняется отдельным миграционным
+# образом (`kingside-api-migrations`). После prune из production-tree
+# уходят `prisma` CLI + `@prisma/engines` + транзитивы (`@prisma/config`,
+# `effect`, `fast-check`, `jiti` и т.п.) — суммарно ~170 МБ.
+# Сгенерированный `@prisma/client` уже лежит в `packages/db/dist/generated/prisma`
+# (создан выше через `npm run build` пакета `packages/db` ДО prune),
+# поэтому runtime спокойно работает с `@prisma/client` без CLI.
 RUN npm prune --omit=dev --ignore-scripts
 
 FROM base AS production

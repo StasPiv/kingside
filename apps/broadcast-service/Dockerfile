@@ -20,10 +20,11 @@ COPY tsconfig.base.json ./
 RUN cd packages/shared && npx tsc --build
 RUN cd packages/broadcasts-db && BROADCASTS_DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/broadcast-service && npx nest build
-# KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies. `prisma` CLI
-# и `@prisma/client` остались — `prisma` теперь в `dependencies` пакета
-# packages/broadcasts-db (нужен для pre-rollout миграций через
-# `aws ecs run-task` на этом же образе).
+# KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies.
+# KS-3924 (deploy-perf): `prisma` CLI перенесена в `devDependencies`
+# пакета `packages/broadcasts-db`, в runtime broadcast-service не нужна
+# (миграции на pre-rollout идут отдельным образом). После prune из
+# production-tree уходят `prisma` + `@prisma/engines` + транзитивы.
 RUN npm prune --omit=dev --ignore-scripts
 
 FROM base AS production
