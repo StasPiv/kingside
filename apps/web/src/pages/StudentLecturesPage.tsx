@@ -16,11 +16,12 @@
  * показываем), `⋮`-меню тренера не нужно. Стили — функциональный
  * inline-уровень, под KS-3980 проставлены `data-testid`.
  */
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { LectureStatus, LectureSummary } from '@kingside/shared';
 import { useMyLectures } from '../hooks/useMyLectures';
+import { useAuth } from '../context/AuthContext';
 
 const SECTION_LIMIT = 10;
 
@@ -59,8 +60,20 @@ function LectureSection({
   emptyFallback,
 }: SectionProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { items, loading, loadingMore, hasMore, error, loadMore } =
     useMyLectures({ status, limit: SECTION_LIMIT });
+
+  // KS-3999. В ученическом разделе исключаем собственные лекции
+  // (с `ownerId === user.id`) — они показываются в тренерском
+  // блоке `MyLecturesPage`. Так пользователь не видит одни и те
+  // же карточки дважды в разделе «Как преподаватель» и «Как
+  // ученик». Для гостя (user === null) фильтр не применяется —
+  // там у backend другая ветка ответа.
+  const filteredItems = useMemo(() => {
+    if (!user) return items;
+    return items.filter((l) => l.ownerId !== user.id);
+  }, [items, user]);
 
   return (
     <section
@@ -89,7 +102,7 @@ function LectureSection({
           )}
         </div>
       )}
-      {!loading && !error && items.length === 0 && (
+      {!loading && !error && filteredItems.length === 0 && (
         <div
           data-testid={`student-lectures-empty-${status}`}
           style={{ opacity: 0.7, padding: '8px 0' }}
@@ -97,7 +110,7 @@ function LectureSection({
           {t(emptyKey, emptyFallback)}
         </div>
       )}
-      {!loading && !error && items.length > 0 && (
+      {!loading && !error && filteredItems.length > 0 && (
         <ul
           data-testid={`student-lectures-list-${status}`}
           style={{
@@ -108,7 +121,7 @@ function LectureSection({
             gap: 12,
           }}
         >
-          {items.map((lecture) => (
+          {filteredItems.map((lecture) => (
             <li
               key={lecture.id}
               data-testid={`student-lectures-item-${lecture.id}`}

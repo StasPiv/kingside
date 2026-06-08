@@ -25,6 +25,17 @@ vi.mock('../api', () => ({
   },
 }));
 
+// MyLecturesPage читает `useAuth()` ради ownerId-фильтра (KS-3999).
+// Мокаем как авторизованного пользователя с тем же id, что у `ownerId`
+// лекций в тестовых данных.
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'u-1', username: 'test', email: null },
+    loading: false,
+  }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 import { MyLecturesPage } from './MyLecturesPage';
 
 function makeLecture(
@@ -66,6 +77,24 @@ async function openMenuFor(id: string) {
     ).toBeTruthy(),
   );
 }
+
+describe('<MyLecturesPage> KS-3999: фильтр ownerId === currentUserId', () => {
+  it('показывает только лекции авторизованного пользователя, не из allowlist', async () => {
+    const own = makeLecture('mine', 'scheduled');
+    const someone = makeLecture('foreign', 'scheduled');
+    (someone as { ownerId: string }).ownerId = 'other-user';
+    apiGet.mockResolvedValueOnce({
+      items: [own, someone],
+      total: 2,
+      hasMore: false,
+    });
+    renderWithProviders(<MyLecturesPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('my-lectures-item-mine')).toBeTruthy(),
+    );
+    expect(screen.queryByTestId('my-lectures-item-foreign')).toBeNull();
+  });
+});
 
 describe('<MyLecturesPage> KS-3998: ⋮-меню по статусам', () => {
   it('scheduled: пункты Open / Start / Settings / Copy link / Delete', async () => {

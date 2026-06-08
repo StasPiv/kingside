@@ -41,6 +41,7 @@ import { ApiError } from '../ApiError';
 import { useMyLectures } from '../hooks/useMyLectures';
 import { LectureSettingsModal } from '../components/lecture/LectureSettingsModal';
 import { ScheduleLectureModal } from '../components/profile/ScheduleLectureModal';
+import { useAuth } from '../context/AuthContext';
 
 type StatusFilter = LectureStatus | 'all';
 type VisibilityFilter = LectureVisibility | 'all';
@@ -163,19 +164,31 @@ export function MyLecturesPage() {
   // тренер может задать её позже.
   const [showCreateLecture, setShowCreateLecture] = useState(false);
 
-  const { items, total, hasMore, loading, loadingMore, error, loadMore, refetch } =
+  const { user } = useAuth();
+  const { items, hasMore, loading, loadingMore, error, loadMore, refetch } =
     useMyLectures({
       status: statusFilter === 'all' ? undefined : statusFilter,
     });
 
+  // KS-3999. Тренерский раздел показывает только собственные лекции
+  // пользователя — без записей из allowlist'а (`GET /my/lectures`
+  // возвращает и те, и другие). Фильтр клиентский: backend KS-3937
+  // не различает роли. `user === null` (гость) — список пустой; в
+  // этом разделе вообще не должно ничего отображаться без
+  // авторизации.
+  const ownedItems = useMemo(() => {
+    if (!user) return [];
+    return items.filter((l) => l.ownerId === user.id);
+  }, [items, user]);
+
   // Клиентский фильтр по видимости. Backend KS-3937 фильтрует только
   // по `status`; visibility — допфильтр поверх загруженного списка,
   // чтобы не плодить серверных параметров до отдельного запроса
-  // владельца. На больших списках в эпике C можно перенести на сервер.
+  // владельца. На больших списках можно перенести на сервер.
   const filteredItems = useMemo(() => {
-    if (visibilityFilter === 'all') return items;
-    return items.filter((l) => l.visibility === visibilityFilter);
-  }, [items, visibilityFilter]);
+    if (visibilityFilter === 'all') return ownedItems;
+    return ownedItems.filter((l) => l.visibility === visibilityFilter);
+  }, [ownedItems, visibilityFilter]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -385,12 +398,18 @@ export function MyLecturesPage() {
             renderLabel={(opt) => t(opt.labelKey, opt.fallback)}
           />
         </div>
-        {total != null && (
+        {/* KS-3999. Backend KS-3937 отдаёт суммарный `total` (owner +
+            allowlist). После фильтра по `ownerId` суммарный счёт
+            теряет смысл — показываем число строк, которые реально
+            видны тренеру с учётом ownerId-фильтра. */}
+        {!loading && !error && (
           <span
             data-testid="my-lectures-total"
             className="my-lectures-page__total"
           >
-            {t('myLectures.total', '{{count}} total', { count: total })}
+            {t('myLectures.total', '{{count}} total', {
+              count: filteredItems.length,
+            })}
           </span>
         )}
       </div>
