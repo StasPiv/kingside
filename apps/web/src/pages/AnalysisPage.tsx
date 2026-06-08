@@ -2868,19 +2868,70 @@ function AnalysisPageInner({
     // вместе с деревом без переиндексации у зрителя. currentGlobalIndex
     // — прямой индекс из reducer'а; у зрителя `searchInHistory(history,
     // idx)` всегда находит нужный узел.
-    const tree = serializeLiveTree({
-      history,
-      initialFen,
-      initialAnnotations,
-      annotationsByIndex,
-      headers: pgnHeaders,
-      title: analysisTitle,
-    });
-    liveBroadcast.emitStatePatch({
-      tree,
-      currentGlobalIndex: currentMove ? currentMove.globalIndex : undefined,
-      orientation: boardOrientation,
-    });
+    //
+    // KS-3927. Раньше `serializeLiveTree` + `emitStatePatch` шли
+    // синхронно в эффекте — на каждом ходе тренера это блокировало
+    // основной поток на десятки/сотни миллисекунд (JSON-сериализация
+    // всего дерева + реакция дебаунсера). `MediaRecorder` в Chrome
+    // при долгой блокировке основного потока теряет аудио-кадры —
+    // на записи лекции в этот момент звучал провал примерно в
+    // полсекунды. Откладываем работу до «простоя» основного потока
+    // через `requestIdleCallback` (с резервным `setTimeout(0)` для
+    // браузеров без поддержки), чтобы кодировщик микрофона не
+    // успевал недополучать кадры. Если до простоя успел прийти
+    // следующий ход — `cleanup` отменит отложенный эмит, и
+    // отправлен будет уже следующий, более актуальный снимок
+    // дерева (внутри `emitStatePatch` дополнительно стоит дебаунс
+    // 500 мс на сетевую отправку).
+    type IdleCb = (deadline: { timeRemaining: () => number }) => void;
+    const ricFn: ((cb: IdleCb) => number) | undefined =
+      typeof window !== 'undefined'
+        ? (window as unknown as { requestIdleCallback?: (cb: IdleCb) => number })
+            .requestIdleCallback
+        : undefined;
+    const cicFn: ((id: number) => void) | undefined =
+      typeof window !== 'undefined'
+        ? (window as unknown as { cancelIdleCallback?: (id: number) => void })
+            .cancelIdleCallback
+        : undefined;
+    let idleHandle: number | null = null;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const runEmit = () => {
+      const tree = serializeLiveTree({
+        history,
+        initialFen,
+        initialAnnotations,
+        annotationsByIndex,
+        headers: pgnHeaders,
+        title: analysisTitle,
+      });
+      liveBroadcast.emitStatePatch({
+        tree,
+        currentGlobalIndex: currentMove ? currentMove.globalIndex : undefined,
+        orientation: boardOrientation,
+      });
+    };
+    if (ricFn) {
+      idleHandle = ricFn(() => {
+        idleHandle = null;
+        runEmit();
+      });
+    } else {
+      timeoutHandle = setTimeout(() => {
+        timeoutHandle = null;
+        runEmit();
+      }, 0);
+    }
+    return () => {
+      if (idleHandle !== null && cicFn) {
+        cicFn(idleHandle);
+        idleHandle = null;
+      }
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+    };
   }, [
     isViewerLive,
     liveBroadcast,
