@@ -539,6 +539,418 @@
 }
 
 /* ============================================================
+ * ADR-119 §8 эпик E (KS-3980): MyLecturesPage.
+ *
+ * Сценарии:
+ *  - ≥ 720px: таблица-сетка. Колонки: статус, заголовок, видимость,
+ *    дата, действия. Заголовок-строка с подписями колонок.
+ *  - < 720px: карточки одна под другой; в каждой карточке те же
+ *    данные, но столбиком, с подписями полей.
+ *  - Фильтры — segment-control из кнопок.
+ *  - Контекстное меню — выпадающий popover из тех же токенов.
+ * ============================================================ */
+
+.my-lectures-page {
+  padding: 24px 20px 48px;
+  max-width: 1100px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.my-lectures-page__title {
+  margin: 0 0 20px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ---------- Фильтры ---------- */
+.my-lectures-page__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 20px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.my-lectures-page__filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.my-lectures-page__filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Segment-control — линейка кнопок-сегментов. */
+.my-lectures-page__segment {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.my-lectures-page__segment-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.my-lectures-page__segment-btn:hover {
+  color: var(--text-primary);
+}
+
+.my-lectures-page__segment-btn--active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-fg);
+  border-color: var(--tab-active-border);
+  font-weight: 600;
+}
+
+.my-lectures-page__total {
+  align-self: flex-end;
+  font-size: 13px;
+  color: var(--text-muted);
+  padding-bottom: 6px;
+}
+
+/* ---------- Состояния: loading / error / empty ---------- */
+.my-lectures-page__state {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 8px;
+}
+
+.my-lectures-page__state--error {
+  border-color: var(--ov-danger-25);
+  background: var(--ov-danger-10);
+  color: var(--danger-strong);
+}
+
+.my-lectures-page__retry {
+  margin-left: 12px;
+  padding: 6px 14px;
+  border: 1px solid var(--accent-primary);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.my-lectures-page__retry:hover {
+  background: var(--accent-soft);
+}
+
+/* ---------- Список ---------- */
+.my-lectures-page__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* На широких экранах строки выстраиваются в таблицу-сетку.
+   Колонки: status / title / visibility / date / actions. */
+@media (min-width: 720px) {
+  .my-lectures-page__list {
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    overflow: hidden;
+    gap: 0;
+    background: var(--bg-surface);
+  }
+}
+
+.my-lectures-page__list-head {
+  display: none;
+}
+
+@media (min-width: 720px) {
+  .my-lectures-page__list-head {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr) 110px 180px 56px;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    background: var(--bg-muted);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+}
+
+.my-lectures-page__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+@media (min-width: 720px) {
+  .my-lectures-page__item {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr) 110px 180px 56px;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    background: transparent;
+  }
+  .my-lectures-page__item:last-child {
+    border-bottom: none;
+  }
+  .my-lectures-page__item:hover {
+    background: var(--ov-white-04);
+  }
+}
+
+.my-lectures-page__cell {
+  min-width: 0;
+}
+
+/* Подписи к полям видны только на mobile-карточках. */
+.my-lectures-page__cell-label {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: 6px;
+}
+
+@media (min-width: 720px) {
+  .my-lectures-page__cell-label {
+    display: none;
+  }
+}
+
+.my-lectures-page__title-link {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+  word-break: break-word;
+}
+.my-lectures-page__title-link:hover {
+  color: var(--accent-primary);
+  text-decoration: underline;
+}
+
+.my-lectures-page__visibility {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.my-lectures-page__date {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Действия — ⋮-кнопка с popover'ом. */
+.my-lectures-page__actions {
+  position: relative;
+}
+
+@media (min-width: 720px) {
+  .my-lectures-page__actions {
+    justify-self: end;
+  }
+}
+
+.my-lectures-page__menu-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.my-lectures-page__menu-btn:hover,
+.my-lectures-page__menu-btn[aria-expanded='true'] {
+  background: var(--ov-white-08);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+.my-lectures-page__menu-btn:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.my-lectures-page__menu-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 200px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+}
+
+.my-lectures-page__menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.my-lectures-page__menu-item:hover {
+  background: var(--accent-soft);
+}
+.my-lectures-page__menu-item--danger {
+  color: var(--danger-strong);
+}
+.my-lectures-page__menu-item--danger:hover {
+  background: var(--ov-danger-15);
+}
+
+/* ---------- «Загрузить ещё» ---------- */
+.my-lectures-page__load-more-wrap {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.my-lectures-page__load-more {
+  min-height: 40px;
+  padding: 8px 24px;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.my-lectures-page__load-more:hover:not(:disabled) {
+  background: var(--ov-white-05);
+  border-color: var(--border-strong);
+}
+.my-lectures-page__load-more:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+/* ---------- Toast ---------- */
+.my-lectures-page__toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 18px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  font-size: 14px;
+  z-index: 100;
+  max-width: calc(100vw - 32px);
+  animation: my-lectures-toast-in 0.18s ease-out;
+}
+
+@keyframes my-lectures-toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .my-lectures-page__toast {
+    animation: none;
+  }
+}
+
+/* ---------- Секции (B03 ученический режим, задел) ----------
+   Frontend в KS-3968/KS-3969 может разбить список на блоки
+   «Идут / Запланированные / Записи» — для этого предусмотрен
+   класс-обёртка `.my-lectures-page__section` с заголовком. */
+.my-lectures-page__section {
+  margin-bottom: 24px;
+}
+
+.my-lectures-page__section:last-child {
+  margin-bottom: 0;
+}
+
+.my-lectures-page__section-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ---------- Mobile отступы ---------- */
+@media (max-width: 480px) {
+  .my-lectures-page {
+    padding: 16px 12px 32px;
+  }
+  .my-lectures-page__title {
+    font-size: 20px;
+    margin-bottom: 14px;
+  }
+  .my-lectures-page__filters {
+    margin-bottom: 14px;
+  }
+}
+
+/* ============================================================
  * Конец ADR-119 §8 эпик E layout-блок.
  * ============================================================ */
 

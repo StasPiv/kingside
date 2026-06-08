@@ -22,10 +22,11 @@
  *   - «Поделиться» — копирует `/lectures/:id`-ссылку в буфер.
  *   - «Удалить» — `DELETE /lectures/:id` с подтверждением.
  *
- * Стили — из общего `lecture.css` (бейджи статуса — KS-3984;
- * табличная разметка появится в KS-3980, до этого верстаем
- * минимально-функционально через inline-стили — это не цель
- * задачи, на стили layout подключится отдельной задачей).
+ * KS-3980 (ADR-119 §8 эпик E): стили перенесены в `lecture.css`.
+ * Desktop — grid-таблица, mobile — карточки. Фильтры — segment
+ * control (кнопки). Подписи колонок в шапке таблицы видны только
+ * на ≥720px; в карточках на mobile используются inline-подписи
+ * перед значениями.
  */
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -43,7 +44,11 @@ import { LectureToolsSettingsModal } from '../components/lecture/LectureToolsSet
 type StatusFilter = LectureStatus | 'all';
 type VisibilityFilter = LectureVisibility | 'all';
 
-const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; labelKey: string; fallback: string }> = [
+const STATUS_OPTIONS: ReadonlyArray<{
+  value: StatusFilter;
+  labelKey: string;
+  fallback: string;
+}> = [
   { value: 'all', labelKey: 'myLectures.filters.statusAll', fallback: 'All' },
   { value: 'scheduled', labelKey: 'lectureLanding.badge.scheduled', fallback: 'Scheduled' },
   { value: 'live', labelKey: 'lectureLanding.badge.live', fallback: 'Live' },
@@ -63,7 +68,7 @@ const VISIBILITY_OPTIONS: ReadonlyArray<{
 ];
 
 function statusBadgeClass(status: LectureStatus): string {
-  return `lecture-status-badge lecture-status-badge--${status}`;
+  return `lecture-status-badge lecture-status-badge--${status} lecture-status-badge--sm`;
 }
 
 function formatDate(iso: string | null): string {
@@ -82,6 +87,60 @@ function formatDate(iso: string | null): string {
 interface StartLectureResponse {
   lecture: LectureSummary;
   liveAnalysis: { id: string; slug: string; url: string } | null;
+}
+
+/**
+ * Универсальный segment-control. Кнопка с `aria-pressed` —
+ * наиболее прозрачная семантика для группы взаимоисключающих
+ * фильтров без перезагрузки страницы.
+ */
+function SegmentControl<T extends string>({
+  testId,
+  ariaLabel,
+  options,
+  value,
+  onChange,
+  renderLabel,
+}: {
+  testId: string;
+  ariaLabel: string;
+  options: ReadonlyArray<{ value: T; labelKey: string; fallback: string }>;
+  value: T;
+  onChange: (next: T) => void;
+  renderLabel: (opt: {
+    value: T;
+    labelKey: string;
+    fallback: string;
+  }) => string;
+}) {
+  return (
+    <div
+      className="my-lectures-page__segment"
+      role="group"
+      aria-label={ariaLabel}
+      data-testid={testId}
+    >
+      {options.map((opt) => {
+        const isActive = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            aria-pressed={isActive}
+            onClick={() => onChange(opt.value)}
+            data-testid={`${testId}-opt-${opt.value}`}
+            data-active={isActive ? 'true' : 'false'}
+            className={
+              'my-lectures-page__segment-btn' +
+              (isActive ? ' my-lectures-page__segment-btn--active' : '')
+            }
+          >
+            {renderLabel(opt)}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export function MyLecturesPage() {
@@ -250,62 +309,45 @@ export function MyLecturesPage() {
       className="my-lectures-page"
       data-testid="my-lectures-page"
       data-mode="coach"
-      style={{ padding: 16, maxWidth: 1100, margin: '0 auto' }}
     >
-      <h1 style={{ marginBottom: 16 }}>
+      <h1 className="my-lectures-page__title">
         {t('myLectures.title', 'My lectures')}
       </h1>
 
       <div
         className="my-lectures-page__filters"
         data-testid="my-lectures-filters"
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 12,
-          marginBottom: 16,
-        }}
       >
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 13, opacity: 0.8 }}>
+        <div className="my-lectures-page__filter-group">
+          <span className="my-lectures-page__filter-label">
             {t('myLectures.filters.status', 'Status')}
           </span>
-          <select
-            data-testid="my-lectures-status-filter"
+          <SegmentControl
+            testId="my-lectures-status-filter"
+            ariaLabel={t('myLectures.filters.status', 'Status')}
+            options={STATUS_OPTIONS}
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            style={{ padding: '4px 8px' }}
-          >
-            {STATUS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {t(opt.labelKey, opt.fallback)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 13, opacity: 0.8 }}>
+            onChange={setStatusFilter}
+            renderLabel={(opt) => t(opt.labelKey, opt.fallback)}
+          />
+        </div>
+        <div className="my-lectures-page__filter-group">
+          <span className="my-lectures-page__filter-label">
             {t('myLectures.filters.visibility', 'Visibility')}
           </span>
-          <select
-            data-testid="my-lectures-visibility-filter"
+          <SegmentControl
+            testId="my-lectures-visibility-filter"
+            ariaLabel={t('myLectures.filters.visibility', 'Visibility')}
+            options={VISIBILITY_OPTIONS}
             value={visibilityFilter}
-            onChange={(e) =>
-              setVisibilityFilter(e.target.value as VisibilityFilter)
-            }
-            style={{ padding: '4px 8px' }}
-          >
-            {VISIBILITY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {t(opt.labelKey, opt.fallback)}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={setVisibilityFilter}
+            renderLabel={(opt) => t(opt.labelKey, opt.fallback)}
+          />
+        </div>
         {total != null && (
           <span
             data-testid="my-lectures-total"
-            style={{ alignSelf: 'center', opacity: 0.7, fontSize: 13 }}
+            className="my-lectures-page__total"
           >
             {t('myLectures.total', '{{count}} total', { count: total })}
           </span>
@@ -313,7 +355,10 @@ export function MyLecturesPage() {
       </div>
 
       {loading && (
-        <div data-testid="my-lectures-loading" style={{ padding: 24 }}>
+        <div
+          data-testid="my-lectures-loading"
+          className="my-lectures-page__state"
+        >
           {t('common.loading', 'Loading…')}
         </div>
       )}
@@ -321,8 +366,7 @@ export function MyLecturesPage() {
       {error && !loading && (
         <div
           data-testid="my-lectures-error"
-          className="error"
-          style={{ padding: 24 }}
+          className="my-lectures-page__state my-lectures-page__state--error"
         >
           {t(
             'myLectures.error',
@@ -331,7 +375,7 @@ export function MyLecturesPage() {
           <button
             type="button"
             onClick={refetch}
-            style={{ marginLeft: 12 }}
+            className="my-lectures-page__retry"
             data-testid="my-lectures-retry"
           >
             {t('common.retry', 'Retry')}
@@ -342,7 +386,7 @@ export function MyLecturesPage() {
       {!loading && !error && filteredItems.length === 0 && (
         <div
           data-testid="my-lectures-empty"
-          style={{ padding: 24, textAlign: 'center', opacity: 0.7 }}
+          className="my-lectures-page__state"
         >
           {t(
             'myLectures.empty',
@@ -355,8 +399,16 @@ export function MyLecturesPage() {
         <ul
           className="my-lectures-page__list"
           data-testid="my-lectures-list"
-          style={{ listStyle: 'none', padding: 0, margin: 0 }}
         >
+          {/* Шапка таблицы — на mobile скрыта (display: none). */}
+          <li className="my-lectures-page__list-head" aria-hidden="true">
+            <span>{t('myLectures.col.status', 'Status')}</span>
+            <span>{t('myLectures.col.title', 'Title')}</span>
+            <span>{t('myLectures.col.visibility', 'Visibility')}</span>
+            <span>{t('myLectures.col.date', 'Date')}</span>
+            <span />
+          </li>
+
           {filteredItems.map((lecture) => {
             const isMenuOpen = openMenuId === lecture.id;
             const isBusy = busyLectureId === lecture.id;
@@ -365,49 +417,46 @@ export function MyLecturesPage() {
                 key={lecture.id}
                 data-testid={`my-lectures-item-${lecture.id}`}
                 data-status={lecture.status}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '12px 0',
-                  borderBottom: '1px solid #eee',
-                  position: 'relative',
-                  flexWrap: 'wrap',
-                }}
+                className="my-lectures-page__item"
               >
-                <span className={statusBadgeClass(lecture.status)}>
-                  {t(
-                    `lectureLanding.badge.${lecture.status}`,
-                    lecture.status,
-                  )}
+                <span className="my-lectures-page__cell">
+                  <span className={statusBadgeClass(lecture.status)}>
+                    {t(
+                      `lectureLanding.badge.${lecture.status}`,
+                      lecture.status,
+                    )}
+                  </span>
                 </span>
-                <Link
-                  to={`/lectures/${encodeURIComponent(lecture.id)}`}
-                  style={{
-                    flex: '1 1 240px',
-                    fontWeight: 600,
-                    color: 'inherit',
-                    textDecoration: 'none',
-                  }}
-                  data-testid={`my-lectures-title-${lecture.id}`}
-                >
-                  {lecture.title}
-                </Link>
+                <span className="my-lectures-page__cell">
+                  <Link
+                    to={`/lectures/${encodeURIComponent(lecture.id)}`}
+                    className="my-lectures-page__title-link"
+                    data-testid={`my-lectures-title-${lecture.id}`}
+                  >
+                    {lecture.title}
+                  </Link>
+                </span>
                 <span
-                  style={{ fontSize: 12, opacity: 0.7, minWidth: 90 }}
+                  className="my-lectures-page__cell my-lectures-page__visibility"
                   data-testid={`my-lectures-visibility-${lecture.id}`}
                 >
+                  <span className="my-lectures-page__cell-label">
+                    {t('myLectures.col.visibility', 'Visibility')}
+                  </span>
                   {lecture.visibility}
                 </span>
                 <span
-                  style={{ fontSize: 12, opacity: 0.7, minWidth: 150 }}
+                  className="my-lectures-page__cell my-lectures-page__date"
                   data-testid={`my-lectures-date-${lecture.id}`}
                 >
+                  <span className="my-lectures-page__cell-label">
+                    {t('myLectures.col.date', 'Date')}
+                  </span>
                   {formatDate(
                     lecture.scheduledAt ?? lecture.startedAt ?? lecture.createdAt,
                   )}
                 </span>
-                <div style={{ position: 'relative' }}>
+                <div className="my-lectures-page__actions">
                   <button
                     type="button"
                     aria-label={t('common.actions', 'Actions')}
@@ -418,10 +467,7 @@ export function MyLecturesPage() {
                       setOpenMenuId(isMenuOpen ? null : lecture.id)
                     }
                     data-testid={`my-lectures-menu-${lecture.id}`}
-                    style={{
-                      padding: '4px 10px',
-                      cursor: isBusy ? 'wait' : 'pointer',
-                    }}
+                    className="my-lectures-page__menu-btn"
                   >
                     ⋮
                   </button>
@@ -429,16 +475,7 @@ export function MyLecturesPage() {
                     <div
                       role="menu"
                       data-testid={`my-lectures-menu-popover-${lecture.id}`}
-                      style={{
-                        position: 'absolute',
-                        right: 0,
-                        top: '100%',
-                        background: '#fff',
-                        boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-                        borderRadius: 6,
-                        minWidth: 180,
-                        zIndex: 5,
-                      }}
+                      className="my-lectures-page__menu-popover"
                       onMouseLeave={() => setOpenMenuId(null)}
                     >
                       <button
@@ -449,7 +486,7 @@ export function MyLecturesPage() {
                           setOpenMenuId(null);
                           navigate(`/lectures/${encodeURIComponent(lecture.id)}`);
                         }}
-                        style={menuItemStyle}
+                        className="my-lectures-page__menu-item"
                       >
                         {t('myLectures.actions.open', 'Open')}
                       </button>
@@ -462,7 +499,7 @@ export function MyLecturesPage() {
                             setOpenMenuId(null);
                             void handleStart(lecture);
                           }}
-                          style={menuItemStyle}
+                          className="my-lectures-page__menu-item"
                         >
                           {t('myLectures.actions.start', 'Start')}
                         </button>
@@ -476,7 +513,7 @@ export function MyLecturesPage() {
                             setOpenMenuId(null);
                             void handleForceEnd(lecture);
                           }}
-                          style={menuItemStyle}
+                          className="my-lectures-page__menu-item"
                         >
                           {t('myLectures.actions.forceEnd', 'End broadcast')}
                         </button>
@@ -492,7 +529,7 @@ export function MyLecturesPage() {
                             setOpenMenuId(null);
                             setSettingsLecture(lecture);
                           }}
-                          style={menuItemStyle}
+                          className="my-lectures-page__menu-item"
                         >
                           {t('myLectures.actions.settings', 'Settings')}
                         </button>
@@ -505,7 +542,7 @@ export function MyLecturesPage() {
                           setOpenMenuId(null);
                           void handleShare(lecture);
                         }}
-                        style={menuItemStyle}
+                        className="my-lectures-page__menu-item"
                       >
                         {t('myLectures.actions.share', 'Copy link')}
                       </button>
@@ -517,7 +554,7 @@ export function MyLecturesPage() {
                           setOpenMenuId(null);
                           void handleDelete(lecture);
                         }}
-                        style={{ ...menuItemStyle, color: '#b00020' }}
+                        className="my-lectures-page__menu-item my-lectures-page__menu-item--danger"
                       >
                         {t('myLectures.actions.delete', 'Delete')}
                       </button>
@@ -531,13 +568,13 @@ export function MyLecturesPage() {
       )}
 
       {hasMore && !loading && !error && (
-        <div style={{ textAlign: 'center', marginTop: 16 }}>
+        <div className="my-lectures-page__load-more-wrap">
           <button
             type="button"
             disabled={loadingMore}
             onClick={loadMore}
             data-testid="my-lectures-load-more"
-            style={{ padding: '8px 18px' }}
+            className="my-lectures-page__load-more"
           >
             {loadingMore
               ? t('common.loading', 'Loading…')
@@ -551,17 +588,7 @@ export function MyLecturesPage() {
           role="status"
           aria-live="polite"
           data-testid="my-lectures-toast"
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: '#333',
-            color: '#fff',
-            padding: '10px 16px',
-            borderRadius: 6,
-            zIndex: 10,
-          }}
+          className="my-lectures-page__toast"
         >
           {toast}
         </div>
@@ -581,14 +608,3 @@ export function MyLecturesPage() {
     </div>
   );
 }
-
-const menuItemStyle: React.CSSProperties = {
-  display: 'block',
-  width: '100%',
-  textAlign: 'left',
-  padding: '8px 14px',
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  fontSize: 14,
-};
