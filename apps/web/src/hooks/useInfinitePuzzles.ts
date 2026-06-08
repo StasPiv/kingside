@@ -317,9 +317,19 @@ export function useInfinitePuzzles(
         setPuzzles(res.data ?? []);
         setNextCursor(res.nextCursor ?? null);
         cursorRef.current = res.nextCursor ?? null;
-        // KS-3672: backend (KS-3666) кладёт total в каждый ответ.
-        // Если поле не пришло (старый backend / 4xx) — оставляем null.
-        setTotal(typeof res.total === 'number' ? res.total : null);
+        // KS-3672: backend (KS-3666) кладёт total в первый ответ.
+        // KS-3892 / KS-3891: с этой ревизии backend возвращает
+        // `total` ТОЛЬКО на первой странице, чтобы не делать тяжёлый
+        // COUNT(*) на каждом скроллинге. На последующих страницах
+        // приходит null — но `loadMore` ниже total не трогает, так
+        // что прежнее значение сохраняется. Здесь обновляем total
+        // ТОЛЬКО если backend вернул число; null/отсутствие поля
+        // означает «не пересчитывал» — оставляем последнее известное
+        // значение (на свежий фильтр reset выше уже выставил `null`,
+        // и UI показывает fallback «N+»).
+        if (typeof res.total === 'number') {
+          setTotal(res.total);
+        }
       })
       .catch((e) => {
         if (mySeq !== seqRef.current) return;

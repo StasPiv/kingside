@@ -178,6 +178,42 @@ describe('useInfinitePuzzles KS-2561', () => {
     expect(result.current.total).toBeNull();
   });
 
+  it('KS-3892: loadMore с total=null НЕ перезаписывает total с первой страницы', async () => {
+    // KS-3891 backend: COUNT(*) только на первой странице, чтобы не
+    // делать тяжёлый запрос на каждом скроллинге. На последующих
+    // страницах backend возвращает `total: null`. Хук должен сохранить
+    // значение, пришедшее с первой страницы.
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_A],
+      nextCursor: 'cur1',
+      total: 137,
+    });
+    const { result } = renderHook(() => useInfinitePuzzles({ limit: 1 }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.total).toBe(137);
+
+    // Вторая страница: backend (после KS-3891) присылает total: null.
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_B],
+      nextCursor: 'cur2',
+      total: null,
+    });
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.loadingMore).toBe(false));
+    expect(result.current.puzzles.map((p) => p.id)).toEqual(['a', 'b']);
+    // Главное: счётчик «Найдено: 137» не сбросился.
+    expect(result.current.total).toBe(137);
+
+    // Третья страница: total: null (вариант — поле вообще отсутствует).
+    apiGet.mockResolvedValueOnce({
+      data: [PUZZLE_C],
+      nextCursor: null,
+    });
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.loadingMore).toBe(false));
+    expect(result.current.total).toBe(137);
+  });
+
   it('KS-3672: смена фильтров → total сбрасывается до прихода нового ответа', async () => {
     apiGet.mockResolvedValueOnce({
       data: [PUZZLE_A],
