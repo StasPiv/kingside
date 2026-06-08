@@ -255,6 +255,10 @@ export function useLectureAudioPublisher({
   const deviceIdRef = useRef<string>('');
   if (!deviceIdRef.current) deviceIdRef.current = generateDeviceId();
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // KS-3927: PerformanceObserver на longtask — включается на время
+  // записи, чтобы вычислить, что блокирует основной поток и приводит
+  // к потере аудио-кадров `MediaRecorder`.
+  const longtaskObserverRef = useRef<PerformanceObserver | null>(null);
 
   // Свежие props в замыканиях.
   const lectureIdRef = useRef(lectureId);
@@ -407,6 +411,16 @@ export function useLectureAudioPublisher({
     setIsRecording(false);
     setAudioTrack(null);
     stopHeartbeat();
+    // KS-3927: останавливаем longtask-наблюдатель — за пределами
+    // записи его держать смысла нет.
+    if (longtaskObserverRef.current) {
+      try {
+        longtaskObserverRef.current.disconnect();
+      } catch {
+        /* ignore */
+      }
+      longtaskObserverRef.current = null;
+    }
     clearLock(deviceIdRef.current);
   }, [stopHeartbeat]);
 
@@ -509,6 +523,54 @@ export function useLectureAudioPublisher({
       throw err;
     }
     recorderRef.current = recorder;
+
+    // KS-3927 диагностика. При записи лекции `MediaRecorder` в Chrome
+    // может терять аудиокадры, если основной поток заблокирован
+    // надолго. Чтобы найти конкретного виновника без DevTools-
+    // профиля, во время записи слушаем longtask-события и пишем их
+    // в журнал браузера. Виновник будет виден тренеру в консоли
+    // сразу после хода. PerformanceObserver сам по себе ничего не
+    // стоит, наблюдатель будет остановлен в `teardown()`.
+    try {
+      if (
+        typeof window !== 'undefined' &&
+        typeof window.PerformanceObserver !== 'undefined'
+      ) {
+        const supportedTypes = (
+          window.PerformanceObserver as unknown as {
+            supportedEntryTypes?: string[];
+          }
+        ).supportedEntryTypes;
+        if (
+          Array.isArray(supportedTypes) &&
+          supportedTypes.indexOf('longtask') >= 0
+        ) {
+          const observer = new window.PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              if (entry.duration < 50) continue;
+              console.warn(
+                '[lecture-audio-longtask]',
+                `${Math.round(entry.duration)}ms`,
+                {
+                  startTime: Math.round(entry.startTime),
+                  name: entry.name,
+                  attribution: (
+                    entry as unknown as { attribution?: unknown[] }
+                  ).attribution,
+                },
+              );
+            }
+          });
+          observer.observe({ entryTypes: ['longtask'] });
+          longtaskObserverRef.current = observer;
+        }
+      }
+    } catch (err) {
+      console.info(
+        '[useLectureAudioPublisher] PerformanceObserver(longtask) unsupported',
+        err,
+      );
+    }
 
     recorder.ondataavailable = (ev) => {
       const blob = ev.data;
