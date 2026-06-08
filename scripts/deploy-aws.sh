@@ -1295,6 +1295,73 @@ if $DEPLOY_API; then
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
     _perf_stamp "api_ecr_login_done"
 
+    # KS-3709: предварительное скачивание board-recognition моделей в build-context.
+    # Раньше Dockerfile выполнял `RUN node download-model.mjs ...` внутри docker build,
+    # но RUN-шаг изолирован от учётных данных AWS хоста (`~/.aws/credentials` не
+    # пробрасывается в build-контейнер), и все три скачивания падали с
+    # CredentialsProviderError, `exit 0` глотал ошибку, манифест оставался пустым —
+    # запекание не работало (см. KS-3709 замер от 2026-06-08 для коммита 83755265).
+    #
+    # Решение: качаем модели на хосте через `aws s3 cp` (учётные данные kingside-ci
+    # уже есть на builder-хосте) и кладём в `apps/api/.bake-cache/`. Dockerfile
+    # (production-стадия) делает `COPY apps/api/.bake-cache/ /var/cache/board-recog/`
+    # вместо `RUN bake ...` — никаких сетевых вызовов внутри сборки.
+    #
+    # Версии (BAKE_RECOG_VERSION / BAKE_FINDBOARDS_VERSION) ОБЯЗАНЫ совпадать с
+    # BOARD_RECOG_MODEL_VERSION / BOARD_FINDBOARDS_MODEL_VERSION в task-def kingside-api
+    # production (см. API_EXTRA_ENV ниже и task-def env). Иначе entrypoint увидит
+    # mismatch baked vs env и в рантайме всё равно пойдёт качать из S3. Версии
+    # меняются раз в недели-месяцы; при смене — обновить в трёх местах: тут,
+    # в production env task-def, в default-ARG `apps/api/Dockerfile`.
+    BAKE_RECOG_VERSION="2.7.0"
+    BAKE_FINDBOARDS_VERSION="1.1.0"
+    BAKE_BUCKET="kingside-ml"
+    BAKE_REGION="eu-central-1"
+    BAKE_CACHE_DIR="$REPO_DIR/apps/api/.bake-cache"
+    echo "[api] Pre-baking board-recognition models into $BAKE_CACHE_DIR ..."
+    rm -rf "$BAKE_CACHE_DIR"
+    mkdir -p "$BAKE_CACHE_DIR"
+    BAKE_RECOG_OK=0
+    BAKE_FIND_OK=0
+    # board-recog классификатор (обязательный)
+    if aws s3 cp --no-progress --region "$BAKE_REGION" \
+            "s3://${BAKE_BUCKET}/models/board-recog/v${BAKE_RECOG_VERSION}/model.onnx" \
+            "$BAKE_CACHE_DIR/model.onnx" 2>&1; then
+        echo "  baked board-recog: model.onnx ($(stat -c %s "$BAKE_CACHE_DIR/model.onnx") bytes)"
+        BAKE_RECOG_OK=1
+    else
+        echo "  WARN: failed to pre-bake board-recog v$BAKE_RECOG_VERSION — entrypoint fallback to runtime S3 download"
+        rm -f "$BAKE_CACHE_DIR/model.onnx"
+    fi
+    # corner-detector (опциональный — для старых версий может отсутствовать в S3)
+    if aws s3 cp --no-progress --region "$BAKE_REGION" \
+            "s3://${BAKE_BUCKET}/models/board-recog/v${BAKE_RECOG_VERSION}/corner_detector.onnx" \
+            "$BAKE_CACHE_DIR/corner_detector.onnx" 2>&1; then
+        echo "  baked corner-detector: corner_detector.onnx ($(stat -c %s "$BAKE_CACHE_DIR/corner_detector.onnx") bytes)"
+    else
+        echo "  INFO: corner_detector v$BAKE_RECOG_VERSION not in S3 — opencv fallback in runtime"
+        rm -f "$BAKE_CACHE_DIR/corner_detector.onnx"
+    fi
+    # find-boards (обязательный для двухстадийного пайплайна)
+    if aws s3 cp --no-progress --region "$BAKE_REGION" \
+            "s3://${BAKE_BUCKET}/models/board-recog/findboards_v${BAKE_FINDBOARDS_VERSION}/model.onnx" \
+            "$BAKE_CACHE_DIR/findboards.onnx" 2>&1; then
+        echo "  baked find-boards: findboards.onnx ($(stat -c %s "$BAKE_CACHE_DIR/findboards.onnx") bytes)"
+        BAKE_FIND_OK=1
+    else
+        echo "  WARN: failed to pre-bake find-boards v$BAKE_FINDBOARDS_VERSION — entrypoint fallback to runtime S3 download"
+        rm -f "$BAKE_CACHE_DIR/findboards.onnx"
+    fi
+    # Манифест запечённых версий — entrypoint сверяет с env-versions и пропускает
+    # S3-загрузку, если совпало.
+    {
+        [ "$BAKE_RECOG_OK" = "1" ] && echo "BOARD_RECOG_MODEL_VERSION=${BAKE_RECOG_VERSION}"
+        [ "$BAKE_FIND_OK"  = "1" ] && echo "BOARD_FINDBOARDS_MODEL_VERSION=${BAKE_FINDBOARDS_VERSION}"
+    } > "$BAKE_CACHE_DIR/baked-versions"
+    echo "  baked-versions manifest:"
+    sed 's/^/    /' "$BAKE_CACHE_DIR/baked-versions"
+    _perf_stamp "api_bake_models_done"
+
     echo "[api] Building Docker image (tag=$DEPLOY_SHA)..."
     # KS-2441: --progress=plain + tee в /tmp + извлечение npm error при failure.
     # Раньше при неудачной сборке наружу через MCP-deploy улетали последние ~1KB
