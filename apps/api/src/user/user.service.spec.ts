@@ -642,6 +642,67 @@ describe('UserService', () => {
     });
   });
 
+  // ─── KS-3938 / ADR-118 §2.4.1: searchUsers ────────────────────────
+
+  describe('searchUsers (KS-3938)', () => {
+    beforeEach(() => {
+      prisma.user.findMany = jest.fn();
+    });
+
+    it('пустой q → возвращает [] без запроса в БД', async () => {
+      const r = await service.searchUsers('', 20);
+      expect(r).toEqual([]);
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+    });
+
+    it('только пробелы в q → возвращает [] без запроса в БД', async () => {
+      const r = await service.searchUsers('   ', 20);
+      expect(r).toEqual([]);
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+    });
+
+    it('фильтр: case-insensitive contains + exclude bot/synthetic/test/hidden + sort + limit', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValueOnce([]);
+      await service.searchUsers('  Alice ', 15);
+      const args = (prisma.user.findMany as jest.Mock).mock.calls[0][0];
+      expect(args).toEqual({
+        where: {
+          username: { contains: 'Alice', mode: 'insensitive' },
+          isBot: false,
+          isSynthetic: false,
+          isTestAccount: false,
+          isHidden: false,
+        },
+        orderBy: { username: 'asc' },
+        take: 15,
+        select: { id: true, username: true },
+      });
+    });
+
+    it('маппинг: возвращает {id, username, displayName=username}, без avatarUrl', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValueOnce([
+        { id: 'u-1', username: 'alice' },
+        { id: 'u-2', username: 'bob' },
+      ]);
+      const r = await service.searchUsers('a', 20);
+      expect(r).toEqual([
+        { id: 'u-1', username: 'alice', displayName: 'alice' },
+        { id: 'u-2', username: 'bob', displayName: 'bob' },
+      ]);
+      expect((r[0] as Record<string, unknown>).avatarUrl).toBeUndefined();
+    });
+
+    it('фильтрует пользователей без username (null) из результата', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValueOnce([
+        { id: 'u-1', username: 'alice' },
+        { id: 'u-2', username: null },
+      ]);
+      const r = await service.searchUsers('a', 20);
+      expect(r).toHaveLength(1);
+      expect(r[0].username).toBe('alice');
+    });
+  });
+
   // ─── KS-3935 / ADR-118: cleanup lecture_access_grants ────────────
 
   describe('cleanupAccessGrantsForDeletedUser (KS-3935)', () => {

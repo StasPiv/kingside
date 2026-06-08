@@ -514,6 +514,62 @@ export class UserService {
   }
 
   /**
+   * KS-3938 / ADR-118 §2.4.1. Поиск пользователей по username для
+   * UI «найти ученика» при добавлении в allowlist restricted-лекции.
+   *
+   * Контракт:
+   *   - `q` — обрезается до `trim()`, при пустой строке возвращаем
+   *     `[]` без запроса в БД;
+   *   - case-insensitive substring-поиск по username
+   *     (`mode: 'insensitive'` в Prisma);
+   *   - фильтр служебных аккаунтов: `isBot=false`, `isSynthetic=false`,
+   *     `isTestAccount=false`, `isHidden=false` (тот же набор, что
+   *     KS-2256 применяет к публичным выдачам);
+   *   - sort: username ASC (стабильно для UI);
+   *   - limit — управляется вызывающим (controller'ом).
+   *
+   * Возвращаем `[{ id, username, displayName, avatarUrl? }]`. В схеме
+   * User полей `displayName`/`avatarUrl` пока нет — `displayName`
+   * падает на `username`, `avatarUrl` — undefined. Когда профили
+   * расширятся, маппинг поправится.
+   */
+  async searchUsers(
+    q: string,
+    limit: number,
+  ): Promise<
+    Array<{
+      id: string;
+      username: string;
+      displayName: string;
+      avatarUrl?: string;
+    }>
+  > {
+    const query = (q ?? '').trim();
+    if (query.length === 0) return [];
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        username: { contains: query, mode: 'insensitive' },
+        isBot: false,
+        isSynthetic: false,
+        isTestAccount: false,
+        isHidden: false,
+      },
+      orderBy: { username: 'asc' },
+      take: limit,
+      select: { id: true, username: true },
+    });
+
+    return users
+      .filter((u) => u.username !== null)
+      .map((u) => ({
+        id: u.id,
+        username: u.username as string,
+        displayName: u.username as string,
+      }));
+  }
+
+  /**
    * KS-3935 / ADR-118 §3.2 cleanup. При удалении пользователя нужно
    * убрать его allowlist-доступы из `lecture_access_grants`: поле
    * `subject_id` хранит UUID полиморфно (для `'user'` — User.id, для

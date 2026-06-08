@@ -11,6 +11,7 @@ import { UserNavStatsController } from './user-nav-stats.controller';
 import { UserNavStatsService } from './user-nav-stats.service';
 import { SavedFiltersController } from './saved-filters/saved-filters.controller';
 import { SavedFiltersService } from './saved-filters/saved-filters.service';
+import { UserSearchRateLimitGuard } from './user-search-rate-limit.guard';
 import { EcoService } from '../game/eco.service';
 import { AuthModule } from '../auth/auth.module';
 import { WorkshopModule } from '../workshop/workshop.module';
@@ -53,6 +54,9 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
     UserPreferencesService,
     UserNavStatsService,
     SavedFiltersService,
+    // KS-3938 / ADR-118 §2.4.1: 30/min per-user rate-limit для
+    // `GET /users/search`.
+    UserSearchRateLimitGuard,
   ],
   // KS-2929 экспортировал SavedFiltersService для legacy proxy в
   // AnalysisModule. KS-2943 (Phase D1) этот proxy удалил —

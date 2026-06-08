@@ -19,6 +19,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { SearchGamesDto } from './dto/search-games.dto';
 import { SetUsernameDto } from './dto/set-username.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UserSearchRateLimitGuard } from './user-search-rate-limit.guard';
 import { AuthService } from '../auth/auth.service';
 import { ExternalChessService } from '../workshop/external-chess.service';
 import { BadRequestException } from '@nestjs/common';
@@ -35,6 +36,31 @@ export class UserController {
   @Get('check-username')
   checkUsername(@Query('username') username: string) {
     return this.userService.checkUsername(username);
+  }
+
+  /**
+   * KS-3938 / ADR-118 §2.4.1. Поиск пользователей по username для UI
+   * «найти ученика» при добавлении в allowlist restricted-лекции.
+   * Open для любого JWT (профили уже публичные через `/coaches/:username`).
+   *
+   * Query:
+   *   - `q` — подстрока для case-insensitive поиска по username.
+   *     Пустая или отсутствует → возвращаем `[]` (бессмысленный
+   *     запрос лучше не дёргать БД).
+   *   - `limit` — 1..50 default 20.
+   *
+   * Rate-limit: 30 req/min per user via `UserSearchRateLimitGuard`.
+   * Возвращает `[{id, username, displayName, avatarUrl?}]` —
+   * минимальные публичные поля. Скрытые/служебные/боты исключены.
+   */
+  @UseGuards(JwtAuthGuard, UserSearchRateLimitGuard)
+  @Get('search')
+  search(
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const lim = Math.min(Math.max(Number(limit) || 20, 1), 50);
+    return this.userService.searchUsers(q ?? '', lim);
   }
 
   @UseGuards(JwtAuthGuard)
