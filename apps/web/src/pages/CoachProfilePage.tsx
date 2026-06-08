@@ -203,9 +203,10 @@ export function CoachProfilePage() {
   // «Завершить лекцию» в карточке live-секции. Нужно, чтобы пометить
   // конкретную карточку как «в процессе» и не дать кликнуть дважды.
   const [endingLectureId, setEndingLectureId] = useState<string | null>(null);
-  // KS-3802/KS-3803: модальное окно «Запланировать / Изменить
-  // лекцию». editingLecture !== null → режим редактирования.
-  const [showSchedule, setShowSchedule] = useState(false);
+  // KS-3802 → KS-3995. Create-режим переехал на `/lectures` (кнопка
+  // в `MyLecturesPage`). Здесь остаётся только edit-режим для
+  // существующих scheduled-лекций — карточка с действиями «Изменить»
+  // вызывает `setEditingLecture`.
   const [editingLecture, setEditingLecture] = useState<{
     id: string;
     title: string;
@@ -217,28 +218,9 @@ export function CoachProfilePage() {
     setScheduleToast(message);
     window.setTimeout(() => setScheduleToast(null), 3500);
   }, []);
-  const handleScheduleCreated = useCallback(
-    (lecture: { id: string; title: string; scheduledAt: string }) => {
-      // KS-3803: обновляем секцию «Расписание» оптимистично — без
-      // лишнего GET-запроса. Сортировка по scheduledAt ASC: вставляем
-      // новую лекцию в правильное место.
-      setScheduledLectures((prev) => {
-        const next = [...prev, lecture as CoachLecture];
-        next.sort((a, b) => {
-          const ta = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
-          const tb = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
-          return ta - tb;
-        });
-        return next;
-      });
-      showToast(
-        t('lectureSchedule.create.successToast', '«{{title}}» scheduled', {
-          title: lecture.title,
-        }),
-      );
-    },
-    [showToast, t],
-  );
+  // KS-3995: создание лекции переехало в `/lectures` (MyLecturesPage).
+  // На профиле тренера сохраняем только редактирование уже
+  // запланированных карточек через `handleLectureEdited`.
   const handleLectureEdited = useCallback(
     (lecture: { id: string; title: string; scheduledAt: string }) => {
       // KS-3803: обновляем карточку в state. Сортируем заново — у
@@ -619,26 +601,27 @@ export function CoachProfilePage() {
             >
               {t('coachProfile.openPlayerProfile', 'Open player profile')}
             </Link>
-            {/* KS-3802: «Запланировать лекцию» — только на своей
-                странице. По клику открывается ScheduleLectureModal с
-                полями title/description/scheduledAt. */}
+            {/* KS-3802 → KS-3995. Кнопка «Запланировать лекцию» на
+                публичном профиле тренера снята: путь создания
+                переехал в кабинет `/lectures` (KS-3995). На своей
+                странице владелец видит ссылку «My lectures», которая
+                ведёт туда. */}
             {isOwnPage && (
-              <button
-                type="button"
+              <Link
+                to="/lectures"
                 className="coach-profile-schedule-btn"
-                data-testid="coach-profile-schedule-btn"
-                onClick={() => setShowSchedule(true)}
+                data-testid="coach-profile-my-lectures-link"
                 style={{
                   padding: '6px 14px',
                   borderRadius: 6,
                   border: '1px solid #1976d2',
                   background: '#1976d2',
                   color: '#fff',
-                  cursor: 'pointer',
+                  textDecoration: 'none',
                 }}
               >
-                {t('lectureSchedule.create.button', 'Schedule a lecture')}
-              </button>
+                {t('coachProfile.myLecturesLink', 'My lectures')}
+              </Link>
             )}
           </div>
         </div>
@@ -670,12 +653,8 @@ export function CoachProfilePage() {
         </div>
       )}
 
-      {showSchedule && (
-        <ScheduleLectureModal
-          onClose={() => setShowSchedule(false)}
-          onSaved={handleScheduleCreated}
-        />
-      )}
+      {/* KS-3995: create-режим переехал на /lectures; здесь оставлен
+          только edit-режим существующих scheduled-лекций. */}
       {editingLecture && (
         <ScheduleLectureModal
           onClose={() => setEditingLecture(null)}

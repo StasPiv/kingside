@@ -40,6 +40,7 @@ import { api } from '../api';
 import { ApiError } from '../ApiError';
 import { useMyLectures } from '../hooks/useMyLectures';
 import { LectureSettingsModal } from '../components/lecture/LectureSettingsModal';
+import { ScheduleLectureModal } from '../components/profile/ScheduleLectureModal';
 
 type StatusFilter = LectureStatus | 'all';
 type VisibilityFilter = LectureVisibility | 'all';
@@ -155,6 +156,12 @@ export function MyLecturesPage() {
     useState<LectureSummary | null>(null);
   const [busyLectureId, setBusyLectureId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // KS-3995 / ADR-119 §7. Кнопка «Создать лекцию» в кабинете
+  // открывает `ScheduleLectureModal` в create-режиме (с обязательным
+  // полем `scheduledAt` и блоками доступа/инструментов). Лекция
+  // создаётся без `analysisId` — стартовая позиция стандартная,
+  // тренер может задать её позже.
+  const [showCreateLecture, setShowCreateLecture] = useState(false);
 
   const { items, total, hasMore, loading, loadingMore, error, loadMore, refetch } =
     useMyLectures({
@@ -310,9 +317,43 @@ export function MyLecturesPage() {
       data-testid="my-lectures-page"
       data-mode="coach"
     >
-      <h1 className="my-lectures-page__title">
-        {t('myLectures.title', 'My lectures')}
-      </h1>
+      <div
+        className="my-lectures-page__header"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
+        <h1
+          className="my-lectures-page__title"
+          style={{ margin: 0 }}
+        >
+          {t('myLectures.title', 'My lectures')}
+        </h1>
+        {/* KS-3995 / ADR-119 §7. Кнопка «Создать лекцию» —
+            тренерский путь создания scheduled-лекции из кабинета.
+            Открывает `ScheduleLectureModal` (create-mode) с полями
+            scheduledAt + visibility + инструменты. */}
+        <button
+          type="button"
+          data-testid="my-lectures-create-lecture"
+          onClick={() => setShowCreateLecture(true)}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 8,
+            border: 'none',
+            background: '#1976d2',
+            color: '#fff',
+            cursor: 'pointer',
+            fontSize: 14,
+          }}
+        >
+          {t('myLectures.createLecture', 'Schedule a lecture')}
+        </button>
+      </div>
 
       <div
         className="my-lectures-page__filters"
@@ -602,6 +643,26 @@ export function MyLecturesPage() {
           onSaved={() => {
             setSettingsLecture(null);
             refetch();
+          }}
+        />
+      )}
+
+      {/* KS-3995 / ADR-119 §7. Окно создания scheduled-лекции из
+          кабинета `/lectures`. После успешного создания обновляем
+          список и закрываем окно. Лекция стартует с дефолтной
+          стартовой позиции — `analysisId` не передаём. */}
+      {showCreateLecture && (
+        <ScheduleLectureModal
+          onClose={() => setShowCreateLecture(false)}
+          onSaved={() => {
+            setShowCreateLecture(false);
+            refetch();
+            showToast(
+              t(
+                'myLectures.createLectureToast',
+                'Lecture scheduled',
+              ),
+            );
           }}
         />
       )}

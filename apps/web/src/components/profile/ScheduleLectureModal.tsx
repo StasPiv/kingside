@@ -1,20 +1,36 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  ALL_LECTURE_DISABLED_TOOLS,
+  type LectureDisabledTool,
+  type LectureVisibility,
+} from '@kingside/shared';
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
+import { LectureAccessPanel } from '../lecture/LectureAccessPanel';
 
 /**
- * KS-3802 / KS-3803 / ADR-113 §4 крупная задача 3. Модальное окно
- * «Запланировать лекцию» (`create`) или «Изменить лекцию» (`edit`).
+ * KS-3802 / KS-3803 / ADR-113 §4 крупная задача 3 + KS-3995 /
+ * ADR-119 §7. Модальное окно «Запланировать лекцию» (`create`) или
+ * «Изменить лекцию» (`edit`).
  *
- *  - `create` (без `initial`) делает POST /lectures { title,
- *    description?, scheduledAt } без `analysisId`. Backend (KS-3784/85)
- *    создаёт лекцию в `status='scheduled'` и возвращает
+ *  - `create` (без `initial`) делает
+ *      POST /lectures { title, description?, scheduledAt,
+ *                       visibility, disabledTools }
+ *    без `analysisId`. Backend (KS-3784/85) создаёт лекцию в
+ *    `status='scheduled'` и возвращает
  *    `{ lecture, liveAnalysis: null }`.
- *  - `edit` (с `initial`) делает PATCH /lectures/:id { title?,
- *    description?, scheduledAt? } по контракту KS-3800. Allowed только
- *    для `status='scheduled'` — backend сам отобьёт ошибкой если
- *    лекция уже ушла в live/recorded.
+ *  - `edit` (с `initial`) делает
+ *      PATCH /lectures/:id { title?, description?, scheduledAt? }
+ *    по контракту KS-3800. Allowed только для `status='scheduled'`.
+ *
+ * KS-3995. В режиме `create` теперь доступны те же поля, что в
+ * `CreateLectureModal` (KS-3911/3973): visibility через
+ * `LectureAccessPanel` (compact, без allowlist'а — лекция ещё не
+ * создана) и чекбоксы «Доступ учеников к инструментам». В режиме
+ * `edit` оба блока скрыты — для изменения visibility/инструментов
+ * у уже созданной лекции тренер использует `LectureSettingsModal`
+ * (KS-3974).
  */
 
 export interface ScheduledLectureSummary {
@@ -79,6 +95,22 @@ export function ScheduleLectureModal({
     return defaultScheduledAtLocal();
   }, [initial?.scheduledAt]);
   const [scheduledAtLocal, setScheduledAtLocal] = useState(initialScheduled);
+
+  // KS-3995. visibility и disabledTools поля видимы только в
+  // create-режиме. В edit-режиме источник этих полей — отдельная
+  // модалка `LectureSettingsModal` (KS-3974), чтобы не дублировать
+  // правки в двух местах.
+  const [visibility, setVisibility] =
+    useState<LectureVisibility>('public');
+  const [enabledTools, setEnabledTools] = useState<LectureDisabledTool[]>(
+    () => [...ALL_LECTURE_DISABLED_TOOLS],
+  );
+  const toggleTool = (tool: LectureDisabledTool) => {
+    setEnabledTools((prev) =>
+      prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool],
+    );
+  };
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,10 +143,20 @@ export function ScheduleLectureModal({
         );
         onSaved(resp);
       } else {
+        // KS-3995. На создание шлём полный набор полей, как у
+        // `CreateLectureModal`: visibility и disabledTools здесь
+        // тоже задаются. UI хранит «разрешённые» инструменты —
+        // backend ждёт инверсию.
+        const disabledTools: LectureDisabledTool[] =
+          ALL_LECTURE_DISABLED_TOOLS.filter(
+            (tool) => !enabledTools.includes(tool),
+          );
         const resp = await api.post<CreateLectureResponse>('/lectures', {
           title: trimmedTitle,
           ...(description.trim() ? { description: description.trim() } : {}),
           scheduledAt: parsedScheduledAt!.toISOString(),
+          visibility,
+          disabledTools,
         });
         onSaved(resp.lecture);
       }
@@ -214,8 +256,73 @@ export function ScheduleLectureModal({
               value={scheduledAtLocal}
               onChange={(e) => setScheduledAtLocal(e.target.value)}
               disabled={submitting}
+              data-testid="schedule-lecture-scheduled-at-input"
             />
           </div>
+
+          {/* KS-3995. В create-режиме показываем secции tools/access
+              чтобы тренер с одной формой задал всё нужное. В edit —
+              эти блоки скрыты: для них есть отдельная модалка
+              `LectureSettingsModal`. */}
+          {!isEdit && (
+            <>
+              <div
+                className="import-field"
+                data-testid="schedule-lecture-tools-section"
+              >
+                <label style={{ marginBottom: 6 }}>
+                  {t('lectureTools.sectionTitle', 'Student tools access')}
+                </label>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  {ALL_LECTURE_DISABLED_TOOLS.map((tool) => {
+                    const checked = enabledTools.includes(tool);
+                    return (
+                      <label
+                        key={tool}
+                        htmlFor={`schedule-lecture-tool-${tool}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          cursor: submitting ? 'not-allowed' : 'pointer',
+                          fontWeight: 'normal',
+                        }}
+                      >
+                        <input
+                          id={`schedule-lecture-tool-${tool}`}
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleTool(tool)}
+                          disabled={submitting}
+                          data-testid={`schedule-lecture-tool-${tool}`}
+                        />
+                        <span>{t(`lectureTools.tools.${tool}`)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div
+                className="import-field"
+                data-testid="schedule-lecture-access-section"
+              >
+                <LectureAccessPanel
+                  lectureId={null}
+                  visibility={visibility}
+                  onVisibilityChange={setVisibility}
+                  hideAllowlist
+                  disabled={submitting}
+                />
+              </div>
+            </>
+          )}
 
           {error && (
             <div className="error" style={{ marginTop: 8 }}>
@@ -227,6 +334,7 @@ export function ScheduleLectureModal({
             className="import-btn"
             onClick={() => void handleSubmit()}
             disabled={submitDisabled}
+            data-testid="schedule-lecture-submit"
             style={{ marginTop: 12 }}
           >
             {submitting
