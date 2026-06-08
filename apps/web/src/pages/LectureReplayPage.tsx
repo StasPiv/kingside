@@ -588,6 +588,28 @@ export function LectureReplayPage() {
                    book / меню действий). Пустой массив или
                    отсутствие поля — ученикам доступен полный набор. */
                 studentToolsPolicy={lecture.disabledTools ?? []}
+                /* KS-3912 / ADR-117 B02: пункт меню «Настройки лекции
+                   для учеников» доступен тренеру и в записи. После
+                   успешного PATCH обновляем локальный snapshot
+                   `lecture.disabledTools`, чтобы повторное открытие
+                   меню видело свежие настройки. Cancelled не
+                   фильтруем здесь — `buildAnalysisActionsItems` сам
+                   спрячет пункт в этом статусе. */
+                lectureSettings={{
+                  lectureId: lecture.id,
+                  disabledTools: lecture.disabledTools ?? [],
+                  status: lecture.status,
+                }}
+                onLectureSettingsSaved={(disabledTools) =>
+                  setState((prev) =>
+                    prev.kind === 'ready'
+                      ? {
+                          ...prev,
+                          lecture: { ...prev.lecture, disabledTools },
+                        }
+                      : prev,
+                  )
+                }
               />
             )}
           </div>

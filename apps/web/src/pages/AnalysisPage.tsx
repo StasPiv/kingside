@@ -89,6 +89,7 @@ import { useLectureLookupBySlug } from '../hooks/useLectureLookupBySlug';
 // KS-3789 / ADR-113 §4 эпик 1: модальное окно создания лекции
 // и мгновенного запуска live-сессии.
 import { CreateLectureModal } from '../components/analysis/CreateLectureModal';
+import { LectureToolsSettingsModal } from '../components/lecture/LectureToolsSettingsModal';
 // KS-3747 / ADR-111 §7: проп `liveSession` — AnalysisPage становится
 // просмотрщиком трансляции (mode='viewer') или подключается к ней как
 // автор (mode='owner', фактическое использование — KS-3748). Хук тот же
@@ -370,6 +371,31 @@ interface AnalysisPageProps {
    *    state-patch применяется через тот же `pending`-механизм.
    */
   replay?: ReplayLectureProps;
+  /**
+   * KS-3912 / ADR-117 §3 (шаг B02). Контекст редактирования настроек
+   * лекции тренером прямо из меню действий AnalysisPage. Когда поле
+   * задано, в `AnalysisActionsMenu` появляется пункт «Настройки лекции
+   * для учеников»; клик открывает модальное окно с теми же чекбоксами,
+   * что в `CreateLectureModal` (B01), предзаполненными `disabledTools`.
+   * Сохранение делает `PATCH /lectures/:id`.
+   *
+   * Видимость пункта: показывается всегда когда есть `lectureSettings`
+   * и `lectureSettings.status !== 'cancelled'`. На `publicMode` не
+   * смотрим — для тренера-владельца настройки доступны и в replay-
+   * режиме (recorded), и при просмотре собственной трансляции
+   * (через viewer-side UI). Родитель сам решает, в каких сценариях
+   * пробрасывать пропс (см. `LectureReplayPage`).
+   *
+   * `onLectureSettingsSaved` — опциональный колбэк после успешного
+   * PATCH'а; родитель обновляет свой локальный snapshot, чтобы
+   * следующее открытие модалки видело актуальное значение.
+   */
+  lectureSettings?: {
+    lectureId: string;
+    disabledTools: LectureDisabledTool[];
+    status: 'scheduled' | 'live' | 'recorded' | 'cancelled';
+  };
+  onLectureSettingsSaved?: (disabledTools: LectureDisabledTool[]) => void;
 }
 
 /**
@@ -530,6 +556,20 @@ export type BuildItemsContext = {
    * Пункты удаляются из списка полностью (без disabled-placeholder).
    */
   studentToolsPolicy?: LectureDisabledTool[];
+  /**
+   * KS-3912 / ADR-117 B02. Контекст пункта «Настройки лекции для
+   * учеников». Когда передан — `buildAnalysisActionsItems` добавляет
+   * пункт `lecture-tools-settings` в группу `broadcast`. На
+   * `publicMode` не смотрим (тренер вправе менять настройки и в
+   * recorded-режиме, в котором AnalysisPage сидит в `publicMode=true`).
+   * Статус `cancelled` исключаем — отменённую лекцию редактировать
+   * незачем.
+   */
+  ownerLectureSettings?: {
+    status: 'scheduled' | 'live' | 'recorded' | 'cancelled';
+    /** Callback на клик; открывает модальное окно у родителя. */
+    onOpen: () => void;
+  };
 };
 
 export function buildAnalysisActionsItems(
@@ -573,6 +613,7 @@ export function buildAnalysisActionsItems(
     onLiveStop,
     onStartLecture,
     studentToolsPolicy,
+    ownerLectureSettings,
   } = ctx;
 
   const isOwner =
@@ -837,6 +878,27 @@ export function buildAnalysisActionsItems(
     }
   }
 
+  // KS-3912 / ADR-117 B02. Пункт «Настройки лекции для учеников» —
+  // тренер открывает модальное окно с чекбоксами и сохраняет PATCH
+  // /lectures/:id. Виден когда родитель прокинул контекст лекции и
+  // статус не `cancelled`. На `publicMode` не смотрим (модалка нужна
+  // и в recorded-режиме внутри LectureReplayPage, где AnalysisPage
+  // сидит в publicMode=true). На guest-state не реагируем — пункт
+  // показывается только когда родитель в принципе передал
+  // `ownerLectureSettings`, а это бывает только при наличии лекции
+  // у тренера.
+  if (
+    ownerLectureSettings &&
+    ownerLectureSettings.status !== 'cancelled'
+  ) {
+    items.push({
+      id: 'lecture-tools-settings',
+      group: 'broadcast',
+      label: t('lectureTools.modalTitle', 'Lecture settings for students'),
+      onClick: ownerLectureSettings.onOpen,
+    });
+  }
+
   // KS-3910 / ADR-117 C06. Финальная фильтрация по политике
   // инструментов для учеников лекции. Применяется ТОЛЬКО при
   // `publicMode=true` (viewer-live лекции). Маппинг id'шников
@@ -871,6 +933,8 @@ export function AnalysisPage({
   liveSession,
   replay,
   studentToolsPolicy,
+  lectureSettings,
+  onLectureSettingsSaved,
 }: AnalysisPageProps = {}) {
   const params = useParams<{
     id?: string;
@@ -902,6 +966,8 @@ export function AnalysisPage({
       liveSession={liveSession}
       replay={replay}
       studentToolsPolicy={studentToolsPolicy}
+      lectureSettings={lectureSettings}
+      onLectureSettingsSaved={onLectureSettingsSaved}
     />
   );
 }
@@ -913,6 +979,8 @@ function AnalysisPageInner({
   liveSession,
   replay,
   studentToolsPolicy,
+  lectureSettings,
+  onLectureSettingsSaved,
 }: AnalysisPageProps) {
   // KS-3182: embedded === read-only во всех точках, где `publicMode`
   // используется как гейт мутаций (autosave, share, title-edit,
@@ -2727,6 +2795,25 @@ function AnalysisPageInner({
   // `useLectureLookupBySlug` (она не успевала за `MediaRecorder` —
   // чанки не отправлялись).
   const [activeLectureId, setActiveLectureId] = useState<string | null>(null);
+  // KS-3912 / ADR-117 B02. Открыто ли модальное окно «Настройки лекции
+  // для учеников». Сам snapshot настроек (lectureId, disabledTools,
+  // status) приходит из пропса `lectureSettings` — родитель
+  // (LectureReplayPage) формирует его из ответа `GET /lectures/:id`.
+  const [lectureSettingsOpen, setLectureSettingsOpen] = useState(false);
+  // Локальная копия `disabledTools` для оптимистического UI: после
+  // успешного PATCH в модалке здесь обновляется значение, чтобы
+  // следующее открытие модалки сразу видело свежее состояние и
+  // фильтрация items меню (студент-политика, если что) не падала.
+  const [lectureSettingsDisabledTools, setLectureSettingsDisabledTools] =
+    useState<LectureDisabledTool[] | null>(null);
+  // Сбрасываем локальную копию при смене источника (другая лекция).
+  useEffect(() => {
+    setLectureSettingsDisabledTools(null);
+  }, [lectureSettings?.lectureId]);
+  const effectiveLectureDisabledTools =
+    lectureSettingsDisabledTools ??
+    lectureSettings?.disabledTools ??
+    null;
   const handleStartLecture = useCallback(() => {
     if (!analysisId) return;
     setShowCreateLecture(true);
@@ -3768,6 +3855,16 @@ function AnalysisPageInner({
                     onStartLecture: handleStartLecture,
                     // KS-3910 / ADR-117 C06.
                     studentToolsPolicy,
+                    // KS-3912 / ADR-117 B02. Контекст пункта «Настройки
+                    // лекции для учеников». Родитель прокидывает
+                    // `lectureSettings`; локально открываем модальное
+                    // окно через state `lectureSettingsOpen`.
+                    ownerLectureSettings: lectureSettings
+                      ? {
+                          status: lectureSettings.status,
+                          onOpen: () => setLectureSettingsOpen(true),
+                        }
+                      : undefined,
                   })}
                 />
               ) : (
@@ -4048,6 +4145,28 @@ function AnalysisPageInner({
           выходит рано без analysisId); внутри окна POST /lectures с
           analysisId создаёт лекцию + LiveAnalysis за один запрос,
           в onCreated подключаем готовую сессию к live-режиму. */}
+      {/* KS-3912 / ADR-117 B02. Модальное окно «Настройки лекции для
+          учеников» — открыто по клику на пункт `lecture-tools-settings`
+          в меню действий. Источник `lectureId` и `initialDisabledTools`
+          — пропс `lectureSettings`. После успешного PATCH обновляем
+          локальный snapshot, чтобы повторное открытие сразу видело
+          актуальное состояние, и зовём `onLectureSettingsSaved`,
+          чтобы родитель синхронизировал свою копию (например,
+          `lecture.disabledTools` в `LectureReplayPage`). */}
+      {lectureSettingsOpen && lectureSettings && (
+        <LectureToolsSettingsModal
+          lectureId={lectureSettings.lectureId}
+          initialDisabledTools={
+            effectiveLectureDisabledTools ?? lectureSettings.disabledTools
+          }
+          onClose={() => setLectureSettingsOpen(false)}
+          onSaved={(disabledTools) => {
+            setLectureSettingsDisabledTools(disabledTools);
+            onLectureSettingsSaved?.(disabledTools);
+          }}
+        />
+      )}
+
       {showCreateLecture && analysisId && (
         <CreateLectureModal
           analysisId={analysisId}
