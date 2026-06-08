@@ -23,9 +23,14 @@ RUN cd apps/broadcast-service && npx nest build
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies.
 # KS-3924 (deploy-perf): `prisma` CLI перенесена в `devDependencies`
 # пакета `packages/broadcasts-db`, в runtime broadcast-service не нужна
-# (миграции на pre-rollout идут отдельным образом). После prune из
-# production-tree уходят `prisma` + `@prisma/engines` + транзитивы.
-RUN npm prune --omit=dev --ignore-scripts
+# (миграции на pre-rollout идут отдельным образом). Однако `@prisma/client`
+# объявляет `prisma` как optional peer-dep → npm помечает её `devOptional`
+# и `--omit=dev` её НЕ убирает. Добавлен `--omit=optional`: убирает
+# prisma + @prisma/engines + транзитивы (`@prisma/config`, `effect`,
+# `fast-check`, `jiti`, `c12` и т.п.) + платформ-специфичные нативные
+# модули, не нужные в linux/x64-контейнере. На api-образе эта правка
+# дала −66 МБ сжатых, api здоров. См. KS-3924 коммит 89f389fb.
+RUN npm prune --omit=dev --omit=optional --ignore-scripts
 
 FROM base AS production
 WORKDIR /app
