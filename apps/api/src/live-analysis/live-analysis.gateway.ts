@@ -22,6 +22,7 @@ import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
 import {
   LiveAnalysisEvents,
+  type LectureToolsChangedEvent,
   type LiveAnalysisClosedEvent,
   type LiveAnalysisCloseReason,
   type LiveAnalysisErrorEvent,
@@ -101,6 +102,17 @@ export class LiveAnalysisGateway
   private readonly logger = new Logger(LiveAnalysisGateway.name);
   private subRedis: Redis | null = null;
 
+  /**
+   * KS-3902 / ADR-117 §3. Имя Redis-канала, в который `LecturesService.update`
+   * публикует событие изменения `disabledTools` идущей лекции
+   * (KS-3901). Канал — служебный pub/sub между REST-сервером и
+   * WS-шлюзом; имя WS-события для клиентов — `LiveAnalysisEvents.LECTURE_TOOLS`.
+   * Захардкожено строкой намеренно, чтобы не вводить кросс-модульную
+   * зависимость `LiveAnalysisGateway → LecturesService` ради одной константы.
+   */
+  private static readonly CHANNEL_LECTURE_TOOLS_CHANGED =
+    'lecture-tools-changed';
+
   /** Throttle для эмита `viewers` per-slug: не чаще раза в N мс. */
   private static readonly VIEWERS_THROTTLE_MS = 2000;
   private readonly viewersThrottle = new Map<string, number>();
@@ -153,32 +165,60 @@ export class LiveAnalysisGateway
         LiveAnalysisService.CHANNEL_MOVE,
         LiveAnalysisService.CHANNEL_SYNC,
         LiveAnalysisService.CHANNEL_CLOSED,
+        LiveAnalysisGateway.CHANNEL_LECTURE_TOOLS_CHANGED,
       )
       .catch((e) =>
         this.logger.error(`Redis subscribe failed: ${(e as Error).message}`),
       );
 
-    this.subRedis.on('message', (channel: string, message: string) => {
-      try {
-        const payload = JSON.parse(message);
-        if (!payload || typeof payload.slug !== 'string') return;
-        const room = this.roomFor(payload.slug);
-        if (channel === LiveAnalysisService.CHANNEL_MOVE) {
-          this.server.to(room).emit(LiveAnalysisEvents.MOVE, payload as LiveAnalysisMoveEvent);
-        } else if (channel === LiveAnalysisService.CHANNEL_SYNC) {
-          this.server.to(room).emit(LiveAnalysisEvents.SYNC, payload as LiveAnalysisSyncSnapshot);
-        } else if (channel === LiveAnalysisService.CHANNEL_CLOSED) {
-          this.server
-            .to(room)
-            .emit(LiveAnalysisEvents.CLOSED, payload as LiveAnalysisClosedEvent);
-          this.server.in(room).socketsLeave(room);
-        }
-      } catch (e) {
-        this.logger.warn(`pub/sub parse error: ${(e as Error).message}`);
-      }
-    });
+    this.subRedis.on('message', (channel: string, message: string) =>
+      this.handleRedisMessage(channel, message),
+    );
 
     this.logger.log('Subscribed to Redis live-analysis channels');
+  }
+
+  /**
+   * KS-3902. Маршрутизация служебных pub/sub-сообщений в WS-комнаты.
+   * Выделено из `onModuleInit` отдельным методом для тестируемости —
+   * unit-тесты вызывают его напрямую без поднятия ioredis.
+   */
+  private handleRedisMessage(channel: string, message: string): void {
+    try {
+      const payload = JSON.parse(message);
+      if (!payload || typeof payload.slug !== 'string') return;
+      const room = this.roomFor(payload.slug);
+      if (channel === LiveAnalysisService.CHANNEL_MOVE) {
+        this.server.to(room).emit(LiveAnalysisEvents.MOVE, payload as LiveAnalysisMoveEvent);
+      } else if (channel === LiveAnalysisService.CHANNEL_SYNC) {
+        this.server.to(room).emit(LiveAnalysisEvents.SYNC, payload as LiveAnalysisSyncSnapshot);
+      } else if (channel === LiveAnalysisService.CHANNEL_CLOSED) {
+        this.server
+          .to(room)
+          .emit(LiveAnalysisEvents.CLOSED, payload as LiveAnalysisClosedEvent);
+        this.server.in(room).socketsLeave(room);
+      } else if (
+        channel === LiveAnalysisGateway.CHANNEL_LECTURE_TOOLS_CHANGED
+      ) {
+        // KS-3902 / ADR-117 §3. Ретрансляция: REST-сервер обновил
+        // `Lecture.disabledTools` идущей live-лекции (KS-3901) →
+        // публикует payload `{ slug, lectureId, disabledTools }` в
+        // служебный Redis-канал → этот шлюз превращает в WS-событие
+        // `live-analysis:lecture-tools` для всех подписчиков комнаты.
+        // Доп. валидация payload: `disabledTools` должен быть массивом
+        // (отсекаем сломанные сообщения, чтобы клиенты не получали
+        // мусор).
+        if (!Array.isArray(payload.disabledTools)) return;
+        this.server
+          .to(room)
+          .emit(
+            LiveAnalysisEvents.LECTURE_TOOLS,
+            payload as LectureToolsChangedEvent,
+          );
+      }
+    } catch (e) {
+      this.logger.warn(`pub/sub parse error: ${(e as Error).message}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

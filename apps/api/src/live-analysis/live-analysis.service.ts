@@ -864,6 +864,15 @@ export class LiveAnalysisService implements OnModuleInit {
       throw new NotFoundException(`Live analysis "${slug}" not available`);
     }
     const state = await this.readRedisState(row.id);
+    // KS-3902 / ADR-117 §2. Если эта live-сессия привязана к лекции
+    // — забираем её текущий `disabledTools`, чтобы новый подписчик
+    // сразу применил запрет/разблокировку инструментов учеников
+    // без отдельного REST-запроса. Прод-индекс `lectures.liveAnalysisId`
+    // даёт быструю выборку single-row (`findFirst` + select).
+    const lecture = await this.prisma.lecture.findFirst({
+      where: { liveAnalysisId: row.id },
+      select: { disabledTools: true },
+    });
     return {
       slug,
       startingFen: state?.startingFen ?? row.startingFen ?? LiveAnalysisService.INITIAL_FEN,
@@ -874,6 +883,12 @@ export class LiveAnalysisService implements OnModuleInit {
       // KS-3775: сквозной индекс узла дерева автора.
       ...(state?.currentGlobalIndex !== undefined && {
         currentGlobalIndex: state.currentGlobalIndex,
+      }),
+      // KS-3902 / ADR-117. Снапшот политики инструментов лекции
+      // (опциональный — отсутствует для трансляций без привязки).
+      ...(lecture && {
+        lectureDisabledTools:
+          lecture.disabledTools as LiveAnalysisSyncSnapshot['lectureDisabledTools'],
       }),
     };
   }

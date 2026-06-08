@@ -604,6 +604,48 @@ describe('LiveAnalysisService', () => {
       });
       await expect(service.getSyncSnapshot('s')).rejects.toThrow(NotFoundException);
     });
+
+    it('KS-3902: для трансляции без привязки к лекции lectureDisabledTools отсутствует', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        status: 'active',
+        startingFen: null,
+      });
+      // По дефолту prisma.lecture.findFirst → null (нет привязки).
+      const snap = await service.getSyncSnapshot('s');
+      expect(snap.lectureDisabledTools).toBeUndefined();
+    });
+
+    it('KS-3902: для привязанной лекции lectureDisabledTools передаётся в snapshot', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        status: 'active',
+        startingFen: null,
+      });
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        disabledTools: ['engine', 'book'],
+      });
+      const snap = await service.getSyncSnapshot('s');
+      expect(snap.lectureDisabledTools).toEqual(['engine', 'book']);
+      expect(prisma.lecture.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { liveAnalysisId: 'la-1' },
+        }),
+      );
+    });
+
+    it('KS-3902: лекция привязана, но disabledTools=[] → пустой массив в snapshot', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        status: 'active',
+        startingFen: null,
+      });
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        disabledTools: [],
+      });
+      const snap = await service.getSyncSnapshot('s');
+      expect(snap.lectureDisabledTools).toEqual([]);
+    });
   });
 
   // ─── applyReset ───────────────────────────────────────────────────

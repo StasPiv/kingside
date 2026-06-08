@@ -451,3 +451,92 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// KS-3902 / ADR-117 §3. Подписка LiveAnalysisGateway на Redis-канал
+// `lecture-tools-changed` и ретрансляция в WS-комнату как событие
+// `live-analysis:lecture-tools`. Тесты не поднимают socket.io / Redis:
+// эмулируем обработчик сообщений `subRedis.on('message', ...)`
+// вручную через приватный путь, а `server.to(...).emit(...)`
+// мокается.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('LiveAnalysisGateway pub/sub lecture-tools-changed (KS-3902)', () => {
+  let gateway: LiveAnalysisGateway;
+  let emit: jest.Mock;
+  let to: jest.Mock;
+
+  beforeEach(() => {
+    gateway = new LiveAnalysisGateway(
+      {} as JwtService,
+      {} as unknown as LiveAnalysisService,
+      {} as ConfigService,
+      {} as PrismaService,
+    );
+    emit = jest.fn();
+    to = jest.fn().mockReturnValue({ emit });
+    (gateway as any).server = {
+      to,
+      in: jest.fn().mockReturnValue({ socketsLeave: jest.fn() }),
+    };
+  });
+
+  it('ретранслирует валидный payload в WS-комнату как live-analysis:lecture-tools', () => {
+    const payload = {
+      slug: 'SLUGAAAAAA',
+      lectureId: 'l-1',
+      disabledTools: ['engine', 'book'],
+    };
+    (gateway as any).handleRedisMessage(
+      'lecture-tools-changed',
+      JSON.stringify(payload),
+    );
+    expect(to).toHaveBeenCalledWith('live-analysis:SLUGAAAAAA');
+    expect(emit).toHaveBeenCalledWith(
+      'live-analysis:lecture-tools',
+      payload,
+    );
+  });
+
+  it('игнорирует сообщение без slug', () => {
+    (gateway as any).handleRedisMessage(
+      'lecture-tools-changed',
+      JSON.stringify({ lectureId: 'l-1', disabledTools: [] }),
+    );
+    expect(to).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('игнорирует payload с disabledTools не-массивом', () => {
+    (gateway as any).handleRedisMessage(
+      'lecture-tools-changed',
+      JSON.stringify({
+        slug: 'SLUGAAAAAA',
+        lectureId: 'l-1',
+        disabledTools: 'engine,book',
+      }),
+    );
+    expect(to).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('игнорирует невалидный JSON, не валит обработчик', () => {
+    expect(() =>
+      (gateway as any).handleRedisMessage('lecture-tools-changed', 'not-json'),
+    ).not.toThrow();
+    expect(to).not.toHaveBeenCalled();
+  });
+
+  it('игнорирует неизвестный канал — не эмитит', () => {
+    (gateway as any).handleRedisMessage(
+      'some-other-channel',
+      JSON.stringify({
+        slug: 'SLUGAAAAAA',
+        lectureId: 'l-1',
+        disabledTools: ['engine'],
+      }),
+    );
+    expect(to).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
