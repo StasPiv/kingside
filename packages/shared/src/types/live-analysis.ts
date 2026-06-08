@@ -434,6 +434,22 @@ export const LiveAnalysisEvents = {
    * трансляций без привязки к лекции событие не эмитится.
    */
   LECTURE_TOOLS: 'live-analysis:lecture-tools',
+  /**
+   * KS-3946 / ADR-118 §2.4.2. Сервер отказал в `subscribe`-handshake
+   * к комнате live-сессии restricted-лекции. Эмитится клиенту до
+   * `join room`, после чего сокет отключается. Payload — закрытый
+   * union `{ reason: 'auth_required' | 'not_in_allowlist' }`, фронт
+   * мапит на UX-страницы «войти» / «доступ закрыт».
+   */
+  ACCESS_DENIED: 'live-analysis:access-denied',
+  /**
+   * KS-3946 / ADR-118 §2.4.2. Сервер отзывает доступ у уже
+   * подключённого зрителя — тренер снял grant (`reason: 'revoked'`)
+   * или сменил visibility на `restricted` с пустым allowlist'ом
+   * (`reason: 'visibility-changed'`). Payload —
+   * `LiveAnalysisAccessRevokedPayload` (см. api-contracts).
+   */
+  ACCESS_REVOKED: 'live-analysis:access-revoked',
 } as const;
 
 export type LiveAnalysisEventName =
