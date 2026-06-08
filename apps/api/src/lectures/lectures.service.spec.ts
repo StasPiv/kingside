@@ -387,11 +387,24 @@ describe('LecturesService', () => {
   // ─── start ────────────────────────────────────────────────────────
 
   describe('start', () => {
+    // KS-4000: start теперь требует analysisId. Все happy-path тесты
+    // передают `{ analysisId: 'a-1' }`. Мок `liveAnalysis.create`
+    // (так как теперь идёт всегда этим путём) переопределяем на
+    // знакомый id `la-1`, чтобы старые ассерты вокруг
+    // `liveAnalysisId: 'la-1'` остались валидными.
+    beforeEach(() => {
+      liveAnalysis.create.mockResolvedValue({
+        id: 'la-1',
+        slug: 'SLUG000000',
+        url: 'https://kingside.site/live/SLUG000000',
+      });
+    });
+
     it('404 если лекции нет', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce(null);
-      await expect(service.start('missing', 'u-1')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.start('missing', 'u-1', { analysisId: 'a-1' }),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('403 если не владелец', async () => {
@@ -400,8 +413,36 @@ describe('LecturesService', () => {
         ownerId: 'OTHER',
         status: 'scheduled',
       });
+      await expect(
+        service.start('l-1', 'u-1', { analysisId: 'a-1' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('KS-4000: 400 если analysisId не передан (после владельца, до бизнес-логики)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'scheduled',
+        title: 't',
+      });
       await expect(service.start('l-1', 'u-1')).rejects.toThrow(
-        ForbiddenException,
+        BadRequestException,
+      );
+      // Никаких побочных эффектов: ни новой live-сессии, ни update.
+      expect(liveAnalysis.create).not.toHaveBeenCalled();
+      expect(liveAnalysis.createBareLiveSession).not.toHaveBeenCalled();
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
+    });
+
+    it('KS-4000: 400 если передан пустой options без analysisId', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-1',
+        ownerId: 'u-1',
+        status: 'scheduled',
+        title: 't',
+      });
+      await expect(service.start('l-1', 'u-1', {})).rejects.toThrow(
+        BadRequestException,
       );
     });
 
@@ -413,7 +454,7 @@ describe('LecturesService', () => {
         liveAnalysisId: 'la-existing',
       };
       prisma.lecture.findUnique.mockResolvedValueOnce(existing);
-      const r = await service.start('l-1', 'u-1');
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
       expect(r.lecture).toBe(existing);
       expect(r.liveAnalysis?.slug).toBe('EXIST00000');
       expect(liveAnalysis.createBareLiveSession).not.toHaveBeenCalled();
@@ -443,8 +484,11 @@ describe('LecturesService', () => {
         ...existing,
         liveAnalysisId: 'la-1',
       });
-      const r = await service.start('l-1', 'u-1');
-      expect(liveAnalysis.createBareLiveSession).toHaveBeenCalled();
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
+      // KS-4000: теперь openLectureLiveSession всегда идёт через
+      // LiveAnalysisService.create (с analysisId), а не bare.
+      expect(liveAnalysis.create).toHaveBeenCalled();
+      expect(liveAnalysis.createBareLiveSession).not.toHaveBeenCalled();
       expect(prisma.lecture.update).toHaveBeenCalledWith({
         where: { id: 'l-1' },
         data: { liveAnalysisId: 'la-1' },
@@ -466,8 +510,8 @@ describe('LecturesService', () => {
         ...existing,
         liveAnalysisId: 'la-1',
       });
-      const r = await service.start('l-1', 'u-1');
-      expect(liveAnalysis.createBareLiveSession).toHaveBeenCalled();
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
+      expect(liveAnalysis.create).toHaveBeenCalled();
       expect(r.lecture.liveAnalysisId).toBe('la-1');
     });
 
@@ -477,9 +521,9 @@ describe('LecturesService', () => {
         ownerId: 'u-1',
         status: 'recorded',
       });
-      await expect(service.start('l-1', 'u-1')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.start('l-1', 'u-1', { analysisId: 'a-1' }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('400 если cancelled', async () => {
@@ -488,9 +532,9 @@ describe('LecturesService', () => {
         ownerId: 'u-1',
         status: 'cancelled',
       });
-      await expect(service.start('l-1', 'u-1')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.start('l-1', 'u-1', { analysisId: 'a-1' }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('scheduled → live: создаёт LiveAnalysis и обновляет запись', async () => {
@@ -505,10 +549,15 @@ describe('LecturesService', () => {
         status: 'live',
         liveAnalysisId: 'la-1',
       });
-      const r = await service.start('l-1', 'u-1');
-      expect(liveAnalysis.createBareLiveSession).toHaveBeenCalledWith('u-1', {
-        title: 'Урок 1',
-      });
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
+      // KS-4000: теперь всегда через `LiveAnalysisService.create` с
+      // analysisId, а не `createBareLiveSession`.
+      expect(liveAnalysis.create).toHaveBeenCalledWith(
+        'u-1',
+        expect.objectContaining({ analysisId: 'a-1', title: 'Урок 1' }),
+        expect.any(String),
+      );
+      expect(liveAnalysis.createBareLiveSession).not.toHaveBeenCalled();
       expect(prisma.lecture.update).toHaveBeenCalledWith({
         where: { id: 'l-1' },
         data: expect.objectContaining({
@@ -526,6 +575,14 @@ describe('LecturesService', () => {
         ownerId: 'u-1',
         title: 'Лекция с анализом',
         status: 'scheduled',
+      });
+      // KS-4000: общий beforeEach для describe('start') переопределяет
+      // мок `liveAnalysis.create` на id `la-1`. Тут переопределяем
+      // обратно для проверки именно analysis-bound id.
+      liveAnalysis.create.mockResolvedValueOnce({
+        id: 'la-analysis-bound',
+        slug: 'BOUND00000',
+        url: 'https://kingside.site/live/BOUND00000',
       });
       prisma.lecture.update.mockResolvedValueOnce({
         id: 'l-1',
@@ -558,7 +615,7 @@ describe('LecturesService', () => {
         });
       const p2002 = Object.assign(new Error('unique'), { code: 'P2002' });
       prisma.lecture.update.mockRejectedValueOnce(p2002);
-      const r = await service.start('l-1', 'u-1');
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
       expect(r.lecture.status).toBe('live');
       expect(r.lecture.liveAnalysisId).toBe('la-winner');
     });
@@ -579,7 +636,7 @@ describe('LecturesService', () => {
         liveAnalysisId: 'la-1',
       });
       const before = Date.now();
-      const r = await service.start('l-1', 'u-1');
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
       const after = Date.now();
       expect(typeof r.serverNow).toBe('string');
       const ts = Date.parse(r.serverNow);
@@ -595,7 +652,7 @@ describe('LecturesService', () => {
         status: 'live',
         liveAnalysisId: 'la-existing',
       });
-      const r = await service.start('l-1', 'u-1');
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
       expect(typeof r.serverNow).toBe('string');
       expect(Number.isNaN(Date.parse(r.serverNow))).toBe(false);
     });
@@ -616,7 +673,7 @@ describe('LecturesService', () => {
         });
       const p2002 = Object.assign(new Error('unique'), { code: 'P2002' });
       prisma.lecture.update.mockRejectedValueOnce(p2002);
-      const r = await service.start('l-1', 'u-1');
+      const r = await service.start('l-1', 'u-1', { analysisId: 'a-1' });
       expect(typeof r.serverNow).toBe('string');
       expect(Number.isNaN(Date.parse(r.serverNow))).toBe(false);
     });

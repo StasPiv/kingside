@@ -274,6 +274,18 @@ export class LecturesService {
     if (lecture.ownerId !== actingUserId) {
       throw new ForbiddenException('Only the owner can start this lecture');
     }
+    // KS-4000. `analysisId` обязателен для start: пустой Analysis под
+    // лекцию больше не создаём, тренер теряет наработки. На уровне
+    // REST это блокирует `StartLectureDto`, но дублируем явный
+    // assert в сервисе — он используется из других мест (e2e тесты,
+    // будущие admin-сценарии). Проверка ПОСЛЕ owner-checks: тренеру
+    // прежде всего важно знать, что лекция существует и его (404/403),
+    // и только потом — что не указан анализ (400).
+    if (!options.analysisId) {
+      throw new BadRequestException(
+        'Specify analysis before starting the lecture (analysisId is required)',
+      );
+    }
     if (lecture.status === 'live') {
       // KS-3887. Идемпотентность: уже live. Но раньше тут возвращалась
       // запись «как есть», независимо от состояния LiveAnalysis. Если

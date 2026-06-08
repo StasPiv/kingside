@@ -104,13 +104,16 @@ export class CreateLectureDto {
 }
 
 /**
- * KS-3785/KS-3789. Body для `POST /lectures/:id/start`. Опциональное
- * поле `analysisId` — то же значение, что и в `CreateLectureDto`.
+ * KS-3785/KS-3789. Body для `POST /lectures/:id/start`.
+ *
+ * KS-4000 / часть backend: поле `analysisId` теперь ОБЯЗАТЕЛЬНОЕ.
+ * Согласовано с пользователем: запуск live-эфира остаётся только из
+ * окна анализа, чтобы тренер не терял наработки в пустом анализе.
+ * Сценарий «start без analysisId» отвергается с 400.
  */
 export class StartLectureDto {
-  @IsOptional()
   @IsUUID('4')
-  analysisId?: string;
+  analysisId!: string;
 }
 
 /**
