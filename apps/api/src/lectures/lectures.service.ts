@@ -501,22 +501,29 @@ export class LecturesService {
 
   /**
    * KS-3800 / ADR-113 §4 крупная задача 3. PATCH лекции. Семантика
-   * статусного гейта (KS-3900 / ADR-117 §2):
+   * статусного гейта (KS-3900 / ADR-117 §2, KS-3933 / ADR-118 §2.4.1):
    *
-   *   - Поля `title`, `description`, `scheduledAt`, `visibility` —
-   *     scheduled-only: их можно править, только если лекция в статусе
-   *     `scheduled`. В live / recorded / cancelled — `BadRequestException`.
+   *   - Поля `title`, `description`, `scheduledAt` — scheduled-only:
+   *     их можно править, только если лекция в статусе `scheduled`.
+   *     В live / recorded / cancelled — `BadRequestException`.
    *   - Поле `disabledTools` (ADR-117) — разрешено в любом статусе.
    *     Тренеру нужно уметь включать/выключать инструменты учеников
    *     прямо во время идущей лекции и даже после её завершения
-   *     (replay-режим recorded). Это явное расширение в KS-3900.
+   *     (replay-режим recorded).
+   *   - Поле `visibility` (ADR-118 §2.4.1) — разрешено в любом статусе.
+   *     Тренер может закрыть лекцию для публики прямо во время live
+   *     (`public → restricted`) или, наоборот, открыть после
+   *     завершения. При смене `restricted → public/unlisted` записи
+   *     `LectureAccessGrant` НЕ удаляются — allowlist сохраняется
+   *     на случай отката тренером.
    *
-   * Совмещённая правка `{ title, disabledTools }` в live: трактуется
-   * по строгому правилу — если хотя бы одно scheduled-only поле в
-   * payload, а статус не `scheduled`, отвергаем запрос целиком
-   * (`BadRequestException`). Это безопаснее, чем «частичное применение»
-   * с молчаливым игнором: клиент видит ошибку и понимает, что
-   * `disabledTools` не сохранился, а не подумает, что title тоже ушёл.
+   * Совмещённая правка `{ title, visibility }` или
+   * `{ title, disabledTools }` в live: трактуется по строгому правилу
+   * — если хотя бы одно scheduled-only поле в payload, а статус не
+   * `scheduled`, отвергаем запрос целиком (`BadRequestException`).
+   * Это безопаснее, чем «частичное применение» с молчаливым игнором:
+   * клиент видит ошибку и понимает, что `disabledTools`/`visibility`
+   * не сохранились, а не подумает, что title тоже ушёл.
    *
    * Пустой payload (DTO без полей) — no-op: возвращаем текущую запись.
    */
@@ -529,12 +536,13 @@ export class LecturesService {
       throw new ForbiddenException('Only the owner can update this lecture');
     }
 
-    // KS-3900: scheduled-only поля выделяем отдельно от disabledTools.
+    // KS-3900 / KS-3933: scheduled-only поля выделяем отдельно от
+    // полей, которые разрешены в любом статусе (`disabledTools`,
+    // `visibility`).
     const scheduledOnlyData: {
       title?: string;
       description?: string | null;
       scheduledAt?: Date;
-      visibility?: 'public' | 'unlisted';
     } = {};
     if (dto.title !== undefined) scheduledOnlyData.title = dto.title;
     if (dto.description !== undefined) {
@@ -544,26 +552,28 @@ export class LecturesService {
     if (dto.scheduledAt !== undefined) {
       scheduledOnlyData.scheduledAt = new Date(dto.scheduledAt);
     }
-    if (dto.visibility !== undefined) {
-      scheduledOnlyData.visibility = dto.visibility;
-    }
     const hasScheduledOnlyEdits = Object.keys(scheduledOnlyData).length > 0;
 
     if (hasScheduledOnlyEdits && lecture.status !== 'scheduled') {
       throw new BadRequestException(
         `Cannot edit fields [${Object.keys(scheduledOnlyData).join(', ')}]` +
           ` in status "${lecture.status}" — these fields are editable only` +
-          ` while the lecture is scheduled. Use disabledTools alone for` +
-          ` lectures already started or finished.`,
+          ` while the lecture is scheduled. Use disabledTools or visibility` +
+          ` alone for lectures already started or finished.`,
       );
     }
 
-    // disabledTools — разрешено всегда (любой статус).
-    const data: typeof scheduledOnlyData & { disabledTools?: string[] } = {
-      ...scheduledOnlyData,
-    };
+    // disabledTools / visibility — разрешены всегда (любой статус).
+    // KS-3933 / ADR-118: visibility теперь не scheduled-only.
+    const data: typeof scheduledOnlyData & {
+      disabledTools?: string[];
+      visibility?: 'public' | 'unlisted' | 'restricted';
+    } = { ...scheduledOnlyData };
     if (dto.disabledTools !== undefined) {
       data.disabledTools = dto.disabledTools;
+    }
+    if (dto.visibility !== undefined) {
+      data.visibility = dto.visibility;
     }
 
     if (Object.keys(data).length === 0) {

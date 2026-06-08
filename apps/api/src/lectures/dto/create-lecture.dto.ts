@@ -116,9 +116,18 @@ export class UpdateLectureDto {
   @IsDateString()
   scheduledAt?: string;
 
+  /**
+   * KS-3933 / ADR-118 §2.1, §2.4.1. Видимость лекции. Список значений
+   * расширен на `'restricted'` (allowlist-доступ). В отличие от других
+   * полей DTO (которые `scheduled`-only), `visibility` после A04
+   * правится в любом статусе — тренер может закрыть/открыть лекцию
+   * прямо во время `live` или после `recorded`. Allowlist при
+   * переключении `restricted → public/unlisted` сохраняется в
+   * `lecture_access_grants` (на случай отката).
+   */
   @IsOptional()
-  @IsIn(['public', 'unlisted'])
-  visibility?: 'public' | 'unlisted';
+  @IsIn(['public', 'unlisted', 'restricted'])
+  visibility?: 'public' | 'unlisted' | 'restricted';
 
   /**
    * KS-3899 / ADR-117 §2. Полный новый набор отключённых инструментов

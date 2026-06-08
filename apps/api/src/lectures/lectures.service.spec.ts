@@ -1124,6 +1124,129 @@ describe('LecturesService', () => {
       expect(res.id).toBe('l-1');
       expect(redis.publish).toHaveBeenCalledTimes(1);
     });
+
+    // ─── KS-3933 / ADR-118: visibility во всех статусах ─────────────
+
+    it('KS-3933: visibility=restricted правится в scheduled — успех', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        visibility: 'restricted',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { visibility: 'restricted' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ visibility: 'restricted' });
+    });
+
+    it('KS-3933: visibility правится в live — успех (расширенный гейт ADR-118)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'restricted',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { visibility: 'restricted' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ visibility: 'restricted' });
+    });
+
+    it('KS-3933: visibility правится в recorded — успех', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+        visibility: 'public',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { visibility: 'public' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ visibility: 'public' });
+    });
+
+    it('KS-3933: visibility правится в cancelled — успех', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'cancelled',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'cancelled',
+        visibility: 'unlisted',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { visibility: 'unlisted' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ visibility: 'unlisted' });
+    });
+
+    it('KS-3933: совмещённый {title, visibility} в live → 400, ничего не записано', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      await expect(
+        service.update('l-1', 'u-1', {
+          title: 'не пройдёт',
+          visibility: 'restricted',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
+    });
+
+    it('KS-3933: совмещённый {visibility, disabledTools} в live — оба поля применяются', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        visibility: 'restricted',
+        disabledTools: ['engine'],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {
+        visibility: 'restricted',
+        disabledTools: ['engine'],
+      });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data.visibility).toBe('restricted');
+      expect(args.data.disabledTools).toEqual(['engine']);
+    });
+
+    it('KS-3933: restricted → public — allowlist сохраняется (lectureAccessGrant не трогается)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        visibility: 'restricted',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        visibility: 'public',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { visibility: 'public' });
+      // По ADR §2.4.1 allowlist при переключении НЕ очищается.
+      // Защита: мок `prisma` не содержит модели `lectureAccessGrant`
+      // вовсе. Если бы сервис попытался удалить grants — был бы
+      // TypeError (Cannot read properties of undefined). Тест проходит,
+      // значит обращения не было.
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ visibility: 'public' });
+    });
   });
 
   // ─── KS-3800: cancel ──────────────────────────────────────────────
