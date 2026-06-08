@@ -431,7 +431,10 @@ export interface ReplayLectureProps {
  * по-прежнему скрываются (`visible: false`) — раздавать чужой Share
  * и create-from-foreign-repertoire бессмысленно.
  */
-type BuildItemsContext = {
+// KS-3910: экспорт для unit-теста фильтрации `studentToolsPolicy`.
+// Сама функция и тип используются внутри AnalysisPage, но публикуем
+// именованный экспорт чтобы избежать дубля логики в тестах.
+export type BuildItemsContext = {
   t: (key: string, def?: string) => string;
   gameId: string | undefined;
   navigate: (to: string, opts?: { state?: unknown }) => void;
@@ -505,9 +508,19 @@ type BuildItemsContext = {
    * страницы не требуется.
    */
   onStartLecture: () => void;
+  /**
+   * KS-3910 / ADR-117 C06. Политика отключения инструментов для
+   * учеников лекции. Скрытие применяется ТОЛЬКО при `publicMode=true`
+   * (viewer-live лекции) — у владельца меню всегда полное. Маппинг:
+   *   - запись `analyze_game`     → пункт `analyze-game` убран;
+   *   - запись `generate_puzzle`  → пункт `generate-puzzle` убран;
+   *   - запись `find_by_position` → пункт `find-by-position` убран.
+   * Пункты удаляются из списка полностью (без disabled-placeholder).
+   */
+  studentToolsPolicy?: LectureDisabledTool[];
 };
 
-function buildAnalysisActionsItems(
+export function buildAnalysisActionsItems(
   ctx: BuildItemsContext,
 ): AnalysisActionItem[] {
   const {
@@ -547,6 +560,7 @@ function buildAnalysisActionsItems(
     onLiveCopyLink,
     onLiveStop,
     onStartLecture,
+    studentToolsPolicy,
   } = ctx;
 
   const isOwner =
@@ -809,6 +823,30 @@ function buildAnalysisActionsItems(
         disabled: liveIsStarting,
       });
     }
+  }
+
+  // KS-3910 / ADR-117 C06. Финальная фильтрация по политике
+  // инструментов для учеников лекции. Применяется ТОЛЬКО при
+  // `publicMode=true` (viewer-live лекции). Маппинг id'шников
+  // пунктов меню на ключи `LectureDisabledTool`:
+  //   analyze-game     → 'analyze_game'
+  //   generate-puzzle  → 'generate_puzzle'
+  //   find-by-position → 'find_by_position'
+  // Пункты удаляются полностью — без disabled-placeholder, чтобы
+  // ученик не видел подсказок об ограничениях, которые ему всё
+  // равно не помогут (ADR-117 §UI-decisions).
+  if (publicMode && studentToolsPolicy && studentToolsPolicy.length > 0) {
+    const itemIdToTool: Partial<Record<string, LectureDisabledTool>> = {
+      'analyze-game': 'analyze_game',
+      'generate-puzzle': 'generate_puzzle',
+      'find-by-position': 'find_by_position',
+    };
+    const forbidden = new Set<LectureDisabledTool>(studentToolsPolicy);
+    return items.filter((it) => {
+      const tool = itemIdToTool[it.id];
+      if (!tool) return true;
+      return !forbidden.has(tool);
+    });
   }
 
   return items;
@@ -3716,6 +3754,8 @@ function AnalysisPageInner({
                     onLiveCopyLink: handleLiveCopyLink,
                     onLiveStop: handleLiveStop,
                     onStartLecture: handleStartLecture,
+                    // KS-3910 / ADR-117 C06.
+                    studentToolsPolicy,
                   })}
                 />
               ) : (
