@@ -382,6 +382,31 @@ export function App() {
   const { loading: flagsLoading } = useFeatureFlags();
   // KS-2373: nav-stats incrementer (no-op без auth; дебаунс ~3.5с).
   useTrackNavStats();
+
+  // KS-3979 / ADR-119 D03. Глобальный слушатель `lecture_*`-ошибок
+  // из `api.ts`. При получении события `kingside:lecture-access-
+  // error` уводим пользователя на `/lectures/:lectureId/unavailable`
+  // с правильным `reason`. Это spares каждый потребитель (хук
+  // лекций, плеер, страница «Мои лекции») от собственной
+  // обработки `errorCode`. Локальные потребители всё равно
+  // получают `ApiError` и могут отреагировать дополнительно — но
+  // глобальный редирект делает поведение единообразным.
+  const navigateApp = useNavigate();
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (ev: Event) => {
+      const detail =
+        (ev as CustomEvent<{ lectureId: string; reason: string }>).detail;
+      if (!detail || !detail.lectureId || !detail.reason) return;
+      navigateApp(
+        `/lectures/${encodeURIComponent(detail.lectureId)}/unavailable?reason=${encodeURIComponent(detail.reason)}`,
+        { replace: true },
+      );
+    };
+    window.addEventListener('kingside:lecture-access-error', handler);
+    return () =>
+      window.removeEventListener('kingside:lecture-access-error', handler);
+  }, [navigateApp]);
   // KS-2105: runtime флаг «Уроки» — через FeatureFlagsContext
   // (источник правды backend `GET /config`). До этого тикета здесь
   // дёргался build-time `isLessonsEnabledLive()`, который требовал

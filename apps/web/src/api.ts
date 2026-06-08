@@ -33,6 +33,59 @@ let refreshPromise: Promise<string> | null = null;
  * параллельно, все попадают в catch, но обработчик внутри AuthContext
  * идемпотентен — повторный logout/redirect не вредит).
  */
+/**
+ * KS-3979 / ADR-119 D03 / ADR-118 §2.4.1. Глобальный «interceptor»
+ * для `lecture_*`-кодов из тел 4xx-ответов backend'а.
+ *
+ * Backend для эндпоинтов лекций возвращает `errorCode` одной из
+ * категорий `LectureAccessErrorCode`. UX-сообщение по коду — на
+ * странице `/lectures/:id/unavailable?reason=...` (KS-3964).
+ * Чтобы не дублировать обработку в каждом потребителе (хук
+ * `useLectureDetail`, `LectureReplayPage`, `MyLecturesPage` и
+ * прочие), здесь мы делаем глобальный диспатч `CustomEvent`,
+ * который ловит подписчик уровня App и делает `navigate(...)`
+ * через React Router. `window.location.href` не используем —
+ * иначе теряется состояние React-приложения (всё дерево
+ * пересмотрится с нуля).
+ *
+ * Если path запроса не похож на `/lectures/<id>...` — `lectureId`
+ * не извлекается и редиректа не происходит (например, ошибка
+ * пришла от listing-эндпоинта `/my/lectures` — там id одной
+ * лекции не определён). В этом случае страница потребителя сама
+ * решит, что показать; глобальная реакция в этой ветке не
+ * требуется.
+ */
+const LECTURE_ACCESS_ERROR_CODES: Record<string, string> = {
+  lecture_access_revoked: 'revoked',
+  lecture_not_found: 'not-found',
+  auth_required: 'auth-required',
+  course_access_not_supported: 'course-access-not-supported',
+};
+
+function extractLectureIdFromPath(path: string): string | null {
+  // Сопоставляем `/lectures/<uuid>` и `/lectures/<uuid>/<подпуть>`.
+  // Берём первую секцию после `/lectures/`, отрезаем query/hash.
+  const m = /^\/lectures\/([^/?#]+)/.exec(path);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function notifyLectureAccessError(
+  path: string,
+  errorCode: string | undefined,
+): void {
+  if (typeof window === 'undefined') return;
+  if (typeof errorCode !== 'string') return;
+  const reason = LECTURE_ACCESS_ERROR_CODES[errorCode];
+  if (!reason) return;
+  const lectureId = extractLectureIdFromPath(path);
+  if (!lectureId) return;
+  window.dispatchEvent(
+    new CustomEvent('kingside:lecture-access-error', {
+      detail: { lectureId, reason, errorCode },
+    }),
+  );
+}
+
 function notifySessionExpired(): void {
   if (typeof window === 'undefined') return;
   try {
@@ -212,6 +265,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
             401,
           );
         }
+        // KS-3979 / ADR-119 D03. Тот же глобальный диспатч на retry-
+        // ветке: если backend на повторном запросе вернул
+        // `lecture_*`-код, отправляем глобальное событие.
+        notifyLectureAccessError(path, body.errorCode);
         throw new ApiError(
           body.message ?? `Request failed: ${retry.status}`,
           body.errorCode,
@@ -253,6 +310,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    // KS-3979 / ADR-119 D03. Глобальный диспатч для `lecture_*`
+    // кодов: подписчик уровня App переключит маршрут на
+    // `/lectures/:id/unavailable?reason=...`. ApiError всё равно
+    // бросаем — конкретный потребитель может реагировать локально.
+    notifyLectureAccessError(path, body.errorCode);
     throw new ApiError(
       body.message ?? `Request failed: ${res.status}`,
       body.errorCode,
