@@ -11,6 +11,8 @@ import LectureStatusBadgesPreviewPage from './pages/dev/LectureStatusBadgesPrevi
 import LectureChatPreviewPage from './pages/dev/LectureChatPreviewPage';
 // KS-4024 dev-only: песочница для приёмочных скриншотов вкладки «Метрики».
 import PositionalMetricsPreviewPage from './pages/dev/PositionalMetricsPreviewPage';
+// KS-4027: отдельная страница аналитики позиционных метрик партии.
+import { AnalysisMetricsPage } from './pages/AnalysisMetricsPage';
 // KS-4024 dev-only: песочница для скриншотов вкладки «Метрики» в реальном AnalysisSidebar.
 import AnalysisMetricsTabPreviewPage from './pages/dev/AnalysisMetricsTabPreviewPage';
 // KS-3981 dev-only: песочница для приёмочных скриншотов LectureLandingPage адаптива.
@@ -810,6 +812,8 @@ export function App() {
           }
         />
         <Route path="/analysis/:id" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
+        {/* KS-4027 / ADR-122: отдельная страница позиционной аналитики. */}
+        <Route path="/analyses/:analysisId/metrics" element={<AnalysisMetricsPage />} />
         {/* KS-3273 (ADR-077): Opening Trainer. ProtectedRoute — все
             операции требуют user-id на бэке. */}
         <Route

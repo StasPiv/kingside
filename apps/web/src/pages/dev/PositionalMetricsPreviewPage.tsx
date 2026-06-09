@@ -89,13 +89,13 @@ function makeTrace(): UsePositionalTraceState {
   };
 }
 
-type Scene = 'data' | 'idle' | 'no-moves';
+type Scene = 'data' | 'idle' | 'no-moves' | 'fullpage';
 
 function readSceneFromQuery(): Scene {
   if (typeof window === 'undefined') return 'data';
   const sp = new URLSearchParams(window.location.search);
   const s = sp.get('scene');
-  if (s === 'idle' || s === 'no-moves' || s === 'data') return s;
+  if (s === 'idle' || s === 'no-moves' || s === 'data' || s === 'fullpage') return s;
   return 'data';
 }
 
@@ -107,26 +107,33 @@ export default function PositionalMetricsPreviewPage() {
       ? { ...makeTrace(), idle: true, status: 'idle' as const, data: null }
       : makeTrace();
   const uciMoves = scene === 'no-moves' ? [] : ['e2e4', 'e7e5', 'g1f3', 'b8c6'];
+  // KS-4027: fullpage-сцена имитирует отдельную страницу с широким
+  // графиком + headerLink-кнопкой.
+  const isFullpage = scene === 'fullpage';
   return (
     <div
       data-testid="positional-metrics-preview"
       style={{
         padding: 24,
-        maxWidth: 1100,
+        maxWidth: isFullpage ? 1400 : 1100,
         margin: '0 auto',
         fontFamily: 'system-ui, sans-serif',
       }}
     >
-      <h1 style={{ marginBottom: 4 }}>Positional metrics preview</h1>
+      <h1 style={{ marginBottom: 4 }}>
+        {isFullpage
+          ? 'Аналитика метрик · So,W vs Caruana,F'
+          : 'Positional metrics preview'}
+      </h1>
       <p style={{ opacity: 0.7, marginTop: 0 }}>
-        KS-4024 · ADR-122 · песочница для приёмочных скриншотов.
+        KS-4024 · KS-4027 · ADR-122 · песочница для приёмочных скриншотов.
       </p>
       <p style={{ fontSize: 12, color: '#555' }}>
         Текущий ply: <strong>{currentPly}</strong> (клик по точке на графике меняет).
       </p>
       <div
         style={{
-          width: 720,
+          width: '100%',
           maxWidth: '100%',
           border: '1px solid #ddd',
           borderRadius: 8,
@@ -139,6 +146,16 @@ export default function PositionalMetricsPreviewPage() {
           uciMoves={uciMoves}
           currentPly={currentPly}
           onPlySelect={setCurrentPly}
+          chartHeight={isFullpage ? 460 : 220}
+          headerLink={
+            !isFullpage
+              ? {
+                  label: '↗ Открыть аналитику на отдельной странице',
+                  href: '?scene=fullpage',
+                }
+              : undefined
+          }
+          selectionStorageKey="ks:metrics:selection:demo"
         />
       </div>
     </div>

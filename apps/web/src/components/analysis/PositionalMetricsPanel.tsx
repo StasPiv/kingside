@@ -14,7 +14,7 @@
  * можно подключить отдельной задачей (ADR-122 §5.2), когда станет
  * нужна интерактивность и зум.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PositionalSubterm } from '@kingside/shared';
 import {
   METRIC_GROUPS,
@@ -34,6 +34,19 @@ export interface PositionalMetricsPanelProps {
   onPlySelect?: (ply: number) => void;
   /** Текущий ply (для подсветки на графике). */
   currentPly?: number;
+  /**
+   * KS-4027. Опциональная кнопка-ссылка в шапке панели — например,
+   * «↗ Открыть аналитику на отдельной странице». Рендерится только
+   * когда передан `headerLink`.
+   */
+  headerLink?: { label: string; href: string };
+  /**
+   * KS-4027. Высота графика. Меньшая для боковой вкладки (220 по
+   * умолчанию), большая — для отдельной страницы (например, 420).
+   */
+  chartHeight?: number;
+  /** KS-4027. Ключ для сохранения пользовательского выбора метрик в localStorage. */
+  selectionStorageKey?: string;
 }
 
 const COLORS = {
@@ -66,6 +79,8 @@ interface MetricsChartProps {
   height: number;
   onPlySelect?: (ply: number) => void;
   currentPly?: number;
+  /** KS-4027. Сообщение когда нет данных (отличается от «нет выбора»). */
+  noDataMessage?: string;
 }
 
 /**
@@ -78,6 +93,7 @@ export function MetricsChart({
   height,
   onPlySelect,
   currentPly,
+  noDataMessage,
 }: MetricsChartProps) {
   const padding = { top: 12, right: 8, bottom: 28, left: 36 };
   const plotW = Math.max(40, width - padding.left - padding.right);
@@ -127,9 +143,10 @@ export function MetricsChart({
           color: '#999',
           fontSize: 13,
           textAlign: 'center',
+          padding: 12,
         }}
       >
-        Выберите хотя бы одну метрику в списке справа.
+        {noDataMessage ?? 'Выберите хотя бы одну метрику в списке справа.'}
       </div>
     );
   }
@@ -512,18 +529,67 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
   );
 }
 
+/**
+ * KS-4027 / ADR-122 §3. Стартовый набор метрик при первом открытии
+ * (когда у пользователя ещё нет сохранённого выбора в localStorage).
+ * Самые «говорящие» подкомпоненты SF для быстрого взгляда на партию.
+ */
+const DEFAULT_SELECTED_IDS: ReadonlyArray<string> = [
+  'king_danger',
+  'material',
+  'space',
+  'passed_rank',
+  'threat_hanging',
+];
+
+function loadSelectionFromStorage(key: string | undefined): Set<string> | null {
+  if (!key || typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const cleaned = parsed.filter((x): x is string => typeof x === 'string');
+    return new Set(cleaned);
+  } catch {
+    return null;
+  }
+}
+
+function saveSelectionToStorage(
+  key: string | undefined,
+  ids: ReadonlySet<string>,
+): void {
+  if (!key || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(Array.from(ids)));
+  } catch {
+    /* quota / private mode — игнорируем */
+  }
+}
+
 export function PositionalMetricsPanel({
   trace,
   uciMoves,
   onPlySelect,
   currentPly,
+  headerLink,
+  chartHeight = 220,
+  selectionStorageKey,
 }: PositionalMetricsPanelProps) {
   const [mode, setMode] = useState<MetricMode>('diff');
   const [phase, setPhase] = useState<MetricPhase>('mix');
-  // По умолчанию выбраны «материал и баланс» — самая понятная пара.
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set<string>(['material', 'imbalance']),
-  );
+  // KS-4027. При первом открытии — стартовый набор (ADR-122 §3); если
+  // в localStorage есть сохранённый выбор — используем его.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
+    const saved = loadSelectionFromStorage(selectionStorageKey);
+    if (saved && saved.size > 0) return saved;
+    return new Set<string>(DEFAULT_SELECTED_IDS);
+  });
+  // Сохраняем выбор при каждом изменении.
+  useEffect(() => {
+    saveSelectionToStorage(selectionStorageKey, selectedIds);
+  }, [selectionStorageKey, selectedIds]);
 
   const subtermsPerPly: ReadonlyArray<{
     ply: number;
@@ -563,6 +629,23 @@ export function PositionalMetricsPanel({
         minHeight: 0,
       }}
     >
+      {headerLink && (
+        <a
+          data-testid="positional-metrics-header-link"
+          href={headerLink.href}
+          style={{
+            fontSize: 12,
+            color: '#1e88e5',
+            textDecoration: 'none',
+            padding: '4px 6px',
+            background: '#e3f2fd',
+            borderRadius: 4,
+            alignSelf: 'flex-start',
+          }}
+        >
+          {headerLink.label}
+        </a>
+      )}
       <MetricToolbar
         mode={mode}
         phase={phase}
@@ -582,9 +665,16 @@ export function PositionalMetricsPanel({
           <MetricsChart
             series={series}
             width={chartWidth}
-            height={220}
+            height={chartHeight}
             onPlySelect={onPlySelect}
             currentPly={currentPly}
+            noDataMessage={
+              selectedIds.size === 0
+                ? 'Выберите хотя бы одну метрику в списке справа.'
+                : !trace.data || trace.data.plies.length === 0
+                ? 'Расчёт ещё не запускался. Нажмите «Запустить расчёт» выше.'
+                : undefined
+            }
           />
           {/* Легенда */}
           {series.length > 0 && (

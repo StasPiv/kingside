@@ -2703,9 +2703,16 @@ function AnalysisPageInner({
   const positionalTrace = usePositionalTrace({
     analysisId: analysisId ?? null,
   });
-  // UCI-ходы из mainline для start().
+  // KS-4027. UCI-ходы из mainline для start(). `ChessMove.lan` уже
+  // содержит строку формата UCI (e2e4 / e7e8q), отдельного поля `uci`
+  // в типе нет. Раньше я ошибочно фильтровал по `m.uci` → массив
+  // всегда пустой даже на партии с десятками полуходов, и панель
+  // показывала «Сделайте хотя бы один ход».
   const uciMovesForMetrics = useMemo(
-    () => history.filter((m) => !!m?.uci).map((m) => m.uci as string),
+    () =>
+      history
+        .map((m) => m?.lan)
+        .filter((u): u is string => typeof u === 'string' && u.length >= 4),
     [history],
   );
   // KS-4025: блок «Метрики» рендерится всегда — на новом ad-hoc анализе
@@ -2722,6 +2729,20 @@ function AnalysisPageInner({
           const m = history[ply - 1];
           if (m) gotoMove(m as ChessMove);
         }}
+        // KS-4027: ссылка на отдельную страницу + ключ localStorage
+        // одинаковый и для вкладки, и для отдельной страницы — выбор
+        // метрик шарится между ними.
+        headerLink={
+          analysisId
+            ? {
+                label: '↗ Открыть аналитику на отдельной странице',
+                href: `/analyses/${analysisId}/metrics`,
+              }
+            : undefined
+        }
+        selectionStorageKey={
+          analysisId ? `ks:metrics:selection:${analysisId}` : undefined
+        }
       />
     ),
     [
@@ -2730,6 +2751,7 @@ function AnalysisPageInner({
       currentGlobalIndex,
       history,
       gotoMove,
+      analysisId,
     ],
   );
 
