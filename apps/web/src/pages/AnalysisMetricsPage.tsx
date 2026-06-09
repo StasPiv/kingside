@@ -162,6 +162,7 @@ export function AnalysisMetricsPage() {
             uciMoves={mainline.uciMoves}
             chartHeight={460}
             selectionStorageKey={`ks:metrics:selection:${analysisId}`}
+            layout="fullpage"
           />
         </div>
       )}

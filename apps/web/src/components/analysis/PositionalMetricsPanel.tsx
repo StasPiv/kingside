@@ -47,6 +47,14 @@ export interface PositionalMetricsPanelProps {
   chartHeight?: number;
   /** KS-4027. Ключ для сохранения пользовательского выбора метрик в localStorage. */
   selectionStorageKey?: string;
+  /**
+   * KS-4027. Раскладка панели:
+   *   - `'sidebar'` (по умолчанию) — флажки в боковой колонке 200px
+   *     справа от графика. Для узкой вкладки в правой колонке анализа.
+   *   - `'fullpage'` — флажки вынесены в свёртываемое меню «Настройки
+   *     метрик» над графиком; график занимает всю ширину контейнера.
+   */
+  layout?: 'sidebar' | 'fullpage';
 }
 
 const COLORS = {
@@ -576,7 +584,9 @@ export function PositionalMetricsPanel({
   headerLink,
   chartHeight = 220,
   selectionStorageKey,
+  layout = 'sidebar',
 }: PositionalMetricsPanelProps) {
+  const [selectorOpen, setSelectorOpen] = useState(layout === 'sidebar');
   const [mode, setMode] = useState<MetricMode>('diff');
   const [phase, setPhase] = useState<MetricPhase>('mix');
   // KS-4027. При первом открытии — стартовый набор (ADR-122 §3); если
@@ -602,9 +612,14 @@ export function PositionalMetricsPanel({
   );
 
   const containerRef = useRef<HTMLDivElement | null>(null);
-  // Размер графика — простая фиксированная высота, ширина растягивается.
+  // Размер графика. Ширина — фактическая ширина контейнера через
+  // ResizeObserver. KS-4027: раньше ResizeObserver был внутри useMemo,
+  // который не вызывает cleanup и не перезапускается на mount;
+  // contentWidth оставался начальным 360 — график не растягивался на
+  // отдельной странице. Переехало в useEffect — ширина теперь
+  // считается на mount и пересчитывается при resize окна.
   const [chartWidth, setChartWidth] = useState(360);
-  useMemo(() => {
+  useEffect(() => {
     if (typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) {
@@ -653,6 +668,47 @@ export function PositionalMetricsPanel({
         onPhaseChange={setPhase}
       />
       <MetricRunner trace={trace} uciMoves={uciMoves} />
+      {/* KS-4027. На полноэкранной странице — флажки в свёртываемом
+          меню над графиком, чтобы график занимал всю ширину. На боковой
+          вкладке — рядом с графиком в правой колонке 200px. */}
+      {layout === 'fullpage' && (
+        <div>
+          <button
+            type="button"
+            data-testid="metric-selector-toggle"
+            onClick={() => setSelectorOpen((v) => !v)}
+            style={{
+              fontSize: 12,
+              padding: '4px 10px',
+              background: '#f5f5f5',
+              border: '1px solid #ddd',
+              borderRadius: 4,
+              cursor: 'pointer',
+              marginBottom: 6,
+            }}
+          >
+            {selectorOpen
+              ? `Скрыть настройки метрик (выбрано: ${selectedIds.size})`
+              : `Настройки метрик (выбрано: ${selectedIds.size})`}
+          </button>
+          {selectorOpen && (
+            <div
+              style={{
+                border: '1px solid #eee',
+                borderRadius: 6,
+                padding: 8,
+                marginBottom: 8,
+                background: '#fafafa',
+              }}
+            >
+              <MetricGroupCheckboxes
+                selectedIds={selectedIds}
+                onChange={setSelectedIds}
+              />
+            </div>
+          )}
+        </div>
+      )}
       <div
         style={{
           display: 'flex',
@@ -670,7 +726,7 @@ export function PositionalMetricsPanel({
             currentPly={currentPly}
             noDataMessage={
               selectedIds.size === 0
-                ? 'Выберите хотя бы одну метрику в списке справа.'
+                ? 'Выберите хотя бы одну метрику в настройках метрик.'
                 : !trace.data || trace.data.plies.length === 0
                 ? 'Расчёт ещё не запускался. Нажмите «Запустить расчёт» выше.'
                 : undefined
@@ -708,19 +764,21 @@ export function PositionalMetricsPanel({
             </div>
           )}
         </div>
-        <div
-          style={{
-            width: 200,
-            flexShrink: 0,
-            borderLeft: '1px solid #eee',
-            paddingLeft: 6,
-          }}
-        >
-          <MetricGroupCheckboxes
-            selectedIds={selectedIds}
-            onChange={setSelectedIds}
-          />
-        </div>
+        {layout === 'sidebar' && (
+          <div
+            style={{
+              width: 200,
+              flexShrink: 0,
+              borderLeft: '1px solid #eee',
+              paddingLeft: 6,
+            }}
+          >
+            <MetricGroupCheckboxes
+              selectedIds={selectedIds}
+              onChange={setSelectedIds}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
