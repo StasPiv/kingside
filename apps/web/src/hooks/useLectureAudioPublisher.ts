@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import { api } from '../api';
+import {
+  tryAcquireLecturePublisherLock,
+  type LecturePublisherLockHandle,
+} from '../utils/lecturePublisherLock';
 
 /**
  * KS-3841 / ADR-116 §5.2, §2.4. Хук тренера: запись микрофона +
@@ -73,7 +77,12 @@ const X_AMZ_TAGGING = 'kind=chunk';
 /** KS-3845: ключ в localStorage и параметры singleton-lock. */
 const LOCK_STORAGE_KEY = 'kingside:audio-publisher-lock';
 const LOCK_HEARTBEAT_MS = 10_000;
-const LOCK_STALE_MS = 30_000;
+// KS-4015: LOCK_STALE_MS-проверка вынесена в утилиту
+// `apps/web/src/utils/lecturePublisherLock.ts` (legacy-fallback там же,
+// плюс Web Locks API как основной путь). Здесь localStorage-lock
+// остаётся индикатором «эта вкладка пишет лекцию» — heartbeat
+// продолжаем (см. startHeartbeat ниже), но stale-проверка больше не
+// нужна локально.
 
 /**
  * KS-3845: ошибка singleton-lock. UI отличает её от прочих по
@@ -255,6 +264,10 @@ export function useLectureAudioPublisher({
   const deviceIdRef = useRef<string>('');
   if (!deviceIdRef.current) deviceIdRef.current = generateDeviceId();
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // KS-4015: handle от Web Locks API / legacy localStorage. Освобождается
+  // в teardown — без этого вторая вкладка не сможет начать запись, даже
+  // когда первая её закрыла.
+  const lockHandleRef = useRef<LecturePublisherLockHandle | null>(null);
 
   // Свежие props в замыканиях.
   const lectureIdRef = useRef(lectureId);
@@ -408,6 +421,17 @@ export function useLectureAudioPublisher({
     setAudioTrack(null);
     stopHeartbeat();
     clearLock(deviceIdRef.current);
+    // KS-4015. Отпускаем Web Locks / legacy heartbeat — без этого вторая
+    // вкладка не сможет начать запись, даже когда первая закончила.
+    const lockHandle = lockHandleRef.current;
+    if (lockHandle) {
+      try {
+        lockHandle.release();
+      } catch {
+        /* ignore */
+      }
+      lockHandleRef.current = null;
+    }
   }, [stopHeartbeat]);
 
   // ─── start ──────────────────────────────────────────────────────────
@@ -431,18 +455,36 @@ export function useLectureAudioPublisher({
       throw err;
     }
 
-    // KS-3845: проверка lock. Если есть свежий чужой lock — выходим.
-    const existing = readLock();
-    if (
-      existing &&
-      existing.deviceId !== deviceIdRef.current &&
-      Date.now() - existing.lastHeartbeat < LOCK_STALE_MS
-    ) {
+    // KS-4015. Singleton-lock через Web Locks API (с legacy-fallback на
+    // localStorage для старых браузеров). Запрашиваем ДО getUserMedia /
+    // MediaRecorder, чтобы вторая вкладка не успевала запросить микрофон
+    // и не пугала пользователя «доступ к микрофону, разрешить?» —
+    // отказ показывается мгновенно через AudioPublisherLockError.
+    //
+    // Старый чисто-localStorage путь (`readLock`/`writeLock` ниже
+    // в файле) оставлен под `stop()`/finalize-чанков как индикатор
+    // «эта вкладка пишет лекцию» — он не критичен для race-защиты,
+    // но другие места в коде на него опираются.
+    const lockHandle = await tryAcquireLecturePublisherLock({
+      lectureId: lid,
+      deviceId: deviceIdRef.current,
+      onLockStolen: () => {
+        // Другая вкладка перетёрла lock (только legacy-путь). Это
+        // ошибка инварианта — Web Locks так не делает. Логируем,
+        // teardown отыграется через stop().
+        console.warn(
+          '[useLectureAudioPublisher] lock stolen by another tab — recorder будет остановлен',
+        );
+      },
+    });
+    if (!lockHandle) {
       const lockErr = new AudioPublisherLockError();
       setError(lockErr);
       throw lockErr;
     }
-    // Свой / устаревший / отсутствующий — пишем свой lock.
+    lockHandleRef.current = lockHandle;
+    // Свой lock в localStorage — нужен другим местам (singleton-сигнал
+    // для UI, статистика). Heartbeat обновляет lastHeartbeat ниже.
     writeLock({
       lectureId: lid,
       deviceId: deviceIdRef.current,
@@ -732,6 +774,18 @@ export function useLectureAudioPublisher({
       // KS-3845: отдаём lock, чтобы тренер мог сразу перезапустить
       // на другой вкладке/устройстве.
       clearLock(deviceIdRef.current);
+      // KS-4015: и нативный Web Locks тоже отпускаем (страховка —
+      // браузер обычно делает это сам на page unload, но для устойчивости
+      // дублируем здесь).
+      const lockHandle = lockHandleRef.current;
+      if (lockHandle) {
+        try {
+          lockHandle.release();
+        } catch {
+          /* ignore */
+        }
+        lockHandleRef.current = null;
+      }
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
@@ -765,6 +819,16 @@ export function useLectureAudioPublisher({
         heartbeatTimerRef.current = null;
       }
       clearLock(deviceIdRef.current);
+      // KS-4015: отпускаем native lock.
+      const lockHandle = lockHandleRef.current;
+      if (lockHandle) {
+        try {
+          lockHandle.release();
+        } catch {
+          /* ignore */
+        }
+        lockHandleRef.current = null;
+      }
     };
   }, []);
 

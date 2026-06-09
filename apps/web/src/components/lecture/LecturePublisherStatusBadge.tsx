@@ -170,7 +170,7 @@ export function LecturePublisherStatusBadge({
           {isLockError
             ? t(
                 'lecturePublisher.compactLockError',
-                'Запись идёт с другого устройства',
+                'Лекция уже ведётся в другой вкладке. Закройте эту или продолжите там.',
               )
             : isPermissionError
             ? t(
