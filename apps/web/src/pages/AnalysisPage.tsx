@@ -209,22 +209,35 @@ function LectureBadgesBlock({
   const lectureId = directLectureId ?? lookup?.lectureId ?? null;
   const startedAt = lookup?.startedAt ?? null;
   if (embedded || !lectureId) return null;
-  // KS-4009 / ADR-121: чат лекции виден только пока лекция в эфире.
-  // Тренер — owner-mode; зритель — viewer/anonymous (компонент сам
-  // выберет по `currentUserId`).
-  const chatNode = isLive ? (
+  // KS-4009 / KS-4011 / ADR-121: условие отображения чата симметрично
+  // условию отображения остальных значков лекции (`LectureRecordingBadge`,
+  // `LectureAudioListenerCompact`). Раньше chat-нода имела
+  // дополнительное условие `isLive`, которое у зрителя проваливалось
+  // даже после KS-4010 (см. описание задачи: значок аудио виден, чата
+  // нет). Раз lectureId уже найден через lookup (или передан напрямую
+  // у тренера) — этого достаточно: пользователь физически на странице
+  // активной лекции. Закрытие лекции либо размонтирует страницу
+  // (LiveAnalysisViewerPage показывает баннер `closed`), либо
+  // вернёт lectureId=null через следующий цикл lookup'а.
+  const chatNode = (
     <LectureChatContainer
       lectureId={lectureId}
       socket={liveAnalysisSocket}
       isOwner={!isViewer}
       currentUserId={currentUserId ?? null}
     />
-  ) : null;
-  // Тренер: badge показывается, если есть lectureId; внутри
-  // компонента он сам решает, рисовать ли точку «запись».
+  );
+  // Тренер: badge записи + значок чата в одной полосе.
   if (!isViewer) {
     return (
-      <>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
         <LecturePublisherStatusBadge
           lectureId={lectureId}
           socket={liveAnalysisSocket}
@@ -232,30 +245,32 @@ function LectureBadgesBlock({
           active={isLive}
         />
         {chatNode}
-      </>
+      </span>
     );
   }
-  // Зритель: компактный аудио-иконка + «🔴 запись».
+  // Зритель: компактный аудио-значок + «🔴 запись» + значок чата —
+  // все в одной горизонтальной полосе, чтобы значок чата
+  // гарантированно был виден на мобильном (KS-4011: раньше fallback
+  // через position:fixed перекрывался верхней навигацией).
   return (
-    <>
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <LectureRecordingBadge
-          lectureId={lectureId}
-          socket={liveAnalysisSocket}
-        />
-        <LectureAudioListenerCompact
-          lectureId={lectureId}
-          socket={liveAnalysisSocket}
-        />
-      </span>
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        flexWrap: 'wrap',
+      }}
+    >
+      <LectureRecordingBadge
+        lectureId={lectureId}
+        socket={liveAnalysisSocket}
+      />
+      <LectureAudioListenerCompact
+        lectureId={lectureId}
+        socket={liveAnalysisSocket}
+      />
       {chatNode}
-    </>
+    </span>
   );
 }
 

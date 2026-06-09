@@ -78,7 +78,12 @@ const MESSAGES: LectureChatMessage[] = [
   },
 ];
 
-type Mode = 'owner-desktop' | 'viewer-mobile' | 'anon-mobile' | 'muted-viewer';
+type Mode =
+  | 'owner-desktop'
+  | 'viewer-mobile'
+  | 'viewer-mobile-inline'
+  | 'anon-mobile'
+  | 'muted-viewer';
 
 function readSceneFromQuery(): Mode {
   if (typeof window === 'undefined') return 'owner-desktop';
@@ -87,6 +92,7 @@ function readSceneFromQuery(): Mode {
   if (
     s === 'owner-desktop' ||
     s === 'viewer-mobile' ||
+    s === 'viewer-mobile-inline' ||
     s === 'anon-mobile' ||
     s === 'muted-viewer'
   ) {
@@ -135,6 +141,7 @@ export default function LectureChatPreviewPage() {
           [
             ['owner-desktop', 'Тренер · десктоп'],
             ['viewer-mobile', 'Ученик · мобильный'],
+            ['viewer-mobile-inline', 'Ученик · значок в полосе'],
             ['anon-mobile', 'Аноним · мобильный'],
             ['muted-viewer', 'Ученик · выключен'],
           ] as Array<[Mode, string]>
@@ -194,6 +201,99 @@ export default function LectureChatPreviewPage() {
             mode="owner"
             currentUserId="owner-1"
           />
+        </div>
+      )}
+
+      {scene === 'viewer-mobile-inline' && (
+        <div
+          data-testid="scene-viewer-mobile-inline-frame"
+          style={{
+            position: 'relative',
+            width: 375,
+            height: 720,
+            border: '1px solid #ddd',
+            borderRadius: 24,
+            overflow: 'hidden',
+            background: '#fff',
+          }}
+        >
+          {/* Симуляция шапки `/live/:slug`: заголовок и полоса значков
+              лекции — `LectureRecordingBadge` + `LectureAudioListenerCompact`
+              + `ChatBadgeIndicator` рядом друг с другом, как теперь
+              рендерится в `LectureBadgesBlock` (KS-4011). */}
+          <div
+            style={{
+              padding: 12,
+              borderBottom: '1px solid #eee',
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            Saltkhutsishvili,Sara vs Lomaia,Diana
+          </div>
+          <div
+            data-testid="scene-viewer-inline-badge-row"
+            style={{
+              padding: '8px 12px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span
+              style={{
+                padding: '4px 10px',
+                background: '#fdecea',
+                color: '#8a1f1f',
+                borderRadius: 16,
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              🔴 Запись
+            </span>
+            <span
+              style={{
+                padding: '4px 10px',
+                background: '#e8f5e9',
+                color: '#2e7d32',
+                borderRadius: 16,
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              🔊 Аудио
+            </span>
+            <ChatBadgeIndicator
+              unreadCount={3}
+              isLive
+              onOpen={() => setSheetMode('compact')}
+            />
+          </div>
+          <div
+            style={{
+              padding: 12,
+              color: '#999',
+              fontSize: 13,
+            }}
+          >
+            доска и контент анализа…
+          </div>
+          <ChatBottomSheet mode={sheetMode} onModeChange={setSheetMode}>
+            <LectureChatPanel
+              {...sharedPanelProps}
+              mutedSelf={false}
+              mode="viewer"
+              currentUserId="student-1"
+            />
+          </ChatBottomSheet>
         </div>
       )}
 

@@ -12,15 +12,14 @@ import { ChatBottomSheet, type ChatBottomSheetMode } from './ChatBottomSheet';
  *
  * Обязанности:
  *   1. Вызвать `useLectureChatSocket` (подписка + отправка).
- *   2. На десктопе рендерить `<LectureChatPanel>` боковой колонкой.
- *   3. На мобильном рендерить `<ChatBottomSheet>` со значком в шапке
- *      (значок поднимается через render-prop `renderBadge`, чтобы
- *      встроиться в `LectureBadgesBlock` без жёстких позиций).
+ *   2. На десктопе рендерить `<LectureChatPanel>` фиксированной
+ *      колонкой справа снизу с кнопкой-свёрткой.
+ *   3. На мобильном рендерить inline-значок (без жёсткого
+ *      позиционирования — родитель ставит его в нужное место полосы
+ *      бейджей лекции) + нижнюю шторку `<ChatBottomSheet>`.
  *   4. Считать «непрочитанные» — растёт пока шторка/desktop-панель
- *      не открыты или пользователь не в нижней части ленты.
- *      Точный счётчик ведём по lastSeenMessageId: при «увидено»
- *      обнуляем; при новых — растёт на (messages.length - index of
- *      lastSeen).
+ *      не открыты. При открытии — обнуляется (`lastSeenIndex` ставится
+ *      на длину ленты).
  *   5. Передать корректный `mode` ('owner' / 'viewer' / 'anonymous')
  *      и `currentUserId` дочерней панели.
  *
@@ -32,6 +31,16 @@ import { ChatBottomSheet, type ChatBottomSheetMode } from './ChatBottomSheet';
  *     `matchMedia('(max-width: 768px)')`.
  *   - На размонтировании контейнер не отписывается от сокета явно —
  *     `useLectureChatSocket` сам уберёт listener'ы.
+ *
+ * KS-4011. Раньше на мобильном значок чата позиционировался через
+ * `position: fixed; top: 8; right: 8`, если родитель не передал
+ * `renderBadge`. Этот fallback перекрывался верхней навигацией сайта
+ * и оказывался невидим — пользователь не видел чат у зрителя на
+ * `/live/:slug`. Теперь контейнер на мобильном возвращает inline-
+ * значок без позиционирования (родитель `LectureBadgesBlock` сам
+ * ставит контейнер рядом с `LectureAudioListenerCompact` /
+ * `LectureRecordingBadge`, и значок оказывается в общей горизонтальной
+ * полосе). Render-prop `renderBadge` удалён как избыточный.
  */
 
 export interface LectureChatContainerProps {
@@ -43,13 +52,6 @@ export interface LectureChatContainerProps {
   isOwner: boolean;
   /** ID текущего пользователя или null для анонима. */
   currentUserId: string | null;
-  /**
-   * Render-prop для встраивания значка в существующую шапку лекции
-   * (`LectureBadgesBlock`). Если не передан — на мобильном значок
-   * рендерится поверх правого верхнего угла как fallback. На
-   * десктопе render-prop не используется.
-   */
-  renderBadge?: (badge: React.ReactNode) => React.ReactNode;
 }
 
 function useIsMobile(): boolean {
@@ -77,7 +79,6 @@ export function LectureChatContainer({
   socket,
   isOwner,
   currentUserId,
-  renderBadge,
 }: LectureChatContainerProps) {
   const chat = useLectureChatSocket({ lectureId, socket });
   const isMobile = useIsMobile();
@@ -226,32 +227,20 @@ export function LectureChatContainer({
     );
   }
 
-  // ── Mobile: badge + bottom-sheet ──────────────────────────────────
-  const badge = (
-    <ChatBadgeIndicator
-      unreadCount={unreadCount}
-      isLive
-      onOpen={openSheet}
-    />
-  );
-
+  // ── Mobile: inline-badge + bottom-sheet ──────────────────────────
+  // KS-4011. Значок — inline-flex без позиционирования. Родитель
+  // (`LectureBadgesBlock`) кладёт контейнер в общую горизонтальную
+  // полосу со значками `LectureAudioListenerCompact` /
+  // `LectureRecordingBadge`, и кнопка чата оказывается там же. Шторка
+  // рендерится отдельным fixed-узлом и приклеена к низу viewport — её
+  // позицию родителю задавать не нужно.
   return (
     <>
-      {renderBadge ? (
-        renderBadge(badge)
-      ) : (
-        <div
-          data-testid="lecture-chat-mobile-badge-fallback"
-          style={{
-            position: 'fixed',
-            top: 8,
-            right: 8,
-            zIndex: 50,
-          }}
-        >
-          {badge}
-        </div>
-      )}
+      <ChatBadgeIndicator
+        unreadCount={unreadCount}
+        isLive
+        onOpen={openSheet}
+      />
       <ChatBottomSheet mode={sheetMode} onModeChange={setSheetMode}>
         {panel}
       </ChatBottomSheet>
