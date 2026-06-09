@@ -11,9 +11,92 @@
  *  - side-agnostic подкомпоненты (`material`/`imbalance`, без color)
  *    относятся к балансу белых.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PositionalSubterm } from '@kingside/shared';
-import { aggregatePositionalDiff } from './debugPositionalDiff';
+
+const evalTraceMock = vi.fn();
+
+vi.mock('../lib/review/stockfishTrace', async () => {
+  const actual = await vi.importActual<
+    typeof import('../lib/review/stockfishTrace')
+  >('../lib/review/stockfishTrace');
+  return {
+    ...actual,
+    evalTrace: (fen: string) => evalTraceMock(fen),
+  };
+});
+
+import {
+  aggregatePositionalDiff,
+  debugPositionalDiff,
+} from './debugPositionalDiff';
+import { StockfishTraceEngineError } from '../lib/review/stockfishTrace';
+
+beforeEach(() => {
+  evalTraceMock.mockReset();
+});
+
+describe('debugPositionalDiff (KS-4018: warmup retry)', () => {
+  it('первый вызов вернул [] — ретраим, второй непустой — возвращает строки', async () => {
+    const filled: PositionalSubterm[] = [
+      { id: 'pawn_connected', color: 'w', value_mg: 0.2, value_eg: 0.2 },
+      { id: 'pawn_isolated', color: 'b', value_mg: 0.1, value_eg: 0.1 },
+    ];
+    evalTraceMock.mockResolvedValueOnce([]).mockResolvedValueOnce(filled);
+    const rows = await debugPositionalDiff(
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(evalTraceMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('eval-timeout на первом вызове, потом успех — тоже ретраим', async () => {
+    const filled: PositionalSubterm[] = [
+      { id: 'outpost_knight', color: 'w', value_mg: 0.4, value_eg: 0.25 },
+    ];
+    evalTraceMock
+      .mockRejectedValueOnce(new StockfishTraceEngineError('eval-timeout'))
+      .mockResolvedValueOnce(filled);
+    const rows = await debugPositionalDiff(
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    );
+    expect(rows[0].param).toBe('outpost_knight');
+    expect(evalTraceMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('factory-error не ретраим — сразу [] и предупреждение', async () => {
+    evalTraceMock.mockRejectedValueOnce(
+      new StockfishTraceEngineError('factory-error'),
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const rows = await debugPositionalDiff(
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    );
+    expect(rows).toEqual([]);
+    expect(evalTraceMock).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('Stockfish не загружается'),
+    );
+    warn.mockRestore();
+  });
+
+  it('без FEN — мгновенное предупреждение, evalTrace не зовём', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const orig = window.__sfTraceFen;
+    window.__sfTraceFen = undefined;
+    try {
+      const rows = await debugPositionalDiff();
+      expect(rows).toEqual([]);
+      expect(evalTraceMock).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Откройте /analysis'),
+      );
+    } finally {
+      window.__sfTraceFen = orig;
+      warn.mockRestore();
+    }
+  });
+});
 
 describe('aggregatePositionalDiff', () => {
   it('агрегирует несколько строк одного id по сторонам и считает diff', () => {

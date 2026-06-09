@@ -127,14 +127,36 @@ export function aggregatePositionalDiff(
 }
 
 /**
+ * KS-4018. Время полного прогрева WASM-движка от первого `evalTrace`
+ * до получения непустого массива subterms. Внутри `evalTrace` уже есть
+ * ожидание `uciok` (см. `INIT_TIMEOUT_MS=8s` в `stockfishTrace.ts`), но
+ * на первом вызове внутренние таблицы SF (Pawns/Material) могут ещё
+ * не быть прогреты, и `eval json` возвращает JSON без `subterms`. Это
+ * не системная ошибка, а нормальная задержка инициализации.
+ *
+ * Стратегия: цикл-ретрай по 200 мс, потолок 5 секунд. По задаче — этого
+ * достаточно для типичного прогрева. Если не успели — выводим осмысленное
+ * предупреждение и возвращаем `[]`.
+ */
+const WARMUP_TOTAL_MS = 5_000;
+const WARMUP_RETRY_DELAY_MS = 200;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
  * Сама консольная команда. Async — eval-trace WASM запускается асинхронно.
  *
  * Поведение:
  *  - Если `window.__sfTraceFen` не выставлен (страница анализа не открыта
  *    или ещё не успела) — `console.warn` с инструкцией, возвращает `[]`.
- *  - Если eval-trace упал по системной причине (`factory-timeout`,
- *    `factory-error`, `eval-timeout` — см. `StockfishTraceEngineError`)
- *    — `console.warn` с понятным текстом, возвращает `[]`.
+ *  - Если eval-trace упал по системной причине загрузки
+ *    (`factory-timeout`, `factory-error` — см. `StockfishTraceEngineError`)
+ *    — `console.warn` с понятным текстом, возвращает `[]` без ретрая.
+ *  - Если eval-trace вернул `[]` (или бросил `eval-timeout`) — это
+ *    обычно прогрев SF не успел; ретраим каждые 200 мс до 5 секунд.
+ *    После таймаута — `console.warn` с осмысленным сообщением.
  *  - При успехе — `console.table` + `return rows`.
  */
 export async function debugPositionalDiff(
@@ -148,22 +170,53 @@ export async function debugPositionalDiff(
     return [];
   }
 
-  let subterms: PositionalSubterm[];
-  try {
-    subterms = await evalTrace(fen);
-  } catch (err) {
-    if (err instanceof StockfishTraceEngineError) {
-      console.warn(
-        `[ksPositionalDiff] Stockfish ещё не готов (${err.reason}). Подождите загрузки движка и повторите.`,
-      );
+  const deadline = Date.now() + WARMUP_TOTAL_MS;
+  let attempt = 0;
+  let subterms: PositionalSubterm[] = [];
+  while (Date.now() < deadline) {
+    attempt += 1;
+    try {
+      subterms = await evalTrace(fen);
+    } catch (err) {
+      if (err instanceof StockfishTraceEngineError) {
+        // factory-timeout / factory-error — WASM реально не загружается,
+        // повторы не помогут. eval-timeout — может быть прогрев, ретраим.
+        if (err.reason === 'eval-timeout') {
+          if (Date.now() + WARMUP_RETRY_DELAY_MS < deadline) {
+            await sleep(WARMUP_RETRY_DELAY_MS);
+            continue;
+          }
+          console.warn(
+            `[ksPositionalDiff] eval-timeout сохраняется ${Math.round(WARMUP_TOTAL_MS / 1000)} секунд — попробуйте ещё раз позже.`,
+          );
+          return [];
+        }
+        console.warn(
+          `[ksPositionalDiff] Stockfish не загружается (${err.reason}). Проверьте сеть и перезагрузите страницу.`,
+        );
+        return [];
+      }
+      console.warn('[ksPositionalDiff] eval-trace упал:', err);
       return [];
     }
-    console.warn('[ksPositionalDiff] eval-trace упал:', err);
-    return [];
+    if (subterms.length > 0) {
+      if (attempt > 1) {
+        console.info(
+          `[ksPositionalDiff] Stockfish прогрелся за ${attempt} попыток (~${attempt * WARMUP_RETRY_DELAY_MS} мс).`,
+        );
+      }
+      break;
+    }
+    // Пустой ответ — прогрев ещё не завершён. Подождём и попробуем снова.
+    if (Date.now() + WARMUP_RETRY_DELAY_MS < deadline) {
+      await sleep(WARMUP_RETRY_DELAY_MS);
+    } else {
+      break;
+    }
   }
   if (subterms.length === 0) {
     console.warn(
-      '[ksPositionalDiff] eval-trace вернул пустой массив (WASM-движок мог не загрузиться). Попробуйте перезагрузить страницу.',
+      `[ksPositionalDiff] За ${Math.round(WARMUP_TOTAL_MS / 1000)} секунд Stockfish не выдал ни одной подкомпоненты. Возможные причины: WASM-движок не загрузился, нет SharedArrayBuffer в окружении, FEN невалиден. Попробуйте перезагрузить страницу.`,
     );
     return [];
   }
