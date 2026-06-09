@@ -353,6 +353,15 @@
   overflow: hidden;
 }
 
+/* KS-4027: страница позиционной аналитики метрик на всю ширину окна
+   без боковых отступов `.main` (1200px + 24px padding) — на этой
+   странице ширина графика важнее общего «листа» страниц. */
+.main:has(.analysis-metrics-page) {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
 body.has-analysis-page .main {
   max-width: none;
   margin: 0;

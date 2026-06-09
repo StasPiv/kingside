@@ -131,11 +131,14 @@ export function AnalysisMetricsPage() {
 
   return (
     <div
+      className="analysis-metrics-page"
       data-testid="analysis-metrics-page"
       style={{
         // KS-4027: страница на всю ширину окна, без maxWidth и без
         // боковых отступов — пользователь специально просил «во весь
-        // экран», без пустот слева и справа.
+        // экран», без пустот слева и справа. Сам `.main` (родитель)
+        // зажимает `max-width: 1200px` + `padding: 24px` — снимается
+        // CSS-правилом `.main:has(.analysis-metrics-page)` в layout.css.
         width: '100%',
         padding: 0,
         margin: 0,
