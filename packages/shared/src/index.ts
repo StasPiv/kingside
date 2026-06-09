@@ -15,6 +15,8 @@ export * from './types/saved-filters.js';
 export * from './types/opening-trainer.js';
 // KS-3731 (ADR-110): live-трансляция анализа партии (events + DTO).
 export * from './types/live-analysis.js';
+// KS-4008 (ADR-121 Phase 1): MVP чата лекции (контракты WS + лимиты).
+export * from './types/lecture-chat.js';
 export * from './synthetic-chat-phrases.js';
 export * from './constants.js';
 export * from './constants/archive.js';

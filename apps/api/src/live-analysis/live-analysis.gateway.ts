@@ -22,6 +22,12 @@ import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
 import {
   LiveAnalysisEvents,
+  LectureChatEvents,
+  type LectureChatDeleteEvent,
+  type LectureChatErrorEvent,
+  type LectureChatMessageEvent,
+  type LectureChatMutedEvent,
+  type LectureChatSnapshotEvent,
   type LectureToolsChangedEvent,
   type LiveAnalysisClosedEvent,
   type LiveAnalysisCloseReason,
@@ -60,6 +66,15 @@ import {
   WebRTCPeerJoinedDto,
   WebRTCPeerLeftDto,
 } from './dto/webrtc-payload.dto';
+import {
+  ChatSendPayloadDto,
+  ChatDeletePayloadDto,
+  ChatMutePayloadDto,
+} from './dto/chat-payload.dto';
+import {
+  ChatValidationError,
+  LectureChatService,
+} from './lecture-chat.service';
 
 /**
  * KS-3732 / ADR-110 §2.2, §2.6: WebSocket gateway live-трансляции.
@@ -174,6 +189,12 @@ export class LiveAnalysisGateway
      * циркулярную зависимость с `LecturesModule`.
      */
     private readonly lecturesAccess: LecturesAccessService,
+    /**
+     * KS-4008 / ADR-121 Phase 1. Сервис чата лекции (rate-limit,
+     * duplicate-guard, mute, persist, snapshot). Без него gateway не
+     * умеет валидировать `chat:send` и сохранять сообщения.
+     */
+    private readonly chatService: LectureChatService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -580,9 +601,312 @@ export class LiveAnalysisGateway
       (client.data.subscribedSlugs as Set<string>).add(data.slug);
       client.emit(LiveAnalysisEvents.SYNC, snapshot);
       this.emitViewers(data.slug, count);
+
+      // KS-4008 / ADR-121 §6: если трансляция привязана к лекции —
+      // отдаём начальный snapshot чата. Берём отдельным запросом
+      // (lecture-id нужен и для последующих chat:* хендлеров —
+      // кешируем в `client.data.chatLecture`).
+      await this.emitChatSnapshotIfLecture(client, data.slug);
     } catch (e) {
       this.emitError(client, e);
     }
+  }
+
+  /**
+   * KS-4008. Если live-сессия привязана к лекции (active live status),
+   * шлём подписчику `chat:snapshot` и кешируем `client.data.chatLecture
+   * = { lectureId, ownerId, slug }` для chat-хендлеров. Если привязки
+   * нет — ничего не делаем (старые трансляции без лекции — чат не
+   * поддерживается).
+   *
+   * Состояние лекции (`status`) проверяем в chat-хендлерах отдельно
+   * на каждый chat:send (между snapshot и send тренер мог закрыть
+   * лекцию).
+   */
+  private async emitChatSnapshotIfLecture(
+    client: Socket,
+    slug: string,
+  ): Promise<void> {
+    const lecture = await this.prisma.lecture.findFirst({
+      where: { liveAnalysis: { slug } },
+      select: { id: true, ownerId: true, status: true },
+    });
+    if (!lecture) return;
+    // Кеш для chat-хендлеров: lectureId + ownerId — за O(1), без новых
+    // SELECT'ов на каждое сообщение.
+    (client.data as { chatLecture?: { lectureId: string; ownerId: string; slug: string } }).chatLecture = {
+      lectureId: lecture.id,
+      ownerId: lecture.ownerId,
+      slug,
+    };
+    const viewerId: string | null = client.data?.user?.id ?? null;
+    const [messages, pinnedId, muted] = await Promise.all([
+      this.chatService.getSnapshotMessages(lecture.id),
+      this.chatService.getPinnedId(lecture.id),
+      viewerId
+        ? this.chatService.isMuted(lecture.id, viewerId)
+        : Promise.resolve(false),
+    ]);
+    const payload: LectureChatSnapshotEvent = {
+      lectureId: lecture.id,
+      messages,
+      pinnedId,
+      mutedSelf: muted,
+    };
+    client.emit(LectureChatEvents.SNAPSHOT, payload);
+  }
+
+  // ─── Chat: client → server (KS-4008 / ADR-121 Phase 1) ──────────────
+
+  /**
+   * `chat:send` — обычное пользовательское сообщение в комнату лекции.
+   *
+   * Порядок проверок (важен — отвечаем первым же отказом):
+   *   1. Сокет был subscribe'нут к slug лекции (`chatLecture` в data).
+   *   2. Пользователь авторизован (анонимам — `forbidden`).
+   *   3. Текущий status лекции — `live`. Иначе — `closed` (тренер мог
+   *      закрыть в момент отправки).
+   *   4. Если автор НЕ owner — проверяем mute → rate-limit → duplicate.
+   *      Owner-тренер пропускает эти три.
+   *   5. normalizeText (trim + длина + control-char).
+   *   6. persistMessage + broadcast в room лекции.
+   */
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage(LectureChatEvents.SEND)
+  async handleChatSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: ChatSendPayloadDto,
+  ): Promise<void> {
+    const ctx = this.getChatLectureCtx(client, data.lectureId);
+    if (!ctx) {
+      this.emitChatError(client, 'forbidden', 'Not subscribed to lecture');
+      return;
+    }
+    const userId: string | null = client.data?.user?.id ?? null;
+    if (!userId) {
+      this.emitChatError(client, 'forbidden', 'Authentication required');
+      return;
+    }
+    // Refresh status — лекция могла закрыться после snapshot'а.
+    const lectureRow = await this.prisma.lecture.findUnique({
+      where: { id: ctx.lectureId },
+      select: { status: true, ownerId: true },
+    });
+    if (!lectureRow) {
+      this.emitChatError(client, 'not_found', 'Lecture not found');
+      return;
+    }
+    if (lectureRow.status !== 'live') {
+      this.emitChatError(client, 'closed', 'Lecture is not live');
+      return;
+    }
+    const isTrainer = userId === lectureRow.ownerId;
+
+    if (!isTrainer) {
+      // Mute → rate-limit → duplicate (порядок — от семантики к
+      // дросселированию: muted-сообщение не должно ни «съесть» rate-
+      // limit-окно, ни «обновить» duplicate-хеш).
+      if (await this.chatService.isMuted(ctx.lectureId, userId)) {
+        this.emitChatError(
+          client,
+          'muted',
+          'You have been muted by the trainer',
+        );
+        return;
+      }
+      const ok = await this.chatService.checkAndConsumeRateLimit(
+        ctx.lectureId,
+        userId,
+      );
+      if (!ok) {
+        this.emitChatError(
+          client,
+          'rate_limited',
+          'Too many messages, slow down',
+        );
+        return;
+      }
+    }
+
+    let text: string;
+    try {
+      text = this.chatService.normalizeText(data.text);
+    } catch (e) {
+      if (e instanceof ChatValidationError) {
+        this.emitChatError(client, e.code, e.message);
+        return;
+      }
+      throw e;
+    }
+
+    if (!isTrainer) {
+      const okDup = await this.chatService.checkAndConsumeDuplicate(
+        ctx.lectureId,
+        userId,
+        text,
+      );
+      if (!okDup) {
+        this.emitChatError(
+          client,
+          'duplicate',
+          'Same message was just sent',
+        );
+        return;
+      }
+    }
+
+    const authorUsername: string | null =
+      client.data?.user?.username ?? null;
+    const message: LectureChatMessageEvent = await this.chatService
+      .persistMessage({
+        lectureId: ctx.lectureId,
+        ownerId: lectureRow.ownerId,
+        authorId: userId,
+        authorUsername,
+        text,
+      })
+      .catch((e) => {
+        this.logger.warn(
+          `chat:send persist failed lecture=${ctx.lectureId} user=${userId}: ${(e as Error).message}`,
+        );
+        throw e;
+      });
+    this.server
+      .to(this.roomFor(ctx.slug))
+      .emit(LectureChatEvents.MESSAGE, message);
+  }
+
+  /**
+   * `chat:delete` — тренер soft-удаляет сообщение. Только owner лекции.
+   * Не возвращает сам контент — broadcast'ом сообщает messageId, фронт
+   * локально заменяет на «[удалено]». Если удаление в БД не пройдёт
+   * (записи нет или уже удалена) — отдаём `not_found`, никаких
+   * broadcast'ов.
+   */
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage(LectureChatEvents.DELETE)
+  async handleChatDelete(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: ChatDeletePayloadDto,
+  ): Promise<void> {
+    const ctx = this.getChatLectureCtx(client, data.lectureId);
+    if (!ctx) {
+      this.emitChatError(client, 'forbidden', 'Not subscribed to lecture');
+      return;
+    }
+    const userId: string | null = client.data?.user?.id ?? null;
+    if (!userId || userId !== ctx.ownerId) {
+      this.emitChatError(client, 'forbidden', 'Only the trainer can delete');
+      return;
+    }
+    const ok = await this.chatService.softDeleteMessage({
+      lectureId: ctx.lectureId,
+      messageId: data.messageId,
+      deletedById: userId,
+    });
+    if (!ok) {
+      this.emitChatError(client, 'not_found', 'Message not found');
+      return;
+    }
+    const payload: LectureChatDeleteEvent = {
+      lectureId: ctx.lectureId,
+      messageId: data.messageId,
+    };
+    this.server
+      .to(this.roomFor(ctx.slug))
+      .emit(LectureChatEvents.DELETED, payload);
+  }
+
+  /**
+   * `chat:mute` — тренер мьютит ученика. Только owner. Self-mute
+   * отбивается (тренер не может замьютить сам себя). После upsert'а:
+   *   - точечный `chat:muted` всем сокетам этого userId в комнате
+   *     лекции (через fetchSockets + filter по `data.user.id`);
+   *   - broadcast НЕ делаем, остальные о mute узнают по молчанию.
+   */
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @SubscribeMessage(LectureChatEvents.MUTE)
+  async handleChatMute(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: ChatMutePayloadDto,
+  ): Promise<void> {
+    const ctx = this.getChatLectureCtx(client, data.lectureId);
+    if (!ctx) {
+      this.emitChatError(client, 'forbidden', 'Not subscribed to lecture');
+      return;
+    }
+    const userId: string | null = client.data?.user?.id ?? null;
+    if (!userId || userId !== ctx.ownerId) {
+      this.emitChatError(client, 'forbidden', 'Only the trainer can mute');
+      return;
+    }
+    if (data.userId === ctx.ownerId) {
+      this.emitChatError(client, 'forbidden', 'Cannot mute yourself');
+      return;
+    }
+    // Защита от mute несуществующих юзеров: prisma.user check.
+    const target = await this.prisma.user.findUnique({
+      where: { id: data.userId },
+      select: { id: true },
+    });
+    if (!target) {
+      this.emitChatError(client, 'not_found', 'Target user not found');
+      return;
+    }
+    await this.chatService.muteUser({
+      lectureId: ctx.lectureId,
+      userId: data.userId,
+      mutedById: userId,
+    });
+    // Адресная отправка `chat:muted` всем коннектам данного userId в
+    // комнате — фронт покажет overlay «Тренер отключил ваш чат».
+    const payload: LectureChatMutedEvent = {
+      lectureId: ctx.lectureId,
+      byUserId: userId,
+    };
+    try {
+      const sockets = (await this.server
+        .in(this.roomFor(ctx.slug))
+        .fetchSockets()) as unknown as Array<{
+        id: string;
+        data: { user?: { id: string } | null };
+        emit: (event: string, payload: unknown) => void;
+      }>;
+      for (const s of sockets) {
+        if (s.data?.user?.id === data.userId) {
+          s.emit(LectureChatEvents.MUTED, payload);
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `chat:mute fetchSockets failed lecture=${ctx.lectureId}: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * KS-4008. Вспомогательный getter контекста чата для текущего сокета.
+   * Контекст ставится при subscribe (см. `emitChatSnapshotIfLecture`).
+   * Дополнительно сверяем lectureId с тем, что прислал клиент —
+   * защита от cross-lecture send'а через несколько subscribe.
+   */
+  private getChatLectureCtx(
+    client: Socket,
+    lectureId: string,
+  ): { lectureId: string; ownerId: string; slug: string } | null {
+    const ctx = (client.data as { chatLecture?: { lectureId: string; ownerId: string; slug: string } }).chatLecture;
+    if (!ctx) return null;
+    if (ctx.lectureId !== lectureId) return null;
+    return ctx;
+  }
+
+  private emitChatError(
+    client: Socket,
+    code: LectureChatErrorEvent['code'],
+    message: string,
+  ): void {
+    const payload: LectureChatErrorEvent = { code, message };
+    client.emit(LectureChatEvents.ERROR, payload);
   }
 
   /**

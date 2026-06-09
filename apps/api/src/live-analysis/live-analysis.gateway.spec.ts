@@ -26,6 +26,7 @@ describe('LiveAnalysisGateway.handleStatePatch (KS-3775)', () => {
       {} as ConfigService,
       {} as PrismaService,
       {} as never,
+      {} as never,
     );
   });
 
@@ -149,6 +150,7 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
       {} as LiveAnalysisService,
       {} as ConfigService,
       prisma as unknown as PrismaService,
+      {} as never,
       {} as never,
     );
     (gateway as any).server = makeServer();
@@ -555,6 +557,310 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// KS-4008 / ADR-121 Phase 1. Chat handlers внутри LiveAnalysisGateway.
+// Покрываем главное:
+//   - тренер пишет → message приходит в room c isTrainerMessage=true;
+//   - ученик в mute → chat:error{muted}, broadcast'а нет;
+//   - non-owner шлёт chat:delete → chat:error{forbidden};
+//   - owner шлёт chat:delete → broadcast chat:delete;
+//   - chat:send без подписки → chat:error{forbidden};
+//   - chat:send в нелайв лекции → chat:error{closed}.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('LiveAnalysisGateway chat:* handlers (KS-4008)', () => {
+  const LECTURE_ID = '00000000-0000-0000-0000-000000004008';
+  const OWNER_ID = '00000000-0000-0000-0000-000000000001';
+  const STUDENT_ID = '00000000-0000-0000-0000-000000000002';
+  const SLUG = 'SLUG-CHAT';
+
+  let gateway: LiveAnalysisGateway;
+  let prisma: {
+    lecture: { findUnique: jest.Mock };
+    user: { findUnique: jest.Mock };
+  };
+  let chatService: {
+    isMuted: jest.Mock;
+    checkAndConsumeRateLimit: jest.Mock;
+    checkAndConsumeDuplicate: jest.Mock;
+    normalizeText: jest.Mock;
+    persistMessage: jest.Mock;
+    softDeleteMessage: jest.Mock;
+    muteUser: jest.Mock;
+  };
+  let roomEmit: jest.Mock;
+  let fetchSocketsResult: Array<{
+    id: string;
+    data: { user?: { id: string } | null };
+    emit: jest.Mock;
+  }>;
+
+  beforeEach(() => {
+    prisma = {
+      lecture: { findUnique: jest.fn() },
+      user: { findUnique: jest.fn() },
+    };
+    chatService = {
+      isMuted: jest.fn().mockResolvedValue(false),
+      checkAndConsumeRateLimit: jest.fn().mockResolvedValue(true),
+      checkAndConsumeDuplicate: jest.fn().mockResolvedValue(true),
+      normalizeText: jest.fn((t: string) => t.trim()),
+      persistMessage: jest.fn().mockImplementation(async (a) => ({
+        id: 'msg-1',
+        lectureId: a.lectureId,
+        authorId: a.authorId,
+        authorUsername: a.authorUsername,
+        text: a.text,
+        createdAt: '2026-06-09T00:00:00Z',
+        isTrainerMessage: a.authorId === a.ownerId,
+        pinned: false,
+        deletedAt: null,
+        kind: 'user' as const,
+      })),
+      softDeleteMessage: jest.fn().mockResolvedValue(true),
+      muteUser: jest.fn().mockResolvedValue(undefined),
+    };
+    gateway = new LiveAnalysisGateway(
+      {} as JwtService,
+      {} as LiveAnalysisService,
+      {} as ConfigService,
+      prisma as unknown as PrismaService,
+      {} as never,
+      chatService as never,
+    );
+    roomEmit = jest.fn();
+    fetchSocketsResult = [];
+    (gateway as any).server = {
+      to: jest.fn().mockReturnValue({ emit: roomEmit }),
+      in: jest.fn().mockReturnValue({
+        fetchSockets: jest.fn().mockImplementation(async () => fetchSocketsResult),
+      }),
+    };
+  });
+
+  function makeClient(
+    user: { id: string; username: string } | null,
+    ctx: { lectureId: string; ownerId: string; slug: string } | null = null,
+  ): any {
+    const c: any = {
+      id: 's-' + Math.random().toString(36).slice(2, 6),
+      data: { user, chatLecture: ctx ?? undefined },
+      emit: jest.fn(),
+    };
+    return c;
+  }
+
+  it('тренер пишет: persist + broadcast chat:message с isTrainerMessage=true', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      status: 'live',
+      ownerId: OWNER_ID,
+    });
+    const trainer = makeClient(
+      { id: OWNER_ID, username: 'coach' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    await gateway.handleChatSend(trainer, {
+      lectureId: LECTURE_ID,
+      text: 'Hello team',
+    });
+    expect(chatService.checkAndConsumeRateLimit).not.toHaveBeenCalled();
+    expect(chatService.checkAndConsumeDuplicate).not.toHaveBeenCalled();
+    expect(chatService.persistMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lectureId: LECTURE_ID,
+        authorId: OWNER_ID,
+        ownerId: OWNER_ID,
+        text: 'Hello team',
+      }),
+    );
+    expect(roomEmit).toHaveBeenCalledWith(
+      'chat:message',
+      expect.objectContaining({ isTrainerMessage: true, text: 'Hello team' }),
+    );
+  });
+
+  it('ученик в mute → chat:error{muted}, broadcast не происходит', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      status: 'live',
+      ownerId: OWNER_ID,
+    });
+    chatService.isMuted.mockResolvedValue(true);
+    const student = makeClient(
+      { id: STUDENT_ID, username: 'student' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    await gateway.handleChatSend(student, {
+      lectureId: LECTURE_ID,
+      text: 'why am I muted',
+    });
+    expect(student.emit).toHaveBeenCalledWith(
+      'chat:error',
+      expect.objectContaining({ code: 'muted' }),
+    );
+    expect(chatService.persistMessage).not.toHaveBeenCalled();
+    expect(roomEmit).not.toHaveBeenCalled();
+  });
+
+  it('ученик: 4-я подряд (rate-limit вернул false) → chat:error{rate_limited}', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      status: 'live',
+      ownerId: OWNER_ID,
+    });
+    chatService.checkAndConsumeRateLimit.mockResolvedValue(false);
+    const student = makeClient(
+      { id: STUDENT_ID, username: 'student' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    await gateway.handleChatSend(student, {
+      lectureId: LECTURE_ID,
+      text: 'one more',
+    });
+    expect(student.emit).toHaveBeenCalledWith(
+      'chat:error',
+      expect.objectContaining({ code: 'rate_limited' }),
+    );
+    expect(roomEmit).not.toHaveBeenCalled();
+  });
+
+  it('ученик: duplicate guard вернул false → chat:error{duplicate}', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      status: 'live',
+      ownerId: OWNER_ID,
+    });
+    chatService.checkAndConsumeDuplicate.mockResolvedValue(false);
+    const student = makeClient(
+      { id: STUDENT_ID, username: 'student' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    await gateway.handleChatSend(student, {
+      lectureId: LECTURE_ID,
+      text: 'spam spam',
+    });
+    expect(student.emit).toHaveBeenCalledWith(
+      'chat:error',
+      expect.objectContaining({ code: 'duplicate' }),
+    );
+    expect(roomEmit).not.toHaveBeenCalled();
+  });
+
+  it('chat:send без подписки (нет chatLecture) → chat:error{forbidden}', async () => {
+    const student = makeClient({ id: STUDENT_ID, username: 'student' }, null);
+    await gateway.handleChatSend(student, {
+      lectureId: LECTURE_ID,
+      text: 'hi',
+    });
+    expect(student.emit).toHaveBeenCalledWith(
+      'chat:error',
+      expect.objectContaining({ code: 'forbidden' }),
+    );
+  });
+
+  it('chat:send в не-live лекции → chat:error{closed}', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      status: 'recorded',
+      ownerId: OWNER_ID,
+    });
+    const student = makeClient(
+      { id: STUDENT_ID, username: 'student' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    await gateway.handleChatSend(student, {
+      lectureId: LECTURE_ID,
+      text: 'after end',
+    });
+    expect(student.emit).toHaveBeenCalledWith(
+      'chat:error',
+      expect.objectContaining({ code: 'closed' }),
+    );
+    expect(roomEmit).not.toHaveBeenCalled();
+  });
+
+  it('chat:delete от не-тренера → forbidden, persist не вызывается', async () => {
+    const student = makeClient(
+      { id: STUDENT_ID, username: 'student' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    await gateway.handleChatDelete(student, {
+      lectureId: LECTURE_ID,
+      messageId: '11111111-1111-1111-1111-111111111111',
+    });
+    expect(student.emit).toHaveBeenCalledWith(
+      'chat:error',
+      expect.objectContaining({ code: 'forbidden' }),
+    );
+    expect(chatService.softDeleteMessage).not.toHaveBeenCalled();
+  });
+
+  it('chat:delete от тренера → soft-delete + broadcast chat:delete всем', async () => {
+    const trainer = makeClient(
+      { id: OWNER_ID, username: 'coach' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    const MSG = '11111111-1111-1111-1111-111111111111';
+    await gateway.handleChatDelete(trainer, {
+      lectureId: LECTURE_ID,
+      messageId: MSG,
+    });
+    expect(chatService.softDeleteMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lectureId: LECTURE_ID,
+        messageId: MSG,
+        deletedById: OWNER_ID,
+      }),
+    );
+    expect(roomEmit).toHaveBeenCalledWith(
+      'chat:delete',
+      expect.objectContaining({ lectureId: LECTURE_ID, messageId: MSG }),
+    );
+  });
+
+  it('chat:mute от тренера → upsert + chat:muted целевому ученику в room', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id: STUDENT_ID });
+    const trainer = makeClient(
+      { id: OWNER_ID, username: 'coach' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    const targetEmit = jest.fn();
+    const otherEmit = jest.fn();
+    fetchSocketsResult = [
+      { id: 's-stud', data: { user: { id: STUDENT_ID } }, emit: targetEmit },
+      { id: 's-other', data: { user: { id: 'U-X' } }, emit: otherEmit },
+    ];
+    await gateway.handleChatMute(trainer, {
+      lectureId: LECTURE_ID,
+      userId: STUDENT_ID,
+    });
+    expect(chatService.muteUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lectureId: LECTURE_ID,
+        userId: STUDENT_ID,
+        mutedById: OWNER_ID,
+      }),
+    );
+    expect(targetEmit).toHaveBeenCalledWith(
+      'chat:muted',
+      expect.objectContaining({ lectureId: LECTURE_ID, byUserId: OWNER_ID }),
+    );
+    expect(otherEmit).not.toHaveBeenCalled();
+  });
+
+  it('chat:mute self-mute → forbidden, upsert не выполняется', async () => {
+    const trainer = makeClient(
+      { id: OWNER_ID, username: 'coach' },
+      { lectureId: LECTURE_ID, ownerId: OWNER_ID, slug: SLUG },
+    );
+    await gateway.handleChatMute(trainer, {
+      lectureId: LECTURE_ID,
+      userId: OWNER_ID,
+    });
+    expect(trainer.emit).toHaveBeenCalledWith(
+      'chat:error',
+      expect.objectContaining({ code: 'forbidden' }),
+    );
+    expect(chatService.muteUser).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // KS-3902 / ADR-117 §3. Подписка LiveAnalysisGateway на Redis-канал
 // `lecture-tools-changed` и ретрансляция в WS-комнату как событие
 // `live-analysis:lecture-tools`. Тесты не поднимают socket.io / Redis:
@@ -574,6 +880,7 @@ describe('LiveAnalysisGateway pub/sub lecture-tools-changed (KS-3902)', () => {
       {} as unknown as LiveAnalysisService,
       {} as ConfigService,
       {} as PrismaService,
+      {} as never,
       {} as never,
     );
     emit = jest.fn();
@@ -673,6 +980,7 @@ describe('LiveAnalysisGateway.handleSubscribe access flow (KS-3940)', () => {
       {} as ConfigService,
       prisma as unknown as PrismaService,
       access as never,
+      {} as never,
     );
     (gateway as any).server = { to: jest.fn().mockReturnValue({ emit: jest.fn() }) };
   });
@@ -871,6 +1179,7 @@ describe('LiveAnalysisGateway.handleLectureAccessRevoked (KS-3943)', () => {
       {} as ConfigService,
       prisma as unknown as PrismaService,
       access as never,
+      {} as never,
     );
     (gateway as any).server = {
       in: jest.fn().mockReturnValue({

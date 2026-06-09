@@ -148,6 +148,16 @@ model User {
   // к чужой лекции» здесь НЕ хранится (это subjectId в lecture_access_grants,
   // которая полиморфна и не имеет FK).
   grantedAccess            LectureAccessGrant[]    @relation("LectureAccessGrants")
+  // KS-4008 / ADR-121 Phase 1: чат лекции.
+  //   - `lectureChatMessages` — все сообщения, авторизованные этим юзером
+  //     (onDelete: SetNull в LectureChatMessage; сообщения сохраняются).
+  //   - `lectureChatMutesReceived` — мьюты в чате лекций, выписанные на
+  //     этого юзера (onDelete: Cascade — удаление юзера сносит мьюты).
+  //   - `lectureChatMutesIssued` — мьюты, наложенные этим юзером как
+  //     тренером (onDelete: Cascade — снос вместе с автором).
+  lectureChatMessages       LectureChatMessage[]   @relation("LectureChatAuthor")
+  lectureChatMutesReceived  LectureChatMute[]      @relation("LectureChatMutedUser")
+  lectureChatMutesIssued    LectureChatMute[]      @relation("LectureChatMutedBy")
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -2234,6 +2244,13 @@ model Lecture {
   /// игнорируется резолвером, но не удаляется (allowlist сохраняется при
   /// переключении видимости — см. KS-3933 A04).
   accessGrants   LectureAccessGrant[]
+  /// KS-4008 / ADR-121 Phase 1. Чат лекции: лента сообщений + per-user
+  /// мьюты на текущую лекцию. onDelete: Cascade у обеих моделей —
+  /// удаление лекции чистит чат полностью (мы не храним переписку
+  /// в отрыве от лекции; для replay её консервирует finalizer в
+  /// `LectureRecording.events`, см. Phase 2).
+  chatMessages   LectureChatMessage[]
+  chatMutes      LectureChatMute[]
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 
@@ -2413,5 +2430,79 @@ model LectureAccessGrant {
   /// `GET /lectures/:id/access`, KS-3936 B01).
   @@index([lectureId], map: "lecture_access_lecture_lookup")
   @@map("lecture_access_grants")
+}
+
+/// KS-4008 / ADR-121 Phase 1 §7.3. Сообщение чата лекции.
+/// Чат живёт в WS namespace `/live-analysis` (см. LiveAnalysisGateway).
+/// Соседняя `ChatMessage` (привязана к `Game`) — другая сущность, не
+/// трогаем (ADR-121 §7.5).
+///
+/// Soft-delete: `deletedAt + deletedById` (модератор), текст в БД
+/// сохраняется в `text` (для аудита), на фронт раздаётся подмена
+/// «[удалено]» (логика gateway, не БД).
+///
+/// `isTrainerMessage` — денормализация (`authorId === Lecture.ownerId`)
+/// для фильтрации без join'ов на «только тренер» в Phase 2.
+model LectureChatMessage {
+  id                String                 @id @default(uuid()) @db.Uuid
+  lectureId         String                 @map("lecture_id") @db.Uuid
+  lecture           Lecture                @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  /// `null` — для анонимов (Phase 1: запрещено, но поле nullable как
+  /// задел) и после `User.delete` (FK SetNull). UI рендерит как
+  /// «Удалённый пользователь».
+  authorId          String?                @map("author_id") @db.Uuid
+  author            User?                  @relation("LectureChatAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  /// Текст после trim, в диапазоне 1..500 unicode-codepoints.
+  /// VARCHAR(500) на PG достаточно: даже emoji UTF-8 ≤ 4 байта × 500 = 2 KB.
+  text              String                 @db.VarChar(500)
+  /// `user` — обычное сообщение участника; `system` — служебное
+  /// (закрепление, mute и т.п. Phase 2). MVP пишет только `user`.
+  kind              LectureChatMessageKind @default(user)
+  /// Денормализация: true ⇔ `authorId === Lecture.ownerId` в момент
+  /// записи. Используется фильтрами «только от тренера» и стилизацией
+  /// в ленте. Считается в gateway при persist, не в триггере БД.
+  isTrainerMessage  Boolean                @default(false) @map("is_trainer_message")
+  /// MVP Pin (Phase 1 уже отдаёт `pinnedId` в snapshot; кто и когда
+  /// поставит — Phase 2). Уникальность «одно pinned на лекцию» —
+  /// контракт сервиса, не constraint БД.
+  pinned            Boolean                @default(false)
+  /// Soft-delete: ставится тренером через `chat:delete`. Запись
+  /// остаётся в БД; gateway раздаёт подмену «[удалено]».
+  deletedAt         DateTime?              @map("deleted_at")
+  deletedById       String?                @map("deleted_by_id") @db.Uuid
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  /// Пагинация и snapshot: «последние N сообщений лекции в порядке
+  /// createdAt». Используется `findMany({where:{lectureId}, orderBy:
+  /// {createdAt:'desc'}, take:100})`.
+  @@index([lectureId, createdAt])
+  @@map("lecture_chat_messages")
+}
+
+enum LectureChatMessageKind {
+  user
+  system
+
+  @@map("lecture_chat_message_kind")
+}
+
+/// KS-4008 / ADR-121 Phase 1 §5.3. Мьют ученика в чате текущей лекции.
+/// Тренер выписывает через `chat:mute`. MVP: один мьют действует до
+/// конца лекции (нет TTL); снять — Phase 2.
+model LectureChatMute {
+  id           String   @id @default(uuid()) @db.Uuid
+  lectureId    String   @map("lecture_id") @db.Uuid
+  lecture      Lecture  @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  userId       String   @map("user_id") @db.Uuid
+  user         User     @relation("LectureChatMutedUser", fields: [userId], references: [id], onDelete: Cascade)
+  /// Кто наложил мьют. Owner-only по контракту; FK Cascade — на случай
+  /// удаления тренера сносится и его модерационная история по чату.
+  mutedById    String   @map("muted_by_id") @db.Uuid
+  mutedBy      User     @relation("LectureChatMutedBy", fields: [mutedById], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  /// Защита от дублей и быстрый lookup «muted ли userX в lectureY».
+  @@unique([lectureId, userId])
+  @@map("lecture_chat_mutes")
 }
 

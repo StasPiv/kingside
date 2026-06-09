@@ -57,6 +57,7 @@ describe('KS-3944 / ADR-118 §2.5: lecture-access-revoked end-to-end', () => {
       {} as ConfigService,
       prisma as unknown as PrismaService,
       access,
+      {} as never,
     );
     (gateway as unknown as {
       server: { in: jest.Mock };

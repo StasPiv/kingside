@@ -6,6 +6,7 @@ import { LiveAnalysisService } from './live-analysis.service';
 import { LiveAnalysisGateway } from './live-analysis.gateway';
 import { LiveAnalysisCleanupScheduler } from './live-analysis-cleanup.scheduler';
 import { LecturesAccessModule } from '../lectures/lectures-access.module';
+import { LectureChatService } from './lecture-chat.service';
 
 /**
  * KS-3732 / ADR-110: модуль live-трансляции анализа партии.
@@ -22,7 +23,13 @@ import { LecturesAccessModule } from '../lectures/lectures-access.module';
 @Module({
   imports: [AuthModule, PrismaModule, LecturesAccessModule],
   controllers: [LiveAnalysisController],
-  providers: [LiveAnalysisService, LiveAnalysisGateway, LiveAnalysisCleanupScheduler],
-  exports: [LiveAnalysisService, LiveAnalysisGateway],
+  providers: [
+    LiveAnalysisService,
+    LiveAnalysisGateway,
+    LiveAnalysisCleanupScheduler,
+    // KS-4008 / ADR-121 Phase 1: бизнес-логика чата лекции.
+    LectureChatService,
+  ],
+  exports: [LiveAnalysisService, LiveAnalysisGateway, LectureChatService],
 })
 export class LiveAnalysisModule {}
