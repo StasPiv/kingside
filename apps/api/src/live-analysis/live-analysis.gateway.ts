@@ -489,12 +489,24 @@ export class LiveAnalysisGateway
     }
     // KS-3836: чистим WebRTC peer-list'ы лекций, в которых socket
     // числился, и уведомляем оставшихся.
+    // KS-4003: при owner-reconnect старый socket дисконнектится уже
+    // ПОСЛЕ того, как новый owner-socket мигрировал и стал
+    // peers.ownerSocketId. Передаём флаг wasOwner=true для бывших
+    // owner-сокетов, чтобы removePeer (а) не трогал чужого owner'а
+    // (проверка `peers.ownerSocketId === socketId` это уже гарантирует),
+    // (б) явно логировал skip-кейс при race — для корреляции в проде.
     const webrtcLectures: Set<string> | undefined =
       client.data?.webrtcLectures;
+    const ownedLectures: Set<string> | undefined =
+      client.data?.webrtcOwnedLectures;
     if (webrtcLectures && webrtcLectures.size > 0) {
       for (const lectureId of webrtcLectures) {
         try {
-          this.removePeer(lectureId, client.id);
+          const wasOwner = ownedLectures?.has(lectureId) ?? false;
+          this.removePeer(lectureId, client.id, {
+            origin: 'disconnect',
+            wasOwner,
+          });
         } catch (e) {
           this.logger.warn(
             `webrtc cleanup failed lecture=${lectureId} socket=${client.id}: ${(e as Error).message}`,
@@ -879,7 +891,12 @@ export class LiveAnalysisGateway
           );
         }
       } else if (isOwner) {
-        // Owner-socket: запоминаем (вытесняем старый, если был reconnect).
+        // KS-4003. Идемпотентность: если owner-socket уже зарегистрирован
+        // (тот же client.id), повторный peer-joined — это retry с фронта
+        // (потеря offer'а, фронт переотправил handshake). Не трогаем
+        // ownerSocketId и НЕ запускаем replay-цикл — peer-list'ы валидны,
+        // лог-шум только сбивает диагностику.
+        const sameOwnerRetry = peers.ownerSocketId === client.id;
         if (peers.ownerSocketId && peers.ownerSocketId !== client.id) {
           this.logger.log(
             `webrtc owner reconnect: lecture=${data.lectureId} old=${peers.ownerSocketId} new=${client.id}`,
@@ -894,17 +911,22 @@ export class LiveAnalysisGateway
         // Каждому существующему subscriber'у отправляем виртуальный
         // peer-joined как будто он только что подключился — publisher
         // обработает его обычным путём (отправит offer на toSocketId).
-        for (const subscriberSocketId of peers.subscribers) {
-          const payload: WebRTCPeerJoinedEvent = {
-            lectureId: data.lectureId,
-            fromSocketId: subscriberSocketId,
-          };
-          client.emit(LiveAnalysisGateway.WEBRTC_PEER_JOINED, payload);
-        }
-        if (peers.subscribers.size > 0) {
-          this.logger.log(
-            `webrtc publisher registered: lecture=${data.lectureId} replayed ${peers.subscribers.size} pre-joined subscribers`,
-          );
+        // KS-4003: на retry от того же owner-socket — replay не делаем
+        // (фронт уже знает обо всех subscriber'ах, повтор создаёт дубли
+        // offer'ов и засоряет логи).
+        if (!sameOwnerRetry) {
+          for (const subscriberSocketId of peers.subscribers) {
+            const payload: WebRTCPeerJoinedEvent = {
+              lectureId: data.lectureId,
+              fromSocketId: subscriberSocketId,
+            };
+            client.emit(LiveAnalysisGateway.WEBRTC_PEER_JOINED, payload);
+          }
+          if (peers.subscribers.size > 0) {
+            this.logger.log(
+              `webrtc publisher registered: lecture=${data.lectureId} replayed ${peers.subscribers.size} pre-joined subscribers`,
+            );
+          }
         }
       }
 
@@ -920,7 +942,18 @@ export class LiveAnalysisGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: WebRTCPeerLeftDto,
   ): void {
-    this.removePeer(data.lectureId, client.id);
+    // KS-4003: 'peer-left' — voluntary leave (фронт явно ушёл из лекции).
+    // Удаляем без проверки migration: если sender — текущий owner, его
+    // намерение и есть очистить состояние; если уже не owner — проверка
+    // в removePeer всё равно сравнит ownerSocketId с client.id и не
+    // тронет state нового owner'а.
+    const ownedLectures: Set<string> | undefined =
+      client.data?.webrtcOwnedLectures;
+    const wasOwner = ownedLectures?.has(data.lectureId) ?? false;
+    this.removePeer(data.lectureId, client.id, {
+      origin: 'peer-left',
+      wasOwner,
+    });
     (client.data.webrtcLectures as Set<string>)?.delete(data.lectureId);
     (client.data.webrtcOwnedLectures as Set<string>)?.delete(data.lectureId);
   }
@@ -1030,14 +1063,47 @@ export class LiveAnalysisGateway
    * и при `disconnect`. Если в лекции после удаления никого нет —
    * чистим запись из `webrtcPeers` (минимизируем долгоживущие
    * пустые Set'ы).
+   *
+   * KS-4003 / KS-3836. `meta.origin` + `meta.wasOwner` — диагностические
+   * флаги для race-сценариев owner-reconnect:
+   *   - origin='disconnect' + wasOwner=true + ownerSocketId уже другой
+   *     → печатаем `skip owner cleanup (migrated)`. Это означает: старый
+   *     owner-сокет дисконнектился ПОСЛЕ успешного reconnect нового
+   *     owner'а; cleanup отложенный, трогать нового owner'а нельзя,
+   *     иначе новые subscribers получат `no publisher yet` и таймаут ICE.
+   *   - В остальных случаях skip-лог не печатаем (шум: каждый disconnect
+   *     subscriber'а валится в эту ветку).
+   * Обнуление ownerSocketId защищено условием
+   * `peers.ownerSocketId === socketId` — это ключевая гарантия против
+   * race из KS-4003: cleanup чужого socket'а не сбрасывает
+   * publisher-state.
    */
-  private removePeer(lectureId: string, socketId: string): void {
+  private removePeer(
+    lectureId: string,
+    socketId: string,
+    meta: { origin: 'disconnect' | 'peer-left'; wasOwner: boolean } = {
+      origin: 'peer-left',
+      wasOwner: false,
+    },
+  ): void {
     const peers = this.webrtcPeers.get(lectureId);
     if (!peers) return;
     let changed = false;
     if (peers.ownerSocketId === socketId) {
       peers.ownerSocketId = null;
       changed = true;
+    } else if (
+      meta.wasOwner &&
+      peers.ownerSocketId !== null &&
+      meta.origin === 'disconnect'
+    ) {
+      // KS-4003: owner-сокет дисконнектится после успешного reconnect
+      // (peers.ownerSocketId уже указывает на новый socket). Игнорируем,
+      // явно логируем для корреляции в проде.
+      this.logger.log(
+        `webrtc disconnect: skip owner cleanup (migrated): ` +
+          `lecture=${lectureId} disconnected=${socketId} currentOwner=${peers.ownerSocketId}`,
+      );
     }
     if (peers.subscribers.delete(socketId)) {
       changed = true;

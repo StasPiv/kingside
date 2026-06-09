@@ -425,6 +425,106 @@ describe('LiveAnalysisGateway WebRTC signaling (KS-3836)', () => {
     expect((owner.emit as jest.Mock)).not.toHaveBeenCalled();
   });
 
+  // KS-4003 / ADR-116 §2.1, §2.3. Race owner-reconnect: после успешной
+  // миграции owner'а на новый socket отложенный disconnect-handler
+  // старого socket'а НЕ должен затирать publisher-state. Иначе новые
+  // subscriber'ы получают `no publisher yet` → ICE timeout → тишина.
+  it('KS-4003: отложенный disconnect старого owner-socket не затирает publisher-state после reconnect', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      id: LECTURE,
+      ownerId: 'u-owner',
+    });
+    // 1. Owner A регистрируется
+    const ownerA = makeClient('S_OWNER_A', { id: 'u-owner', username: 'o' });
+    await gateway.handleWebRTCPeerJoined(ownerA, { lectureId: LECTURE });
+    // 2. Subscriber-1 подключается (фронт автора знает о нём)
+    const sub1 = makeClient('S_SUB1', { id: 'u-sub1', username: 's1' });
+    await gateway.handleWebRTCPeerJoined(sub1, { lectureId: LECTURE });
+    // 3. Owner-сокет A теряет соединение, фронт пересоздаёт сокет → B
+    //    шлёт peer-joined. Migration: ownerSocketId = B, replay subscribers.
+    const ownerB = makeClient('S_OWNER_B', { id: 'u-owner', username: 'o' });
+    (ownerB.emit as jest.Mock).mockClear();
+    await gateway.handleWebRTCPeerJoined(ownerB, { lectureId: LECTURE });
+    let peers = (gateway as any).webrtcPeers.get(LECTURE);
+    expect(peers.ownerSocketId).toBe('S_OWNER_B');
+    // Owner B получил synthetic peer-joined по sub1 (replay)
+    expect((ownerB.emit as jest.Mock)).toHaveBeenCalledWith(
+      'webrtc:peer-joined',
+      expect.objectContaining({ fromSocketId: 'S_SUB1' }),
+    );
+
+    // 4. С ОПОЗДАНИЕМ приходит disconnect старого socket A
+    //    (ping timeout 30s, либо просто отложенный teardown).
+    //    Это ключевая проверка: ownerSocketId должен остаться = B.
+    await (gateway as any).handleDisconnect(ownerA);
+
+    peers = (gateway as any).webrtcPeers.get(LECTURE);
+    expect(peers).toBeDefined();
+    expect(peers.ownerSocketId).toBe('S_OWNER_B');
+    expect(peers.subscribers.has('S_SUB1')).toBe(true);
+
+    // 5. Новый subscriber-2 подключается ПОСЛЕ disconnect старого owner'а.
+    //    Должен получить публикацию текущему owner'у B (а не «no publisher yet»).
+    const sub2 = makeClient('S_SUB2', { id: 'u-sub2', username: 's2' });
+    (ownerB.emit as jest.Mock).mockClear();
+    await gateway.handleWebRTCPeerJoined(sub2, { lectureId: LECTURE });
+    expect((ownerB.emit as jest.Mock)).toHaveBeenCalledWith(
+      'webrtc:peer-joined',
+      expect.objectContaining({
+        lectureId: LECTURE,
+        fromSocketId: 'S_SUB2',
+      }),
+    );
+  });
+
+  // KS-4003: peer-left от старого owner-socket после миграции тоже не
+  // должен затирать состояние нового owner'а. Симметрия для случая,
+  // когда фронт явно шлёт peer-left при cleanup'е.
+  it('KS-4003: peer-left от старого owner-socket после миграции не затирает publisher-state', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      id: LECTURE,
+      ownerId: 'u-owner',
+    });
+    const ownerA = makeClient('S_OWNER_A', { id: 'u-owner', username: 'o' });
+    await gateway.handleWebRTCPeerJoined(ownerA, { lectureId: LECTURE });
+    const ownerB = makeClient('S_OWNER_B', { id: 'u-owner', username: 'o' });
+    await gateway.handleWebRTCPeerJoined(ownerB, { lectureId: LECTURE });
+
+    // Старый A шлёт peer-left (фронт автора чистит старую регистрацию)
+    gateway.handleWebRTCPeerLeft(ownerA as never, { lectureId: LECTURE });
+
+    const peers = (gateway as any).webrtcPeers.get(LECTURE);
+    expect(peers.ownerSocketId).toBe('S_OWNER_B');
+  });
+
+  // KS-4003: повторный peer-joined от того же owner-socket — idempotent.
+  // Replay-цикл и лог «publisher registered» НЕ должны срабатывать.
+  it('KS-4003: повторный peer-joined от того же owner-socket не делает replay', async () => {
+    prisma.lecture.findUnique.mockResolvedValue({
+      id: LECTURE,
+      ownerId: 'u-owner',
+    });
+    const owner = makeClient('S_OWNER', { id: 'u-owner', username: 'o' });
+    const sub = makeClient('S_SUB', { id: 'u-sub', username: 's' });
+    await gateway.handleWebRTCPeerJoined(owner, { lectureId: LECTURE });
+    await gateway.handleWebRTCPeerJoined(sub, { lectureId: LECTURE });
+
+    // Первый peer-joined owner'а уже сделал replay (sub был ДО owner'а — нет,
+    // тут owner раньше; для чистоты заново: первый раз был БЕЗ subscribers,
+    // потом sub зашёл, owner получил peer-joined как реакцию на sub-join).
+    // Сейчас peer-joined тем же owner-socket'ом — должен быть no-op для replay.
+    (owner.emit as jest.Mock).mockClear();
+    await gateway.handleWebRTCPeerJoined(owner, { lectureId: LECTURE });
+    // НЕ ожидаем synthetic peer-joined для sub — это уже не первая
+    // регистрация publisher'а, и replay-spam не нужен.
+    expect((owner.emit as jest.Mock)).not.toHaveBeenCalledWith(
+      'webrtc:peer-joined',
+      expect.objectContaining({ fromSocketId: 'S_SUB' }),
+    );
+    const peers = (gateway as any).webrtcPeers.get(LECTURE);
+    expect(peers.ownerSocketId).toBe('S_OWNER');
+  });
+
   it('disconnect: удаляет socket из peer-list и шлёт peer-left оставшимся', async () => {
     prisma.lecture.findUnique.mockResolvedValue({
       id: LECTURE,
