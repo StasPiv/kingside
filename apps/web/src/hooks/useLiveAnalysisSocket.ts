@@ -144,12 +144,53 @@ export function useLiveAnalysisSocket({
     // `socket.ts`, который читает свежий токен из localStorage на каждый
     // handshake (initial + reconnect). См. подробный комментарий там.
 
+    // KS-4014. Лог анонимности нужен в трассировке открытия подписки —
+    // помогает быстро отличить «зритель залогинен, gateway его опознал
+    // не как owner» от «зритель аноним, owner-detection не сработал
+    // by design». Считаем по тому же признаку, что использует
+    // socket.ts (auth-callback читает `localStorage.token`).
+    const isAnonymous = (() => {
+      try {
+        return typeof window === 'undefined'
+          ? false
+          : !window.localStorage.getItem('token');
+      } catch {
+        return true;
+      }
+    })();
+
     const subscribe = () => {
       s.emit(LiveAnalysisEvents.SUBSCRIBE, { slug });
       setConnected(true);
+      // KS-4014. Структурированный лог открытия подписки —
+      // первый сигнал в цепочке трассировки подключения зрителя.
+      // Если у пользователя в DevTools этой строки нет, проблема
+      // дальше gateway уже не нужно искать.
+      console.info('[live-analysis-sock] subscribe-emitted', {
+        slug,
+        socketId: s.id ?? null,
+        socketConnected: s.connected,
+        isAnonymous,
+      });
     };
-    const handleConnect = () => subscribe();
-    const handleDisconnect = () => setConnected(false);
+    const handleConnect = () => {
+      console.info('[live-analysis-sock] connect-event', {
+        slug,
+        socketId: s.id ?? null,
+        isAnonymous,
+      });
+      subscribe();
+    };
+    const handleDisconnect = (reason: string) => {
+      console.warn('[live-analysis-sock] disconnect-event', { slug, reason });
+      setConnected(false);
+    };
+    const handleConnectError = (err: Error) => {
+      console.warn('[live-analysis-sock] connect_error', {
+        slug,
+        message: err.message,
+      });
+    };
     const handleSync = (payload: LiveAnalysisSyncSnapshot) => {
       // Cross-room защита: глобальный socket может в редких сценариях
       // получить событие чужой комнаты (например, при быстрой смене slug-а).
@@ -175,16 +216,24 @@ export function useLiveAnalysisSocket({
 
     s.on('connect', handleConnect);
     s.on('disconnect', handleDisconnect);
+    s.on('connect_error', handleConnectError);
     s.on(LiveAnalysisEvents.SYNC, handleSync);
     s.on(LiveAnalysisEvents.MOVE, handleMove);
     s.on(LiveAnalysisEvents.VIEWERS, handleViewers);
     s.on(LiveAnalysisEvents.CLOSED, handleClosed);
     s.on(LiveAnalysisEvents.ERROR, handleError);
 
+    console.info('[live-analysis-sock] mount', {
+      slug,
+      socketConnected: s.connected,
+      socketId: s.id ?? null,
+      isAnonymous,
+    });
     if (s.connected) {
       subscribe();
     } else {
       s.connect();
+      console.info('[live-analysis-sock] socket.connect() invoked', { slug });
     }
 
     return () => {
@@ -195,6 +244,7 @@ export function useLiveAnalysisSocket({
       }
       s.off('connect', handleConnect);
       s.off('disconnect', handleDisconnect);
+      s.off('connect_error', handleConnectError);
       s.off(LiveAnalysisEvents.SYNC, handleSync);
       s.off(LiveAnalysisEvents.MOVE, handleMove);
       s.off(LiveAnalysisEvents.VIEWERS, handleViewers);

@@ -500,12 +500,37 @@ export function useLectureAudioSubscriber({
         socket.connected,
       );
     };
+    // KS-4014. Структурированный лог открытия подписки с
+    // ключевыми для расследования полями. По нему пользователю на
+    // жалобу проще ответить «у тебя зритель действительно дошёл до
+    // subscribe-opened?» — если в консоли его нет, проблема не в
+    // gateway, а раньше (LiveAnalysisViewerPage не загрузила
+    // lectureId, или socket не connect-нулся).
+    const isAnonymous = (() => {
+      try {
+        return !window.localStorage.getItem('token');
+      } catch {
+        return true;
+      }
+    })();
+    console.info('[lecture-audio-sub] subscribe-opened', {
+      lectureId,
+      socketId: socket.id ?? null,
+      socketConnected: socket.connected,
+      isAnonymous,
+    });
     log('mount; listeners attached, emitting webrtc:peer-joined');
 
     // Регистрируемся в peer-list. Сервер сам форвардит peer-joined
     // публикатору с нашим socketId, и тренер пришлёт offer.
     const joinEvt: WebRTCPeerJoinedEvent = { lectureId };
     socket.emit('webrtc:peer-joined', joinEvt);
+    // KS-4014. Явный лог про факт отправки peer-joined — отдельная
+    // строка, чтобы её было видно даже если log(...) выше прокрутится.
+    console.info('[lecture-audio-sub] emit webrtc:peer-joined', {
+      lectureId,
+      socketId: socket.id ?? null,
+    });
 
     // KS-3881: рейс в сигнализации — тренер мог ещё не подключить
     // микрофон в момент маунта зрителя (`audioTrack === null` в
