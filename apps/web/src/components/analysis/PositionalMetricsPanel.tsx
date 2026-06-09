@@ -225,15 +225,25 @@ export function MetricsChart({
           return String(moveNo);
         };
         // Идём по ПАРАМ (белый+чёрный) для каждого видимого хода —
-        // тогда гарантированно показываются оба цвета: «1.e4», «1…e5»,
-        // «5.Nf3», «5…Nc6» и т.д. При просто шаге по ply шаг становился
-        // чётным и подписи попадали только на чёрных.
+        // тогда гарантированно показываются оба цвета. KS-4027: раньше
+        // цикл начинался с `m = moveStep` (не с 1) и пропускал первый
+        // ход — при шаге 4 видны были только 4й, 8й, 12й ходы. Поэтому
+        // считаем «опорные» номера ходов равномерно от 1 до totalMoves
+        // включительно, чтобы всегда был и первый, и последний.
         const totalMoves = Math.ceil((plyCount - 1) / 2);
-        const moveStep = Math.max(1, Math.ceil(totalMoves / 6));
         const labels: Array<{ ply: number; text: string }> = [
           { ply: 0, text: 'нач.' },
         ];
-        for (let m = moveStep; m <= totalMoves; m += moveStep) {
+        const targetMoves = Math.min(6, Math.max(1, totalMoves));
+        const moveNumbers = new Set<number>();
+        if (totalMoves >= 1) moveNumbers.add(1);
+        if (totalMoves >= 1) moveNumbers.add(totalMoves);
+        for (let i = 1; i < targetMoves - 1; i += 1) {
+          const m = Math.round(1 + (i / (targetMoves - 1)) * (totalMoves - 1));
+          moveNumbers.add(m);
+        }
+        const sortedMoves = Array.from(moveNumbers).sort((a, b) => a - b);
+        for (const m of sortedMoves) {
           const whitePly = 2 * m - 1;
           const blackPly = 2 * m;
           if (whitePly <= plyCount - 1) {
