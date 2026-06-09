@@ -29,7 +29,21 @@ import type {
   PositionalSubterm,
   PositionalSubtermId,
 } from '@kingside/shared';
-import { evalTrace, StockfishTraceEngineError } from '../lib/review/stockfishTrace';
+import {
+  evalTraceShared,
+  StockfishTraceEngineError,
+} from '../lib/review/stockfishTrace';
+
+/**
+ * KS-4019. Стандартная стартовая позиция — используется как «прогревочный»
+ * FEN перед основным запросом. На первом eval после init свежий
+ * Stockfish-инстанс возвращает JSON без `subterms` (внутренние таблицы
+ * Pawns/Material ещё не заполнены); следующий eval на ТОМ ЖЕ инстансе
+ * уже выдаёт подкомпоненты. `evalTraceShared` использует singleton-
+ * инстанс, поэтому прогрев сохраняется.
+ */
+const STARTING_FEN =
+  'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 /**
  * Одна строка итоговой таблицы: разница «Белые − Чёрные» по конкретному
@@ -127,18 +141,15 @@ export function aggregatePositionalDiff(
 }
 
 /**
- * KS-4018. Время полного прогрева WASM-движка от первого `evalTrace`
- * до получения непустого массива subterms. Внутри `evalTrace` уже есть
- * ожидание `uciok` (см. `INIT_TIMEOUT_MS=8s` в `stockfishTrace.ts`), но
- * на первом вызове внутренние таблицы SF (Pawns/Material) могут ещё
- * не быть прогреты, и `eval json` возвращает JSON без `subterms`. Это
- * не системная ошибка, а нормальная задержка инициализации.
- *
- * Стратегия: цикл-ретрай по 200 мс, потолок 5 секунд. По задаче — этого
- * достаточно для типичного прогрева. Если не успели — выводим осмысленное
- * предупреждение и возвращаем `[]`.
+ * KS-4018 → KS-4019. Время полного прогрева WASM-движка. Стратегия
+ * переработана: вместо 25-кратного создания новых инстансов используем
+ * shared-singleton `evalTraceShared` (KS-4019) и делаем один разовый
+ * прогревочный вызов с `STARTING_FEN`. Если основной запрос с целевым
+ * FEN всё ещё пуст — ретраим на том же инстансе с коротким интервалом
+ * 200 мс и потолком 2 секунды (раньше 5 — но теперь это backstop, а не
+ * основное ожидание).
  */
-const WARMUP_TOTAL_MS = 5_000;
+const WARMUP_TOTAL_MS = 2_000;
 const WARMUP_RETRY_DELAY_MS = 200;
 
 function sleep(ms: number): Promise<void> {
@@ -170,13 +181,34 @@ export async function debugPositionalDiff(
     return [];
   }
 
+  // KS-4019. Разовый прогревочный вызов на стартовой позиции — без него
+  // первый `eval json` на свежем инстансе SF возвращает JSON без
+  // `subterms`. Используем shared-singleton, чтобы прогрев сохранился
+  // для всех последующих вызовов в этой вкладке. Ошибки прогрева
+  // игнорируем — основной цикл ниже их повторит.
+  try {
+    await evalTraceShared(STARTING_FEN);
+  } catch (err) {
+    if (err instanceof StockfishTraceEngineError) {
+      if (err.reason === 'factory-timeout' || err.reason === 'factory-error') {
+        console.warn(
+          `[ksPositionalDiff] Stockfish не загружается (${err.reason}). Проверьте сеть и перезагрузите страницу.`,
+        );
+        return [];
+      }
+      // eval-timeout на прогреве — нестрашно, идём в основной цикл.
+    } else {
+      console.warn('[ksPositionalDiff] прогрев упал:', err);
+    }
+  }
+
   const deadline = Date.now() + WARMUP_TOTAL_MS;
   let attempt = 0;
   let subterms: PositionalSubterm[] = [];
   while (Date.now() < deadline) {
     attempt += 1;
     try {
-      subterms = await evalTrace(fen);
+      subterms = await evalTraceShared(fen);
     } catch (err) {
       if (err instanceof StockfishTraceEngineError) {
         // factory-timeout / factory-error — WASM реально не загружается,

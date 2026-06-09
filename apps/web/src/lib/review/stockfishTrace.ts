@@ -286,6 +286,9 @@ export function _resetStockfishTraceCacheForTests(): void {
   cachedFactory = null;
   factoryPromise = null;
   cachedFactoryPromise = null;
+  // KS-4019: при сбросе кеша фабрики обнуляем и shared-инстанс,
+  // иначе он останется с указателем на старую фабрику.
+  sharedSfPromise = null;
 }
 
 // --- модульная фабрика StockfishTrace (KS-3676) --------------------------
@@ -518,6 +521,176 @@ export async function evalTrace(
  * (`remainder by zero` из-за `FILESYSTEM=0`). NNUE выключена при
  * сборке, классическая оценка идёт по умолчанию.
  */
+// --- KS-4019: shared singleton instance для отладочных команд ---------
+//
+// Боевой разбор партии (useGameReview) намеренно создаёт новый Module-
+// instance на каждый FEN — это просто и безопасно при разборе сотен
+// позиций подряд, где какая-то из последующих обязательно «прогреется».
+//
+// В отладочной команде `window.__ksPositionalDiff` (KS-4017/4018)
+// пользователь запрашивает один FEN; ретрай-цикл из KS-4018 поднимал
+// 17+ инстансов подряд, каждый отвечал пустым массивом (первый eval на
+// свежем SF возвращает JSON без `subterms`), 5-секундный потолок
+// истекал. Singleton позволяет переиспользовать прогретый инстанс
+// между вызовами: первый eval может вернуть пусто, но следующий — уже
+// на тех же таблицах Pawns/Material — содержит подкомпоненты.
+//
+// Идём минимально-инвазивно: новая функция `evalTraceShared(fen)`
+// рядом с `evalTraceViaWorker`. Боевой код `evalTrace(...)` не трогаем.
+// Idle-cleanup инстанса не делаем: при закрытии вкладки GC и так
+// освободит память; в активной отладочной сессии переиспользование
+// инстанса — выигрыш.
+
+interface SharedSfInstance {
+  sendCmd: (cmd: string) => void;
+  setOnLine: (cb: ((line: string) => void) | null) => void;
+}
+
+let sharedSfPromise: Promise<SharedSfInstance> | null = null;
+
+async function getSharedSfInstance(): Promise<SharedSfInstance> {
+  if (sharedSfPromise) return sharedSfPromise;
+  sharedSfPromise = (async () => {
+    const factory = await loadFactoryScript();
+    let currentOnLine: ((line: string) => void) | null = null;
+    const onPrint = (line: string) => {
+      if (currentOnLine) {
+        try {
+          currentOnLine(line);
+        } catch {
+          /* defensive — listener не должен валить весь канал */
+        }
+      }
+    };
+    const sfStart = performance.now();
+    let sf: SfTraceInstance;
+    try {
+      sf = await factory({
+        print: onPrint,
+        printErr: (line: string) =>
+          console.warn('[stockfishTrace shared] stderr:', line),
+      });
+    } catch (err) {
+      sharedSfPromise = null;
+      console.warn('[stockfishTrace shared] factory() failed:', err);
+      throw new StockfishTraceEngineError('factory-error', err);
+    }
+    console.info(
+      `[stockfishTrace shared] instance ready in ${Math.round(performance.now() - sfStart)}ms`,
+    );
+    if (typeof sf.ccall !== 'function') {
+      sharedSfPromise = null;
+      throw new StockfishTraceEngineError(
+        'factory-error',
+        new Error('ccall export missing'),
+      );
+    }
+    const sendCmd = (cmd: string) => {
+      try {
+        sf.ccall('uci_command', null, ['string'], [cmd]);
+      } catch (err) {
+        console.warn('[stockfishTrace shared] ccall(uci_command) threw:', err);
+      }
+    };
+    // Дожидаемся uciok один раз на жизнь инстанса.
+    let resolveUciOk: () => void = () => {};
+    const uciOkPromise = new Promise<void>((r) => {
+      resolveUciOk = r;
+    });
+    currentOnLine = (line: string) => {
+      if (line.trim() === 'uciok') resolveUciOk();
+    };
+    sendCmd('uci');
+    let initTimer: ReturnType<typeof setTimeout> | null = null;
+    const initRace = await Promise.race([
+      uciOkPromise.then(() => 'ok' as const),
+      new Promise<'timeout'>((r) => {
+        initTimer = setTimeout(() => r('timeout'), INIT_TIMEOUT_MS);
+      }),
+    ]);
+    if (initTimer) clearTimeout(initTimer);
+    currentOnLine = null;
+    if (initRace === 'timeout') {
+      sharedSfPromise = null;
+      throw new StockfishTraceEngineError('factory-timeout');
+    }
+    return {
+      sendCmd,
+      setOnLine: (cb) => {
+        currentOnLine = cb;
+      },
+    };
+  })();
+  return sharedSfPromise;
+}
+
+/**
+ * KS-4019 — shared singleton-вариант `evalTrace`. Использует один и тот
+ * же Module-instance Stockfish между вызовами. Между ними внутренние
+ * таблицы SF (Pawns/Material) сохраняются — это устраняет race на
+ * «холодном» первом запросе, из-за которого ретрай-цикл в
+ * `debugPositionalDiff` (KS-4018) поднимал 17 инстансов подряд.
+ *
+ * Использовать ТОЛЬКО в отладочных командах. Боевой разбор партии
+ * (`useGameReview`) продолжает использовать `evalTrace` с одноразовыми
+ * инстансами — таков его дизайн.
+ */
+export async function evalTraceShared(
+  fen: string,
+): Promise<PositionalSubterm[]> {
+  const sf = await getSharedSfInstance();
+  let collecting = false;
+  let braceDepth = 0;
+  const buf: string[] = [];
+  let resolveJson: (j: unknown) => void = () => {};
+  const jsonPromise = new Promise<unknown>((r) => {
+    resolveJson = r;
+  });
+  sf.setOnLine((line: string) => {
+    if (!collecting) {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith('{')) {
+        collecting = true;
+        buf.length = 0;
+        braceDepth = 0;
+      } else {
+        return;
+      }
+    }
+    buf.push(line);
+    for (let i = 0; i < line.length; i++) {
+      const ch = line.charCodeAt(i);
+      if (ch === 0x7b) braceDepth++;
+      else if (ch === 0x7d) braceDepth--;
+    }
+    if (collecting && braceDepth <= 0 && buf.length > 0) {
+      collecting = false;
+      try {
+        resolveJson(JSON.parse(buf.join('\n')));
+      } catch {
+        resolveJson(null);
+      }
+    }
+  });
+  sf.sendCmd(`position fen ${fen}`);
+  sf.sendCmd('eval json');
+  let evalTimer: ReturnType<typeof setTimeout> | null = null;
+  const raw = await Promise.race([
+    jsonPromise,
+    new Promise<unknown>((r) => {
+      evalTimer = setTimeout(() => r(null), EVAL_TIMEOUT_MS);
+    }),
+  ]);
+  if (evalTimer) clearTimeout(evalTimer);
+  sf.setOnLine(null);
+  if (raw == null) {
+    throw new StockfishTraceEngineError('eval-timeout');
+  }
+  return parseTraceJson(raw, (id) =>
+    console.warn(`[stockfishTrace shared] unknown subterm id (skipped): ${id}`),
+  );
+}
+
 async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
   let factory: SfTraceFactory;
   try {
