@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { GamePositionalTraceDto } from '@kingside/shared';
+import type { AnalysisPositionalTraceDto } from '@kingside/shared';
 
 // ── Моки ────────────────────────────────────────────────────────────
 const getMock = vi.fn();
@@ -43,12 +43,12 @@ vi.mock('../lib/review/positionalTraceStore', () => ({
 
 import { usePositionalTrace } from './usePositionalTrace';
 
-const GAME_ID = '00000000-0000-0000-0000-000000000001';
+const ANALYSIS_ID = '00000000-0000-0000-0000-000000000001';
 const SF_VERSION = 'sf18-trace-v2';
 
-function makeDto(plies = 3): GamePositionalTraceDto {
+function makeDto(plies = 3): AnalysisPositionalTraceDto {
   return {
-    gameId: GAME_ID,
+    analysisId: ANALYSIS_ID,
     sfVersion: SF_VERSION,
     plies: Array.from({ length: plies }, (_, i) => ({
       ply: i,
@@ -80,7 +80,7 @@ describe('usePositionalTrace', () => {
     getMock.mockResolvedValueOnce(dto);
 
     const { result } = renderHook(() =>
-      usePositionalTrace({ gameId: GAME_ID }),
+      usePositionalTrace({ analysisId: ANALYSIS_ID }),
     );
     await waitFor(() => expect(result.current.status).toBe('synced'));
     expect(result.current.data).toEqual(dto);
@@ -92,7 +92,7 @@ describe('usePositionalTrace', () => {
     getMock.mockResolvedValueOnce(null);
     loadLocalMock.mockResolvedValueOnce(null);
     const { result } = renderHook(() =>
-      usePositionalTrace({ gameId: GAME_ID }),
+      usePositionalTrace({ analysisId: ANALYSIS_ID }),
     );
     await waitFor(() => expect(result.current.status).toBe('idle'));
     expect(result.current.data).toBeNull();
@@ -101,8 +101,8 @@ describe('usePositionalTrace', () => {
   it('GET 404 → IDB содержит computed_locally → данные из IDB', async () => {
     getMock.mockResolvedValueOnce(null);
     loadLocalMock.mockResolvedValueOnce({
-      key: `${GAME_ID}:${SF_VERSION}`,
-      gameId: GAME_ID,
+      key: `${ANALYSIS_ID}:${SF_VERSION}`,
+      analysisId: ANALYSIS_ID,
       sfVersion: SF_VERSION,
       plies: makeDto(2).plies,
       totalPlies: 2,
@@ -112,7 +112,7 @@ describe('usePositionalTrace', () => {
       updatedAt: new Date().toISOString(),
     });
     const { result } = renderHook(() =>
-      usePositionalTrace({ gameId: GAME_ID }),
+      usePositionalTrace({ analysisId: ANALYSIS_ID }),
     );
     await waitFor(() => expect(result.current.status).toBe('computed'));
     expect(result.current.source).toBe('idb');
@@ -128,7 +128,7 @@ describe('usePositionalTrace', () => {
     postMock.mockResolvedValueOnce(finalDto);
 
     const { result } = renderHook(() =>
-      usePositionalTrace({ gameId: GAME_ID }),
+      usePositionalTrace({ analysisId: ANALYSIS_ID }),
     );
     await waitFor(() => expect(result.current.status).toBe('idle'));
 
@@ -148,7 +148,7 @@ describe('usePositionalTrace', () => {
     postMock.mockRejectedValueOnce(new Error('network'));
 
     const { result } = renderHook(() =>
-      usePositionalTrace({ gameId: GAME_ID }),
+      usePositionalTrace({ analysisId: ANALYSIS_ID }),
     );
     await waitFor(() => expect(result.current.status).toBe('idle'));
     act(() => result.current.start(['e2e4']));
@@ -162,8 +162,8 @@ describe('usePositionalTrace', () => {
     expect(pendingCalls.length).toBeGreaterThan(0);
   });
 
-  it('gameId=null — хук спит, никаких вызовов', () => {
-    renderHook(() => usePositionalTrace({ gameId: null }));
+  it('analysisId=null — хук спит, никаких вызовов', () => {
+    renderHook(() => usePositionalTrace({ analysisId: null }));
     expect(getMock).not.toHaveBeenCalled();
     expect(loadLocalMock).not.toHaveBeenCalled();
   });

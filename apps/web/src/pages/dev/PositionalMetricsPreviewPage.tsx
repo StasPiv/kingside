@@ -4,18 +4,18 @@
  *
  * Доступ: `/__dev/positional-metrics` (см. App.tsx).
  *
- * Загружаем фикстуру с готовой `GamePositionalTraceDto` (3 ply, два id),
+ * Загружаем фикстуру с готовой `AnalysisPositionalTraceDto` (3 ply, два id),
  * подсовываем её хуку через mock через прямое создание объекта-стейта —
  * сама `usePositionalTrace` тут не зовётся. Это чисто визуальная проба.
  */
 import { useState } from 'react';
-import type { GamePositionalTraceDto } from '@kingside/shared';
+import type { AnalysisPositionalTraceDto } from '@kingside/shared';
 import { PositionalMetricsPanel } from '../../components/analysis/PositionalMetricsPanel';
 import type { UsePositionalTraceState } from '../../hooks/usePositionalTrace';
 
 // 5-ply демо-трасса: материал и imbalance меняются по ходам.
-const DEMO_DTO: GamePositionalTraceDto = {
-  gameId: 'demo-game',
+const DEMO_DTO: AnalysisPositionalTraceDto = {
+  analysisId: 'demo-analysis',
   sfVersion: 'sf18-trace-v2',
   durationMs: 4200,
   createdAt: '2026-06-09T10:00:00.000Z',
@@ -78,6 +78,7 @@ function makeTrace(): UsePositionalTraceState {
   return {
     status: 'synced',
     data: DEMO_DTO,
+    idle: false,
     computedPlies: DEMO_DTO.plies.length,
     totalPlies: DEMO_DTO.plies.length,
     source: 'server',
@@ -88,8 +89,24 @@ function makeTrace(): UsePositionalTraceState {
   };
 }
 
+type Scene = 'data' | 'idle' | 'no-moves';
+
+function readSceneFromQuery(): Scene {
+  if (typeof window === 'undefined') return 'data';
+  const sp = new URLSearchParams(window.location.search);
+  const s = sp.get('scene');
+  if (s === 'idle' || s === 'no-moves' || s === 'data') return s;
+  return 'data';
+}
+
 export default function PositionalMetricsPreviewPage() {
   const [currentPly, setCurrentPly] = useState(2);
+  const [scene] = useState<Scene>(() => readSceneFromQuery());
+  const trace =
+    scene === 'idle'
+      ? { ...makeTrace(), idle: true, status: 'idle' as const, data: null }
+      : makeTrace();
+  const uciMoves = scene === 'no-moves' ? [] : ['e2e4', 'e7e5', 'g1f3', 'b8c6'];
   return (
     <div
       data-testid="positional-metrics-preview"
@@ -118,8 +135,8 @@ export default function PositionalMetricsPreviewPage() {
         }}
       >
         <PositionalMetricsPanel
-          trace={makeTrace()}
-          uciMoves={[]}
+          trace={trace}
+          uciMoves={uciMoves}
           currentPly={currentPly}
           onPlySelect={setCurrentPly}
         />

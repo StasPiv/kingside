@@ -14,7 +14,7 @@
  *   4. По завершении расчёта POST на сервер; при сетевой ошибке
  *      статус локально — `pending_upload`.
  *
- * BroadcastChannel `kingside:positional-trace:<gameId>` синхронизирует
+ * BroadcastChannel `kingside:positional-trace:<analysisId>` синхронизирует
  * прогресс между вкладками. Если другая вкладка уже считает — мы
  * подписываемся на её чекпоинты вместо параллельного дубль-расчёта
  * (он бы дал тот же результат, но WASM-нагрузка удвоилась бы).
@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import {
   POSITIONAL_TRACE_VERSION,
-  type GamePositionalTraceDto,
+  type AnalysisPositionalTraceDto,
   type PositionalSubterm,
   type PositionalTracePly,
 } from '@kingside/shared';
@@ -56,7 +56,13 @@ export type UsePositionalTraceStatus =
 export interface UsePositionalTraceState {
   status: UsePositionalTraceStatus;
   /** Готовая трасса для отрисовки графиков. `null` пока нет данных. */
-  data: GamePositionalTraceDto | null;
+  data: AnalysisPositionalTraceDto | null;
+  /**
+   * KS-4025: `true`, если хук «спит» из-за отсутствия `analysisId` —
+   * UI показывает заглушку «Сделайте хотя бы один ход» / «Сохраните
+   * анализ перед расчётом».
+   */
+  idle: boolean;
   /** Сколько ply посчитано (для прогресса). */
   computedPlies: number;
   /** Сколько ply должно быть посчитано всего. */
@@ -80,8 +86,8 @@ export interface UsePositionalTraceState {
 }
 
 interface UsePositionalTraceArgs {
-  /** UUID партии. Если `null` — хук «спит». */
-  gameId: string | null | undefined;
+  /** UUID анализа. Если `null` — хук «спит». */
+  analysisId: string | null | undefined;
   /**
    * Активен ли расчёт. По умолчанию `true`. Если `false` — хук всё
    * равно подгрузит уже посчитанные данные с сервера/из IndexedDB, но
@@ -92,18 +98,18 @@ interface UsePositionalTraceArgs {
 
 interface BroadcastMessage {
   type: 'checkpoint' | 'completed' | 'cancelled';
-  gameId: string;
+  analysisId: string;
   sfVersion: string;
   record?: PositionalTraceLocalRecord;
 }
 
-function getBroadcastChannelName(gameId: string): string {
-  return `kingside:positional-trace:${gameId}`;
+function getBroadcastChannelName(analysisId: string): string {
+  return `kingside:positional-trace:${analysisId}`;
 }
 
-function recordToDto(rec: PositionalTraceLocalRecord): GamePositionalTraceDto {
+function recordToDto(rec: PositionalTraceLocalRecord): AnalysisPositionalTraceDto {
   return {
-    gameId: rec.gameId,
+    analysisId: rec.analysisId,
     sfVersion: rec.sfVersion,
     plies: rec.plies,
     durationMs: rec.durationMs,
@@ -117,7 +123,7 @@ function recordToDto(rec: PositionalTraceLocalRecord): GamePositionalTraceDto {
  * `PositionalTracePly.subterms` (это тот же тип, без преобразований).
  */
 function pliesToRecord(args: {
-  gameId: string;
+  analysisId: string;
   sfVersion: string;
   plies: PositionalTracePly[];
   totalPlies: number;
@@ -125,8 +131,8 @@ function pliesToRecord(args: {
   durationMs: number;
 }): PositionalTraceLocalRecord {
   return {
-    key: `${args.gameId}:${args.sfVersion}`,
-    gameId: args.gameId,
+    key: `${args.analysisId}:${args.sfVersion}`,
+    analysisId: args.analysisId,
     sfVersion: args.sfVersion,
     plies: args.plies,
     totalPlies: args.totalPlies,
@@ -138,11 +144,11 @@ function pliesToRecord(args: {
 }
 
 export function usePositionalTrace({
-  gameId,
+  analysisId,
   enabled = true,
 }: UsePositionalTraceArgs): UsePositionalTraceState {
   const [status, setStatus] = useState<UsePositionalTraceStatus>('idle');
-  const [data, setData] = useState<GamePositionalTraceDto | null>(null);
+  const [data, setData] = useState<AnalysisPositionalTraceDto | null>(null);
   const [computedPlies, setComputedPlies] = useState(0);
   const [totalPlies, setTotalPlies] = useState(0);
   const [source, setSource] = useState<'server' | 'idb' | 'computed' | null>(
@@ -154,17 +160,17 @@ export function usePositionalTrace({
   const runningRef = useRef(false);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
 
-  // ── BroadcastChannel — открываем один раз на gameId ─────────────────
+  // ── BroadcastChannel — открываем один раз на analysisId ─────────────────
   useEffect(() => {
-    if (!gameId || typeof BroadcastChannel === 'undefined') {
+    if (!analysisId || typeof BroadcastChannel === 'undefined') {
       broadcastRef.current = null;
       return;
     }
-    const ch = new BroadcastChannel(getBroadcastChannelName(gameId));
+    const ch = new BroadcastChannel(getBroadcastChannelName(analysisId));
     broadcastRef.current = ch;
     ch.onmessage = (ev: MessageEvent<BroadcastMessage>) => {
       const msg = ev.data;
-      if (!msg || msg.gameId !== gameId) return;
+      if (!msg || msg.analysisId !== analysisId) return;
       if (msg.sfVersion !== POSITIONAL_TRACE_VERSION) return;
       if (!msg.record) return;
       // Другая вкладка прислала свежий чекпоинт — используем его, наш
@@ -184,11 +190,11 @@ export function usePositionalTrace({
       ch.close();
       broadcastRef.current = null;
     };
-  }, [gameId]);
+  }, [analysisId]);
 
-  // ── Запуск чтения сервер → IDB при mount/смене gameId ──────────────
+  // ── Запуск чтения сервер → IDB при mount/смене analysisId ──────────────
   useEffect(() => {
-    if (!gameId) {
+    if (!analysisId) {
       setStatus('idle');
       setData(null);
       setComputedPlies(0);
@@ -204,7 +210,7 @@ export function usePositionalTrace({
       // Лучший случай: данные на сервере.
       try {
         const fromServer = await getPositionalTrace(
-          gameId,
+          analysisId,
           POSITIONAL_TRACE_VERSION,
         );
         if (cancelled) return;
@@ -217,7 +223,7 @@ export function usePositionalTrace({
           // Подкладываем в IndexedDB на следующий открытий.
           void saveLocalTrace(
             pliesToRecord({
-              gameId,
+              analysisId,
               sfVersion: fromServer.sfVersion,
               plies: fromServer.plies,
               totalPlies: fromServer.plies.length,
@@ -237,7 +243,7 @@ export function usePositionalTrace({
         );
       }
       // Сервер 404 / упал — пробуем локальный кеш.
-      const local = await loadLocalTrace(gameId, POSITIONAL_TRACE_VERSION);
+      const local = await loadLocalTrace(analysisId, POSITIONAL_TRACE_VERSION);
       if (cancelled) return;
       if (local) {
         setData(recordToDto(local));
@@ -249,7 +255,7 @@ export function usePositionalTrace({
         } else if (local.status === 'pending_upload') {
           setStatus('computed');
           // Фоновый ретрай на следующий tick.
-          void retryUpload(gameId, local);
+          void retryUpload(analysisId, local);
         } else if (local.status === 'computed_locally') {
           setStatus('computed');
         } else {
@@ -264,7 +270,7 @@ export function usePositionalTrace({
     return () => {
       cancelled = true;
     };
-  }, [gameId]);
+  }, [analysisId]);
 
   /** Ретрай отправки данных на сервер с обновлением статуса локально. */
   const retryUpload = useCallback(
@@ -298,7 +304,7 @@ export function usePositionalTrace({
 
   const start = useCallback(
     (uciMoves: ReadonlyArray<string>) => {
-      if (!gameId || !enabled) return;
+      if (!analysisId || !enabled) return;
       if (runningRef.current) return;
       if (status === 'synced' || status === 'computed') return;
       if (totalPlies > 0 && computedPlies >= totalPlies) return;
@@ -345,7 +351,7 @@ export function usePositionalTrace({
               collected.length === total
             ) {
               const rec = pliesToRecord({
-                gameId,
+                analysisId,
                 sfVersion: POSITIONAL_TRACE_VERSION,
                 plies: collected,
                 totalPlies: total,
@@ -359,7 +365,7 @@ export function usePositionalTrace({
               broadcastRef.current?.postMessage({
                 type:
                   collected.length === total ? 'completed' : 'checkpoint',
-                gameId,
+                analysisId,
                 sfVersion: POSITIONAL_TRACE_VERSION,
                 record: rec,
               } as BroadcastMessage);
@@ -370,7 +376,7 @@ export function usePositionalTrace({
 
           // Финальный snapshot.
           const finalRec = pliesToRecord({
-            gameId,
+            analysisId,
             sfVersion: POSITIONAL_TRACE_VERSION,
             plies: collected,
             totalPlies: total,
@@ -385,7 +391,7 @@ export function usePositionalTrace({
           // Шлём на сервер.
           try {
             setStatus('syncing');
-            const dto = await postPositionalTrace(gameId, {
+            const dto = await postPositionalTrace(analysisId, {
               sfVersion: POSITIONAL_TRACE_VERSION,
               plies: collected,
               durationMs: Date.now() - startedAt,
@@ -413,7 +419,7 @@ export function usePositionalTrace({
         }
       })();
     },
-    [computedPlies, enabled, gameId, status, totalPlies],
+    [computedPlies, enabled, analysisId, status, totalPlies],
   );
 
   const cancel = useCallback(() => {
@@ -423,7 +429,7 @@ export function usePositionalTrace({
   }, []);
 
   const resetLocal = useCallback(async () => {
-    if (!gameId) return;
+    if (!analysisId) return;
     cancelRef.current = true;
     runningRef.current = false;
     setStatus('idle');
@@ -437,13 +443,16 @@ export function usePositionalTrace({
     const { deleteLocalTrace } = await import(
       '../lib/review/positionalTraceStore'
     );
-    await deleteLocalTrace(gameId, POSITIONAL_TRACE_VERSION);
-  }, [gameId]);
+    await deleteLocalTrace(analysisId, POSITIONAL_TRACE_VERSION);
+  }, [analysisId]);
 
   return useMemo(
     () => ({
       status,
       data,
+      // KS-4025: idle=true когда analysisId не задан (например, новый
+      // анализ ещё не сохранён). UI показывает заглушку.
+      idle: !analysisId,
       computedPlies,
       totalPlies,
       source,
@@ -453,6 +462,7 @@ export function usePositionalTrace({
       resetLocal,
     }),
     [
+      analysisId,
       status,
       data,
       computedPlies,

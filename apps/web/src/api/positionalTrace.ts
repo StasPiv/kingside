@@ -1,39 +1,44 @@
 /**
- * KS-4024 / ADR-122 §3.1. API-клиент для позиционной аналитики партии.
- * Реализует три эндпоинта `/games/:gameId/positional-trace`:
+ * KS-4024 / KS-4025 / ADR-122 §3.1. API-клиент для позиционной аналитики
+ * пользовательского анализа.
+ *
+ * KS-4026: переключено с `/games/:gameId/...` на `/analyses/:analysisId/...`.
+ * В реальном потоке пользователя «Открыть в анализе» из архива создаёт
+ * новый Analysis (`openAnalysisFromPgn`), `gameId` почти всегда
+ * отсутствует — поэтому ключ привязки сменён на `analysisId`.
+ *
+ * Три эндпоинта `/analyses/:analysisId/positional-trace`:
  *   - GET с query `?v=<sfVersion>` — забрать снимок (200) или 404.
  *   - POST с телом `PositionalTraceUpsertDto` — UPSERT, требует JWT.
  *   - DELETE — снос записи, требует JWT.
  *
- * Поверх `api.get/post/delete` из `apps/web/src/api.ts` — то есть с
- * автоматической подстановкой Bearer-токена, тайм-аутом 15 секунд и
- * нормализацией ошибок в `ApiError`. Сетевые ошибки и не-200 коды
- * пробрасываются наружу — оркестратор (`usePositionalTrace`) сам
- * различает 404 от 5xx по `error.status`.
+ * Поверх `api.get/post/delete` из `apps/web/src/api.ts` — автоматическая
+ * подстановка Bearer-токена, тайм-аут 15 секунд, нормализация ошибок
+ * в `ApiError`. 404 от GET нормализуется в `null` — оркестратор
+ * (`usePositionalTrace`) сам различает 404 от 5xx.
  */
 import type {
-  GamePositionalTraceDto,
+  AnalysisPositionalTraceDto,
   PositionalTraceUpsertDto,
 } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
 
 /**
- * GET `/games/:gameId/positional-trace?v=<sfVersion>`.
+ * GET `/analyses/:analysisId/positional-trace?v=<sfVersion>`.
  *
- * Сервер возвращает `200` с `GamePositionalTraceDto`, если запись
+ * Сервер возвращает `200` с `AnalysisPositionalTraceDto`, если запись
  * существует и `sfVersion` совпадает с актуальной. При любом другом
  * условии — `404 positional_trace_not_found`. Здесь 404 нормализуется
- * в `null` — это идиоматичный сигнал «кеша на сервере нет, считаем
- * сами». Прочие ошибки (5xx, сеть) бросаются.
+ * в `null` — идиоматичный сигнал «кеша на сервере нет, считаем сами».
  */
 export async function getPositionalTrace(
-  gameId: string,
+  analysisId: string,
   sfVersion: string,
-): Promise<GamePositionalTraceDto | null> {
+): Promise<AnalysisPositionalTraceDto | null> {
   try {
-    return await api.get<GamePositionalTraceDto>(
-      `/games/${encodeURIComponent(gameId)}/positional-trace?v=${encodeURIComponent(sfVersion)}`,
+    return await api.get<AnalysisPositionalTraceDto>(
+      `/analyses/${encodeURIComponent(analysisId)}/positional-trace?v=${encodeURIComponent(sfVersion)}`,
     );
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
@@ -44,30 +49,29 @@ export async function getPositionalTrace(
 }
 
 /**
- * POST `/games/:gameId/positional-trace`.
+ * POST `/analyses/:analysisId/positional-trace`.
  *
  * Требует JWT. Сервер отдаёт `201` при первом создании и `200` при
- * перезаписи; и то и другое возвращает `GamePositionalTraceDto`. При
- * `400 sf_version_mismatch` клиент должен пересчитать данные с
- * актуальной версией. При `413 positional_trace_too_large` — снизить
- * объём (например, фильтровать subterms, см. ADR-122 §4).
+ * перезаписи; и то и другое возвращает `AnalysisPositionalTraceDto`.
  */
 export async function postPositionalTrace(
-  gameId: string,
+  analysisId: string,
   body: PositionalTraceUpsertDto,
-): Promise<GamePositionalTraceDto> {
-  return api.post<GamePositionalTraceDto>(
-    `/games/${encodeURIComponent(gameId)}/positional-trace`,
+): Promise<AnalysisPositionalTraceDto> {
+  return api.post<AnalysisPositionalTraceDto>(
+    `/analyses/${encodeURIComponent(analysisId)}/positional-trace`,
     body,
   );
 }
 
 /**
- * DELETE `/games/:gameId/positional-trace`.
+ * DELETE `/analyses/:analysisId/positional-trace`.
  *
  * Требует JWT. Сервер отвечает `204` идемпотентно — повторный вызов
- * не ошибка. Используется при «сбросить аналитику и пересчитать».
+ * не ошибка. Не-владелец без прав админа — 403.
  */
-export async function deletePositionalTrace(gameId: string): Promise<void> {
-  await api.delete(`/games/${encodeURIComponent(gameId)}/positional-trace`);
+export async function deletePositionalTrace(analysisId: string): Promise<void> {
+  await api.delete(
+    `/analyses/${encodeURIComponent(analysisId)}/positional-trace`,
+  );
 }

@@ -8,7 +8,7 @@
  * AnalysisPage с живым `gameId` и реальной архивной партией.
  */
 import { useState } from 'react';
-import type { GamePositionalTraceDto } from '@kingside/shared';
+import type { AnalysisPositionalTraceDto } from '@kingside/shared';
 import { AnalysisSidebar } from '../analysis/AnalysisSidebar';
 import type {
   AnalysisMobileTab,
@@ -18,8 +18,8 @@ import type { PanelStates } from '../analysis/accordionTogglePanel';
 import { PositionalMetricsPanel } from '../../components/analysis/PositionalMetricsPanel';
 import type { UsePositionalTraceState } from '../../hooks/usePositionalTrace';
 
-const DEMO_DTO: GamePositionalTraceDto = {
-  gameId: 'demo-game',
+const DEMO_DTO: AnalysisPositionalTraceDto = {
+  analysisId: 'demo-analysis',
   sfVersion: 'sf18-trace-v2',
   durationMs: 4200,
   createdAt: '2026-06-09T10:00:00.000Z',
@@ -55,6 +55,7 @@ function makeTrace(): UsePositionalTraceState {
   return {
     status: 'synced',
     data: DEMO_DTO,
+    idle: false,
     computedPlies: DEMO_DTO.plies.length,
     totalPlies: DEMO_DTO.plies.length,
     source: 'server',

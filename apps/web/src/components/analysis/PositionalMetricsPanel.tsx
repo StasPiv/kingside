@@ -377,6 +377,39 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
   const pct =
     totalPlies > 0 ? Math.min(100, Math.round((computedPlies / totalPlies) * 100)) : 0;
 
+  // KS-4025: заглушки для случаев, когда расчёт не имеет смысла.
+  if (trace.idle) {
+    return (
+      <div
+        data-testid="metric-runner-idle-no-id"
+        style={{
+          padding: '8px 10px',
+          fontSize: 12,
+          color: '#555',
+          background: '#f5f5f5',
+          borderRadius: 6,
+        }}
+      >
+        Сохраните анализ, чтобы аналитика метрик стала доступна.
+      </div>
+    );
+  }
+  if (uciMoves.length === 0) {
+    return (
+      <div
+        data-testid="metric-runner-no-moves"
+        style={{
+          padding: '8px 10px',
+          fontSize: 12,
+          color: '#555',
+          background: '#f5f5f5',
+          borderRadius: 6,
+        }}
+      >
+        Сделайте хотя бы один ход, чтобы увидеть динамику метрик.
+      </div>
+    );
+  }
   if (status === 'synced' || status === 'computed') {
     return (
       <div

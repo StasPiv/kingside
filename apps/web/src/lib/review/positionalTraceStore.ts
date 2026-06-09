@@ -47,9 +47,9 @@ export type PositionalTraceLocalStatus =
   | 'synced';
 
 export interface PositionalTraceLocalRecord {
-  /** `${gameId}:${sfVersion}` — primary key. */
+  /** `${analysisId}:${sfVersion}` — primary key. */
   key: string;
-  gameId: string;
+  analysisId: string;
   sfVersion: string;
   /** Снимок чекпоинта или финальный результат. Массив строго по ply. */
   plies: PositionalTracePly[];
@@ -64,8 +64,8 @@ export interface PositionalTraceLocalRecord {
   updatedAt: string;
 }
 
-function buildKey(gameId: string, sfVersion: string): string {
-  return `${gameId}:${sfVersion}`;
+function buildKey(analysisId: string, sfVersion: string): string {
+  return `${analysisId}:${sfVersion}`;
 }
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
@@ -106,7 +106,7 @@ async function openDb(): Promise<IDBDatabase | null> {
  * либо IndexedDB недоступен — `null`.
  */
 export async function loadLocalTrace(
-  gameId: string,
+  analysisId: string,
   sfVersion: string,
 ): Promise<PositionalTraceLocalRecord | null> {
   const db = await openDb();
@@ -114,7 +114,7 @@ export async function loadLocalTrace(
   return new Promise<PositionalTraceLocalRecord | null>((resolve) => {
     try {
       const tx = db.transaction(STORE_NAME, 'readonly');
-      const req = tx.objectStore(STORE_NAME).get(buildKey(gameId, sfVersion));
+      const req = tx.objectStore(STORE_NAME).get(buildKey(analysisId, sfVersion));
       req.onsuccess = () => {
         const rec = (req.result ?? null) as PositionalTraceLocalRecord | null;
         if (!rec) return resolve(null);
@@ -122,7 +122,7 @@ export async function loadLocalTrace(
         // протухшую. Удаление — best-effort, не блокируем чтение.
         const updated = Date.parse(rec.updatedAt);
         if (Number.isFinite(updated) && Date.now() - updated > TTL_MS) {
-          deleteLocalTrace(gameId, sfVersion).catch(() => {
+          deleteLocalTrace(analysisId, sfVersion).catch(() => {
             /* ignore */
           });
           return resolve(null);
@@ -173,7 +173,7 @@ export async function saveLocalTrace(
 
 /** Удалить запись по ключу. Идемпотентно. */
 export async function deleteLocalTrace(
-  gameId: string,
+  analysisId: string,
   sfVersion: string,
 ): Promise<void> {
   const db = await openDb();
@@ -181,7 +181,7 @@ export async function deleteLocalTrace(
   return new Promise<void>((resolve) => {
     try {
       const tx = db.transaction(STORE_NAME, 'readwrite');
-      const req = tx.objectStore(STORE_NAME).delete(buildKey(gameId, sfVersion));
+      const req = tx.objectStore(STORE_NAME).delete(buildKey(analysisId, sfVersion));
       req.onsuccess = () => resolve();
       req.onerror = () => resolve();
     } catch {

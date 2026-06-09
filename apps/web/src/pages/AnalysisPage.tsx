@@ -2694,44 +2694,44 @@ function AnalysisPageInner({
     enabled: showAiPanel,
   });
 
-  // KS-4024 / ADR-122. Позиционные метрики партии — вкладка «Метрики»
-  // в правой колонке (desktop) и 5-я мобильная вкладка. Хук грузит с
-  // сервера (`GET /games/:id/positional-trace`), при 404 проверяет
-  // IndexedDB, при отсутствии — позволяет caller'у запустить расчёт.
-  // Активна только когда есть `gameId` (анализ архивной партии).
-  const positionalTrace = usePositionalTrace({ gameId: gameId ?? null });
-  // UCI-ходы из mainline для start(). useGameReview не разбирает —
-  // здесь просто берём из history.
+  // KS-4024 / KS-4025 / ADR-122. Позиционные метрики анализа — вкладка
+  // «Метрики» в правой колонке (desktop) и 5-я мобильная вкладка. Хук
+  // грузит с сервера (`GET /analyses/:id/positional-trace`, KS-4026),
+  // при 404 проверяет IndexedDB, при отсутствии — позволяет caller'у
+  // запустить расчёт. На страницах без `analysisId` (новый ad-hoc анализ,
+  // ещё не сохранён в БД) показываем заглушку через `trace.idle=true`.
+  const positionalTrace = usePositionalTrace({
+    analysisId: analysisId ?? null,
+  });
+  // UCI-ходы из mainline для start().
   const uciMovesForMetrics = useMemo(
     () => history.filter((m) => !!m?.uci).map((m) => m.uci as string),
     [history],
   );
-  const metricsContent = useMemo(() => {
-    if (!gameId) return null;
-    return (
+  // KS-4025: блок «Метрики» рендерится всегда — на новом ad-hoc анализе
+  // (без id) панель показывает заглушку «Сохраните анализ перед расчётом
+  // метрик»; на пустой истории — «Сделайте хотя бы один ход».
+  const metricsContent = useMemo(
+    () => (
       <PositionalMetricsPanel
         trace={positionalTrace}
         uciMoves={uciMovesForMetrics}
         currentPly={currentGlobalIndex}
         onPlySelect={(ply) => {
-          // Клик по точке графика → переход на соответствующий ход в
-          // дереве. `searchInHistory(history, ply)` нашёл бы узел; для
-          // mainline достаточно использовать history[ply-1] через
-          // gotoMove (ply=0 — стартовая позиция, пропускаем).
           if (ply <= 0 || ply > history.length) return;
           const m = history[ply - 1];
           if (m) gotoMove(m as ChessMove);
         }}
       />
-    );
-  }, [
-    gameId,
-    positionalTrace,
-    uciMovesForMetrics,
-    currentGlobalIndex,
-    history,
-    gotoMove,
-  ]);
+    ),
+    [
+      positionalTrace,
+      uciMovesForMetrics,
+      currentGlobalIndex,
+      history,
+      gotoMove,
+    ],
+  );
 
   // KS-3726. Текущий комментарий узла дерева, на котором стоит
   // пользователь — нужен и для AI-панели (показать «Добавлено» когда
