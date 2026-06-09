@@ -14,6 +14,9 @@ import './i18n';
 import { attachLessonsResourceLoader } from './i18n/lessonsResourceLoader';
 // KS-3682: окно консоли для проверки SF-trace через window.__sfTrace.
 import './lib/review/__devtools/sfTraceConsole';
+// KS-4017: window.__ksPositionalDiff — сравнительная таблица
+// «Белые − Чёрные» по позиционным факторам Stockfish для отладки.
+import './dev/debugPositionalDiff';
 import './styles.css';
 
 initClientLogger();
