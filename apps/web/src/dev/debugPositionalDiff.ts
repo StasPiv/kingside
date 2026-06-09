@@ -1,6 +1,6 @@
 /**
- * KS-4017. Отладочная функция консоли: сравнительная таблица позиционных
- * факторов Stockfish (Белые − Чёрные).
+ * KS-4017 / KS-4020. Отладочная функция консоли: сравнительная таблица
+ * позиционных факторов Stockfish (Белые − Чёрные).
  *
  * Применение:
  *   await window.__ksPositionalDiff()
@@ -9,15 +9,19 @@
  * выставляется в `AnalysisPage` при каждой смене позиции — см. KS-3682
  * / `sfTraceConsole.ts`), запрашивает позиционные подкомпоненты Stockfish
  * через ту же `evalTrace(fen)`, что используется в боевом разборе
- * (ADR-107 §6 F1), агрегирует по `id` отдельно для белых и чёрных
- * (включая случай, когда у одной стороны несколько строк с одним и тем
- * же `id` — например `pawn_connected` на двух полях), считает разницу
- * `Белые − Чёрные` для `value_mg` и `value_eg`, сортирует по убыванию
- * `diff_mg` и печатает таблицу через `console.table`. Возвращает тот
- * же массив, чтобы из консоли его можно было сохранить в переменную:
+ * (`useGameReview`, ADR-107 §6 F1) и в существующей консольной команде
+ * `window.__sfTrace`. Агрегирует по `id` отдельно для белых и чёрных
+ * (несколько строк с одним id у одной стороны суммируются), считает
+ * `Белые − Чёрные` для `value_mg` / `value_eg`, сортирует по убыванию
+ * `diff_mg` и печатает таблицу через `console.table`. Возвращает массив
+ * — из консоли его можно сохранить в переменную:
  *
  *   const rows = await window.__ksPositionalDiff()
  *   rows.filter(r => r.diff_mg < 0)
+ *
+ * KS-4020. Параллельная ветка `evalTraceShared` + прогрев + ретрай
+ * (KS-4018/4019) удалена: на боевом `evalTrace` всё работает, отдельный
+ * singleton-инстанс был источником багов с фильтрацией psqt_*.
  *
  * Включение:
  *   - В dev (`import.meta.env.DEV`) — всегда.
@@ -29,27 +33,12 @@ import type {
   PositionalSubterm,
   PositionalSubtermId,
 } from '@kingside/shared';
-import {
-  evalTraceShared,
-  StockfishTraceEngineError,
-} from '../lib/review/stockfishTrace';
-
-/**
- * KS-4019. Стандартная стартовая позиция — используется как «прогревочный»
- * FEN перед основным запросом. На первом eval после init свежий
- * Stockfish-инстанс возвращает JSON без `subterms` (внутренние таблицы
- * Pawns/Material ещё не заполнены); следующий eval на ТОМ ЖЕ инстансе
- * уже выдаёт подкомпоненты. `evalTraceShared` использует singleton-
- * инстанс, поэтому прогрев сохраняется.
- */
-const STARTING_FEN =
-  'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+import { evalTrace } from '../lib/review/stockfishTrace';
 
 /**
  * Одна строка итоговой таблицы: разница «Белые − Чёрные» по конкретному
  * параметру в пешечных-cp единицах SF. `white_mg`/`black_mg` —
- * промежуточные суммы (полезны при отладке, видны в таблице как
- * раскрытые поля при `console.dir`).
+ * промежуточные суммы (полезны при отладке, видны при `console.dir`).
  */
 export interface PositionalDiffRow {
   /** id параметра, как в `PositionalSubterm.id`. */
@@ -141,34 +130,16 @@ export function aggregatePositionalDiff(
 }
 
 /**
- * KS-4018 → KS-4019. Время полного прогрева WASM-движка. Стратегия
- * переработана: вместо 25-кратного создания новых инстансов используем
- * shared-singleton `evalTraceShared` (KS-4019) и делаем один разовый
- * прогревочный вызов с `STARTING_FEN`. Если основной запрос с целевым
- * FEN всё ещё пуст — ретраим на том же инстансе с коротким интервалом
- * 200 мс и потолком 2 секунды (раньше 5 — но теперь это backstop, а не
- * основное ожидание).
- */
-const WARMUP_TOTAL_MS = 2_000;
-const WARMUP_RETRY_DELAY_MS = 200;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/**
  * Сама консольная команда. Async — eval-trace WASM запускается асинхронно.
  *
  * Поведение:
  *  - Если `window.__sfTraceFen` не выставлен (страница анализа не открыта
  *    или ещё не успела) — `console.warn` с инструкцией, возвращает `[]`.
- *  - Если eval-trace упал по системной причине загрузки
- *    (`factory-timeout`, `factory-error` — см. `StockfishTraceEngineError`)
- *    — `console.warn` с понятным текстом, возвращает `[]` без ретрая.
- *  - Если eval-trace вернул `[]` (или бросил `eval-timeout`) — это
- *    обычно прогрев SF не успел; ретраим каждые 200 мс до 5 секунд.
- *    После таймаута — `console.warn` с осмысленным сообщением.
- *  - При успехе — `console.table` + `return rows`.
+ *  - При успехе `evalTrace` — агрегация → `console.table` → `return rows`.
+ *  - При ошибке `evalTrace` — `console.warn` с фактическим текстом и `[]`.
+ *  - Если `evalTrace` вернул `[]` — `console.warn` и `[]`. На боевом
+ *    `evalTrace`, который работает в `useGameReview` и `window.__sfTrace`,
+ *    такого не наблюдается.
  */
 export async function debugPositionalDiff(
   fenArg?: string,
@@ -181,74 +152,16 @@ export async function debugPositionalDiff(
     return [];
   }
 
-  // KS-4019. Разовый прогревочный вызов на стартовой позиции — без него
-  // первый `eval json` на свежем инстансе SF возвращает JSON без
-  // `subterms`. Используем shared-singleton, чтобы прогрев сохранился
-  // для всех последующих вызовов в этой вкладке. Ошибки прогрева
-  // игнорируем — основной цикл ниже их повторит.
+  let subterms: PositionalSubterm[];
   try {
-    await evalTraceShared(STARTING_FEN);
+    subterms = await evalTrace(fen);
   } catch (err) {
-    if (err instanceof StockfishTraceEngineError) {
-      if (err.reason === 'factory-timeout' || err.reason === 'factory-error') {
-        console.warn(
-          `[ksPositionalDiff] Stockfish не загружается (${err.reason}). Проверьте сеть и перезагрузите страницу.`,
-        );
-        return [];
-      }
-      // eval-timeout на прогреве — нестрашно, идём в основной цикл.
-    } else {
-      console.warn('[ksPositionalDiff] прогрев упал:', err);
-    }
-  }
-
-  const deadline = Date.now() + WARMUP_TOTAL_MS;
-  let attempt = 0;
-  let subterms: PositionalSubterm[] = [];
-  while (Date.now() < deadline) {
-    attempt += 1;
-    try {
-      subterms = await evalTraceShared(fen);
-    } catch (err) {
-      if (err instanceof StockfishTraceEngineError) {
-        // factory-timeout / factory-error — WASM реально не загружается,
-        // повторы не помогут. eval-timeout — может быть прогрев, ретраим.
-        if (err.reason === 'eval-timeout') {
-          if (Date.now() + WARMUP_RETRY_DELAY_MS < deadline) {
-            await sleep(WARMUP_RETRY_DELAY_MS);
-            continue;
-          }
-          console.warn(
-            `[ksPositionalDiff] eval-timeout сохраняется ${Math.round(WARMUP_TOTAL_MS / 1000)} секунд — попробуйте ещё раз позже.`,
-          );
-          return [];
-        }
-        console.warn(
-          `[ksPositionalDiff] Stockfish не загружается (${err.reason}). Проверьте сеть и перезагрузите страницу.`,
-        );
-        return [];
-      }
-      console.warn('[ksPositionalDiff] eval-trace упал:', err);
-      return [];
-    }
-    if (subterms.length > 0) {
-      if (attempt > 1) {
-        console.info(
-          `[ksPositionalDiff] Stockfish прогрелся за ${attempt} попыток (~${attempt * WARMUP_RETRY_DELAY_MS} мс).`,
-        );
-      }
-      break;
-    }
-    // Пустой ответ — прогрев ещё не завершён. Подождём и попробуем снова.
-    if (Date.now() + WARMUP_RETRY_DELAY_MS < deadline) {
-      await sleep(WARMUP_RETRY_DELAY_MS);
-    } else {
-      break;
-    }
+    console.warn('[ksPositionalDiff] evalTrace упал:', err);
+    return [];
   }
   if (subterms.length === 0) {
     console.warn(
-      `[ksPositionalDiff] За ${Math.round(WARMUP_TOTAL_MS / 1000)} секунд Stockfish не выдал ни одной подкомпоненты. Возможные причины: WASM-движок не загрузился, нет SharedArrayBuffer в окружении, FEN невалиден. Попробуйте перезагрузить страницу.`,
+      '[ksPositionalDiff] evalTrace вернул пустой массив. Проверьте через window.__sfTrace(fen) — там та же реализация.',
     );
     return [];
   }

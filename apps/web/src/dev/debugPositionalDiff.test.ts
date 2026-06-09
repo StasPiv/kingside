@@ -1,6 +1,6 @@
 /**
- * KS-4017. Юнит-тест агрегатора позиционных факторов для консольной
- * отладки `window.__ksPositionalDiff`.
+ * KS-4017 / KS-4020. Юнит-тест агрегатора позиционных факторов для
+ * консольной отладки `window.__ksPositionalDiff`.
  *
  * Проверяем:
  *  - суммирование по id когда у одной стороны несколько строк
@@ -10,126 +10,15 @@
  *  - округление до 3 знаков;
  *  - side-agnostic подкомпоненты (`material`/`imbalance`, без color)
  *    относятся к балансу белых.
+ *
+ * KS-4020. Ветка с `evalTraceShared`/прогревом/ретраем удалена (см.
+ * комментарий в `debugPositionalDiff.ts`). Тесты на ретрай-сценарии
+ * не нужны — используется боевой `evalTrace`, его покрытие в
+ * `lib/review/stockfishTrace.test.ts`.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type { PositionalSubterm } from '@kingside/shared';
-
-const evalTraceSharedMock = vi.fn();
-
-vi.mock('../lib/review/stockfishTrace', async () => {
-  const actual = await vi.importActual<
-    typeof import('../lib/review/stockfishTrace')
-  >('../lib/review/stockfishTrace');
-  return {
-    ...actual,
-    evalTraceShared: (fen: string) => evalTraceSharedMock(fen),
-  };
-});
-
-import {
-  aggregatePositionalDiff,
-  debugPositionalDiff,
-} from './debugPositionalDiff';
-import { StockfishTraceEngineError } from '../lib/review/stockfishTrace';
-
-beforeEach(() => {
-  evalTraceSharedMock.mockReset();
-});
-
-const TEST_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-
-describe('debugPositionalDiff (KS-4018+KS-4019: warmup retry на shared instance)', () => {
-  it('делает прогревочный вызов на STARTPOS перед основным запросом', async () => {
-    const filled: PositionalSubterm[] = [
-      { id: 'pawn_connected', color: 'w', value_mg: 0.2, value_eg: 0.2 },
-    ];
-    // Первый вызов (прогрев) возвращает [], второй (основной) — данные.
-    evalTraceSharedMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(filled);
-    const rows = await debugPositionalDiff(TEST_FEN);
-    expect(rows[0].param).toBe('pawn_connected');
-    // Минимум 2 вызова: прогрев + 1 боевой.
-    expect(evalTraceSharedMock).toHaveBeenCalledTimes(2);
-    expect(evalTraceSharedMock.mock.calls[0][0]).toBe(
-      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-    );
-    expect(evalTraceSharedMock.mock.calls[1][0]).toBe(TEST_FEN);
-  });
-
-  it('пустой результат после прогрева — ретраим', async () => {
-    const filled: PositionalSubterm[] = [
-      { id: 'outpost_knight', color: 'w', value_mg: 0.4, value_eg: 0.25 },
-    ];
-    // Прогрев + первый боевой пустой + второй боевой — данные.
-    evalTraceSharedMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(filled);
-    const rows = await debugPositionalDiff(TEST_FEN);
-    expect(rows[0].param).toBe('outpost_knight');
-    expect(evalTraceSharedMock).toHaveBeenCalledTimes(3);
-  });
-
-  it('eval-timeout в боевом вызове, потом успех — ретраим', async () => {
-    const filled: PositionalSubterm[] = [
-      { id: 'pawn_isolated', color: 'b', value_mg: 0.1, value_eg: 0.1 },
-    ];
-    evalTraceSharedMock
-      .mockResolvedValueOnce([]) // прогрев
-      .mockRejectedValueOnce(new StockfishTraceEngineError('eval-timeout'))
-      .mockResolvedValueOnce(filled);
-    const rows = await debugPositionalDiff(TEST_FEN);
-    expect(rows.length).toBeGreaterThan(0);
-  });
-
-  it('factory-error на прогреве — сразу [] и предупреждение, боевого вызова нет', async () => {
-    evalTraceSharedMock.mockRejectedValueOnce(
-      new StockfishTraceEngineError('factory-error'),
-    );
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const rows = await debugPositionalDiff(TEST_FEN);
-    expect(rows).toEqual([]);
-    expect(evalTraceSharedMock).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('Stockfish не загружается'),
-    );
-    warn.mockRestore();
-  });
-
-  it('factory-error в боевом вызове — без ретрая, предупреждение', async () => {
-    evalTraceSharedMock
-      .mockResolvedValueOnce([]) // прогрев
-      .mockRejectedValueOnce(
-        new StockfishTraceEngineError('factory-error'),
-      );
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const rows = await debugPositionalDiff(TEST_FEN);
-    expect(rows).toEqual([]);
-    expect(evalTraceSharedMock).toHaveBeenCalledTimes(2);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('Stockfish не загружается'),
-    );
-    warn.mockRestore();
-  });
-
-  it('без FEN — мгновенное предупреждение, evalTraceShared не зовём', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const orig = window.__sfTraceFen;
-    window.__sfTraceFen = undefined;
-    try {
-      const rows = await debugPositionalDiff();
-      expect(rows).toEqual([]);
-      expect(evalTraceSharedMock).not.toHaveBeenCalled();
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('Откройте /analysis'),
-      );
-    } finally {
-      window.__sfTraceFen = orig;
-      warn.mockRestore();
-    }
-  });
-});
+import { aggregatePositionalDiff } from './debugPositionalDiff';
 
 describe('aggregatePositionalDiff', () => {
   it('агрегирует несколько строк одного id по сторонам и считает diff', () => {
