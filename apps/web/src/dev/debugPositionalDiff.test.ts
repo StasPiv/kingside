@@ -36,17 +36,37 @@ describe('aggregatePositionalDiff', () => {
     const rows = aggregatePositionalDiff(input);
 
     const byId = Object.fromEntries(rows.map((r) => [r.param, r]));
-    // pawn_connected: w_mg=0.22, b_mg=0.08 → diff=0.14
+    // pawn_connected: w_mg=0.22, b_mg=0.08 → diff=0.14, sum=0.30
     expect(byId['pawn_connected'].white_mg).toBeCloseTo(0.22, 5);
     expect(byId['pawn_connected'].black_mg).toBeCloseTo(0.08, 5);
     expect(byId['pawn_connected'].diff_mg).toBeCloseTo(0.14, 5);
     expect(byId['pawn_connected'].diff_eg).toBeCloseTo(0.19, 5);
+    expect(byId['pawn_connected'].sum_mg).toBeCloseTo(0.3, 5);
+    expect(byId['pawn_connected'].sum_eg).toBeCloseTo(0.47, 5);
 
-    // outpost_knight: только белые → diff = +0.4
+    // outpost_knight: только белые → diff = +0.4, sum = +0.4
     expect(byId['outpost_knight'].diff_mg).toBeCloseTo(0.4, 5);
+    expect(byId['outpost_knight'].sum_mg).toBeCloseTo(0.4, 5);
 
-    // passed_rank: только чёрные → diff = -0.5
+    // passed_rank: только чёрные → diff = -0.5 (POV-владельца со знаком), sum = +0.5
     expect(byId['passed_rank'].diff_mg).toBeCloseTo(-0.5, 5);
+    expect(byId['passed_rank'].sum_mg).toBeCloseTo(0.5, 5);
+  });
+
+  it('KS-4021: psqt-конвенция (значения уже со стороны белых) — sum_mg показывает баланс', () => {
+    // По данным пользователя: ладьи равноценны, значения противоположны.
+    const input: PositionalSubterm[] = [
+      { id: 'psqt_rook', color: 'w', square: 'f5', value_mg: 3.878, value_eg: 4.229 },
+      { id: 'psqt_rook', color: 'b', square: 'e2', value_mg: -3.945, value_eg: -4.192 },
+    ];
+    const rows = aggregatePositionalDiff(input);
+    const row = rows.find((r) => r.param === 'psqt_rook')!;
+    // sum_mg ≈ -0.067 — баланс почти ноль, ладьи равноценны.
+    expect(row.sum_mg).toBeCloseTo(-0.067, 3);
+    expect(row.sum_eg).toBeCloseTo(0.037, 3);
+    // diff_mg при суммировании в w/b даёт абсурдное число — это
+    // намеренно сохранено для параметров POV-владельца (где diff правильный).
+    expect(row.diff_mg).toBeCloseTo(7.823, 3);
   });
 
   it('сортирует по убыванию diff_mg', () => {

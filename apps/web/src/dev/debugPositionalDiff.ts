@@ -36,9 +36,26 @@ import {
 } from '../lib/review/collectAiFactors';
 import { PSQT_EXTRA_IDS } from '../lib/review/stockfishTrace';
 
-/** Одна строка итоговой таблицы: разница «Белые − Чёрные». */
+/**
+ * Одна строка итоговой таблицы. Stockfish-trace использует разные
+ * знаковые конвенции для разных id: `psqt_*` и `material`/`imbalance`
+ * выходят уже со стороны белых (signed contribution к white POV-оценке,
+ * у чёрных значения отрицательные), а большинство остальных
+ * подкомпонент (`pawn_connected`, `mobility_*`, `threat_*`, ...) — со
+ * стороны владельца (положительные у обеих сторон).
+ *
+ * Поэтому в таблице есть **обе** колонки:
+ *  - `sum_mg`/`sum_eg` — просто сумма всех значений по id. Адекватная
+ *    оценка «кто лучше» для параметров со стороны белых (psqt_*,
+ *    material/imbalance): около нуля = равноценно.
+ *  - `diff_mg`/`diff_eg` — `white_sum − black_sum`. Адекватная оценка
+ *    для параметров со стороны владельца (pawn_connected, mobility_*).
+ *  - `white_*`/`black_*` — слагаемые для отладки.
+ */
 export interface PositionalDiffRow {
   param: PositionalSubtermId | 'unknown';
+  sum_mg: number;
+  sum_eg: number;
   diff_mg: number;
   diff_eg: number;
   white_mg: number;
@@ -139,6 +156,8 @@ export function aggregatePositionalDiff(
   for (const [id, b] of byId) {
     rows.push({
       param: id as PositionalSubtermId | 'unknown',
+      sum_mg: round3(b.white_mg + b.black_mg),
+      sum_eg: round3(b.white_eg + b.black_eg),
       diff_mg: round3(b.white_mg - b.black_mg),
       diff_eg: round3(b.white_eg - b.black_eg),
       white_mg: round3(b.white_mg),
@@ -279,7 +298,9 @@ export async function debugPositionalDiff(
   console.table(
     rows.map((r) => ({
       param: r.param,
+      sum_mg: r.sum_mg,
       diff_mg: r.diff_mg,
+      sum_eg: r.sum_eg,
       diff_eg: r.diff_eg,
     })),
   );
