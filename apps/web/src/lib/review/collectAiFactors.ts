@@ -50,6 +50,13 @@ export interface CollectAiFactorsOptions {
   engineProbe?: (() => Promise<EngineBestLineInput | null>) | null;
   /** Потолок ожидания probe. По умолчанию 8 секунд (KS-3703). */
   probeTimeoutMs?: number;
+  /**
+   * KS-4021. Дополнительный список разрешённых `subterm.id` для парсера
+   * trace-JSON. По умолчанию — только базовый `VALID_IDS` (LLM-цепочка
+   * не получает `psqt_*`). Отладочная функция передаёт `PSQT_EXTRA_IDS`
+   * чтобы в таблице были все подкомпоненты, включая psqt.
+   */
+  extraValidIds?: ReadonlySet<string>;
 }
 
 export interface CollectAiFactorsResult {
@@ -71,8 +78,11 @@ const DEFAULT_PROBE_TIMEOUT_MS = 8_000;
 export async function collectAiFactors(
   opts: CollectAiFactorsOptions,
 ): Promise<CollectAiFactorsResult> {
+  const evalOpts = opts.extraValidIds
+    ? { extraValidIds: opts.extraValidIds }
+    : undefined;
   // 1. Исходная позиция.
-  const factors = await evalTrace(opts.fen);
+  const factors = await evalTrace(opts.fen, evalOpts);
 
   // 2. Probe лучшей линии (с потолком).
   let bestLine: EngineBestLineInput | null = null;
@@ -97,7 +107,7 @@ export async function collectAiFactors(
     const terminalFen = playOutPv(opts.fen, bestLine.pv);
     if (terminalFen) {
       try {
-        const terminalFactors = await evalTrace(terminalFen);
+        const terminalFactors = await evalTrace(terminalFen, evalOpts);
         mergedFactors = mergeFactors(
           factors,
           terminalFactors,

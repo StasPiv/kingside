@@ -34,6 +34,7 @@ import {
   collectAiFactors,
   type EngineBestLineInput,
 } from '../lib/review/collectAiFactors';
+import { PSQT_EXTRA_IDS } from '../lib/review/stockfishTrace';
 
 /** Одна строка итоговой таблицы: разница «Белые − Чёрные». */
 export interface PositionalDiffRow {
@@ -168,7 +169,14 @@ export async function debugPositionalDiff(
 
   let result: Awaited<ReturnType<typeof collectAiFactors>>;
   try {
-    result = await collectAiFactors({ fen, engineProbe });
+    result = await collectAiFactors({
+      fen,
+      engineProbe,
+      // KS-4021. В отладочной таблице показываем и psqt_* —
+      // они отфильтрованы в боевой LLM-цепочке, но полезны для
+      // разбора структуры оценки SF.
+      extraValidIds: PSQT_EXTRA_IDS,
+    });
   } catch (err) {
     console.warn('[ksPositionalDiff] collectAiFactors упал:', err);
     return [];

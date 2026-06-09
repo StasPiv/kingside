@@ -184,6 +184,7 @@ interface RawTraceJson {
 export function parseTraceJson(
   raw: unknown,
   onUnknown?: (id: string) => void,
+  extraValidIds?: ReadonlySet<string>,
 ): PositionalSubterm[] {
   if (!raw || typeof raw !== 'object') return [];
   const j = raw as RawTraceJson;
@@ -194,7 +195,10 @@ export function parseTraceJson(
     if (typeof s.id !== 'string') continue;
     if (typeof s.value_mg !== 'number' || !Number.isFinite(s.value_mg)) continue;
     if (typeof s.value_eg !== 'number' || !Number.isFinite(s.value_eg)) continue;
-    if (!VALID_IDS.has(s.id)) {
+    // KS-4021. `extraValidIds` — расширенный список разрешённых id для
+    // отладочных вызовов (например, psqt_*). По умолчанию используется
+    // только `VALID_IDS` — LLM-цепочка получает компоненты без psqt_*.
+    if (!VALID_IDS.has(s.id) && !(extraValidIds && extraValidIds.has(s.id))) {
       onUnknown?.(s.id);
       continue;
     }
@@ -211,6 +215,21 @@ export function parseTraceJson(
   }
   return out;
 }
+
+/**
+ * KS-4021. Расширенный список id для отладочной цепочки (`debugPositionalDiff`).
+ * Включает 6 PSQT-подкомпонент SF, которые сознательно исключены из
+ * боевого `VALID_IDS` (внутренняя декомпозиция оценки без шахматной
+ * семантики — для LLM шум). В отладочной таблице же их полезно видеть.
+ */
+export const PSQT_EXTRA_IDS: ReadonlySet<string> = new Set([
+  'psqt_pawn',
+  'psqt_knight',
+  'psqt_bishop',
+  'psqt_rook',
+  'psqt_queen',
+  'psqt_king',
+]);
 
 // --- module-factory loader (lazy, cached) ---------------------------------
 
@@ -386,13 +405,22 @@ async function loadFactoryScript(): Promise<SfTraceFactory> {
  */
 export async function evalTrace(
   fen: string,
-  options: { factory?: ModuleFactory } = {},
+  options: {
+    factory?: ModuleFactory;
+    /**
+     * KS-4021. Дополнительный список разрешённых `subterm.id` поверх
+     * `VALID_IDS`. Передаётся в `parseTraceJson`. Используется
+     * `debugPositionalDiff` для включения `psqt_*` в отладочную
+     * таблицу без затрагивания LLM-цепочки.
+     */
+    extraValidIds?: ReadonlySet<string>;
+  } = {},
 ): Promise<PositionalSubterm[]> {
   // KS-3680: основной путь — через Worker. Если в опциях передана
   // factory (тесты) — идём старым путём с print/stdin (он не блокирует
   // основной поток в тестах, у которых фабрика — обычная async-функция).
   if (!options.factory) {
-    return evalTraceViaWorker(fen);
+    return evalTraceViaWorker(fen, options.extraValidIds);
   }
   const factory = options.factory;
 
@@ -498,8 +526,10 @@ export async function evalTrace(
     console.warn('[stockfishTrace] eval timeout / no JSON in stdout');
     throw new StockfishTraceEngineError('eval-timeout');
   }
-  return parseTraceJson(raw, (id) =>
-    console.warn(`[stockfishTrace] unknown subterm id (skipped): ${id}`),
+  return parseTraceJson(
+    raw,
+    (id) => console.warn(`[stockfishTrace] unknown subterm id (skipped): ${id}`),
+    options.extraValidIds,
   );
 }
 
@@ -518,7 +548,10 @@ export async function evalTrace(
  * (`remainder by zero` из-за `FILESYSTEM=0`). NNUE выключена при
  * сборке, классическая оценка идёт по умолчанию.
  */
-async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
+async function evalTraceViaWorker(
+  fen: string,
+  extraValidIds?: ReadonlySet<string>,
+): Promise<PositionalSubterm[]> {
   let factory: SfTraceFactory;
   try {
     factory = await loadFactoryScript();
@@ -646,7 +679,9 @@ async function evalTraceViaWorker(fen: string): Promise<PositionalSubterm[]> {
     );
     throw new StockfishTraceEngineError('eval-timeout');
   }
-  return parseTraceJson(raw, (id) =>
-    console.warn(`[stockfishTrace] unknown subterm id (skipped): ${id}`),
+  return parseTraceJson(
+    raw,
+    (id) => console.warn(`[stockfishTrace] unknown subterm id (skipped): ${id}`),
+    extraValidIds,
   );
 }
