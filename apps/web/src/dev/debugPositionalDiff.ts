@@ -47,6 +47,20 @@ export interface PositionalDiffRow {
   black_eg: number;
 }
 
+/**
+ * KS-4021 follow-up. Одна строка подробной таблицы по клеткам — без
+ * суммирования по сторонам. Каждый исходный subterm от SF тут
+ * соответствует одной строке (с `square`, если SF её передал, и
+ * `color` стороны-обладателя).
+ */
+export interface PositionalBySquareRow {
+  param: PositionalSubtermId | 'unknown';
+  color: 'w' | 'b' | '—';
+  square: string;
+  value_mg: number;
+  value_eg: number;
+}
+
 function round3(x: number): number {
   return Math.round(x * 1000) / 1000;
 }
@@ -145,6 +159,74 @@ export function aggregatePositionalDiff(
 }
 
 /**
+ * KS-4021 follow-up. Подробный вид по клеткам: каждый subterm от SF —
+ * отдельная строка без суммирования. Для psqt_pawn в типичной позиции
+ * это даст до 16 строк (8 пешек белых + 8 чёрных), для одиночных
+ * параметров (`material`, `imbalance`) — по одной строке. Удобно
+ * сверять конкретные клетки и фигуры с реальной доской.
+ *
+ * Правила:
+ *  - Читаем `terminal_value_mg`/`terminal_value_eg` приоритетно (тот же
+ *    приоритет, что в `aggregatePositionalDiff`), fallback на `value_*`.
+ *  - Пропускаем элементы без числовой пары mg/eg (sf18-метки и т.п.).
+ *  - Если SF не передал `square` (агрегаты вроде `king_attackers_count`)
+ *    — поле остаётся пустой строкой.
+ *  - Сортировка: по `param` (стабильный порядок групп), внутри группы
+ *    по `color` (белые сначала), внутри цвета по `square`.
+ */
+export function buildPositionalBySquare(
+  subterms: ReadonlyArray<unknown>,
+): PositionalBySquareRow[] {
+  const rows: PositionalBySquareRow[] = [];
+  for (const raw of subterms) {
+    if (!raw || typeof raw !== 'object') continue;
+    const s = raw as Partial<PositionalSubterm> & {
+      terminal_value_mg?: unknown;
+      terminal_value_eg?: unknown;
+    };
+    if (typeof s.id !== 'string') continue;
+    const mg =
+      typeof s.terminal_value_mg === 'number' && Number.isFinite(s.terminal_value_mg)
+        ? s.terminal_value_mg
+        : typeof s.value_mg === 'number' && Number.isFinite(s.value_mg)
+        ? s.value_mg
+        : null;
+    const eg =
+      typeof s.terminal_value_eg === 'number' && Number.isFinite(s.terminal_value_eg)
+        ? s.terminal_value_eg
+        : typeof s.value_eg === 'number' && Number.isFinite(s.value_eg)
+        ? s.value_eg
+        : null;
+    if (mg === null || eg === null) continue;
+    const color: 'w' | 'b' | '—' =
+      s.color === 'w' || s.color === 'b' ? s.color : '—';
+    const square =
+      typeof s.square === 'string' && /^[a-h][1-8]$/.test(s.square)
+        ? s.square
+        : '';
+    rows.push({
+      param: s.id as PositionalSubtermId | 'unknown',
+      color,
+      square,
+      value_mg: round3(mg),
+      value_eg: round3(eg),
+    });
+  }
+  rows.sort((a, b) => {
+    if (a.param !== b.param) return a.param < b.param ? -1 : 1;
+    // Белые → чёрные → без цвета (агрегаты).
+    const colorOrder = (c: 'w' | 'b' | '—'): number =>
+      c === 'w' ? 0 : c === 'b' ? 1 : 2;
+    const ca = colorOrder(a.color);
+    const cb = colorOrder(b.color);
+    if (ca !== cb) return ca - cb;
+    if (a.square !== b.square) return a.square < b.square ? -1 : 1;
+    return 0;
+  });
+  return rows;
+}
+
+/**
  * Сама консольная команда. Async — `evalTrace` + probe выполняются
  * асинхронно.
  */
@@ -205,12 +287,61 @@ export async function debugPositionalDiff(
 }
 
 /**
- * Регистрирует функцию на глобальном объекте `window` под условием
+ * Подробная версия команды: возвращает строки по клеткам без
+ * суммирования по сторонам. Использует тот же `collectAiFactors` с
+ * `PSQT_EXTRA_IDS`, что и `debugPositionalDiff`.
+ */
+export async function debugPositionalBySquare(
+  fenArg?: string,
+): Promise<PositionalBySquareRow[]> {
+  const fen = fenArg ?? (typeof window !== 'undefined' ? window.__sfTraceFen : undefined);
+  if (!fen) {
+    console.warn(
+      '[ksPositionalBySquare] Откройте /analysis перед вызовом или передайте FEN явно: window.__ksPositionalBySquare("<fen>")',
+    );
+    return [];
+  }
+  const engineProbe =
+    typeof window !== 'undefined' ? window.__ksEngineProbe ?? null : null;
+
+  let result: Awaited<ReturnType<typeof collectAiFactors>>;
+  try {
+    result = await collectAiFactors({
+      fen,
+      engineProbe,
+      extraValidIds: PSQT_EXTRA_IDS,
+    });
+  } catch (err) {
+    console.warn('[ksPositionalBySquare] collectAiFactors упал:', err);
+    return [];
+  }
+
+  const rows = buildPositionalBySquare(result.mergedFactors);
+  if (rows.length === 0) {
+    console.warn(
+      '[ksPositionalBySquare] Stockfish не вернул ни одной подкомпоненты с числовыми значениями. fen=',
+      fen,
+      'bestLine=',
+      result.bestLine,
+    );
+    return [];
+  }
+
+  // eslint-disable-next-line no-console
+  console.table(rows);
+  return rows;
+}
+
+/**
+ * Регистрирует функции на глобальном объекте `window` под условием
  * dev-режима или явного opt-in через localStorage.
  */
 declare global {
   interface Window {
     __ksPositionalDiff?: (fen?: string) => Promise<PositionalDiffRow[]>;
+    __ksPositionalBySquare?: (
+      fen?: string,
+    ) => Promise<PositionalBySquareRow[]>;
     __ksEngineProbe?:
       | (() => Promise<EngineBestLineInput | null>)
       | undefined;
@@ -227,9 +358,10 @@ export function maybeRegisterPositionalDiff(): void {
   }
   if (!import.meta.env.DEV && !optedIn) return;
   window.__ksPositionalDiff = debugPositionalDiff;
+  window.__ksPositionalBySquare = debugPositionalBySquare;
   // eslint-disable-next-line no-console
   console.info(
-    "[ksPositionalDiff] готово: window.__ksPositionalDiff(fen?) — таблица «Белые − Чёрные» по позиционным факторам Stockfish (тот же массив, что улетает в AI-комментарий).%s",
+    "[ksPositionalDiff] готово: window.__ksPositionalDiff(fen?) — таблица «Белые − Чёрные» по позиционным факторам Stockfish (тот же массив, что улетает в AI-комментарий). window.__ksPositionalBySquare(fen?) — подробная таблица по клеткам без суммирования.%s",
     import.meta.env.DEV
       ? ''
       : ' (включено через localStorage `ks:dev`=1)',

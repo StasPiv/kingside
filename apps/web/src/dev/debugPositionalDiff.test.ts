@@ -18,7 +18,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { PositionalSubterm } from '@kingside/shared';
-import { aggregatePositionalDiff } from './debugPositionalDiff';
+import { aggregatePositionalDiff, buildPositionalBySquare } from './debugPositionalDiff';
 
 describe('aggregatePositionalDiff', () => {
   it('агрегирует несколько строк одного id по сторонам и считает diff', () => {
@@ -132,6 +132,60 @@ describe('aggregatePositionalDiff', () => {
     expect(byId['material'].diff_mg).toBeCloseTo(1.006, 3);
     // sf18_eval не должно попасть в таблицу.
     expect(byId['sf18_eval']).toBeUndefined();
+  });
+
+  it('KS-4021 follow-up: buildPositionalBySquare сохраняет клетки и не суммирует', () => {
+    const input = [
+      {
+        id: 'psqt_pawn',
+        terminal_value_mg: 0.05,
+        terminal_value_eg: 0.04,
+        color: 'w',
+        square: 'a2',
+      },
+      {
+        id: 'psqt_pawn',
+        terminal_value_mg: 0.06,
+        terminal_value_eg: 0.05,
+        color: 'w',
+        square: 'b2',
+      },
+      {
+        id: 'psqt_pawn',
+        terminal_value_mg: 0.05,
+        terminal_value_eg: 0.04,
+        color: 'b',
+        square: 'a7',
+      },
+      // Агрегат без square.
+      {
+        id: 'king_attackers_count',
+        terminal_value_mg: 0.01,
+        terminal_value_eg: 0.01,
+        color: 'w',
+      },
+      // sf18-метка — должна быть отфильтрована.
+      { id: 'sf18_eval', engine: 'stockfish-18' },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = buildPositionalBySquare(input as any);
+    // 3 psqt_pawn + 1 king_attackers_count = 4 строки.
+    expect(rows).toHaveLength(4);
+    // Сортировка: king_attackers_count (k) идёт раньше psqt_pawn (p) по
+    // алфавиту.
+    expect(rows[0].param).toBe('king_attackers_count');
+    expect(rows[0].color).toBe('w');
+    expect(rows[0].square).toBe('');
+    // Дальше psqt_pawn: сначала белые (a2, b2), потом чёрные (a7).
+    expect(rows.slice(1).map((r) => `${r.color}/${r.square}`)).toEqual([
+      'w/a2',
+      'w/b2',
+      'b/a7',
+    ]);
+    // Значения не суммируются: каждая клетка отдельной строкой со своим mg.
+    expect(rows[1].value_mg).toBe(0.05);
+    expect(rows[2].value_mg).toBe(0.06);
+    expect(rows[3].value_mg).toBe(0.05);
   });
 
   it('KS-4021: смесь value_* и terminal_value_* — terminal приоритетнее', () => {
