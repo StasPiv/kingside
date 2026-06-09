@@ -87,6 +87,9 @@ import { LectureAudioListenerCompact } from '../components/lecture/LectureAudioL
 import { LectureRecordingBadge } from '../components/lecture/LectureRecordingBadge';
 // KS-4009 / ADR-121 Phase 1: чат лекции.
 import { LectureChatContainer } from '../components/lecture/LectureChatContainer';
+// KS-4024 / ADR-122: позиционные метрики партии.
+import { usePositionalTrace } from '../hooks/usePositionalTrace';
+import { PositionalMetricsPanel } from '../components/analysis/PositionalMetricsPanel';
 import { useLectureLookupBySlug } from '../hooks/useLectureLookupBySlug';
 // KS-3789 / ADR-113 §4 эпик 1: модальное окно создания лекции
 // и мгновенного запуска live-сессии.
@@ -1126,7 +1129,9 @@ function AnalysisPageInner({
   // KS-2434: вкладка 'report' удалена вместе с серверным game-report'ом.
   // KS-3687: добавлена вкладка 'ai' (4-я). Синхронизировано с
   // AnalysisMobileTab в AnalysisSidebar.tsx.
-  type MobileTabId = 'moves' | 'engine' | 'tree' | 'ai';
+  // KS-4024: добавили `'metrics'` — 5-я мобильная вкладка для
+  // позиционных метрик партии (ADR-122).
+  type MobileTabId = 'moves' | 'engine' | 'tree' | 'ai' | 'metrics';
   const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
@@ -1809,6 +1814,9 @@ function AnalysisPageInner({
       moves: !narrow,
       ai: false,
       book: !narrow,
+      // KS-4024: панель «Метрики» по умолчанию свёрнута — не мешает
+      // основному потоку, открывается по клику.
+      metrics: false,
     };
   });
   // KS-3696. Ref-обёртка для «приостановить движок при схлопывании
@@ -1817,7 +1825,7 @@ function AnalysisPageInner({
   // инициализации — no-op.
   const pauseEngineForAccordionRef = useRef<() => void>(() => {});
   const togglePanel = useCallback(
-    (panel: 'gameInfo' | 'engine' | 'moves' | 'ai' | 'book') => {
+    (panel: 'gameInfo' | 'engine' | 'moves' | 'ai' | 'book' | 'metrics') => {
       setPanelStates((prev) => {
         const { next, engineWillCollapse } = panelToggleReducer(prev, panel);
         if (engineWillCollapse) {
@@ -2685,6 +2693,45 @@ function AnalysisPageInner({
     // ничего не делают, LLM-квота не тратится.
     enabled: showAiPanel,
   });
+
+  // KS-4024 / ADR-122. Позиционные метрики партии — вкладка «Метрики»
+  // в правой колонке (desktop) и 5-я мобильная вкладка. Хук грузит с
+  // сервера (`GET /games/:id/positional-trace`), при 404 проверяет
+  // IndexedDB, при отсутствии — позволяет caller'у запустить расчёт.
+  // Активна только когда есть `gameId` (анализ архивной партии).
+  const positionalTrace = usePositionalTrace({ gameId: gameId ?? null });
+  // UCI-ходы из mainline для start(). useGameReview не разбирает —
+  // здесь просто берём из history.
+  const uciMovesForMetrics = useMemo(
+    () => history.filter((m) => !!m?.uci).map((m) => m.uci as string),
+    [history],
+  );
+  const metricsContent = useMemo(() => {
+    if (!gameId) return null;
+    return (
+      <PositionalMetricsPanel
+        trace={positionalTrace}
+        uciMoves={uciMovesForMetrics}
+        currentPly={currentGlobalIndex}
+        onPlySelect={(ply) => {
+          // Клик по точке графика → переход на соответствующий ход в
+          // дереве. `searchInHistory(history, ply)` нашёл бы узел; для
+          // mainline достаточно использовать history[ply-1] через
+          // gotoMove (ply=0 — стартовая позиция, пропускаем).
+          if (ply <= 0 || ply > history.length) return;
+          const m = history[ply - 1];
+          if (m) gotoMove(m as ChessMove);
+        }}
+      />
+    );
+  }, [
+    gameId,
+    positionalTrace,
+    uciMovesForMetrics,
+    currentGlobalIndex,
+    history,
+    gotoMove,
+  ]);
 
   // KS-3726. Текущий комментарий узла дерева, на котором стоит
   // пользователь — нужен и для AI-панели (показать «Добавлено» когда
@@ -4227,6 +4274,10 @@ function AnalysisPageInner({
         // парсятся в initial-state из location.state.pgn (см. строку
         // ~346).
         pgnHeaders={pgnHeaders}
+        // KS-4024 / ADR-122: контент вкладки «Метрики» — null если
+        // gameId не задан (значит партии нет, аналитика не имеет
+        // смысла), AnalysisSidebar тогда не рендерит блок и таб.
+        metricsContent={metricsContent}
       />
 
       {ec.showEngineModal && (

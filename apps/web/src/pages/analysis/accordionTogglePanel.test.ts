@@ -22,6 +22,7 @@ const BASE: PanelStates = {
   moves: false,
   ai: false,
   book: false,
+  metrics: false,
 };
 
 describe('panelToggleReducer — engine ↔ ai взаимное исключение (KS-3696)', () => {

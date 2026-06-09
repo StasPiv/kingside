@@ -23,6 +23,13 @@ export interface PanelStates {
   moves: boolean;
   ai: boolean;
   book: boolean;
+  /**
+   * KS-4024 / ADR-122. Пятый ключ — панель «Метрики» (позиционные
+   * метрики партии). Открывается/закрывается независимо от других
+   * (как `moves`/`book`), Stockfish не задействует — никаких
+   * взаимных правил с `engine`/`ai`.
+   */
+  metrics: boolean;
 }
 
 export type PanelKey = keyof PanelStates;

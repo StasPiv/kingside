@@ -53,8 +53,10 @@ import { useFocusMode } from '../../context/FocusModeContext';
 // Панель AI-комментария вынесена из engine-panel в отдельный блок.
 // KS-3696: добавлен ключ `book` — ArchiveTreePanel получил контролируемое
 // сворачивание, чтобы участвовать в accordion-режиме правой колонки.
-export type AnalysisPanelKey = 'gameInfo' | 'engine' | 'moves' | 'ai' | 'book';
-export type AnalysisMobileTab = 'moves' | 'engine' | 'tree' | 'ai';
+// KS-4024 / ADR-122 §5: 5-й desktop-блок «Метрики» (позиционные
+// метрики партии) и 5-я мобильная вкладка `metrics`.
+export type AnalysisPanelKey = 'gameInfo' | 'engine' | 'moves' | 'ai' | 'book' | 'metrics';
+export type AnalysisMobileTab = 'moves' | 'engine' | 'tree' | 'ai' | 'metrics';
 
 export interface AnalysisSidebarProps {
   /**
@@ -206,6 +208,14 @@ export interface AnalysisSidebarProps {
    * full-review с самого начала или повторный клик).
    */
   currentMoveComment?: string | null;
+  /**
+   * KS-4024 / ADR-122. Опциональный контент панели «Метрики».
+   * AnalysisPage передаёт сюда смонтированный `PositionalMetricsPanel`
+   * (с подключённым `usePositionalTrace`). Если проп не передан —
+   * desktop-блок «Метрики» и мобильная вкладка `metrics` не
+   * рендерятся вовсе.
+   */
+  metricsContent?: React.ReactNode;
 }
 
 export function AnalysisSidebar({
@@ -260,6 +270,7 @@ export function AnalysisSidebar({
   showEnginePanel = true,
   showAiPanel = true,
   showBookPanel = true,
+  metricsContent,
 }: AnalysisSidebarProps) {
   const { t } = useTranslation();
   // KS-3190 (ADR-073 §7 F3): bottom-sheet поведение для mobile-panel в
@@ -388,6 +399,10 @@ export function AnalysisSidebar({
           return showEnginePanel;
         case 'ai':
           return showAiPanel;
+        case 'metrics':
+          // KS-4024: вкладка «Метрики» видима только когда AnalysisPage
+          // передал контент (есть gameId — партия из архива).
+          return Boolean(metricsContent);
         case 'moves':
         case 'tree':
           return true;
@@ -396,13 +411,13 @@ export function AnalysisSidebar({
       }
     };
     if (isVisible(mobileTab)) return;
-    // Фолбэк-приоритет — фиксированный (moves → tree → ai → engine).
-    const priority: AnalysisMobileTab[] = ['moves', 'tree', 'ai', 'engine'];
+    // Фолбэк-приоритет — фиксированный (moves → tree → ai → engine → metrics).
+    const priority: AnalysisMobileTab[] = ['moves', 'tree', 'ai', 'engine', 'metrics'];
     const next = priority.find((t) => isVisible(t));
     if (next && next !== mobileTab) {
       onMobileTabChange(next);
     }
-  }, [mobileTab, showEnginePanel, showAiPanel, onMobileTabChange]);
+  }, [mobileTab, showEnginePanel, showAiPanel, metricsContent, onMobileTabChange]);
 
   return (
     <div className="analysis-sidebar" data-testid="analysis-sidebar">
@@ -736,6 +751,42 @@ export function AnalysisSidebar({
       </div>
       )}
 
+      {/* KS-4024 / ADR-122: Desktop Metrics panel (collapsible).
+          Рендерится только если AnalysisPage передал metricsContent
+          (есть gameId партии). Не влияет на engine/ai — независимый
+          блок accordion. */}
+      {metricsContent && (
+        <div
+          className="analysis-panel analysis-desktop-only"
+          data-testid="analysis-metrics-panel"
+        >
+          <div
+            className="analysis-panel-header"
+            onClick={() => onTogglePanel('metrics')}
+          >
+            <span className="analysis-panel-header-left">
+              <span className="analysis-panel-icon">📊</span>
+              <span className="analysis-panel-title">
+                {t('analysis.metrics.title', 'Метрики')}
+              </span>
+            </span>
+            <span className="analysis-panel-header-right">
+              <span className="analysis-panel-chevron">
+                {panelStates.metrics ? '▾' : '▸'}
+              </span>
+            </span>
+          </div>
+          {panelStates.metrics && (
+            <div
+              className="analysis-panel-body"
+              data-testid="analysis-metrics-panel-body"
+            >
+              {metricsContent}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Desktop: Moves panel (collapsible) */}
       <div className="analysis-panel analysis-panel--flex analysis-desktop-only">
         <div
@@ -845,6 +896,20 @@ export function AnalysisSidebar({
               onClick={() => handleTabTap('ai')}
             >
               {t('analysis.aiTab.title', 'AI')}
+            </button>
+          )}
+          {/* KS-4024 / ADR-122: 5-я мобильная вкладка «Метрики».
+              Кнопка рендерится только если AnalysisPage передал
+              metricsContent (есть gameId партии). */}
+          {metricsContent && (
+            <button
+              className={`analysis-mobile-tab${
+                mobileTab === 'metrics' ? ' active' : ''
+              }`}
+              data-testid="analysis-mobile-tab-metrics"
+              onClick={() => handleTabTap('metrics')}
+            >
+              {t('analysis.metrics.title', 'Метрики')}
             </button>
           )}
         </div>
@@ -1073,6 +1138,17 @@ export function AnalysisSidebar({
                   currentMoveComment={currentMoveComment}
                 />
               </div>
+            </div>
+          )}
+          {/* KS-4024 / ADR-122: 5-я mobile-секция «Метрики». Lazy-mount
+              по mobileTab (как `tree`/`ai`), чтобы расчёт не запускался
+              пока пользователь не открыл вкладку. */}
+          {mobileTab === 'metrics' && metricsContent && (
+            <div
+              className="analysis-mobile-section analysis-mobile-section--metrics active"
+              data-testid="analysis-mobile-section-metrics"
+            >
+              <div className="analysis-panel-body">{metricsContent}</div>
             </div>
           )}
         </div>

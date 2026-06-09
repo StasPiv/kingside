@@ -60,7 +60,7 @@ function makeProps(overrides: Partial<AnalysisSidebarProps> = {}): AnalysisSideb
     engineFailed: false,
     onToggleAnalysis: vi.fn(),
     ec: makeEc(),
-    panelStates: { gameInfo: true, engine: true, moves: true, ai: true, book: true },
+    panelStates: { gameInfo: true, engine: true, moves: true, ai: true, book: true, metrics: false },
     onTogglePanel: vi.fn(),
     displayedLines: [],
     evalIsBlackTurn: false,
@@ -166,7 +166,7 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
     renderWithProviders(
       <AnalysisSidebar
         {...makeProps({
-          panelStates: { gameInfo: true, engine: false, moves: true, ai: true, book: true },
+          panelStates: { gameInfo: true, engine: false, moves: true, ai: true, book: true, metrics: false },
           analysisEnabled: true,
           displayedLines: [
             {
@@ -292,6 +292,7 @@ describe('<AnalysisSidebar> (KS-2866)', () => {
             moves: true,
             ai: true,
             book: false,
+            metrics: false,
           },
         })}
       />,
