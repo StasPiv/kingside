@@ -90,6 +90,67 @@ describe('aggregatePositionalDiff', () => {
     expect(aggregatePositionalDiff([])).toEqual([]);
   });
 
+  it('KS-4021: читает terminal_value_mg/_eg (то, что улетает на сервер после mergeFactors)', () => {
+    // Воспроизводим формат payload AI: исходный evalTrace вернул пусто,
+    // поэтому в payload только terminal_value_*-поля.
+    const input = [
+      {
+        id: 'pawn_connected',
+        terminal_value_mg: 0.027439,
+        terminal_value_eg: -0.00609756,
+        color: 'w',
+        square: 'a2',
+      },
+      {
+        id: 'pawn_connected',
+        terminal_value_mg: 0.0884146,
+        terminal_value_eg: 0,
+        color: 'b',
+        square: 'g6',
+      },
+      {
+        id: 'material',
+        terminal_value_mg: 1.0061,
+        terminal_value_eg: 1.21341,
+        color: 'w',
+      },
+      // sf18-метки — не подкомпоненты, должны быть отфильтрованы.
+      {
+        id: 'sf18_eval',
+        engine: 'stockfish-18',
+        depth: 9,
+        multipv: 1,
+        score: { type: 'cp', value: 400 },
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = aggregatePositionalDiff(input as any);
+    const byId = Object.fromEntries(rows.map((r) => [r.param, r]));
+    expect(byId['pawn_connected'].white_mg).toBeCloseTo(0.027, 3);
+    expect(byId['pawn_connected'].black_mg).toBeCloseTo(0.088, 3);
+    expect(byId['pawn_connected'].diff_mg).toBeCloseTo(-0.061, 3);
+    expect(byId['material'].diff_mg).toBeCloseTo(1.006, 3);
+    // sf18_eval не должно попасть в таблицу.
+    expect(byId['sf18_eval']).toBeUndefined();
+  });
+
+  it('KS-4021: смесь value_* и terminal_value_* — terminal приоритетнее', () => {
+    const input = [
+      {
+        id: 'pawn_connected',
+        value_mg: 0.5,
+        value_eg: 0.5,
+        terminal_value_mg: 0.1,
+        terminal_value_eg: 0.1,
+        color: 'w',
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = aggregatePositionalDiff(input as any);
+    // terminal_value_* приоритетнее value_*.
+    expect(rows[0].diff_mg).toBeCloseTo(0.1, 3);
+  });
+
   it('стабильно по param при равных diff_mg', () => {
     const input: PositionalSubterm[] = [
       { id: 'pawn_doubled', color: 'w', value_mg: 0.1, value_eg: 0.1 },

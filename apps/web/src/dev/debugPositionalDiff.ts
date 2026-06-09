@@ -54,10 +54,17 @@ function round3(x: number): number {
  * Чистая функция-агрегатор. Принимает массив подкомпонент (тот же
  * `mergedFactors`, что улетает на сервер; может содержать нестандартные
  * элементы вроде `sf18_eval`/`sf18_pv` — их мы отфильтровываем по
- * наличию `value_mg`/`value_eg`), возвращает таблицу «Белые − Чёрные».
+ * наличию числовых значений), возвращает таблицу «Белые − Чёрные».
  *
  * Правила:
- *  - Только записи с числовыми `value_mg` и `value_eg` агрегируются.
+ *  - У каждой записи читаем сначала `terminal_value_mg`/`terminal_value_eg`
+ *    (терминальная позиция после проигрывания PV — то, что `mergeFactors`
+ *    приоритетно кладёт в payload AI), потом fallback на
+ *    `value_mg`/`value_eg` (исходная позиция). Это покрывает оба
+ *    варианта вывода `mergeFactors`: только исходные, только терминальные,
+ *    или и те и другие.
+ *  - Только записи, у которых есть числовая пара mg/eg (по любому из
+ *    префиксов), агрегируются.
  *  - Поля без `color` (side-agnostic — `material`/`imbalance` —
  *    SF трактует как баланс с учётом сторон) суммируются в белые.
  *  - `diff_mg = white_mg − black_mg`, аналогично `diff_eg`.
@@ -74,10 +81,29 @@ export function aggregatePositionalDiff(
 
   for (const raw of subterms) {
     if (!raw || typeof raw !== 'object') continue;
-    const s = raw as Partial<PositionalSubterm>;
+    const s = raw as Partial<PositionalSubterm> & {
+      terminal_value_mg?: unknown;
+      terminal_value_eg?: unknown;
+    };
     if (typeof s.id !== 'string') continue;
-    if (typeof s.value_mg !== 'number' || !Number.isFinite(s.value_mg)) continue;
-    if (typeof s.value_eg !== 'number' || !Number.isFinite(s.value_eg)) continue;
+    // KS-4021. `mergeFactors` (`lib/review/factorsMerge.ts`) переименовывает
+    // значения с терминальной позиции в `terminal_value_*`. Если исходный
+    // evalTrace вернул пусто (как часто бывает на «холодных» позициях
+    // без classical-trace) — в payload остаются только terminal_value_*.
+    // Для таблицы читаем их с приоритетом, иначе fallback на value_*.
+    const mg =
+      typeof s.terminal_value_mg === 'number' && Number.isFinite(s.terminal_value_mg)
+        ? s.terminal_value_mg
+        : typeof s.value_mg === 'number' && Number.isFinite(s.value_mg)
+        ? s.value_mg
+        : null;
+    const eg =
+      typeof s.terminal_value_eg === 'number' && Number.isFinite(s.terminal_value_eg)
+        ? s.terminal_value_eg
+        : typeof s.value_eg === 'number' && Number.isFinite(s.value_eg)
+        ? s.value_eg
+        : null;
+    if (mg === null || eg === null) continue;
     const bucket = byId.get(s.id) ?? {
       white_mg: 0,
       black_mg: 0,
@@ -85,11 +111,11 @@ export function aggregatePositionalDiff(
       black_eg: 0,
     };
     if (s.color === 'b') {
-      bucket.black_mg += s.value_mg;
-      bucket.black_eg += s.value_eg;
+      bucket.black_mg += mg;
+      bucket.black_eg += eg;
     } else {
-      bucket.white_mg += s.value_mg;
-      bucket.white_eg += s.value_eg;
+      bucket.white_mg += mg;
+      bucket.white_eg += eg;
     }
     byId.set(s.id, bucket);
   }
