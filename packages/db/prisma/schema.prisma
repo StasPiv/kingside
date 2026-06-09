@@ -158,6 +158,10 @@ model User {
   lectureChatMessages       LectureChatMessage[]   @relation("LectureChatAuthor")
   lectureChatMutesReceived  LectureChatMute[]      @relation("LectureChatMutedUser")
   lectureChatMutesIssued    LectureChatMute[]      @relation("LectureChatMutedBy")
+  // KS-4023 / ADR-122. Кто запустил расчёт позиционной трассы партии
+  // (используется как аудит, не как авторизация — права на запись
+  // регулируются guard'ом контроллера).
+  positionalTraces          GamePositionalTrace[]  @relation("PositionalTraceCreatedBy")
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -253,6 +257,11 @@ model Game {
   report       GameReport?
   tournament   ArenaTournament? @relation(fields: [tournamentId], references: [id])
   mistakes     UserMistake[]
+  /// KS-4023 / ADR-122. Кеш позиционных метрик SF-trace по полуходам
+  /// партии. Одна запись на партию (UNIQUE по gameId на стороне
+  /// GamePositionalTrace). Cascade-delete: при удалении партии запись
+  /// исчезает.
+  positionalTrace GamePositionalTrace?
 
   @@index([whiteId])
   @@index([blackId])
@@ -2506,3 +2515,42 @@ model LectureChatMute {
   @@map("lecture_chat_mutes")
 }
 
+
+/// KS-4023 / ADR-122 §4. Кеш позиционных метрик Stockfish по полуходам
+/// партии. Одна запись на партию (UNIQUE gameId). UPSERT по gameId:
+/// при смене `sfVersion` (см. POSITIONAL_TRACE_VERSION в shared) старая
+/// запись затирается новой без накопления версий.
+///
+/// `plies` — JSONB-массив `PositionalTracePly[]` (см. shared).
+/// Размер тела ≤ 256 КБ — лимит на стороне валидатора NestJS (см.
+/// PositionalTraceUpsertDto), на стороне БД ограничений нет: JSONB
+/// + TOAST автоматически жмёт большие тела.
+///
+/// Cascade-delete от Game: запись бессмысленна без своей партии.
+model GamePositionalTrace {
+  id          String   @id @default(uuid()) @db.Uuid
+  gameId      String   @unique @map("game_id") @db.Uuid
+  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  /// Версия формата/движка SF-trace (ADR-107). При смене константы
+  /// в shared старая запись становится «протухшей»: GET вернёт 404
+  /// при несовпадении v, клиент пересчитает.
+  sfVersion   String   @map("sf_version") @db.VarChar(64)
+
+  /// PositionalTracePly[]: { ply, subterms: PositionalSubterm[], phase? }.
+  plies       Json     @map("plies")
+
+  /// Сколько занял расчёт у клиента (мс). Опционально, для аналитики
+  /// и нагрузочных профилей.
+  durationMs  Int?     @map("duration_ms")
+
+  /// Кто запустил расчёт. SetNull при удалении пользователя — запись
+  /// сохраняется (она привязана к партии, не к пользователю).
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdBy   User?    @relation("PositionalTraceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("game_positional_traces")
+}

@@ -12,6 +12,8 @@ import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { GameModule } from './game/game.module';
+// KS-4023 / ADR-122: REST-эндпоинты позиционной аналитики партии.
+import { PositionalTraceModule } from './games/positional-trace/positional-trace.module';
 import { PuzzleModule } from './puzzle/puzzle.module';
 import { PrecisionModule } from './precision/precision.module';
 import { GuessModule } from './guess/guess.module';
@@ -84,6 +86,7 @@ import { HealthController } from './health.controller';
     AuthModule,
     UserModule,
     GameModule,
+    PositionalTraceModule,
     PuzzleRushModule,
     ArenaModule,
     PuzzleModule,

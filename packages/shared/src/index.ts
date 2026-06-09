@@ -17,6 +17,8 @@ export * from './types/opening-trainer.js';
 export * from './types/live-analysis.js';
 // KS-4008 (ADR-121 Phase 1): MVP чата лекции (контракты WS + лимиты).
 export * from './types/lecture-chat.js';
+// KS-4023 (ADR-122): аналитика позиционных метрик партии (DTO + версия).
+export * from './types/positional-trace.js';
 export * from './synthetic-chat-phrases.js';
 export * from './constants.js';
 export * from './constants/archive.js';
