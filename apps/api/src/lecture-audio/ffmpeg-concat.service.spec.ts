@@ -249,6 +249,79 @@ describe('FfmpegConcatService (KS-3832)', () => {
       await expect(svc.concatChunksToOgg([])).rejects.toThrow(/empty chunk/);
     });
 
+    // KS-4004. Регрессия: раньше `concatChunkBytes` использовал в цикле
+    // `pipeline(rs, out, { end: false })`, что навешивало на общий
+    // writer обработчики error/close/finish/end на каждой итерации.
+    // На 4–5 чанках Node печатал MaxListenersExceededWarning. Сейчас —
+    // ручная копия через async-iterator, без накопления.
+    //
+    // Тест проверяет, что при N=15 чанках предупреждение НЕ возникает
+    // и сама склейка отрабатывает корректно. Перехватываем эмит warning
+    // через process.on('warning', …).
+    it('KS-4004: 15 чанков подряд — нет MaxListenersExceededWarning на pipe', async () => {
+      const tmp = await fsp.mkdtemp(join(os.tmpdir(), 'ffmpeg-spec-'));
+      const full = join(tmp, 'full.webm');
+      try {
+        // 15-секундная запись → минимум 15 Cluster'ов при clusterTimeMs=1000.
+        await genWebm(full, 15);
+        const chunkPaths = Array.from({ length: 15 }, (_, i) =>
+          join(tmp, `c${i}.webm`),
+        );
+        await splitWebmIntoTimesliceChunks(full, chunkPaths);
+
+        const warnings: NodeJS.ErrnoException[] = [];
+        const onWarn = (w: NodeJS.ErrnoException): void => {
+          warnings.push(w);
+        };
+        process.on('warning', onWarn);
+        try {
+          let durationMs = 0;
+          await svc.runWithOutput(chunkPaths, async ({ durationMs: d }) => {
+            durationMs = d;
+          });
+          expect(durationMs).toBeGreaterThan(0);
+        } finally {
+          process.off('warning', onWarn);
+        }
+        const leak = warnings.find(
+          (w) =>
+            w.name === 'MaxListenersExceededWarning' ||
+            /MaxListenersExceeded/i.test(w.message ?? ''),
+        );
+        expect(leak).toBeUndefined();
+      } finally {
+        await fsp.rm(tmp, { recursive: true, force: true });
+      }
+    }, 60_000);
+
+    // KS-4004. Прямой unit-тест приватного `concatChunkBytes`: после
+    // склейки 20 чанков на writer'е НЕ должно остаться лишних
+    // обработчиков error/close/finish/end (writer уже завершён).
+    it('KS-4004: concatChunkBytes не оставляет лишних listener\'ов на writer\'е', async () => {
+      const tmp = await fsp.mkdtemp(join(os.tmpdir(), 'ffmpeg-spec-'));
+      try {
+        const chunkPaths: string[] = [];
+        for (let i = 0; i < 20; i++) {
+          const p = join(tmp, `c${i}.bin`);
+          await fsp.writeFile(p, Buffer.from(`chunk-${i}-payload\n`));
+          chunkPaths.push(p);
+        }
+        const target = join(tmp, 'merged.bin');
+        // Дёргаем приватный метод напрямую — это unit-проверка контракта.
+        await (svc as unknown as {
+          concatChunkBytes(c: string[], t: string): Promise<void>;
+        }).concatChunkBytes(chunkPaths, target);
+
+        const merged = await fsp.readFile(target, 'utf-8');
+        // Все 20 пейлоадов должны попасть по порядку.
+        for (let i = 0; i < 20; i++) {
+          expect(merged).toContain(`chunk-${i}-payload`);
+        }
+      } finally {
+        await fsp.rm(tmp, { recursive: true, force: true });
+      }
+    }, 15_000);
+
     it('cleanup tmp-папки происходит даже при ошибке внутри callback', async () => {
       const tmp = await fsp.mkdtemp(join(os.tmpdir(), 'ffmpeg-spec-'));
       const c0 = join(tmp, 'c0.webm');

@@ -4,7 +4,7 @@ import { createReadStream, createWriteStream, promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { pipeline } from 'node:stream/promises';
+import { once } from 'node:events';
 
 /**
  * KS-3832 / ADR-116 §5.1, §6.3. Тонкая обёртка над системным ffmpeg
@@ -166,23 +166,63 @@ export class FfmpegConcatService implements OnModuleInit {
    * `seq`). Используется вместо ffmpeg concat-demuxer'а, потому что
    * timeslice-чанки MediaRecorder корректно складываются только так
    * (см. подробности в комментарии task'а выше).
+   *
+   * KS-4004. Раньше реализация использовала `pipeline(rs, out, { end:
+   * false })` в цикле. `stream.pipeline` через `eos()` вешает на каждый
+   * stream обработчики `error/close/finish/end`, а при `{ end: false }`
+   * destination-обработчики НЕ удаляются после завершения одной
+   * итерации — на 4–5 чанках количество listener'ов на общем writer'е
+   * превышало 10 и Node печатал MaxListenersExceededWarning.
+   *
+   * Сейчас копируем побайтно через async-iterator readable-стрима;
+   * writer держит ровно ОДИН набор финальных listener'ов (`once`-
+   * подписка ниже + временный 'drain' для backpressure через
+   * `events.once`, который сам снимает обработчики).
    */
   private async concatChunkBytes(
     chunks: string[],
     targetPath: string,
   ): Promise<void> {
     const out = createWriteStream(targetPath, { flags: 'w' });
+    // Снапшот первой ошибки writer'а, чтобы не дёргать reject из
+    // нескольких мест. Один обработчик 'error' на всё время жизни
+    // writer'а.
+    let writerError: Error | null = null;
+    const onError = (e: Error): void => {
+      if (!writerError) writerError = e;
+    };
+    out.once('error', onError);
     try {
-      for (const chunk of chunks) {
-        // pipeline(..., { end: false }) — иначе после первой записи
-        // writer закроется и pipeline следующего файла упадёт.
-        await pipeline(createReadStream(chunk), out, { end: false });
+      for (const chunkPath of chunks) {
+        if (writerError) throw writerError;
+        const rs = createReadStream(chunkPath);
+        try {
+          for await (const buf of rs) {
+            if (writerError) throw writerError;
+            if (!out.write(buf as Buffer)) {
+              // Backpressure: ждём 'drain' или 'error'. `events.once`
+              // сам снимает оба обработчика после resolve/reject, так
+              // что утечки нет.
+              await once(out, 'drain');
+            }
+          }
+        } finally {
+          rs.destroy();
+        }
       }
     } finally {
+      // Снимаем error-листенер ДО финального .end()/.once('finish'):
+      // дальше используем once('error'/'finish') внутри Promise, и
+      // дублировать обработку не нужно.
+      out.off('error', onError);
+      if (writerError) {
+        out.destroy();
+        throw writerError;
+      }
       out.end();
       await new Promise<void>((resolve, reject) => {
-        out.on('finish', () => resolve());
-        out.on('error', reject);
+        out.once('finish', () => resolve());
+        out.once('error', reject);
       });
     }
   }
