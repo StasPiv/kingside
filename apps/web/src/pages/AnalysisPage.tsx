@@ -3676,7 +3676,22 @@ function AnalysisPageInner({
         <LectureBadgesBlock
           slug={liveBroadcast.slug ?? liveSession?.slug ?? null}
           lectureId={activeLectureId}
-          isLive={liveBroadcast.isLive}
+          // KS-4010. У зрителя `liveBroadcast` отключён (`disabled:
+          // isViewerLive` в useAnalysisLiveBroadcast выше), поэтому
+          // `liveBroadcast.isLive` всегда `false` — чат лекции и
+          // индикаторы записи в `LectureBadgesBlock` не появлялись.
+          // На странице /live/:slug сам факт, что AnalysisPage
+          // отрендерилась с `liveSession.mode='viewer'`, означает что
+          // viewer-page подняла трансляцию (REST 404 уже отбился в
+          // LiveAnalysisViewerPage). Поэтому для зрителя считаем
+          // лекцию «в эфире», когда есть `liveSession.slug`. Закрытие
+          // приходит баннером в LiveAnalysisViewerPage, а её state
+          // вызывает remount AnalysisPage через `key={slug}`.
+          isLive={
+            isViewerLive
+              ? Boolean(liveSession?.slug)
+              : liveBroadcast.isLive
+          }
           isViewer={isViewerLive}
           embedded={embedded}
           currentUserId={user?.id ?? null}

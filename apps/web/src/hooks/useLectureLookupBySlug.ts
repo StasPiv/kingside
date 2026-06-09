@@ -54,12 +54,22 @@ export function useLectureLookupBySlug(
         );
         if (cancelled) return;
         if (!la.ownerUsername) return;
+        // KS-4010. Раньше шли с `?status=live` — если backend-фильтр
+        // не маппил параметр (возвращал пустой список) или лекция
+        // переходила в статус `recorded` сразу после запроса, у
+        // зрителя пропадали все индикаторы лекции (включая чат
+        // KS-4009). Теперь забираем все лекции тренера и фильтруем
+        // в памяти: ищем именно по `liveAnalysisId === la.id` и
+        // дополнительно требуем `status === 'live'` — это устраняет
+        // зависимость от точной семантики query-фильтра на бэкенде.
         const list = await api.get<CoachLectureLite[]>(
-          `/coaches/${encodeURIComponent(la.ownerUsername)}/lectures?status=live`,
+          `/coaches/${encodeURIComponent(la.ownerUsername)}/lectures`,
         );
         if (cancelled) return;
         const match =
-          list.find((l) => l.liveAnalysisId === la.id) ?? null;
+          list.find(
+            (l) => l.liveAnalysisId === la.id && l.status === 'live',
+          ) ?? null;
         if (!match) {
           setResult(null);
           return;
