@@ -30,11 +30,8 @@ import type {
   PositionalSubterm,
   PositionalSubtermId,
 } from '@kingside/shared';
-import {
-  collectAiFactors,
-  type EngineBestLineInput,
-} from '../lib/review/collectAiFactors';
-import { PSQT_EXTRA_IDS } from '../lib/review/stockfishTrace';
+import type { EngineBestLineInput } from '../lib/review/collectAiFactors';
+import { PSQT_EXTRA_IDS, evalTrace } from '../lib/review/stockfishTrace';
 
 /**
  * Одна строка итоговой таблицы. Stockfish-trace использует разные
@@ -265,8 +262,13 @@ export function buildPositionalBySquare(
 }
 
 /**
- * Сама консольная команда. Async — `evalTrace` + probe выполняются
+ * Сама консольная команда. Async — `evalTrace` WASM запускается
  * асинхронно.
+ *
+ * KS-4021 follow-up: оцениваем ИСХОДНУЮ позицию (`fen` как есть),
+ * без проигрывания лучшей линии Stockfish-18 и без терминального
+ * прохода. Это запрос пользователя — чтобы цифры в таблице
+ * соответствовали тому, что сейчас на доске, без сдвига вперёд по PV.
  */
 export async function debugPositionalDiff(
   fenArg?: string,
@@ -279,36 +281,19 @@ export async function debugPositionalDiff(
     return [];
   }
 
-  const engineProbe =
-    typeof window !== 'undefined' ? window.__ksEngineProbe ?? null : null;
-  if (!engineProbe) {
-    console.warn(
-      '[ksPositionalDiff] window.__ksEngineProbe не выставлен — собираю только исходную позицию без терминального прохода (Stockfish-18 не подключён).',
-    );
-  }
-
-  let result: Awaited<ReturnType<typeof collectAiFactors>>;
+  let subterms;
   try {
-    result = await collectAiFactors({
-      fen,
-      engineProbe,
-      // KS-4021. В отладочной таблице показываем и psqt_* —
-      // они отфильтрованы в боевой LLM-цепочке, но полезны для
-      // разбора структуры оценки SF.
-      extraValidIds: PSQT_EXTRA_IDS,
-    });
+    subterms = await evalTrace(fen, { extraValidIds: PSQT_EXTRA_IDS });
   } catch (err) {
-    console.warn('[ksPositionalDiff] collectAiFactors упал:', err);
+    console.warn('[ksPositionalDiff] evalTrace упал:', err);
     return [];
   }
 
-  const rows = aggregatePositionalDiff(result.mergedFactors);
+  const rows = aggregatePositionalDiff(subterms);
   if (rows.length === 0) {
     console.warn(
-      '[ksPositionalDiff] Stockfish не вернул ни одной подкомпоненты с числовыми value_mg/value_eg. fen=',
+      '[ksPositionalDiff] Stockfish не вернул ни одной подкомпоненты с числовыми value_mg/value_eg для этой позиции. fen=',
       fen,
-      'bestLine=',
-      result.bestLine,
     );
     return [];
   }
@@ -373,28 +358,21 @@ export async function debugPositionalBySquare(
     );
     return [];
   }
-  const engineProbe =
-    typeof window !== 'undefined' ? window.__ksEngineProbe ?? null : null;
 
-  let result: Awaited<ReturnType<typeof collectAiFactors>>;
+  let subterms;
   try {
-    result = await collectAiFactors({
-      fen,
-      engineProbe,
-      extraValidIds: PSQT_EXTRA_IDS,
-    });
+    // KS-4021 follow-up: оцениваем исходную позицию, без терминала.
+    subterms = await evalTrace(fen, { extraValidIds: PSQT_EXTRA_IDS });
   } catch (err) {
-    console.warn('[ksPositionalBySquare] collectAiFactors упал:', err);
+    console.warn('[ksPositionalBySquare] evalTrace упал:', err);
     return [];
   }
 
-  const rows = buildPositionalBySquare(result.mergedFactors);
+  const rows = buildPositionalBySquare(subterms);
   if (rows.length === 0) {
     console.warn(
       '[ksPositionalBySquare] Stockfish не вернул ни одной подкомпоненты с числовыми значениями. fen=',
       fen,
-      'bestLine=',
-      result.bestLine,
     );
     return [];
   }
