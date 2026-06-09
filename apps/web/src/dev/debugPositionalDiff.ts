@@ -59,6 +59,12 @@ export interface PositionalDiffRow {
   black_mg: number;
   white_eg: number;
   black_eg: number;
+  /**
+   * Клетки, на которых SF выдал записи по этому id, сгруппированные по
+   * стороне. Формат: `"w: a2,b2,...; b: a7,b7,..."`. Если SF не передал
+   * `square` (агрегаты вроде `material`) — поле пустая строка.
+   */
+  squares: string;
 }
 
 /**
@@ -124,7 +130,14 @@ export function aggregatePositionalDiff(
 ): PositionalDiffRow[] {
   const byId = new Map<
     string,
-    { white_mg: number; black_mg: number; white_eg: number; black_eg: number }
+    {
+      white_mg: number;
+      black_mg: number;
+      white_eg: number;
+      black_eg: number;
+      whiteSquares: string[];
+      blackSquares: string[];
+    }
   >();
 
   for (const raw of subterms) {
@@ -157,15 +170,30 @@ export function aggregatePositionalDiff(
       black_mg: 0,
       white_eg: 0,
       black_eg: 0,
+      whiteSquares: [],
+      blackSquares: [],
     };
+    const square =
+      typeof s.square === 'string' && /^[a-h][1-8]$/.test(s.square)
+        ? s.square
+        : '';
     if (s.color === 'b') {
       bucket.black_mg += mg;
       bucket.black_eg += eg;
+      if (square) bucket.blackSquares.push(square);
     } else {
       bucket.white_mg += mg;
       bucket.white_eg += eg;
+      if (square) bucket.whiteSquares.push(square);
     }
     byId.set(s.id, bucket);
+  }
+
+  function formatSquares(white: string[], black: string[]): string {
+    const parts: string[] = [];
+    if (white.length > 0) parts.push(`w: ${white.join(',')}`);
+    if (black.length > 0) parts.push(`b: ${black.join(',')}`);
+    return parts.join('; ');
   }
 
   const rows: PositionalDiffRow[] = [];
@@ -180,6 +208,7 @@ export function aggregatePositionalDiff(
       black_mg: round3(b.black_mg),
       white_eg: round3(b.white_eg),
       black_eg: round3(b.black_eg),
+      squares: formatSquares(b.whiteSquares, b.blackSquares),
     });
   }
 
@@ -317,6 +346,7 @@ export async function debugPositionalDiff(
         diff_eg: r.diff_eg,
         white_mg: r.white_mg,
         black_mg: r.black_mg,
+        squares: r.squares,
       })),
     );
     // eslint-disable-next-line no-console
@@ -335,6 +365,7 @@ export async function debugPositionalDiff(
         sum_eg: r.sum_eg,
         white_mg: r.white_mg,
         black_mg: r.black_mg,
+        squares: r.squares,
       })),
     );
     // eslint-disable-next-line no-console
