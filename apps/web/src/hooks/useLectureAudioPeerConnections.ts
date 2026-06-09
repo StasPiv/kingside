@@ -363,29 +363,40 @@ export function useLectureAudioPeerConnections({
     // и webrtc:peer-joined до него никогда не доходило. Gateway также
     // опознаёт publisher по JWT в `socket.auth` — иначе не знает, кому
     // пересылать.
-    try {
-      const token =
-        typeof window !== 'undefined'
-          ? window.localStorage.getItem('token')
-          : null;
-      socket.auth = token ? { token } : {};
-      console.info('[lecture-audio-pub] auth set, hasToken=', !!token);
-    } catch {
-      /* localStorage недоступен — подключимся без auth, всё равно лучше, чем offline */
-    }
-    // KS-3881: после установления соединения тренер должен сам
+    //
+    // KS-4005. Ручная установка `socket.auth = {token}` удалена. Сокет
+    // создан с `auth`-callback (см. `socket.ts`), который передаёт
+    // свежий JWT в КАЖДОМ handshake. Ранее `socket.auth = …` на этом
+    // месте было бесполезным, если сокет уже был connected другим
+    // потребителем без токена — handshake уже прошёл, поменять auth
+    // постфактум нельзя. Это и был корень KS-4005: запись звука шла, но
+    // peer-joined уходил по сокету без JWT, gateway не идентифицировал
+    // owner-а, publisher-state не сохранялся, ученики не получали offer.
+
+    // KS-3881 / KS-4005. После установления соединения тренер должен сам
     // «представиться» как publisher этой лекции. Gateway опознаёт роль
-    // по JWT (userId === Lecture.ownerId, ADR-116 §2.2) и регистрирует
-    // socketId в Map<lectureId, publisherSocketId>. Без этого webrtc:
-    // peer-joined от зрителей не пересылается тренеру.
-    const announcePublisher = () => {
+    // по JWT в handshake (userId === Lecture.ownerId, ADR-116 §2.2) и
+    // регистрирует socketId в Map<lectureId, publisherSocketId>. Без
+    // этого webrtc:peer-joined от зрителей не пересылается тренеру.
+    const announcePublisher = (reason: string) => {
       const lid = lectureIdRef.current;
       if (!lid) return;
+      if (!socket.connected) {
+        // emit на отключённом сокете уйдёт в локальный буфер socket.io
+        // и реально полетит только после connect — но в этот момент
+        // handshake может ещё не закончиться (нет socket.id). Логируем,
+        // emit всё равно делаем; при connect handleSocketConnect
+        // повторит.
+        console.warn(
+          '[lecture-audio-pub] announcePublisher while socket not connected',
+          { reason, lectureId: lid, socketId: socket.id },
+        );
+      }
       try {
         socket.emit('webrtc:peer-joined', { lectureId: lid });
         console.info(
           '[lecture-audio-pub] emitted webrtc:peer-joined (publisher self-register)',
-          { lectureId: lid },
+          { lectureId: lid, reason, socketId: socket.id, socketConnected: socket.connected },
         );
       } catch (err) {
         console.warn(
@@ -401,7 +412,7 @@ export function useLectureAudioPeerConnections({
       // На каждый connect (initial + reconnect) переотправляем
       // саморегистрацию: после reconnect-а map на сервере может быть
       // очищен или socketId изменился.
-      announcePublisher();
+      announcePublisher('connect-event');
     };
     const handleSocketDisconnect = (reason: string) => {
       console.warn('[lecture-audio-pub] socket disconnect-event', reason);
@@ -427,19 +438,12 @@ export function useLectureAudioPeerConnections({
     };
     socket.onAny(handleAny);
 
-    if (!socket.connected) {
-      try {
-        socket.connect();
-        console.info('[lecture-audio-pub] socket.connect() invoked');
-      } catch (err) {
-        console.warn('[lecture-audio-pub] socket.connect() throw', err);
-      }
-    } else {
-      console.info('[lecture-audio-pub] socket already connected');
-      // На уже подключённом сокете connect-event не сработает —
-      // саморегистрация шлётся вручную здесь.
-      announcePublisher();
-    }
+    // KS-4005. webrtc:* listeners подписываем ДО первого announcePublisher.
+    // Раньше последовательность была: emit announcePublisher → потом
+    // socket.on(webrtc:peer-joined, ...). В норме gateway форвардит
+    // pending-subscribers тренеру по network round-trip (несколько ms),
+    // а синхронный socket.on выполняется до того — но это race, и в
+    // dev-StrictMode с двойным mount-ом терял первый forward.
     console.info(
       '[lecture-audio-pub] mount: subscribing to webrtc events',
       {
@@ -454,7 +458,36 @@ export function useLectureAudioPeerConnections({
     socket.on('webrtc:ice', handleIce);
     socket.on('webrtc:peer-left', handlePeerLeft);
 
+    if (!socket.connected) {
+      try {
+        socket.connect();
+        console.info('[lecture-audio-pub] socket.connect() invoked');
+      } catch (err) {
+        console.warn('[lecture-audio-pub] socket.connect() throw', err);
+      }
+    } else {
+      console.info('[lecture-audio-pub] socket already connected');
+      // На уже подключённом сокете connect-event не сработает —
+      // саморегистрация шлётся вручную здесь.
+      announcePublisher('mount-already-connected');
+    }
+
+    // KS-4005. Periodic re-announce. Backstop на случай, если первый
+    // peer-joined не дошёл (потерян на handshake-боундари, или gateway
+    // принял до того, как кэш auth-userId был готов, или owner-сокет
+    // был временно подменён без явного reconnect). Gateway после
+    // KS-4003 идемпотентен к повторному peer-joined от того же
+    // owner-socket — replay не запускается, лишних `publisher
+    // registered` в логах нет. Период 5 сек подобран так, чтобы
+    // новые ученики, попавшие в `no publisher yet`, получили offer
+    // через ≤5 сек, а не висели в ice_timeout.
+    const reannounceTimer = setInterval(
+      () => announcePublisher('periodic'),
+      5_000,
+    );
+
     return () => {
+      clearInterval(reannounceTimer);
       socket.off('webrtc:peer-joined', handlePeerJoined);
       socket.off('webrtc:answer', handleAnswer);
       socket.off('webrtc:ice', handleIce);

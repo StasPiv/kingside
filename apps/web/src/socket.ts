@@ -124,7 +124,45 @@ export const messagesSocket = withHandlers(io(`${API_URL}/messages`, SOCKET_OPTS
 // на API_URL (модуль `live-analysis` в apps/api, KS-3732). JWT в handshake —
 // опциональный: owner отправляет токен через `auth.token` при connect-е
 // (см. `useLiveAnalysisSocket`), анонимный зритель коннектится без auth.
-export const liveAnalysisSocket = withHandlers(io(`${API_URL}/live-analysis`, SOCKET_OPTS));
+//
+// KS-4005. JWT передаётся через `auth`-callback, а не через ручное
+// присваивание `socket.auth = …` в каждом потребителе. Причина: socket
+// глобальный, его подключает первый запустившийся потребитель
+// (`useLiveAnalysisSocket`, `useLectureAudioPeerConnections`,
+// `useLectureAudioSubscriber`). Если первый потребитель успел установить
+// `socket.auth = {token}` и сделать `socket.connect()`, handshake прошёл
+// с этим токеном. Если же первый потребитель не успел (например, у
+// тренера `useLiveAnalysisSocket` спал с `slug=null` до старта лекции, а
+// `useLectureAudioPeerConnections` стал первым «вытаскивающим» сокет,
+// причём он ставит auth ПОСЛЕ того, как сокет уже мог быть connected
+// другими ветками — фактически handshake уходил без JWT), gateway
+// получал peer-joined без идентификации owner-а и не регистрировал
+// publisher-state. Симптом: `webrtc:peer-joined isOwner=true` ни разу
+// не появлялось в логах api, ученики получали `no publisher yet →
+// ice_timeout` и тишину.
+//
+// `auth` как функция-callback вызывается socket.io-client на КАЖДЫЙ
+// handshake (initial connect + любой reconnect), читает свежий токен
+// из localStorage. Это устраняет race по порядку инициализации.
+const liveAnalysisAuthProvider = (
+  cb: (data: Record<string, unknown>) => void,
+): void => {
+  let token: string | null = null;
+  try {
+    if (typeof window !== 'undefined') {
+      token = window.localStorage.getItem('token');
+    }
+  } catch {
+    /* localStorage недоступен (private mode) — анонимный handshake */
+  }
+  cb(token ? { token } : {});
+};
+export const liveAnalysisSocket = withHandlers(
+  io(`${API_URL}/live-analysis`, {
+    ...SOCKET_OPTS,
+    auth: liveAnalysisAuthProvider,
+  }),
+);
 
 // KS-2185 / dev-only: экспонируем matchmakingSocket в window для ручной
 // QA-проверки и Playwright-скриншотов сценария «No opponents online»

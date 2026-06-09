@@ -138,12 +138,11 @@ export function useLiveAnalysisSocket({
     }
     const s = liveAnalysisSocket;
 
-    // JWT в handshake — опциональный. Если токен есть, сервер опознаёт
-    // owner-а; если нет — анонимный viewer (см. ADR-110 §2.6). Auth
-    // выставляем ДО connect-а, иначе socket.io не передаст его в handshake.
-    const token =
-      typeof window !== 'undefined' ? window.localStorage.getItem('token') : null;
-    s.auth = token ? { token } : {};
+    // KS-4005. JWT в handshake — опциональный (если есть, сервер опознаёт
+    // owner-а; если нет — анонимный viewer, ADR-110 §2.6). Ручное
+    // `s.auth = {token}` убрано — сокет создаётся с `auth`-callback в
+    // `socket.ts`, который читает свежий токен из localStorage на каждый
+    // handshake (initial + reconnect). См. подробный комментарий там.
 
     const subscribe = () => {
       s.emit(LiveAnalysisEvents.SUBSCRIBE, { slug });

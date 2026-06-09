@@ -442,19 +442,13 @@ export function useLectureAudioSubscriber({
       }
     };
 
-    // KS-3881: тот же фикс что в publisher — гарантируем что socket
-    // подключён и имеет JWT в auth до подписки. liveAnalysisSocket
-    // autoConnect=false, явный connect делает только useLiveAnalysisSocket.
-    try {
-      const token =
-        typeof window !== 'undefined'
-          ? window.localStorage.getItem('token')
-          : null;
-      socket.auth = token ? { token } : {};
-      console.info('[lecture-audio-sub] auth set, hasToken=', !!token);
-    } catch {
-      /* без auth — анонимный зритель, тоже допустимо */
-    }
+    // KS-3881 / KS-4005: тот же фикс что в publisher — гарантируем что
+    // socket подключён. JWT в handshake подаётся через `auth`-callback
+    // в `socket.ts` (см. подробный комментарий там), ручное
+    // `socket.auth = …` удалено как race-prone (handshake уже мог
+    // произойти к моменту присваивания, и auth не дошёл бы до сервера).
+    // liveAnalysisSocket autoConnect=false, явный connect делает только
+    // useLiveAnalysisSocket / publisher-хук / этот хук.
     const handleSocketConnect = () => {
       console.info('[lecture-audio-sub] socket connect-event', {
         id: socket.id,
