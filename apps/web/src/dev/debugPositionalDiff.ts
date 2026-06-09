@@ -83,6 +83,25 @@ function round3(x: number): number {
 }
 
 /**
+ * KS-4021 follow-up. Идентификаторы подкомпонент, для которых Stockfish
+ * выдаёт значения уже со знаком со стороны белых (у белых положительные,
+ * у чёрных отрицательные). Для них правильная метрика — `sum_*`
+ * (арифметическая сумма всех value по id, около нуля = равноценно).
+ * Остальные подкомпоненты SF выдаёт со стороны владельца (положительные
+ * у обеих сторон) — там правильно `diff_*` = white_sum − black_sum.
+ */
+const WHITE_SIGNED_IDS: ReadonlySet<string> = new Set([
+  'psqt_pawn',
+  'psqt_knight',
+  'psqt_bishop',
+  'psqt_rook',
+  'psqt_queen',
+  'psqt_king',
+  'material',
+  'imbalance',
+]);
+
+/**
  * Чистая функция-агрегатор. Принимает массив подкомпонент (тот же
  * `mergedFactors`, что улетает на сервер; может содержать нестандартные
  * элементы вроде `sf18_eval`/`sf18_pv` — их мы отфильтровываем по
@@ -294,16 +313,48 @@ export async function debugPositionalDiff(
     return [];
   }
 
-  // eslint-disable-next-line no-console
-  console.table(
-    rows.map((r) => ({
-      param: r.param,
-      sum_mg: r.sum_mg,
-      diff_mg: r.diff_mg,
-      sum_eg: r.sum_eg,
-      diff_eg: r.diff_eg,
-    })),
-  );
+  // KS-4021 follow-up. Разделяем строки на две группы по знаковой
+  // конвенции SF. Каждая группа печатается своей таблицей, чтобы было
+  // ясно, какую колонку смотреть.
+  const whiteSignedRows = rows.filter((r) => WHITE_SIGNED_IDS.has(r.param));
+  const ownerSignedRows = rows.filter((r) => !WHITE_SIGNED_IDS.has(r.param));
+
+  if (ownerSignedRows.length > 0) {
+    // eslint-disable-next-line no-console
+    console.groupCollapsed(
+      '[ksPositionalDiff] Параметры со стороны владельца (используй diff_mg / diff_eg)',
+    );
+    // eslint-disable-next-line no-console
+    console.table(
+      ownerSignedRows.map((r) => ({
+        param: r.param,
+        diff_mg: r.diff_mg,
+        diff_eg: r.diff_eg,
+        white_mg: r.white_mg,
+        black_mg: r.black_mg,
+      })),
+    );
+    // eslint-disable-next-line no-console
+    console.groupEnd();
+  }
+  if (whiteSignedRows.length > 0) {
+    // eslint-disable-next-line no-console
+    console.groupCollapsed(
+      '[ksPositionalDiff] Параметры со стороны белых (psqt_*/material/imbalance) — используй sum_mg / sum_eg',
+    );
+    // eslint-disable-next-line no-console
+    console.table(
+      whiteSignedRows.map((r) => ({
+        param: r.param,
+        sum_mg: r.sum_mg,
+        sum_eg: r.sum_eg,
+        white_mg: r.white_mg,
+        black_mg: r.black_mg,
+      })),
+    );
+    // eslint-disable-next-line no-console
+    console.groupEnd();
+  }
   return rows;
 }
 

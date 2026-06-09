@@ -55,12 +55,16 @@ describe('aggregatePositionalDiff', () => {
 
   it('KS-4021: psqt-конвенция (значения уже со стороны белых) — sum_mg показывает баланс', () => {
     // По данным пользователя: ладьи равноценны, значения противоположны.
-    const input: PositionalSubterm[] = [
+    // `psqt_*` нет в основном PositionalSubtermId union (отфильтрованы для LLM),
+    // но aggregatePositionalDiff принимает их как 'unknown'-id через
+    // ReadonlyArray<unknown>. Используем as any для теста.
+    const input = [
       { id: 'psqt_rook', color: 'w', square: 'f5', value_mg: 3.878, value_eg: 4.229 },
       { id: 'psqt_rook', color: 'b', square: 'e2', value_mg: -3.945, value_eg: -4.192 },
     ];
-    const rows = aggregatePositionalDiff(input);
-    const row = rows.find((r) => r.param === 'psqt_rook')!;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = aggregatePositionalDiff(input as any);
+    const row = rows.find((r) => (r.param as string) === 'psqt_rook')!;
     // sum_mg ≈ -0.067 — баланс почти ноль, ладьи равноценны.
     expect(row.sum_mg).toBeCloseTo(-0.067, 3);
     expect(row.sum_eg).toBeCloseTo(0.037, 3);
