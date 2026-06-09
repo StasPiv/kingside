@@ -55,6 +55,13 @@ export interface PositionalMetricsPanelProps {
    *     метрик» над графиком; график занимает всю ширину контейнера.
    */
   layout?: 'sidebar' | 'fullpage';
+  /**
+   * KS-4027. SAN-ходы (алгебраическая нотация: `e4`, `Nf3`, `O-O`),
+   * по одному на каждый полуход партии (длина = `uciMoves.length`).
+   * Подписи оси X на графике формируются из них (вместо номеров
+   * полуходов). Если не передано — на оси X номера ходов.
+   */
+  sanMoves?: ReadonlyArray<string>;
 }
 
 const COLORS = {
@@ -89,6 +96,11 @@ interface MetricsChartProps {
   currentPly?: number;
   /** KS-4027. Сообщение когда нет данных (отличается от «нет выбора»). */
   noDataMessage?: string;
+  /**
+   * KS-4027. SAN-ходы для подписей оси X. `sanMoves[i]` — ход на
+   * полуходе `i+1` (нумерация с нуля). Длина обычно `plyCount - 1`.
+   */
+  sanMoves?: ReadonlyArray<string>;
 }
 
 /**
@@ -102,6 +114,7 @@ export function MetricsChart({
   onPlySelect,
   currentPly,
   noDataMessage,
+  sanMoves,
 }: MetricsChartProps) {
   const padding = { top: 12, right: 8, bottom: 28, left: 36 };
   const plotW = Math.max(40, width - padding.left - padding.right);
@@ -194,6 +207,68 @@ export function MetricsChart({
         y2={padding.top + plotH}
         stroke="#bbb"
       />
+      {/* KS-4027: подписи по оси X — SAN-ходы партии («1.e4», «1...e5»,
+          «2.Nf3» …). `sanMoves[i]` — ход на полуходе `i+1` (в массиве
+          ходов нумерация с нуля, в trace ply=0 — стартовая позиция).
+          Шаг подбирается так, чтобы было ≤12 меток на любой длине
+          партии. Если sanMoves не передан — fallback на номера ходов. */}
+      {(() => {
+        if (plyCount <= 1) return null;
+        const moveLabelFor = (ply: number): string => {
+          // ply: 1..plyCount-1. Белые ходят на нечётных ply (1,3,5…),
+          // чёрные — на чётных (2,4,6…). Номер хода = Math.ceil(ply/2).
+          const moveNo = Math.ceil(ply / 2);
+          const san = sanMoves && sanMoves[ply - 1];
+          if (san) {
+            return ply % 2 === 1 ? `${moveNo}.${san}` : `${moveNo}…${san}`;
+          }
+          return String(moveNo);
+        };
+        // Идём по ПАРАМ (белый+чёрный) для каждого видимого хода —
+        // тогда гарантированно показываются оба цвета: «1.e4», «1…e5»,
+        // «5.Nf3», «5…Nc6» и т.д. При просто шаге по ply шаг становился
+        // чётным и подписи попадали только на чёрных.
+        const totalMoves = Math.ceil((plyCount - 1) / 2);
+        const moveStep = Math.max(1, Math.ceil(totalMoves / 6));
+        const labels: Array<{ ply: number; text: string }> = [
+          { ply: 0, text: 'нач.' },
+        ];
+        for (let m = moveStep; m <= totalMoves; m += moveStep) {
+          const whitePly = 2 * m - 1;
+          const blackPly = 2 * m;
+          if (whitePly <= plyCount - 1) {
+            labels.push({ ply: whitePly, text: moveLabelFor(whitePly) });
+          }
+          if (blackPly <= plyCount - 1) {
+            labels.push({ ply: blackPly, text: moveLabelFor(blackPly) });
+          }
+        }
+        // Гарантируем подпись на последнем полуходе.
+        const last = plyCount - 1;
+        if (labels[labels.length - 1].ply !== last) {
+          labels.push({ ply: last, text: moveLabelFor(last) });
+        }
+        return labels.map((t, idx) => (
+          <g key={`xt-${idx}-${t.ply}`}>
+            <line
+              x1={xFor(t.ply)}
+              y1={padding.top + plotH}
+              x2={xFor(t.ply)}
+              y2={padding.top + plotH + 4}
+              stroke="#bbb"
+            />
+            <text
+              x={xFor(t.ply)}
+              y={padding.top + plotH + 16}
+              fontSize={10}
+              fill="#888"
+              textAnchor="middle"
+            >
+              {t.text}
+            </text>
+          </g>
+        ));
+      })()}
       {/* Подсветка currentPly */}
       {typeof currentPly === 'number' && currentPly < plyCount && (
         <line
@@ -585,8 +660,12 @@ export function PositionalMetricsPanel({
   chartHeight = 220,
   selectionStorageKey,
   layout = 'sidebar',
+  sanMoves,
 }: PositionalMetricsPanelProps) {
-  const [selectorOpen, setSelectorOpen] = useState(layout === 'sidebar');
+  // KS-4027: на отдельной странице меню флажков по умолчанию свёрнуто
+  // (график сразу занимает всю высоту), на боковой вкладке флажки
+  // всегда видны рядом справа (selectorOpen не используется).
+  const [selectorOpen, setSelectorOpen] = useState(false);
   const [mode, setMode] = useState<MetricMode>('diff');
   const [phase, setPhase] = useState<MetricPhase>('mix');
   // KS-4027. При первом открытии — стартовый набор (ADR-122 §3); если
@@ -639,9 +718,12 @@ export function PositionalMetricsPanel({
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
-        padding: 8,
+        // KS-4027: для fullpage убираем внутренний padding, чтобы график
+        // действительно растягивался на всю ширину окна без пустот.
+        padding: layout === 'fullpage' ? 0 : 8,
         fontFamily: 'system-ui, sans-serif',
         minHeight: 0,
+        width: '100%',
       }}
     >
       {headerLink && (
@@ -724,6 +806,7 @@ export function PositionalMetricsPanel({
             height={chartHeight}
             onPlySelect={onPlySelect}
             currentPly={currentPly}
+            sanMoves={sanMoves}
             noDataMessage={
               selectedIds.size === 0
                 ? 'Выберите хотя бы одну метрику в настройках метрик.'

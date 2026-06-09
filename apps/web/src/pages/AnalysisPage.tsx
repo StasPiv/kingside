@@ -2715,6 +2715,15 @@ function AnalysisPageInner({
         .filter((u): u is string => typeof u === 'string' && u.length >= 4),
     [history],
   );
+  // KS-4027. SAN-ходы партии (алгебраическая нотация) для подписей
+  // оси X на графике метрик. Длина обычно совпадает с uciMovesForMetrics.
+  const sanMovesForMetrics = useMemo(
+    () =>
+      history
+        .map((m) => m?.san)
+        .filter((s): s is string => typeof s === 'string' && s.length > 0),
+    [history],
+  );
   // KS-4025: блок «Метрики» рендерится всегда — на новом ad-hoc анализе
   // (без id) панель показывает заглушку «Сохраните анализ перед расчётом
   // метрик»; на пустой истории — «Сделайте хотя бы один ход».
@@ -2723,6 +2732,7 @@ function AnalysisPageInner({
       <PositionalMetricsPanel
         trace={positionalTrace}
         uciMoves={uciMovesForMetrics}
+        sanMoves={sanMovesForMetrics}
         currentPly={currentGlobalIndex}
         onPlySelect={(ply) => {
           if (ply <= 0 || ply > history.length) return;
@@ -2748,6 +2758,7 @@ function AnalysisPageInner({
     [
       positionalTrace,
       uciMovesForMetrics,
+      sanMovesForMetrics,
       currentGlobalIndex,
       history,
       gotoMove,

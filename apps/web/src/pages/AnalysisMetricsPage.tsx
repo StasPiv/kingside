@@ -26,33 +26,40 @@ import { PositionalMetricsPanel } from '../components/analysis/PositionalMetrics
 
 interface MainlineState {
   uciMoves: string[];
+  sanMoves: string[];
   title: string;
   loading: boolean;
   notFound: boolean;
 }
 
 /**
- * Раскладываем PGN/move-list анализа в массив UCI-ходов через chess.js.
- * Для отдельной страницы нам не нужно дерево вариантов — достаточно
- * mainline, по которой считаются позиционные метрики.
+ * Раскладываем PGN/move-list анализа в массивы UCI- и SAN-ходов через
+ * chess.js. Для отдельной страницы нам не нужно дерево вариантов —
+ * достаточно mainline, по которой считаются позиционные метрики.
+ * KS-4027: SAN-ходы используются для подписей оси X на графике.
  */
-function pgnToUciMainline(pgn: string): string[] {
+function pgnToMainline(pgn: string): { uci: string[]; san: string[] } {
   try {
     const chess = new Chess();
     chess.loadPgn(pgn);
     const history = chess.history({ verbose: true });
-    return history.map((m) => {
+    const uci: string[] = [];
+    const san: string[] = [];
+    for (const m of history) {
       const promo = m.promotion ? m.promotion : '';
-      return `${m.from}${m.to}${promo}`;
-    });
+      uci.push(`${m.from}${m.to}${promo}`);
+      san.push(m.san);
+    }
+    return { uci, san };
   } catch {
-    return [];
+    return { uci: [], san: [] };
   }
 }
 
 function useAnalysisMainline(analysisId: string | undefined): MainlineState {
   const [state, setState] = useState<MainlineState>({
     uciMoves: [],
+    sanMoves: [],
     title: '',
     loading: true,
     notFound: false,
@@ -60,7 +67,13 @@ function useAnalysisMainline(analysisId: string | undefined): MainlineState {
   useEffect(() => {
     if (!analysisId) return;
     let cancelled = false;
-    setState({ uciMoves: [], title: '', loading: true, notFound: false });
+    setState({
+      uciMoves: [],
+      sanMoves: [],
+      title: '',
+      loading: true,
+      notFound: false,
+    });
     (async () => {
       const fetchOne = async (path: string) => {
         try {
@@ -77,12 +90,19 @@ function useAnalysisMainline(analysisId: string | undefined): MainlineState {
       if (!dto) dto = await fetchOne(`/analyses/public/${analysisId}`);
       if (cancelled) return;
       if (!dto) {
-        setState({ uciMoves: [], title: '', loading: false, notFound: true });
+        setState({
+          uciMoves: [],
+          sanMoves: [],
+          title: '',
+          loading: false,
+          notFound: true,
+        });
         return;
       }
-      const uci = dto.pgn ? pgnToUciMainline(dto.pgn) : [];
+      const parsed = dto.pgn ? pgnToMainline(dto.pgn) : { uci: [], san: [] };
       setState({
-        uciMoves: uci,
+        uciMoves: parsed.uci,
+        sanMoves: parsed.san,
         title: dto.title || 'Анализ',
         loading: false,
         notFound: false,
@@ -113,9 +133,12 @@ export function AnalysisMetricsPage() {
     <div
       data-testid="analysis-metrics-page"
       style={{
-        padding: '16px 24px',
-        maxWidth: 1400,
-        margin: '0 auto',
+        // KS-4027: страница на всю ширину окна, без maxWidth и без
+        // боковых отступов — пользователь специально просил «во весь
+        // экран», без пустот слева и справа.
+        width: '100%',
+        padding: 0,
+        margin: 0,
         fontFamily: 'system-ui, sans-serif',
       }}
     >
@@ -124,7 +147,7 @@ export function AnalysisMetricsPage() {
           display: 'flex',
           alignItems: 'baseline',
           gap: 12,
-          marginBottom: 12,
+          padding: '12px 16px',
         }}
       >
         <Link
@@ -145,22 +168,16 @@ export function AnalysisMetricsPage() {
         </span>
       </div>
       {mainline.notFound ? (
-        <div style={{ color: '#8a1f1f', fontSize: 13 }}>
+        <div style={{ color: '#8a1f1f', fontSize: 13, padding: '0 16px' }}>
           Анализ не найден или недоступен.
         </div>
       ) : (
-        <div
-          style={{
-            border: '1px solid #e0e0e0',
-            borderRadius: 8,
-            background: '#fff',
-            padding: 8,
-          }}
-        >
+        <div style={{ background: '#fff', padding: 0 }}>
           <PositionalMetricsPanel
             trace={trace}
             uciMoves={mainline.uciMoves}
-            chartHeight={460}
+            sanMoves={mainline.sanMoves}
+            chartHeight={520}
             selectionStorageKey={`ks:metrics:selection:${analysisId}`}
             layout="fullpage"
           />
