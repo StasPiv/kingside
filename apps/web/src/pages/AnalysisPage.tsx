@@ -2634,6 +2634,22 @@ function AnalysisPageInner({
     });
   }, [toggleAnalysis]);
 
+  // KS-4021. Поднимаем engineProbe в window, чтобы консольная команда
+  // `window.__ksPositionalDiff` могла собрать факторы той же цепочкой,
+  // что и AI-комментарий (исходный evalTrace → bestLine → terminalFen
+  // → mergeFactors). Без этого отладочная функция не могла дотянуться
+  // до Stockfish-18-lite и проиграть PV — она получала только исходные
+  // факторы и иногда пустой массив.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.__ksEngineProbe = engineProbeForAi;
+    return () => {
+      if (window.__ksEngineProbe === engineProbeForAi) {
+        window.__ksEngineProbe = undefined;
+      }
+    };
+  }, [engineProbeForAi]);
+
   const aiPositionComment = useAiPositionComment({
     fen: currentFen,
     user: user ? { id: user.id } : null,

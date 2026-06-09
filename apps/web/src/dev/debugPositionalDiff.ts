@@ -1,59 +1,48 @@
 /**
- * KS-4017 / KS-4020. Отладочная функция консоли: сравнительная таблица
- * позиционных факторов Stockfish (Белые − Чёрные).
+ * KS-4017 / KS-4020 / KS-4021. Отладочная функция консоли: сравнительная
+ * таблица позиционных факторов Stockfish (Белые − Чёрные).
  *
  * Применение:
  *   await window.__ksPositionalDiff()
  *
- * Функция берёт текущий FEN со страницы анализа (`window.__sfTraceFen`,
- * выставляется в `AnalysisPage` при каждой смене позиции — см. KS-3682
- * / `sfTraceConsole.ts`), запрашивает позиционные подкомпоненты Stockfish
- * через ту же `evalTrace(fen)`, что используется в боевом разборе
- * (`useGameReview`, ADR-107 §6 F1) и в существующей консольной команде
- * `window.__sfTrace`. Агрегирует по `id` отдельно для белых и чёрных
- * (несколько строк с одним id у одной стороны суммируются), считает
- * `Белые − Чёрные` для `value_mg` / `value_eg`, сортирует по убыванию
- * `diff_mg` и печатает таблицу через `console.table`. Возвращает массив
- * — из консоли его можно сохранить в переменную:
+ * KS-4021. Реализация один-в-один с AI-комментарием (`useAiPositionComment`):
+ *   1. Берём текущий FEN со страницы анализа (`window.__sfTraceFen`).
+ *   2. Зовём `collectAiFactors({ fen, engineProbe })` — ту же чистую
+ *      цепочку, что использует AI: `evalTrace(fen)` → engineProbe → PV
+ *      → `evalTrace(terminalFen)` → `mergeFactors`.
+ *   3. Полученный массив (тот же, что улетает на сервер) пропускаем
+ *      через `aggregatePositionalDiff` — суммирование по сторонам и
+ *      разница Б−Ч.
+ *   4. Печатаем `console.table` и возвращаем строки.
  *
- *   const rows = await window.__ksPositionalDiff()
- *   rows.filter(r => r.diff_mg < 0)
- *
- * KS-4020. Параллельная ветка `evalTraceShared` + прогрев + ретрай
- * (KS-4018/4019) удалена: на боевом `evalTrace` всё работает, отдельный
- * singleton-инстанс был источником багов с фильтрацией psqt_*.
+ * `engineProbe` берём из `window.__ksEngineProbe`, который выставляет
+ * `AnalysisPage` (тот же callback, что хук получает напрямую). Если
+ * страница не открыта или probe ещё не выставился — fallback на
+ * один вызов `evalTrace` без терминального прохода (как когда движок
+ * ещё не успел отдать линию — поведение KS-3685).
  *
  * Включение:
  *   - В dev (`import.meta.env.DEV`) — всегда.
  *   - В prod — установить `localStorage.setItem('ks:dev','1')` и
- *     перезагрузить страницу. После этого функция появляется на
- *     `window.__ksPositionalDiff`.
+ *     перезагрузить страницу.
  */
 import type {
   PositionalSubterm,
   PositionalSubtermId,
 } from '@kingside/shared';
-import { evalTrace } from '../lib/review/stockfishTrace';
+import {
+  collectAiFactors,
+  type EngineBestLineInput,
+} from '../lib/review/collectAiFactors';
 
-/**
- * Одна строка итоговой таблицы: разница «Белые − Чёрные» по конкретному
- * параметру в пешечных-cp единицах SF. `white_mg`/`black_mg` —
- * промежуточные суммы (полезны при отладке, видны при `console.dir`).
- */
+/** Одна строка итоговой таблицы: разница «Белые − Чёрные». */
 export interface PositionalDiffRow {
-  /** id параметра, как в `PositionalSubterm.id`. */
   param: PositionalSubtermId | 'unknown';
-  /** Разница `value_mg` Белые − Чёрные, округлено до 3 знаков. */
   diff_mg: number;
-  /** Разница `value_eg` Белые − Чёрные, округлено до 3 знаков. */
   diff_eg: number;
-  /** Сумма value_mg всех записей с этим id у белых. */
   white_mg: number;
-  /** Сумма value_mg всех записей с этим id у чёрных. */
   black_mg: number;
-  /** Сумма value_eg всех записей с этим id у белых. */
   white_eg: number;
-  /** Сумма value_eg всех записей с этим id у чёрных. */
   black_eg: number;
 }
 
@@ -62,33 +51,33 @@ function round3(x: number): number {
 }
 
 /**
- * Чистая функция, отделённая ради тестирования. Берёт массив подкомпонент
- * и возвращает агрегированную сравнительную таблицу.
+ * Чистая функция-агрегатор. Принимает массив подкомпонент (тот же
+ * `mergedFactors`, что улетает на сервер; может содержать нестандартные
+ * элементы вроде `sf18_eval`/`sf18_pv` — их мы отфильтровываем по
+ * наличию `value_mg`/`value_eg`), возвращает таблицу «Белые − Чёрные».
  *
  * Правила:
- *  - Поля без `color` (side-agnostic, например `material`/`imbalance` —
- *    SF их трактует как баланс уже с учётом сторон) суммируются в белые,
- *    в чёрные ничего не добавляется. Это сохраняет смысл: «к балансу
- *    белых», знак уже корректный относительно белых.
- *  - Подкомпонент с `color='w'` суммируется в `white_*`, `color='b'` —
- *    в `black_*`.
+ *  - Только записи с числовыми `value_mg` и `value_eg` агрегируются.
+ *  - Поля без `color` (side-agnostic — `material`/`imbalance` —
+ *    SF трактует как баланс с учётом сторон) суммируются в белые.
  *  - `diff_mg = white_mg − black_mg`, аналогично `diff_eg`.
  *  - Сортировка по убыванию `diff_mg`. На равных — стабильно по `param`.
+ *  - Округление до 3 знаков.
  */
 export function aggregatePositionalDiff(
-  subterms: ReadonlyArray<PositionalSubterm>,
+  subterms: ReadonlyArray<unknown>,
 ): PositionalDiffRow[] {
   const byId = new Map<
     string,
-    {
-      white_mg: number;
-      black_mg: number;
-      white_eg: number;
-      black_eg: number;
-    }
+    { white_mg: number; black_mg: number; white_eg: number; black_eg: number }
   >();
 
-  for (const s of subterms) {
+  for (const raw of subterms) {
+    if (!raw || typeof raw !== 'object') continue;
+    const s = raw as Partial<PositionalSubterm>;
+    if (typeof s.id !== 'string') continue;
+    if (typeof s.value_mg !== 'number' || !Number.isFinite(s.value_mg)) continue;
+    if (typeof s.value_eg !== 'number' || !Number.isFinite(s.value_eg)) continue;
     const bucket = byId.get(s.id) ?? {
       white_mg: 0,
       black_mg: 0,
@@ -99,7 +88,6 @@ export function aggregatePositionalDiff(
       bucket.black_mg += s.value_mg;
       bucket.black_eg += s.value_eg;
     } else {
-      // 'w' и side-agnostic (color === undefined) — относим к белым.
       bucket.white_mg += s.value_mg;
       bucket.white_eg += s.value_eg;
     }
@@ -130,16 +118,8 @@ export function aggregatePositionalDiff(
 }
 
 /**
- * Сама консольная команда. Async — eval-trace WASM запускается асинхронно.
- *
- * Поведение:
- *  - Если `window.__sfTraceFen` не выставлен (страница анализа не открыта
- *    или ещё не успела) — `console.warn` с инструкцией, возвращает `[]`.
- *  - При успехе `evalTrace` — агрегация → `console.table` → `return rows`.
- *  - При ошибке `evalTrace` — `console.warn` с фактическим текстом и `[]`.
- *  - Если `evalTrace` вернул `[]` — `console.warn` и `[]`. На боевом
- *    `evalTrace`, который работает в `useGameReview` и `window.__sfTrace`,
- *    такого не наблюдается.
+ * Сама консольная команда. Async — `evalTrace` + probe выполняются
+ * асинхронно.
  */
 export async function debugPositionalDiff(
   fenArg?: string,
@@ -152,23 +132,33 @@ export async function debugPositionalDiff(
     return [];
   }
 
-  let subterms: PositionalSubterm[];
+  const engineProbe =
+    typeof window !== 'undefined' ? window.__ksEngineProbe ?? null : null;
+  if (!engineProbe) {
+    console.warn(
+      '[ksPositionalDiff] window.__ksEngineProbe не выставлен — собираю только исходную позицию без терминального прохода (Stockfish-18 не подключён).',
+    );
+  }
+
+  let result: Awaited<ReturnType<typeof collectAiFactors>>;
   try {
-    subterms = await evalTrace(fen);
+    result = await collectAiFactors({ fen, engineProbe });
   } catch (err) {
-    console.warn('[ksPositionalDiff] evalTrace упал:', err);
+    console.warn('[ksPositionalDiff] collectAiFactors упал:', err);
     return [];
   }
-  if (subterms.length === 0) {
+
+  const rows = aggregatePositionalDiff(result.mergedFactors);
+  if (rows.length === 0) {
     console.warn(
-      '[ksPositionalDiff] evalTrace вернул пустой массив. Проверьте через window.__sfTrace(fen) — там та же реализация.',
+      '[ksPositionalDiff] Stockfish не вернул ни одной подкомпоненты с числовыми value_mg/value_eg. fen=',
+      fen,
+      'bestLine=',
+      result.bestLine,
     );
     return [];
   }
 
-  const rows = aggregatePositionalDiff(subterms);
-  // Печатаем только три колонки в самой таблице — остальные доступны
-  // через возвращаемое значение для углублённой отладки.
   // eslint-disable-next-line no-console
   console.table(
     rows.map((r) => ({
@@ -182,12 +172,14 @@ export async function debugPositionalDiff(
 
 /**
  * Регистрирует функцию на глобальном объекте `window` под условием
- * dev-режима или явного opt-in через localStorage. Сразу же печатает
- * подсказку в консоль — пользователю не нужно лезть в документацию.
+ * dev-режима или явного opt-in через localStorage.
  */
 declare global {
   interface Window {
     __ksPositionalDiff?: (fen?: string) => Promise<PositionalDiffRow[]>;
+    __ksEngineProbe?:
+      | (() => Promise<EngineBestLineInput | null>)
+      | undefined;
   }
 }
 
@@ -203,7 +195,7 @@ export function maybeRegisterPositionalDiff(): void {
   window.__ksPositionalDiff = debugPositionalDiff;
   // eslint-disable-next-line no-console
   console.info(
-    "[ksPositionalDiff] готово: window.__ksPositionalDiff(fen?) — таблица «Белые − Чёрные» по позиционным факторам Stockfish.%s",
+    "[ksPositionalDiff] готово: window.__ksPositionalDiff(fen?) — таблица «Белые − Чёрные» по позиционным факторам Stockfish (тот же массив, что улетает в AI-комментарий).%s",
     import.meta.env.DEV
       ? ''
       : ' (включено через localStorage `ks:dev`=1)',
