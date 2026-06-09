@@ -85,6 +85,8 @@ import { liveAnalysisSocket } from '../socket';
 import { LecturePublisherStatusBadge } from '../components/lecture/LecturePublisherStatusBadge';
 import { LectureAudioListenerCompact } from '../components/lecture/LectureAudioListenerCompact';
 import { LectureRecordingBadge } from '../components/lecture/LectureRecordingBadge';
+// KS-4009 / ADR-121 Phase 1: чат лекции.
+import { LectureChatContainer } from '../components/lecture/LectureChatContainer';
 import { useLectureLookupBySlug } from '../hooks/useLectureLookupBySlug';
 // KS-3789 / ADR-113 §4 эпик 1: модальное окно создания лекции
 // и мгновенного запуска live-сессии.
@@ -183,6 +185,7 @@ function LectureBadgesBlock({
   isLive,
   isViewer,
   embedded,
+  currentUserId,
 }: {
   slug: string | null;
   /**
@@ -197,6 +200,8 @@ function LectureBadgesBlock({
   isLive: boolean;
   isViewer: boolean;
   embedded?: boolean;
+  /** KS-4009: id текущего пользователя для чата лекции; null для анонима. */
+  currentUserId?: string | null;
 }) {
   // Хук всегда вызываем (правила React), но slug передаём только когда
   // прямой lectureId не дан — иначе useLectureLookupBySlug «спит».
@@ -204,36 +209,53 @@ function LectureBadgesBlock({
   const lectureId = directLectureId ?? lookup?.lectureId ?? null;
   const startedAt = lookup?.startedAt ?? null;
   if (embedded || !lectureId) return null;
+  // KS-4009 / ADR-121: чат лекции виден только пока лекция в эфире.
+  // Тренер — owner-mode; зритель — viewer/anonymous (компонент сам
+  // выберет по `currentUserId`).
+  const chatNode = isLive ? (
+    <LectureChatContainer
+      lectureId={lectureId}
+      socket={liveAnalysisSocket}
+      isOwner={!isViewer}
+      currentUserId={currentUserId ?? null}
+    />
+  ) : null;
   // Тренер: badge показывается, если есть lectureId; внутри
   // компонента он сам решает, рисовать ли точку «запись».
   if (!isViewer) {
     return (
-      <LecturePublisherStatusBadge
-        lectureId={lectureId}
-        socket={liveAnalysisSocket}
-        recordingStartedAtClient={startedAt}
-        active={isLive}
-      />
+      <>
+        <LecturePublisherStatusBadge
+          lectureId={lectureId}
+          socket={liveAnalysisSocket}
+          recordingStartedAtClient={startedAt}
+          active={isLive}
+        />
+        {chatNode}
+      </>
     );
   }
   // Зритель: компактный аудио-иконка + «🔴 запись».
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-      }}
-    >
-      <LectureRecordingBadge
-        lectureId={lectureId}
-        socket={liveAnalysisSocket}
-      />
-      <LectureAudioListenerCompact
-        lectureId={lectureId}
-        socket={liveAnalysisSocket}
-      />
-    </span>
+    <>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <LectureRecordingBadge
+          lectureId={lectureId}
+          socket={liveAnalysisSocket}
+        />
+        <LectureAudioListenerCompact
+          lectureId={lectureId}
+          socket={liveAnalysisSocket}
+        />
+      </span>
+      {chatNode}
+    </>
   );
 }
 
@@ -3657,6 +3679,7 @@ function AnalysisPageInner({
           isLive={liveBroadcast.isLive}
           isViewer={isViewerLive}
           embedded={embedded}
+          currentUserId={user?.id ?? null}
         />
         {/* KS-3750: badge «получено обновление от автора». Виден
             только в зрительском live-режиме и только когда зритель
