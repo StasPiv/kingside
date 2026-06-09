@@ -9,6 +9,8 @@ import AiCommentSandboxPage from './pages/dev/AiCommentSandboxPage';
 import LectureStatusBadgesPreviewPage from './pages/dev/LectureStatusBadgesPreviewPage';
 // KS-4009 dev-only: песочница для приёмочных скриншотов чата лекции.
 import LectureChatPreviewPage from './pages/dev/LectureChatPreviewPage';
+// KS-4024 dev-only: песочница для приёмочных скриншотов вкладки «Метрики».
+import PositionalMetricsPreviewPage from './pages/dev/PositionalMetricsPreviewPage';
 // KS-3981 dev-only: песочница для приёмочных скриншотов LectureLandingPage адаптива.
 import LectureLandingPreviewPage from './pages/dev/LectureLandingPreviewPage';
 // KS-3980 dev-only: песочница для приёмочных скриншотов MyLecturesPage.
@@ -455,6 +457,8 @@ export function App() {
         <Route path="/__dev/lecture-status-badges" element={<LectureStatusBadgesPreviewPage />} />
         {/* KS-4009 dev-only песочница чата лекции. */}
         <Route path="/__dev/lecture-chat" element={<LectureChatPreviewPage />} />
+        {/* KS-4024 dev-only песочница позиционных метрик партии. */}
+        <Route path="/__dev/positional-metrics" element={<PositionalMetricsPreviewPage />} />
         {/* KS-3981 dev-only песочница адаптива LectureLandingPage. */}
         <Route path="/__dev/lecture-landing" element={<LectureLandingPreviewPage />} />
         {/* KS-3980 dev-only песочница MyLecturesPage. */}
