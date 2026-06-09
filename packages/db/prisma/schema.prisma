@@ -158,10 +158,10 @@ model User {
   lectureChatMessages       LectureChatMessage[]   @relation("LectureChatAuthor")
   lectureChatMutesReceived  LectureChatMute[]      @relation("LectureChatMutedUser")
   lectureChatMutesIssued    LectureChatMute[]      @relation("LectureChatMutedBy")
-  // KS-4023 / ADR-122. Кто запустил расчёт позиционной трассы партии
-  // (используется как аудит, не как авторизация — права на запись
+  // KS-4023 / KS-4026 / ADR-122. Кто запустил расчёт позиционной
+  // трассы анализа (audit-поле, не для авторизации; права на запись
   // регулируются guard'ом контроллера).
-  positionalTraces          GamePositionalTrace[]  @relation("PositionalTraceCreatedBy")
+  positionalTraces          AnalysisPositionalTrace[] @relation("PositionalTraceCreatedBy")
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -257,11 +257,6 @@ model Game {
   report       GameReport?
   tournament   ArenaTournament? @relation(fields: [tournamentId], references: [id])
   mistakes     UserMistake[]
-  /// KS-4023 / ADR-122. Кеш позиционных метрик SF-trace по полуходам
-  /// партии. Одна запись на партию (UNIQUE по gameId на стороне
-  /// GamePositionalTrace). Cascade-delete: при удалении партии запись
-  /// исчезает.
-  positionalTrace GamePositionalTrace?
 
   @@index([whiteId])
   @@index([blackId])
@@ -876,6 +871,14 @@ model Analysis {
   // ставится NULL (см. relation там, `onDelete: SetNull`) — трансляции
   // не удаляются ради аудита, просто теряют binding.
   liveAnalyses LiveAnalysis[]
+
+  /// KS-4026 / ADR-122. Кеш позиционных метрик SF-trace по полуходам
+  /// анализа. Одна запись на анализ (UNIQUE по analysisId на стороне
+  /// AnalysisPositionalTrace). Cascade-delete: при удалении анализа
+  /// запись исчезает. Привязка именно к Analysis, потому что реальный
+  /// поток пользователя — `openAnalysisFromPgn` создаёт новый Analysis
+  /// под архивную партию (см. KS-4026 переезд с gameId на analysisId).
+  positionalTrace AnalysisPositionalTrace?
 
   @@index([userId])
   @@index([userId, createdAt])
@@ -2516,21 +2519,26 @@ model LectureChatMute {
 }
 
 
-/// KS-4023 / ADR-122 §4. Кеш позиционных метрик Stockfish по полуходам
-/// партии. Одна запись на партию (UNIQUE gameId). UPSERT по gameId:
-/// при смене `sfVersion` (см. POSITIONAL_TRACE_VERSION в shared) старая
-/// запись затирается новой без накопления версий.
+/// KS-4026 / ADR-122 §4. Кеш позиционных метрик Stockfish по полуходам
+/// анализа. Одна запись на анализ (UNIQUE analysisId). UPSERT по
+/// analysisId: при смене `sfVersion` (см. POSITIONAL_TRACE_VERSION в
+/// shared) старая запись затирается новой без накопления версий.
+///
+/// Переезд с `GamePositionalTrace` (KS-4023): в реальном потоке
+/// `openAnalysisFromPgn` создаёт новый Analysis под архивную партию,
+/// `gameId` почти всегда отсутствует — поэтому ключ хранения теперь
+/// `analysisId`.
 ///
 /// `plies` — JSONB-массив `PositionalTracePly[]` (см. shared).
 /// Размер тела ≤ 256 КБ — лимит на стороне валидатора NestJS (см.
 /// PositionalTraceUpsertDto), на стороне БД ограничений нет: JSONB
 /// + TOAST автоматически жмёт большие тела.
 ///
-/// Cascade-delete от Game: запись бессмысленна без своей партии.
-model GamePositionalTrace {
+/// Cascade-delete от Analysis: запись бессмысленна без своего анализа.
+model AnalysisPositionalTrace {
   id          String   @id @default(uuid()) @db.Uuid
-  gameId      String   @unique @map("game_id") @db.Uuid
-  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  analysisId  String   @unique @map("analysis_id") @db.Uuid
+  analysis    Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
   /// Версия формата/движка SF-trace (ADR-107). При смене константы
   /// в shared старая запись становится «протухшей»: GET вернёт 404
@@ -2545,12 +2553,12 @@ model GamePositionalTrace {
   durationMs  Int?     @map("duration_ms")
 
   /// Кто запустил расчёт. SetNull при удалении пользователя — запись
-  /// сохраняется (она привязана к партии, не к пользователю).
+  /// сохраняется (она привязана к анализу, не к пользователю).
   createdById String?  @map("created_by_id") @db.Uuid
   createdBy   User?    @relation("PositionalTraceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  @@map("game_positional_traces")
+  @@map("analysis_positional_traces")
 }

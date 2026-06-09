@@ -1,9 +1,13 @@
 /**
- * KS-4023 / ADR-122 §3.3, §4. Контракты позиционной аналитики партии:
- * `GamePositionalTrace` хранит для одной партии массив полуходов с
- * полным набором `PositionalSubterm` на каждом ply (источник —
- * Stockfish WASM, KS-3648 / ADR-107). Используется графиком динамики
- * метрик во вкладке Metrics страницы анализа.
+ * KS-4023 / KS-4026 / ADR-122 §3.3, §4. Контракты позиционной аналитики
+ * анализа партии: `AnalysisPositionalTrace` хранит для одного анализа
+ * массив полуходов с полным набором `PositionalSubterm` на каждом ply
+ * (источник — Stockfish WASM, KS-3648 / ADR-107). Используется графиком
+ * динамики метрик во вкладке Metrics страницы анализа.
+ *
+ * Переезд с привязки к `Game` на привязку к `Analysis` (KS-4026): в
+ * реальном потоке пользователя «Открыть в анализе» создаёт новый
+ * Analysis (`openAnalysisFromPgn`), `gameId` почти всегда отсутствует.
  *
  * Версия формата задаётся отдельной константой `POSITIONAL_TRACE_VERSION`
  * — единый источник истины и для клиента (для проверки актуальности
@@ -30,16 +34,17 @@ export interface PositionalTracePly {
 }
 
 /**
- * Ответ `GET /games/:gameId/positional-trace?v=<sfVersion>` (см.
- * ADR-122 §3.1) и форма записи в БД `game_positional_traces`.
+ * Ответ `GET /analyses/:analysisId/positional-trace?v=<sfVersion>` (см.
+ * ADR-122 §3.1, KS-4026) и форма записи в БД
+ * `analysis_positional_traces`.
  *
  *   - `durationMs` — сколько занял расчёт у клиента, null если не
  *     прислан (для аналитики, не для авторизации).
  *   - `createdAt` / `updatedAt` — ISO-8601 UTC. UPSERT обновляет
  *     `updatedAt`, не трогая `createdAt`.
  */
-export interface GamePositionalTraceDto {
-  gameId: string;
+export interface AnalysisPositionalTraceDto {
+  analysisId: string;
   sfVersion: string;
   plies: PositionalTracePly[];
   durationMs: number | null;
@@ -48,7 +53,7 @@ export interface GamePositionalTraceDto {
 }
 
 /**
- * Тело `POST /games/:gameId/positional-trace`.
+ * Тело `POST /analyses/:analysisId/positional-trace`.
  *
  *   - `sfVersion` — строго совпадает с `POSITIONAL_TRACE_VERSION` на
  *     стороне сервера, иначе обработчик отвечает 400
