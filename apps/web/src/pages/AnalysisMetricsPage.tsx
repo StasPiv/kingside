@@ -15,9 +15,10 @@
  * fallback). На анализе без mainline — заглушка «Сделайте хотя бы
  * один ход» внутри панели.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Chess } from 'chess.js';
+import { Chessboard } from 'react-chessboard';
 import type { AnalysisResponse } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
@@ -27,6 +28,11 @@ import { PositionalMetricsPanel } from '../components/analysis/PositionalMetrics
 interface MainlineState {
   uciMoves: string[];
   sanMoves: string[];
+  /**
+   * KS-4027. FEN-позиция после каждого полухода. `fens[0]` — стартовая
+   * позиция, `fens[i]` — позиция после полухода `i`. Длина = `uciMoves.length + 1`.
+   */
+  fens: string[];
   title: string;
   loading: boolean;
   notFound: boolean;
@@ -38,7 +44,11 @@ interface MainlineState {
  * достаточно mainline, по которой считаются позиционные метрики.
  * KS-4027: SAN-ходы используются для подписей оси X на графике.
  */
-function pgnToMainline(pgn: string): { uci: string[]; san: string[] } {
+function pgnToMainline(pgn: string): {
+  uci: string[];
+  san: string[];
+  fens: string[];
+} {
   try {
     const chess = new Chess();
     chess.loadPgn(pgn);
@@ -50,9 +60,18 @@ function pgnToMainline(pgn: string): { uci: string[]; san: string[] } {
       uci.push(`${m.from}${m.to}${promo}`);
       san.push(m.san);
     }
-    return { uci, san };
+    // KS-4027. Восстанавливаем FEN на каждом полуходе: проигрываем
+    // mainline c нуля. fens[0] — стартовая, fens[i] — после ply i.
+    const fens: string[] = [];
+    const replay = new Chess();
+    fens.push(replay.fen());
+    for (const m of history) {
+      replay.move({ from: m.from, to: m.to, promotion: m.promotion });
+      fens.push(replay.fen());
+    }
+    return { uci, san, fens };
   } catch {
-    return { uci: [], san: [] };
+    return { uci: [], san: [], fens: [] };
   }
 }
 
@@ -60,6 +79,7 @@ function useAnalysisMainline(analysisId: string | undefined): MainlineState {
   const [state, setState] = useState<MainlineState>({
     uciMoves: [],
     sanMoves: [],
+    fens: [],
     title: '',
     loading: true,
     notFound: false,
@@ -70,6 +90,7 @@ function useAnalysisMainline(analysisId: string | undefined): MainlineState {
     setState({
       uciMoves: [],
       sanMoves: [],
+      fens: [],
       title: '',
       loading: true,
       notFound: false,
@@ -93,16 +114,20 @@ function useAnalysisMainline(analysisId: string | undefined): MainlineState {
         setState({
           uciMoves: [],
           sanMoves: [],
+          fens: [],
           title: '',
           loading: false,
           notFound: true,
         });
         return;
       }
-      const parsed = dto.pgn ? pgnToMainline(dto.pgn) : { uci: [], san: [] };
+      const parsed = dto.pgn
+        ? pgnToMainline(dto.pgn)
+        : { uci: [], san: [], fens: [] };
       setState({
         uciMoves: parsed.uci,
         sanMoves: parsed.san,
+        fens: parsed.fens,
         title: dto.title || 'Анализ',
         loading: false,
         notFound: false,
@@ -119,6 +144,29 @@ export function AnalysisMetricsPage() {
   const { analysisId } = useParams<{ analysisId: string }>();
   const mainline = useAnalysisMainline(analysisId);
   const trace = usePositionalTrace({ analysisId: analysisId ?? null });
+  // KS-4027. Текущий полуход для доски-просмотрщика. Меняется при
+  // клике на точку графика (`onPlySelect` пробрасывается в панель).
+  const [currentPly, setCurrentPly] = useState(0);
+  // Сбрасываем currentPly если поменялся анализ (другой analysisId).
+  useEffect(() => {
+    setCurrentPly(0);
+  }, [analysisId]);
+
+  // FEN для доски: позиция после `currentPly` полуходов. Если не
+  // загружено — стартовая позиция.
+  const boardFen = useMemo(() => {
+    if (mainline.fens.length === 0) {
+      return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    }
+    const idx = Math.max(0, Math.min(mainline.fens.length - 1, currentPly));
+    return mainline.fens[idx];
+  }, [mainline.fens, currentPly]);
+  const boardCaption = useMemo(() => {
+    if (currentPly === 0) return 'Начальная позиция';
+    const moveNo = Math.ceil(currentPly / 2);
+    const san = mainline.sanMoves[currentPly - 1] ?? '';
+    return `После ${moveNo}${currentPly % 2 === 1 ? '.' : '…'}${san}`;
+  }, [currentPly, mainline.sanMoves]);
 
   if (!analysisId) {
     return (
@@ -180,14 +228,95 @@ export function AnalysisMetricsPage() {
             trace={trace}
             uciMoves={mainline.uciMoves}
             sanMoves={mainline.sanMoves}
+            currentPly={currentPly}
+            onPlySelect={(ply) => setCurrentPly(ply)}
             chartHeight={520}
             selectionStorageKey={`ks:metrics:selection:${analysisId}`}
             layout="fullpage"
           />
+          {/* KS-4027. Доска-просмотрщик под графиком. При клике на точку
+              графика сюда подставляется позиция этого полухода. */}
+          {mainline.fens.length > 0 && (
+            <div
+              data-testid="analysis-metrics-board"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 6,
+                padding: '12px 16px 24px',
+              }}
+            >
+              <div style={{ fontSize: 13, color: '#555' }}>{boardCaption}</div>
+              <div style={{ width: 360, maxWidth: '100%' }}>
+                <Chessboard
+                  options={{
+                    position: boardFen,
+                    boardOrientation: 'white',
+                    animationDurationInMs: 0,
+                    allowDragging: false,
+                    showNotation: true,
+                  }}
+                />
+              </div>
+              {/* Простые навигационные кнопки на случай если кликать по
+                  точкам неудобно. */}
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPly(0)}
+                  style={navButtonStyle}
+                  disabled={currentPly === 0}
+                  aria-label="Начало"
+                >
+                  ⏮
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPly((p) => Math.max(0, p - 1))}
+                  style={navButtonStyle}
+                  disabled={currentPly === 0}
+                  aria-label="Назад"
+                >
+                  ◀
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPly((p) => Math.min(mainline.fens.length - 1, p + 1))
+                  }
+                  style={navButtonStyle}
+                  disabled={currentPly >= mainline.fens.length - 1}
+                  aria-label="Вперёд"
+                >
+                  ▶
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPly(mainline.fens.length - 1)}
+                  style={navButtonStyle}
+                  disabled={currentPly >= mainline.fens.length - 1}
+                  aria-label="Конец"
+                >
+                  ⏭
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
+
+const navButtonStyle: React.CSSProperties = {
+  fontSize: 14,
+  padding: '4px 10px',
+  background: '#f5f5f5',
+  border: '1px solid #ccc',
+  borderRadius: 4,
+  cursor: 'pointer',
+  lineHeight: 1,
+};
 
 export default AnalysisMetricsPage;

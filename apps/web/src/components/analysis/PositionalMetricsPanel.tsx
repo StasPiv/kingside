@@ -119,6 +119,10 @@ export function MetricsChart({
   const padding = { top: 12, right: 8, bottom: 28, left: 36 };
   const plotW = Math.max(40, width - padding.left - padding.right);
   const plotH = Math.max(40, height - padding.top - padding.bottom);
+  // KS-4027. Hover-state: какой ply сейчас под курсором. При наведении
+  // показываем вертикальную линию, маркеры точек и tooltip со значениями
+  // выбранных метрик в этом ply.
+  const [hoverPly, setHoverPly] = useState<number | null>(null);
 
   const { plyCount, minY, maxY } = useMemo(() => {
     let mn = Infinity;
@@ -207,53 +211,34 @@ export function MetricsChart({
         y2={padding.top + plotH}
         stroke="#bbb"
       />
-      {/* KS-4027: подписи по оси X — SAN-ходы партии («1.e4», «1...e5»,
-          «2.Nf3» …). `sanMoves[i]` — ход на полуходе `i+1` (в массиве
-          ходов нумерация с нуля, в trace ply=0 — стартовая позиция).
-          Шаг подбирается так, чтобы было ≤12 меток на любой длине
-          партии. Если sanMoves не передан — fallback на номера ходов. */}
+      {/* KS-4027: подписи по оси X — SAN-ходы партии. Идём по полуходам
+          с равным шагом 1 (каждый полуход — своя подпись), чтобы
+          расстояние между метками было одинаковым: пользователь
+          жаловался, что между белым/чёрным одной пары интервал маленький,
+          а между парами — большой. На очень длинных партиях, где плотность
+          точек мала, шаг увеличивается до целочисленного N. Чёрные ходы
+          показываем коротко (только SAN, без номера хода) — иначе при
+          18px на полуход метки наезжают друг на друга. */}
       {(() => {
         if (plyCount <= 1) return null;
         const moveLabelFor = (ply: number): string => {
-          // ply: 1..plyCount-1. Белые ходят на нечётных ply (1,3,5…),
-          // чёрные — на чётных (2,4,6…). Номер хода = Math.ceil(ply/2).
           const moveNo = Math.ceil(ply / 2);
           const san = sanMoves && sanMoves[ply - 1];
-          if (san) {
-            return ply % 2 === 1 ? `${moveNo}.${san}` : `${moveNo}…${san}`;
-          }
-          return String(moveNo);
+          if (!san) return String(moveNo);
+          // Белые: «1.e4», «2.Nf3», … — с номером хода.
+          // Чёрные: «e5», «Nc6», … — только SAN, без номера: для
+          // одинакового шага между метками компактная подпись.
+          return ply % 2 === 1 ? `${moveNo}.${san}` : san;
         };
-        // Идём по ПАРАМ (белый+чёрный) для каждого видимого хода —
-        // тогда гарантированно показываются оба цвета. KS-4027: раньше
-        // цикл начинался с `m = moveStep` (не с 1) и пропускал первый
-        // ход — при шаге 4 видны были только 4й, 8й, 12й ходы. Поэтому
-        // считаем «опорные» номера ходов равномерно от 1 до totalMoves
-        // включительно, чтобы всегда был и первый, и последний.
-        const totalMoves = Math.ceil((plyCount - 1) / 2);
+        // Минимум 16px между метками — иначе перекрывают друг друга.
+        const stepPx = plotW / Math.max(1, plyCount - 1);
+        const step = Math.max(1, Math.ceil(16 / stepPx));
         const labels: Array<{ ply: number; text: string }> = [
           { ply: 0, text: 'нач.' },
         ];
-        const targetMoves = Math.min(6, Math.max(1, totalMoves));
-        const moveNumbers = new Set<number>();
-        if (totalMoves >= 1) moveNumbers.add(1);
-        if (totalMoves >= 1) moveNumbers.add(totalMoves);
-        for (let i = 1; i < targetMoves - 1; i += 1) {
-          const m = Math.round(1 + (i / (targetMoves - 1)) * (totalMoves - 1));
-          moveNumbers.add(m);
+        for (let ply = step; ply <= plyCount - 1; ply += step) {
+          labels.push({ ply, text: moveLabelFor(ply) });
         }
-        const sortedMoves = Array.from(moveNumbers).sort((a, b) => a - b);
-        for (const m of sortedMoves) {
-          const whitePly = 2 * m - 1;
-          const blackPly = 2 * m;
-          if (whitePly <= plyCount - 1) {
-            labels.push({ ply: whitePly, text: moveLabelFor(whitePly) });
-          }
-          if (blackPly <= plyCount - 1) {
-            labels.push({ ply: blackPly, text: moveLabelFor(blackPly) });
-          }
-        }
-        // Гарантируем подпись на последнем полуходе.
         const last = plyCount - 1;
         if (labels[labels.length - 1].ply !== last) {
           labels.push({ ply: last, text: moveLabelFor(last) });
@@ -311,22 +296,140 @@ export function MetricsChart({
           />
         );
       })}
-      {/* Кликабельные «прозрачные» зоны по ply для onPlySelect */}
-      {onPlySelect &&
-        Array.from({ length: plyCount }).map((_, i) => (
-          <rect
-            key={i}
-            x={xFor(i) - 4}
-            y={padding.top}
-            width={8}
-            height={plotH}
-            fill="transparent"
-            style={{ cursor: 'pointer' }}
-            onClick={() => onPlySelect(i)}
-          >
-            <title>ply {i}</title>
-          </rect>
-        ))}
+      {/* KS-4027. Hover-подсветка: вертикальная линия + точки на сериях
+          + tooltip с названиями метрик и значениями в этом ply. */}
+      {hoverPly != null && hoverPly < plyCount && (
+        <g pointerEvents="none">
+          <line
+            x1={xFor(hoverPly)}
+            y1={padding.top}
+            x2={xFor(hoverPly)}
+            y2={padding.top + plotH}
+            stroke="#555"
+            strokeWidth={1}
+            opacity={0.6}
+          />
+          {series.map((s, idx) => {
+            const v = s.data[hoverPly];
+            if (v == null || !Number.isFinite(v)) return null;
+            return (
+              <circle
+                key={`hover-dot-${s.id}-${s.variant}-${idx}`}
+                cx={xFor(hoverPly)}
+                cy={yFor(v)}
+                r={3.5}
+                fill={colorForSeries(s, idx)}
+                stroke="#fff"
+                strokeWidth={1}
+              />
+            );
+          })}
+          {(() => {
+            // Tooltip-блок: подпись хода + значения серий. Ставим справа
+            // от вертикальной линии, либо слева — если упирается в правый
+            // край области графика.
+            const lines: Array<{ label: string; value: string; color: string }> = [];
+            for (let idx = 0; idx < series.length; idx += 1) {
+              const s = series[idx];
+              const v = s.data[hoverPly];
+              if (v == null || !Number.isFinite(v)) continue;
+              lines.push({
+                label: s.label,
+                value: v.toFixed(2),
+                color: colorForSeries(s, idx),
+              });
+            }
+            const headerSan = sanMoves && hoverPly >= 1 ? sanMoves[hoverPly - 1] : null;
+            const headerText =
+              hoverPly === 0
+                ? 'нач. позиция'
+                : `ход ${Math.ceil(hoverPly / 2)}${hoverPly % 2 === 1 ? '.' : '…'}${headerSan ?? ''}`;
+            const lineH = 14;
+            const padX = 6;
+            const padY = 6;
+            const boxW = 170;
+            const boxH = padY * 2 + lineH * (1 + lines.length);
+            const xRight = xFor(hoverPly) + 8;
+            const fitsRight = xRight + boxW <= padding.left + plotW;
+            const boxX = fitsRight ? xRight : xFor(hoverPly) - 8 - boxW;
+            const boxY = Math.max(
+              padding.top,
+              Math.min(padding.top + plotH - boxH, padding.top + 4),
+            );
+            return (
+              <g>
+                <rect
+                  x={boxX}
+                  y={boxY}
+                  width={boxW}
+                  height={boxH}
+                  rx={4}
+                  ry={4}
+                  fill="rgba(255,255,255,0.96)"
+                  stroke="#bbb"
+                  strokeWidth={1}
+                />
+                <text
+                  x={boxX + padX}
+                  y={boxY + padY + 10}
+                  fontSize={11}
+                  fontWeight={600}
+                  fill="#222"
+                >
+                  {headerText}
+                </text>
+                {lines.map((l, i) => (
+                  <g key={`tt-${i}`}>
+                    <rect
+                      x={boxX + padX}
+                      y={boxY + padY + lineH * (i + 1) + 2}
+                      width={8}
+                      height={8}
+                      fill={l.color}
+                    />
+                    <text
+                      x={boxX + padX + 14}
+                      y={boxY + padY + lineH * (i + 1) + 10}
+                      fontSize={11}
+                      fill="#333"
+                    >
+                      {l.label}
+                    </text>
+                    <text
+                      x={boxX + boxW - padX}
+                      y={boxY + padY + lineH * (i + 1) + 10}
+                      fontSize={11}
+                      fill="#333"
+                      textAnchor="end"
+                      fontFamily="monospace"
+                    >
+                      {l.value}
+                    </text>
+                  </g>
+                ))}
+              </g>
+            );
+          })()}
+        </g>
+      )}
+      {/* Зоны для hover + клика. Hover работает всегда (даже без
+          onPlySelect) — пользователю важна подсветка значений. */}
+      {Array.from({ length: plyCount }).map((_, i) => (
+        <rect
+          key={i}
+          x={xFor(i) - 4}
+          y={padding.top}
+          width={8}
+          height={plotH}
+          fill="transparent"
+          style={{ cursor: onPlySelect ? 'pointer' : 'default' }}
+          onClick={onPlySelect ? () => onPlySelect(i) : undefined}
+          onMouseEnter={() => setHoverPly(i)}
+          onMouseLeave={() => setHoverPly((prev) => (prev === i ? null : prev))}
+        >
+          <title>ply {i}</title>
+        </rect>
+      ))}
     </svg>
   );
 }
@@ -810,21 +913,37 @@ export function PositionalMetricsPanel({
         }}
       >
         <div ref={containerRef} style={{ flex: 1, minWidth: 0 }}>
-          <MetricsChart
-            series={series}
-            width={chartWidth}
-            height={chartHeight}
-            onPlySelect={onPlySelect}
-            currentPly={currentPly}
-            sanMoves={sanMoves}
-            noDataMessage={
-              selectedIds.size === 0
-                ? 'Выберите хотя бы одну метрику в настройках метрик.'
-                : !trace.data || trace.data.plies.length === 0
-                ? 'Расчёт ещё не запускался. Нажмите «Запустить расчёт» выше.'
-                : undefined
-            }
-          />
+          {/* KS-4027: ФИКСИРОВАННОЕ расстояние между ходами (32px на
+              полуход). Ширина SVG зависит только от числа ходов, а не
+              от ширины контейнера — при сужении окна график не
+              сжимается, а появляется горизонтальная прокрутка.
+              Если ходов нет (пустой анализ) — fallback на ширину
+              контейнера, чтобы отрисовать заглушку. */}
+          {(() => {
+            const PX_PER_PLY = 32;
+            const minByPlies =
+              uciMoves.length > 0 ? (uciMoves.length + 1) * PX_PER_PLY : 0;
+            const desiredWidth = minByPlies > 0 ? minByPlies : chartWidth;
+            return (
+              <div style={{ width: '100%', overflowX: 'auto' }}>
+                <MetricsChart
+                  series={series}
+                  width={desiredWidth}
+                  height={chartHeight}
+                  onPlySelect={onPlySelect}
+                  currentPly={currentPly}
+                  sanMoves={sanMoves}
+                  noDataMessage={
+                    selectedIds.size === 0
+                      ? 'Выберите хотя бы одну метрику в настройках метрик.'
+                      : !trace.data || trace.data.plies.length === 0
+                      ? 'Расчёт ещё не запускался. Нажмите «Запустить расчёт» выше.'
+                      : undefined
+                  }
+                />
+              </div>
+            );
+          })()}
           {/* Легенда */}
           {series.length > 0 && (
             <div
