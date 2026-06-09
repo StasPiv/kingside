@@ -936,14 +936,36 @@ namespace {
 
         b =  ~attackedBy[Them][ALL_PIECES]
            | (nonPawnEnemies & attackedBy2[Us]);
-        Score hangingScore = Hanging * popcount(weak & b);
+        Bitboard hangingTargets = weak & b;
+        Score hangingScore = Hanging * popcount(hangingTargets);
         score += hangingScore;
-        SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_HANGING, Us, hangingScore);
+        // KS-4017: per-square вместо одного агрегата без клетки.
+        // Бонус `Hanging` одинаков для каждой висячей фигуры, поэтому
+        // ровно `popcount(hangingTargets)` записей с одинаковым value,
+        // у каждой свой square = клетка атакованной фигуры. Сумма по
+        // записям совпадает с прежним hangingScore.
+        if constexpr (T == Eval::TRACE) {
+            Bitboard tmp = hangingTargets;
+            while (tmp) {
+                Square ts = pop_lsb(tmp);
+                Eval::add_subterm(Eval::SUBT_THREAT_HANGING, Us, Hanging, ts);
+            }
+        }
 
         // Additional bonus if weak piece is only protected by a queen
-        Score weakQueenProtScore = WeakQueenProtection * popcount(weak & attackedBy[Them][QUEEN]);
+        Bitboard weakQueenTargets = weak & attackedBy[Them][QUEEN];
+        Score weakQueenProtScore = WeakQueenProtection * popcount(weakQueenTargets);
         score += weakQueenProtScore;
-        SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_WEAK_QUEEN_PROTECTION, Us, weakQueenProtScore);
+        // KS-4017: см. комментарий к THREAT_HANGING выше — тот же приём.
+        if constexpr (T == Eval::TRACE) {
+            Bitboard tmp = weakQueenTargets;
+            while (tmp) {
+                Square ts = pop_lsb(tmp);
+                Eval::add_subterm(
+                    Eval::SUBT_THREAT_WEAK_QUEEN_PROTECTION, Us,
+                    WeakQueenProtection, ts);
+            }
+        }
     }
 
     // Bonus for restricting their piece moves
@@ -952,7 +974,16 @@ namespace {
        &  attackedBy[Us][ALL_PIECES];
     Score restrictedScore = RestrictedPiece * popcount(b);
     score += restrictedScore;
-    SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_RESTRICTED_PIECE, Us, restrictedScore);
+    // KS-4017: каждая «зажатая» клетка отдаётся своей записью с
+    // соответствующим `square`; константа `RestrictedPiece` повторяется.
+    if constexpr (T == Eval::TRACE) {
+        Bitboard tmp = b;
+        while (tmp) {
+            Square ts = pop_lsb(tmp);
+            Eval::add_subterm(
+                Eval::SUBT_THREAT_RESTRICTED_PIECE, Us, RestrictedPiece, ts);
+        }
+    }
 
     // Protected or unattacked squares
     safe = ~attackedBy[Them][ALL_PIECES] | attackedBy[Us][ALL_PIECES];
@@ -962,7 +993,16 @@ namespace {
     b = pawn_attacks_bb<Us>(b) & nonPawnEnemies;
     Score safePawnThreatScore = ThreatBySafePawn * popcount(b);
     score += safePawnThreatScore;
-    SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_BY_SAFE_PAWN, Us, safePawnThreatScore);
+    // KS-4017: per-square — square = клетка фигуры соперника, которую
+    // атакует наша «безопасная» пешка.
+    if constexpr (T == Eval::TRACE) {
+        Bitboard tmp = b;
+        while (tmp) {
+            Square ts = pop_lsb(tmp);
+            Eval::add_subterm(
+                Eval::SUBT_THREAT_BY_SAFE_PAWN, Us, ThreatBySafePawn, ts);
+        }
+    }
 
     // Find squares where our pawns can push on the next move
     b  = shift<Up>(pos.pieces(Us, PAWN)) & ~pos.pieces();
@@ -975,7 +1015,16 @@ namespace {
     b = pawn_attacks_bb<Us>(b) & nonPawnEnemies;
     Score pawnPushThreatScore = ThreatByPawnPush * popcount(b);
     score += pawnPushThreatScore;
-    SF_TRACE_ADD_SUB_NS(Eval::SUBT_THREAT_BY_PAWN_PUSH, Us, pawnPushThreatScore);
+    // KS-4017: per-square — square = клетка фигуры соперника, которую
+    // атакует наша пешка ПОСЛЕ хода-пуша.
+    if constexpr (T == Eval::TRACE) {
+        Bitboard tmp = b;
+        while (tmp) {
+            Square ts = pop_lsb(tmp);
+            Eval::add_subterm(
+                Eval::SUBT_THREAT_BY_PAWN_PUSH, Us, ThreatByPawnPush, ts);
+        }
+    }
 
     // Bonus for threats on the next moves against enemy queen
     if (pos.count<QUEEN>(Them) == 1)
