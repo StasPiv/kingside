@@ -984,8 +984,6 @@ export class PrecisionService {
         fenBefore: m.fenBefore,
         playedUci: m.playedUci,
         bestUci: m.bestUci,
-        cpBefore: m.cpBefore,
-        cpAfter: m.cpAfter,
         // KS-2754. Отдаём полное W/D/L distribution per-mille (как
         // лежит в БД), а не свёрнутый скаляр — фронт показывает W/D/L%.
         // null если хотя бы одна компонента не записана (legacy /
@@ -1211,7 +1209,7 @@ export class PrecisionService {
    *
    * Алгоритм:
    *  1. Если `puzzleId` не задан — берём первый PVE-пазл из БД.
-   *  2. Для каждого move: classifyMove(WDL/cp/isBestMove).
+   *  2. Для каждого move: classifyMove(WDL/isBestMove).
    *  3. Считаем counts, accuracyPercent, firstMistakePly, wdlLeakSum.
    *  4. computePrecisionScore → score, scorePct.
    *  5. Транзакция: PuzzleAttempt + PrecisionAttempt + Moves.
@@ -1250,8 +1248,6 @@ export class PrecisionService {
       const klass = classifyMove({
         wdlBefore: m.wdlBefore ?? null,
         wdlAfter: m.wdlAfter ?? null,
-        cpBefore: m.cpBefore ?? null,
-        cpAfter: m.cpAfter ?? null,
         isBestMove,
       });
       return { m, klass };
@@ -1289,8 +1285,6 @@ export class PrecisionService {
     const scoreInputs: PrecisionMoveInput[] = classified.map(({ m, klass }) => ({
       wdlBefore: m.wdlBefore ?? null,
       wdlAfter: m.wdlAfter ?? null,
-      cpBefore: m.cpBefore ?? null,
-      cpAfter: m.cpAfter ?? null,
       classification: klass,
     }));
     const scoreResult = computePrecisionScore(scoreInputs);
@@ -1350,8 +1344,6 @@ export class PrecisionService {
             fenBefore: m.fenBefore ?? '',
             playedUci: m.playedUci,
             bestUci: m.bestUci,
-            cpBefore: m.cpBefore ?? null,
-            cpAfter: m.cpAfter ?? null,
             wdlBeforeW: m.wdlBefore?.w ?? null,
             wdlBeforeD: m.wdlBefore?.d ?? null,
             wdlBeforeL: m.wdlBefore?.l ?? null,

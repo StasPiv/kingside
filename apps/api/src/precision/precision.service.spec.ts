@@ -410,8 +410,6 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
             fenBefore: 'fen-before-1',
             playedUci: 'e2e4',
             bestUci: 'e2e4',
-            cpBefore: 30,
-            cpAfter: 35,
             wdlBeforeW: 600,
             wdlBeforeD: 200,
             wdlBeforeL: 200,
@@ -520,8 +518,6 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
               playedUci: 'e2e4',
               bestUci: 'e2e4',
               engineUci: 'e7e5',
-              cpBefore: 30,
-              cpAfter: 25,
               wdlBeforeW: 500,
               wdlBeforeD: 400,
               wdlBeforeL: 100,
@@ -537,8 +533,6 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
               playedUci: 'g1f3',
               bestUci: 'g1f3',
               engineUci: null,
-              cpBefore: 25,
-              cpAfter: 20,
               wdlBeforeW: 500,
               wdlBeforeD: 400,
               wdlBeforeL: 100,
@@ -560,7 +554,7 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(r.moves[1].engineUci).toBeNull();
     });
 
-    it('null cp/wdl у move корректно проходят в response', async () => {
+    it('null wdl у move корректно проходят в response', async () => {
       const attemptWithNulls = {
         ...baseAttempt,
         precisionAttempt: {
@@ -571,8 +565,6 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
               fenBefore: 'fen',
               playedUci: 'e2e4',
               bestUci: 'd2d4',
-              cpBefore: null,
-              cpAfter: null,
               wdlBeforeW: null,
               wdlBeforeD: null,
               wdlBeforeL: null,
@@ -589,8 +581,6 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
 
       const r = await service.getAttemptDetail('attempt-1', 'owner-1', false);
 
-      expect(r.moves[0].cpBefore).toBeNull();
-      expect(r.moves[0].cpAfter).toBeNull();
       expect(r.moves[0].wdlBefore).toBeNull();
       expect(r.moves[0].wdlAfter).toBeNull();
       expect(r.moves[0].depth).toBeNull();

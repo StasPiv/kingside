@@ -1813,8 +1813,8 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
           playedUci: 'e2e4',
           bestUci: 'e2e4', // best — best
-          cpBefore: 30,
-          cpAfter: 35,
+          wdlBefore: { w: 1000, d: 0, l: 0 },
+          wdlAfter: { w: 1000, d: 0, l: 0 },
           depth: 14,
         },
         {
@@ -1822,9 +1822,9 @@ describe('PuzzleService', () => {
           fenBefore:
             'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
           playedUci: 'g1f3',
-          bestUci: 'b1c3', // не best
-          cpBefore: 35,
-          cpAfter: 25, // cpLoss=10 → good
+          bestUci: 'b1c3', // не best, но WDL не падает → best (mate-edge)
+          wdlBefore: { w: 1000, d: 0, l: 0 },
+          wdlAfter: { w: 1000, d: 0, l: 0 },
           depth: 14,
         },
       ];
@@ -1848,11 +1848,9 @@ describe('PuzzleService', () => {
       expect(result.solved).toBe(true);
       // Транзакция вызвана.
       expect(prisma.$transaction).toHaveBeenCalled();
-      // KS-3020 / ADR-066 §3.4: после перехода на WDL-loss-классификацию
-      // оба хода с малым cp-изменением (30→35, 35→25) попадают в `best`
-      // через cp-fallback: winPctFromCp(35)≈53.21, winPctFromCp(25)≈52.30,
-      // loss_E=0.0091 ≤ 0.02 → best. Раньше cpLoss=10 → good. Это и есть
-      // одна из «3 точек сдвига» из ADR-066 §5.1, утверждённая пользователем.
+      // KS-3020 / ADR-066 §3.4: оба хода имеют WDL 1000/0/0 → 1000/0/0,
+      // mate-edge `wdl_after.w > 950` → best (даже если playedUci !== bestUci).
+      // KS-4028: cp-резерв из precision-snapshot удалён, остался только WDL.
       expect(tx.precision).toMatchObject({
         attemptId: 'attempt-uuid',
         bestMovesCount: 2,
@@ -1886,7 +1884,7 @@ describe('PuzzleService', () => {
     it('игнорирует клиентский accuracy: serverside пересчёт', async () => {
       const tx = setupPveMocks();
       // Клиент пытается передать клиентский accuracy через добавочное
-      // поле (имитация манипуляции). Серверный расчёт: 1 blunder = 0%.
+      // поле (имитация манипуляции). Серверный расчёт: blunder по WDL.
       const moves = [
         {
           ply: 1,
@@ -1894,8 +1892,10 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
           playedUci: 'e2e4',
           bestUci: 'd2d4',
-          cpBefore: 100,
-          cpAfter: -200, // cpLoss=300 → blunder
+          // E_before = 0.591, E_after = 0.319, loss_E ≈ 0.272 → blunder
+          // не активен (порог 0.5), но scorePct ≈ 28 → 1★.
+          wdlBefore: { w: 591, d: 0, l: 409 },
+          wdlAfter: { w: 319, d: 0, l: 681 },
           depth: 14,
           // потенциально подделанные клиентом поля — игнорируются.
           accuracyPercent: 100,
@@ -1919,8 +1919,7 @@ describe('PuzzleService', () => {
         } as any,
       );
 
-      // KS-3774: расчёт по дельте WDL, fallback на cp если WDL нет.
-      // winPct(100)/100 ≈ 0.591, winPct(-200)/100 ≈ 0.319,
+      // KS-3774: расчёт по дельте WDL. E_before = 0.591, E_after = 0.319,
       // loss_E ≈ 0.272 → scorePct ≈ 28 → 1★.
       // Счётчики NAG-классификации (bestMovesCount/blundersCount/
       // accuracyPercent/firstMistakePly) считаются отдельным
@@ -1949,8 +1948,6 @@ describe('PuzzleService', () => {
         fenBefore: startFen,
         playedUci: uci,
         bestUci: uci, // совпадает → classifyMove() → 'best'
-        cpBefore: 30,
-        cpAfter: 30,
         wdlBefore: { w: 1000, d: 0, l: 0 },
         wdlAfter: { w: 1000, d: 0, l: 0 },
         depth: 14,
@@ -1962,8 +1959,6 @@ describe('PuzzleService', () => {
         fenBefore: startFen,
         playedUci: 'g2g4',
         bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: -200,
         wdlBefore: { w: 1000, d: 0, l: 0 },
         wdlAfter: { w: 500, d: 0, l: 500 },
         depth: 14,
@@ -1998,8 +1993,6 @@ describe('PuzzleService', () => {
           fenBefore: startFen,
           playedUci: 'e2e4',
           bestUci: 'e2e4',
-          cpBefore: 30,
-          cpAfter: 30,
           wdlBefore: { w: 1000, d: 0, l: 0 },
           wdlAfter: { w: 1000, d: 0, l: 0 },
           depth: 14,
@@ -2009,8 +2002,6 @@ describe('PuzzleService', () => {
           fenBefore: startFen,
           playedUci: 'd2d4',
           bestUci: 'd2d4',
-          cpBefore: 30,
-          cpAfter: 30,
           wdlBefore: { w: 1000, d: 0, l: 0 },
           wdlAfter: { w: 1000, d: 0, l: 0 },
           depth: 14,
@@ -2044,8 +2035,6 @@ describe('PuzzleService', () => {
           fenBefore: startFen,
           playedUci: 'e2e4',
           bestUci: 'd2d4', // НЕ совпадает с PV1
-          cpBefore: 1500,
-          cpAfter: 1300, // cp-loss=200 → раньше mistake
           wdlBefore: { w: 1000, d: 0, l: 0 },
           wdlAfter: { w: 1000, d: 0, l: 0 }, // WDL не упал → best
           depth: 14,
@@ -2055,8 +2044,6 @@ describe('PuzzleService', () => {
           fenBefore: startFen,
           playedUci: 'g1f3',
           bestUci: 'b1c3', // НЕ PV1
-          cpBefore: 1300,
-          cpAfter: 1100, // cp-loss=200 → раньше mistake
           wdlBefore: { w: 1000, d: 0, l: 0 },
           wdlAfter: { w: 1000, d: 0, l: 0 },
           depth: 14,
@@ -2091,8 +2078,6 @@ describe('PuzzleService', () => {
           fenBefore: startFen,
           playedUci: 'e2e4',
           bestUci: 'd2d4', // НЕ PV1
-          cpBefore: 100,
-          cpAfter: 0,
           wdlBefore: { w: 500, d: 400, l: 100 }, // E=0.7
           wdlAfter: { w: 300, d: 400, l: 300 }, // E=0.5 → loss=0.20
           depth: 14,
@@ -2102,8 +2087,6 @@ describe('PuzzleService', () => {
           fenBefore: startFen,
           playedUci: 'g1f3',
           bestUci: 'g1f3', // best
-          cpBefore: 0,
-          cpAfter: 0,
           wdlBefore: { w: 300, d: 400, l: 300 },
           wdlAfter: { w: 300, d: 400, l: 300 },
           depth: 14,
@@ -2136,8 +2119,6 @@ describe('PuzzleService', () => {
           fenBefore: startFen,
           playedUci: 'e2e4',
           bestUci: 'd2d4',
-          cpBefore: 50,
-          cpAfter: -200,
           wdlBefore: { w: 400, d: 400, l: 200 },
           wdlAfter: { w: 0, d: 30, l: 970 }, // l > 950 → mate-edge blunder
           depth: 14,
@@ -2167,8 +2148,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
           playedUci: 'e2e4',
           bestUci: 'e2e4',
-          cpBefore: 30,
-          cpAfter: 35,
           depth: 14,
         },
         {
@@ -2177,8 +2156,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
           playedUci: 'g1f3',
           bestUci: 'b1c3',
-          cpBefore: 35,
-          cpAfter: 25,
           depth: 14,
         },
         {
@@ -2187,8 +2164,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 3',
           playedUci: 'f1c4',
           bestUci: 'f1c4',
-          cpBefore: 25,
-          cpAfter: 30,
           depth: 14,
         },
       ];
@@ -2227,8 +2202,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
           playedUci: 'e2e4',
           bestUci: 'e2e4',
-          cpBefore: 30,
-          cpAfter: 35,
           depth: 14,
         },
         {
@@ -2237,8 +2210,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
           playedUci: 'g1f3',
           bestUci: 'g1f3',
-          cpBefore: 30,
-          cpAfter: 30,
           depth: 14,
         },
       ];
@@ -2262,8 +2233,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
           playedUci: 'e2e4',
           bestUci: 'e2e4',
-          cpBefore: 30,
-          cpAfter: 35,
           depth: 14,
         },
         {
@@ -2272,8 +2241,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
           playedUci: 'g1f3',
           bestUci: 'g1f3',
-          cpBefore: 30,
-          cpAfter: 30,
           depth: 14,
         },
       ];
@@ -2296,8 +2263,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
           playedUci: 'e2e4',
           bestUci: 'e2e4',
-          cpBefore: 30,
-          cpAfter: 35,
           depth: 14,
         },
       ];
@@ -2320,8 +2285,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
           playedUci: 'e2e4',
           bestUci: 'e2e4',
-          cpBefore: 30,
-          cpAfter: 35,
           depth: 14,
         },
         {
@@ -2330,8 +2293,6 @@ describe('PuzzleService', () => {
             'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
           playedUci: 'g1f3',
           bestUci: 'g1f3',
-          cpBefore: 30,
-          cpAfter: 30,
           depth: 14,
         },
       ];
@@ -2360,8 +2321,6 @@ describe('PuzzleService', () => {
           // Нелегальный ход с пустой клетки.
           playedUci: 'e5e6',
           bestUci: 'e2e4',
-          cpBefore: 0,
-          cpAfter: 0,
           depth: 14,
         },
       ];
@@ -2434,8 +2393,8 @@ describe('PuzzleService', () => {
               'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
             playedUci: 'e2e4',
             bestUci: 'e2e4',
-            cpBefore: 30,
-            cpAfter: 35,
+            wdlBefore: { w: 1000, d: 0, l: 0 },
+            wdlAfter: { w: 1000, d: 0, l: 0 },
             depth: 14,
           },
         ],

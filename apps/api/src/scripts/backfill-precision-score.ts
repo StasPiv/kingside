@@ -10,7 +10,7 @@
  *      продолжит выбирать ту же запись на следующей итерации.
  *      Поэтому продвигаемся по `attemptId > lastSeen`.
  *   2. Для каждой записи: load `precision_attempt_moves` (WDL колонки
- *      в виде трёх Int? полей + cpBefore/cpAfter + classification).
+ *      в виде трёх Int? полей + classification).
  *   3. `computePrecisionScore` (KS-2997) → `{stars, scorePct}`.
  *   4. UPDATE `precision_attempts` для конкретного `attemptId`. Если
  *      `stars=null` (нет ни WDL, ни cp, либо <2 ходов, либо >50% gaps),
@@ -48,8 +48,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 interface MoveRow {
-  cpBefore: number | null;
-  cpAfter: number | null;
   wdlBeforeW: number | null;
   wdlBeforeD: number | null;
   wdlBeforeL: number | null;
@@ -62,7 +60,7 @@ interface MoveRow {
 /**
  * Сборка `PrecisionMoveInput[]` из per-move строк precision_attempt_moves.
  * Все три WDL-компонента должны быть заданы, иначе wdlBefore/After=null
- * (тогда вычислитель идёт по cp-ветке или classification-fallback).
+ * (тогда вычислитель идёт по classification-fallback).
  */
 function buildMoveInputs(moves: MoveRow[]): PrecisionMoveInput[] {
   return moves.map((m) => ({
@@ -74,8 +72,6 @@ function buildMoveInputs(moves: MoveRow[]): PrecisionMoveInput[] {
       m.wdlAfterW != null && m.wdlAfterD != null && m.wdlAfterL != null
         ? { w: m.wdlAfterW, d: m.wdlAfterD, l: m.wdlAfterL }
         : null,
-    cpBefore: m.cpBefore,
-    cpAfter: m.cpAfter,
     classification: m.classification as PrecisionMoveClass,
   }));
 }
@@ -122,8 +118,6 @@ async function main(): Promise<void> {
           attemptId: true,
           moves: {
             select: {
-              cpBefore: true,
-              cpAfter: true,
               wdlBeforeW: true,
               wdlBeforeD: true,
               wdlBeforeL: true,

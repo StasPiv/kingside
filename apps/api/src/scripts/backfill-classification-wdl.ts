@@ -23,7 +23,7 @@
  *      runtime на 100K строках сразу):
  *      a. Перебираем moves в порядке `ply ASC`.
  *      b. Для каждого move: собираем `PrecisionMoveInput`
- *         (wdlBefore/wdlAfter из 3 Int? колонок, cpBefore/cpAfter,
+ *         (wdlBefore/wdlAfter из 3 Int? колонок,
  *         isBestMove = playedUci === bestUci), вызываем `classifyMove`.
  *      c. UPDATE move если classification отличается.
  *      d. Считаем агрегаты: counts по каждой категории, accuracyPercent
@@ -75,8 +75,6 @@ interface MoveRow {
   ply: number;
   playedUci: string;
   bestUci: string;
-  cpBefore: number | null;
-  cpAfter: number | null;
   wdlBeforeW: number | null;
   wdlBeforeD: number | null;
   wdlBeforeL: number | null;
@@ -166,8 +164,6 @@ function buildMoveInput(m: MoveRow): {
     input: {
       wdlBefore,
       wdlAfter,
-      cpBefore: m.cpBefore,
-      cpAfter: m.cpAfter,
       classification: undefined, // переопределим после classifyMove
     },
     isBestMove,
@@ -219,8 +215,6 @@ async function main(): Promise<void> {
               ply: true,
               playedUci: true,
               bestUci: true,
-              cpBefore: true,
-              cpAfter: true,
               wdlBeforeW: true,
               wdlBeforeD: true,
               wdlBeforeL: true,
@@ -289,8 +283,6 @@ async function main(): Promise<void> {
             moveInputs.push({
               wdlBefore: input.wdlBefore,
               wdlAfter: input.wdlAfter,
-              cpBefore: input.cpBefore,
-              cpAfter: input.cpAfter,
               classification: newClass as PrecisionMoveClass,
             });
           }

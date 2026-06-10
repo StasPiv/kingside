@@ -75,14 +75,6 @@ export class PrecisionMoveSnapshotDto implements PrecisionMoveSnapshot {
   engineUci?: string | null;
 
   @IsOptional()
-  @IsInt()
-  cpBefore?: number | null;
-
-  @IsOptional()
-  @IsInt()
-  cpAfter?: number | null;
-
-  @IsOptional()
   @ValidateNested()
   @Type(() => WdlTripleDto)
   wdlBefore?: { w: number; d: number; l: number } | null;
@@ -143,7 +135,7 @@ export class SubmitAttemptDto implements PuzzleAttemptRequest {
   // ── KS-2717 / ADR-056 §3.3. Per-move snapshot для PVE-attempts ───
   // Игнорируется для forced-line; для PVE — сервер валидирует длину,
   // legality каждого хода через chess.js, и пересчитывает
-  // classification из (cpBefore, cpAfter) сам — клиентскому полю
+  // classification по WDL-дельте сам — клиентскому полю
   // не верим (server-trust).
 
   @IsOptional()

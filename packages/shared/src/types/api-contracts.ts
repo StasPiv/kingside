@@ -262,10 +262,6 @@ export interface PrecisionMoveSnapshot {
    * партии: мат, пат, abort).
    */
   engineUci?: string | null;
-  /** cp-оценка `fenBefore` (POV игрока). null/undefined — фолбек. */
-  cpBefore?: number | null;
-  /** cp-оценка после хода (POV игрока). */
-  cpAfter?: number | null;
   /** WDL `fenBefore` raw (POV игрока). */
   wdlBefore?: { w: number; d: number; l: number } | null;
   /** WDL после хода raw (POV игрока). */
@@ -292,7 +288,7 @@ export type PuzzleAttemptRequest = {
   /**
    * KS-2717 / ADR-056 §3.3. Per-move детали PVE-попытки. Сервер
    * валидирует длину (≤ halfMovesN), legality каждого хода через
-   * chess.js и пересчитывает classification из cpBefore/cpAfter.
+   * chess.js и пересчитывает classification из WDL-дельты.
    *
    * Игнорируется для `solutionMode='forced-line'` пазлов.
    */
@@ -363,8 +359,6 @@ export interface PrecisionMoveDto {
   fenBefore: string;
   playedUci: string;
   bestUci: string;
-  cpBefore: number | null;
-  cpAfter: number | null;
   /**
    * KS-2754. WDL-распределение `fenBefore` в шкале per-mille (0..1000),
    * POV side-to-move в `fenBefore` (т.е. POV сделавшего этот ход).

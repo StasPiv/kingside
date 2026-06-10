@@ -154,16 +154,9 @@ describe('KS-3774: computeStartExpectedScore', () => {
     expect(computeStartExpectedScore(moves)).toBeCloseTo(0.9, 4);
   });
 
-  it('fallback на cpBefore если нет wdl', () => {
-    const moves: PrecisionMoveInput[] = [
-      { wdlBefore: null, cpBefore: 0 },
-    ];
-    expect(computeStartExpectedScore(moves)).toBeCloseTo(0.5, 4);
-  });
-
-  it('null если нет ни WDL, ни cp', () => {
+  it('null если нет wdlBefore ни у одного хода', () => {
     expect(
-      computeStartExpectedScore([{ wdlBefore: null, cpBefore: null }]),
+      computeStartExpectedScore([{ wdlBefore: null }]),
     ).toBeNull();
   });
 });
@@ -177,15 +170,8 @@ describe('KS-3774: computeEndExpectedScore', () => {
     expect(computeEndExpectedScore(moves)).toBeCloseTo(0.62, 4);
   });
 
-  it('fallback на cpAfter с конца если нет wdl', () => {
-    const moves: PrecisionMoveInput[] = [
-      { wdlAfter: null, cpAfter: 0 },
-    ];
-    expect(computeEndExpectedScore(moves)).toBeCloseTo(0.5, 4);
-  });
-
-  it('null если нет ни WDL, ни cp', () => {
-    expect(computeEndExpectedScore([{ wdlAfter: null, cpAfter: null }])).toBeNull();
+  it('null если нет wdlAfter ни у одного хода', () => {
+    expect(computeEndExpectedScore([{ wdlAfter: null }])).toBeNull();
   });
 });
 
@@ -241,29 +227,13 @@ describe('computePrecisionScore — edge cases', () => {
     expect(r.scorePct).toBeNull();
   });
 
-  it('нет ни WDL, ни cp ни на старте → null', () => {
+  it('нет WDL ни на старте, ни в конце → null', () => {
     const moves: PrecisionMoveInput[] = [
-      { wdlBefore: null, wdlAfter: null, cpBefore: null, cpAfter: null },
+      { wdlBefore: null, wdlAfter: null },
     ];
     const r = computePrecisionScore(moves);
     expect(r.stars).toBeNull();
     expect(r.scorePct).toBeNull();
-  });
-
-  it('cp-fallback на старте и в конце: cp 0 → 0 (loss=0) → 5★', () => {
-    const moves: PrecisionMoveInput[] = [
-      { wdlBefore: null, cpBefore: 0, wdlAfter: null, cpAfter: 0 },
-    ];
-    const r = computePrecisionScore(moves);
-    expect(r.stars).toBe(5);
-  });
-
-  it('cp-fallback: cp +300 → -300 (катастрофа) → 1★', () => {
-    const moves: PrecisionMoveInput[] = [
-      { wdlBefore: null, cpBefore: 300, wdlAfter: null, cpAfter: -300 },
-    ];
-    const r = computePrecisionScore(moves);
-    expect(r.stars).toBe(1);
   });
 
   it('многоходовка: учитывается первый wdlBefore и последний wdlAfter', () => {
@@ -302,12 +272,6 @@ describe('accuracyMove (helper для NAG-разметки)', () => {
     expect(a!).toBeLessThan(11);
   });
 
-  it('cp-fallback: cpBefore=300, cpAfter=0 → accuracy ≈ 31', () => {
-    const a = accuracyMove({ cpBefore: 300, cpAfter: 0 });
-    expect(a!).toBeGreaterThan(28);
-    expect(a!).toBeLessThan(35);
-  });
-
   it('best-override (classification=best) → 100', () => {
     expect(accuracyMove({ classification: 'best' })).toBe(100);
   });
@@ -317,7 +281,7 @@ describe('accuracyMove (helper для NAG-разметки)', () => {
     expect(accuracyMove({ classification: 'blunder' })).toBe(5);
   });
 
-  it('нет ни wdl, ни cp, ни classification → null', () => {
+  it('нет ни WDL, ни classification → null', () => {
     expect(accuracyMove({})).toBeNull();
   });
 });

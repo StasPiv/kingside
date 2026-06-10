@@ -2,7 +2,7 @@
  * KS-3029. DTO для dev-only `POST /precision/attempts/_test_fixture`.
  *
  * Намеренно без `@ValidateNested` и без жёсткой валидации содержимого
- * — фронт e2e (KS-3007) шлёт синтетические WDL/cp под контрольные кейсы
+ * — фронт e2e (KS-3007) шлёт синтетические WDL под контрольные кейсы
  * ADR-065 §4.3 / ADR-066 §5. Доверяем тесту, валидация на проде не
  * нужна (endpoint защищён `DevOnlyGuard`).
  */
@@ -38,14 +38,6 @@ export class TestFixtureMoveDto {
 
   @IsString()
   bestUci!: string;
-
-  @IsOptional()
-  @IsNumber()
-  cpBefore?: number | null;
-
-  @IsOptional()
-  @IsNumber()
-  cpAfter?: number | null;
 
   @IsOptional()
   @IsObject()

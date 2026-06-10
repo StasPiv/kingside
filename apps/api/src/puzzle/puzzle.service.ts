@@ -674,7 +674,7 @@ export class PuzzleService {
     // KS-2717 / ADR-056 §3.3. Server-trust: если PVE-attempt с
     // `moves[]` — внутри транзакции пишем PuzzleAttempt + PrecisionAttempt
     // + N PrecisionAttemptMove. Server валидирует legality каждого хода
-    // через chess.js и пересчитывает classification из (cpBefore, cpAfter)
+    // через chess.js и пересчитывает classification по WDL-дельте
     // через `classifyMove` из @kingside/shared — клиентскому полю не верим.
     const isPveWithMoves =
       mode.solutionMode === 'play-vs-engine' &&
@@ -834,18 +834,15 @@ export class PuzzleService {
 
     // 3. Классификация (server-trust). Аггрегаты.
     //
-    // KS-3020 / ADR-066: classifyMove теперь WDL-loss primary с cp-
-    // fallback. Передаём `wdlBefore`/`wdlAfter` из PrecisionMoveSnapshot
-    // (KS-2754 контракт: POV игрока-решателя, инверсия уже сделана на
-    // фронте). cp оставляем как fallback для legacy attempt'ов где
-    // фронт ещё не шлёт WDL.
+    // KS-3020 / ADR-066: classifyMove работает по WDL-loss. Передаём
+    // `wdlBefore`/`wdlAfter` из PrecisionMoveSnapshot (KS-2754 контракт:
+    // POV игрока-решателя, инверсия уже сделана на фронте). KS-4028:
+    // cp-резерв из precision-snapshot удалён — клиент шлёт только WDL.
     const classified = moves.map((m) => {
       const isBestMove = sameUci(m.playedUci, m.bestUci);
       const klass = classifyMove({
         wdlBefore: m.wdlBefore ?? null,
         wdlAfter: m.wdlAfter ?? null,
-        cpBefore: m.cpBefore ?? null,
-        cpAfter: m.cpAfter ?? null,
         isBestMove,
       });
       // KS-2754. Контракт PrecisionMoveSnapshot: оба wdlBefore/wdlAfter
@@ -911,13 +908,11 @@ export class PuzzleService {
     // continuous accuracy + композит + worst-class cap. Чистая
     // функция, без I/O — выполняется до транзакции.
     //
-    // halfMovesPlayed < 2 или > 50% gaps без WDL/cp → `{stars:null, scorePct:null}`,
+    // halfMovesPlayed < 2 или > 50% gaps без WDL → `{stars:null, scorePct:null}`,
     // что и пишем в БД (legacy fallback на бинарную плашку, ADR §6.2).
     const scoreInputs = classified.map(({ m, klass }) => ({
       wdlBefore: m.wdlBefore ?? null,
       wdlAfter: m.wdlAfter ?? null,
-      cpBefore: m.cpBefore ?? null,
-      cpAfter: m.cpAfter ?? null,
       classification: klass,
     }));
     const precisionScore = computePrecisionScore(scoreInputs);
@@ -1021,8 +1016,6 @@ export class PuzzleService {
             // KS-2754. UCI engine-ответа, как прислал фронт.
             // `null`/undefined → null в БД (последний user-полуход).
             engineUci: m.engineUci ?? null,
-            cpBefore: m.cpBefore ?? null,
-            cpAfter: m.cpAfter ?? null,
             wdlBeforeW: m.wdlBefore?.w ?? null,
             wdlBeforeD: m.wdlBefore?.d ?? null,
             wdlBeforeL: m.wdlBefore?.l ?? null,

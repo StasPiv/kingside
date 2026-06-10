@@ -13,10 +13,9 @@
  *
  * Алгоритм:
  *   1. `startE` = expected-score POV игрока ПЕРЕД его первым ходом
- *      (`E = (w + d/2) / 1000` от `wdlBefore` первого хода с WDL,
- *      fallback на `winPctFromCp(cpBefore) / 100`).
+ *      (`E = (w + d/2) / 1000` от `wdlBefore` первого хода с WDL).
  *   2. `endE` = expected-score ПОСЛЕ его последнего хода (`wdlAfter`
- *      последнего хода с WDL, fallback `winPctFromCp(cpAfter) / 100`).
+ *      последнего хода с WDL).
  *   3. `loss_E = max(0, startE - endE)` — улучшения не штрафуем
  *      (если игрок сохранил/нарастил перевес — точность 100%).
  *   4. `scorePct = clamp(103.1668 * exp(-0.04354 * loss_E * 100) - 3.1669, 0, 100)`
@@ -32,7 +31,7 @@
  *
  * Спец-кейсы:
  *   - `moves.length < MIN_HALF_MOVES_FOR_SCORE` (1) → `null`.
- *   - Нет ни WDL, ни cp ни на старте, ни в конце → `null`.
+ *   - Нет WDL ни на старте, ни в конце → `null`.
  *
  * Per-move helpers (`accuracyMove`, `aggregateAccuracies`,
  * `worstClassification`) сохранены для совместимости (используются в
@@ -53,13 +52,11 @@ export type PrecisionMoveClass =
  * Минимальный набор данных одного user-полухода для расчёта score.
  * Совместим с `PrecisionMoveDto` из `api-contracts.ts` (все поля —
  * подмножество). Все поля кроме `classification` опциональны: если
- * нет WDL и нет cp, classification используется как fallback.
+ * нет WDL, classification используется как резервный источник.
  */
 export interface PrecisionMoveInput {
   wdlBefore?: Wdl | null;
   wdlAfter?: Wdl | null;
-  cpBefore?: number | null;
-  cpAfter?: number | null;
   classification?: PrecisionMoveClass | null;
   /**
    * KS-3030. Прямой override: ход совпал с PV1 движка. Если задано
@@ -170,7 +167,10 @@ function clamp(value: number, min: number, max: number): number {
 
 /**
  * Lichess CP→Win% (§2.4.1). cp ∈ ℝ (signed, POV игрока), результат
- * ∈ [0, 100]. Используется для legacy-attempt'ов без WDL.
+ * ∈ [0, 100]. Используется в `classifyMove` как fallback для модулей
+ * без WDL (game review по архивным партиям и т.п.). Из precision-
+ * расчёта (`accuracyMove`/`computePrecisionScore`) cp-ветка убрана —
+ * precision-snapshot всегда содержит WDL.
  */
 export function winPctFromCp(cp: number): number {
   if (!Number.isFinite(cp)) return 50;
@@ -180,19 +180,18 @@ export function winPctFromCp(cp: number): number {
 
 /**
  * Per-move accuracy в [0..100] (Lichess formula, §2.3). Возвращает
- * `null` если данных нет вообще (`wdl=null && cp=null && classification=null`).
+ * `null` если данных нет вообще (`wdl=null && classification=null`).
  *
  * Порядок проверок:
  *  0. **KS-3030 override**: если ход совпал с PV1 движка (явный
  *     `isBestMove === true`, либо `playedUci === bestUci`, либо
- *     `classification === 'best'`) → `100`. Без расчёта по WDL/cp.
+ *     `classification === 'best'`) → `100`. Без расчёта по WDL.
  *     Это устраняет рассинхрон с `classifyMove`: NAG `!` (best) на ходе
  *     теперь всегда означает 100% accuracy, без шума WDL между depths
  *     Stockfish.
  *  1. wdlBefore + wdlAfter → expected-score `E = (w + d/2) / 1000`,
  *     loss = max(0, E_before - E_after) * 100.
- *  2. cpBefore + cpAfter → Lichess CP→Win%.
- *  3. classification → таблица §2.4.2.
+ *  2. classification → таблица §2.4.2.
  */
 export function accuracyMove(move: PrecisionMoveInput): number | null {
   // KS-3030: best-override. NAG `!` ⟺ accuracy=100 (согласует обе шкалы).
@@ -213,12 +212,6 @@ export function accuracyMove(move: PrecisionMoveInput): number | null {
       (move.wdlBefore.w + move.wdlBefore.d / 2) / 1000;
     const eAfter = (move.wdlAfter.w + move.wdlAfter.d / 2) / 1000;
     const lossPct = Math.max(0, eBefore - eAfter) * 100;
-    return clamp(ACC_A * Math.exp(ACC_B * lossPct) + ACC_C, 0, 100);
-  }
-  if (typeof move.cpBefore === 'number' && typeof move.cpAfter === 'number') {
-    const winBefore = winPctFromCp(move.cpBefore);
-    const winAfter = winPctFromCp(move.cpAfter);
-    const lossPct = Math.max(0, winBefore - winAfter);
     return clamp(ACC_A * Math.exp(ACC_B * lossPct) + ACC_C, 0, 100);
   }
   if (move.classification) {
@@ -295,12 +288,8 @@ export function aggregateAccuracies(
 
 /**
  * KS-3774. Стартовая expected-score POV игрока перед его первым ходом.
- *
- * Приоритет источников:
- *   1. Первый `wdlBefore` в `moves` → `(w + d/2) / 1000`.
- *   2. Fallback на `cpBefore` → `winPctFromCp(cp) / 100`.
- *
- * `null` если оба источника пусты для всей серии.
+ * Берётся первый `wdlBefore` в `moves` → `(w + d/2) / 1000`.
+ * `null` если ни у одного хода нет `wdlBefore`.
  */
 export function computeStartExpectedScore(
   moves: PrecisionMoveInput[],
@@ -310,19 +299,12 @@ export function computeStartExpectedScore(
       return (m.wdlBefore.w + m.wdlBefore.d / 2) / 1000;
     }
   }
-  for (const m of moves) {
-    if (typeof m.cpBefore === 'number' && Number.isFinite(m.cpBefore)) {
-      return winPctFromCp(m.cpBefore) / 100;
-    }
-  }
   return null;
 }
 
 /**
  * KS-3774. Конечная expected-score POV игрока после его последнего хода.
- *
- * Симметрично `computeStartExpectedScore` — приоритет WDL, fallback на cp,
- * берётся ПОСЛЕДНИЙ элемент с непустыми данными.
+ * Симметрично `computeStartExpectedScore` — берётся ПОСЛЕДНИЙ `wdlAfter`.
  */
 export function computeEndExpectedScore(
   moves: PrecisionMoveInput[],
@@ -331,12 +313,6 @@ export function computeEndExpectedScore(
     const wdlAfter = moves[i].wdlAfter;
     if (wdlAfter) {
       return (wdlAfter.w + wdlAfter.d / 2) / 1000;
-    }
-  }
-  for (let i = moves.length - 1; i >= 0; i--) {
-    const cpAfter = moves[i].cpAfter;
-    if (typeof cpAfter === 'number' && Number.isFinite(cpAfter)) {
-      return winPctFromCp(cpAfter) / 100;
     }
   }
   return null;
@@ -364,14 +340,14 @@ export function precisionFromExpectedScoreDelta(
  * KS-2997 / KS-3774. Главная функция: вход — массив user-полуходов,
  * выход — `{stars, scorePct}`.
  *
- * Опирается ТОЛЬКО на изменение WDL (или cp как fallback) между
- * первым `wdlBefore` и последним `wdlAfter`. Per-move classification
- * (NAG !, ??, …) и form-факторы пути полностью игнорируются.
+ * Опирается ТОЛЬКО на изменение WDL между первым `wdlBefore` и
+ * последним `wdlAfter`. Per-move classification (NAG !, ??, …) и
+ * form-факторы пути полностью игнорируются.
  *
  * Возвращает `{stars: null, scorePct: null}` если:
  *  - `moves.length < MIN_HALF_MOVES_FOR_SCORE`;
- *  - нет ни одного `wdlBefore`/`cpBefore` на старте;
- *  - нет ни одного `wdlAfter`/`cpAfter` в конце.
+ *  - нет ни одного `wdlBefore` на старте;
+ *  - нет ни одного `wdlAfter` в конце.
  */
 export function computePrecisionScore(
   moves: PrecisionMoveInput[],

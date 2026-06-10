@@ -577,10 +577,6 @@ model PrecisionAttemptMove {
   /// NULL если движок не успел ответить (последний user-полуход
   /// партии: мат, пат, abort) или для legacy-attempt'ов до KS-2754.
   engineUci    String? @map("engine_uci")
-  /// Stockfish cp; NULL если post-analyze не вернул score (mate
-  /// энкодится через MATE_CP_ENCODING из shared, KS-2505).
-  cpBefore     Int?    @map("cp_before")
-  cpAfter      Int?    @map("cp_after")
   /// WDL per-mille (0..1000) raw от Stockfish, POV side-to-move
   /// в `fenBefore` (для wdlBefore) и в позиции после хода (wdlAfter).
   wdlBeforeW   Int?    @map("wdl_before_w")
