@@ -97,19 +97,21 @@ interface MetricLabelWithPopoverProps {
 }
 
 /**
- * KS-4043: значения от Stockfish-trace приходят в сантипешках
- * (целые/дробные после tapered и нашего `mix=(mg+eg)/2`). В UI
- * показываем в пешках с точностью до сотых — это совпадает с
- * разрешающей способностью движка (1 cp = 0.01 пешки) и с шкалой
- * основной оценки в панели движка.
+ * KS-4043 follow-up: значения от нашего Stockfish-trace `eval json`
+ * приходят уже в пешках (X.XX), а не в сантипешках. Показываем как
+ * есть с точностью до сотых — это совпадает с разрешающей способностью
+ * движка и с привычной шкалой основной оценки в панели движка.
+ *
+ * Промежуточный шаг с делением на 100 (думал, что приходят сантипешки)
+ * давал «0.00» везде на живых данных — откатил.
  */
-function formatPawns(cp: number): string {
-  return (cp / 100).toFixed(2);
+function formatPawns(pawns: number): string {
+  return pawns.toFixed(2);
 }
 
-function formatPawnsSigned(cp: number): string {
-  const sign = cp >= 0 ? '+' : '';
-  return `${sign}${(cp / 100).toFixed(2)}`;
+function formatPawnsSigned(pawns: number): string {
+  const sign = pawns >= 0 ? '+' : '';
+  return `${sign}${pawns.toFixed(2)}`;
 }
 
 function MetricLabelWithPopover({ block, t }: MetricLabelWithPopoverProps) {
