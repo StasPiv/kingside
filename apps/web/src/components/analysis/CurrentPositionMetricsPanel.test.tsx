@@ -266,6 +266,122 @@ describe('<CurrentPositionMetricsPanel> KS-4043', () => {
     ).toBeInTheDocument();
   });
 
+  describe('LLM-трактовка метрик (KS-4044)', () => {
+    it('кнопка «Объяснить позицию» скрыта без analysisId', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('mobility_knight', 'w', 5, 5),
+      ];
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+        />,
+      );
+      expect(
+        screen.queryByTestId('current-metrics-explain-btn'),
+      ).toBeNull();
+    });
+
+    it('клик по кнопке шлёт корректный payload и рендерит summary + комментарии блоков', async () => {
+      const subterms: PositionalSubterm[] = [
+        sub('mobility_knight', 'w', 60, 60),
+        sub('mobility_knight', 'b', 20, 20),
+      ];
+      const requestOverride = vi.fn().mockResolvedValue({
+        summary: 'У белых небольшой перевес в подвижности.',
+        blocks: [
+          {
+            id: 'mobility' as const,
+            verdict: 'перевес белых',
+            comment: 'Кони активнее, чёрные стеснены.',
+          },
+        ],
+      });
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          analysisId="an-1"
+          requestMetricsCommentOverride={requestOverride}
+        />,
+      );
+      const btn = screen.getByTestId('current-metrics-explain-btn');
+      fireEvent.click(btn);
+      // Дождёмся ответа.
+      await screen.findByTestId('current-metrics-llm-summary');
+      // Payload — корректная структура.
+      expect(requestOverride).toHaveBeenCalledTimes(1);
+      const [analysisIdArg, payload] = requestOverride.mock.calls[0];
+      expect(analysisIdArg).toBe('an-1');
+      expect(payload).toMatchObject({
+        fen: STARTING_FEN,
+        metrics: expect.objectContaining({
+          mobility: { value_cp: 40 },
+          material: { value_cp: 0 },
+        }),
+      });
+      // Summary рендерится сверху.
+      expect(
+        screen.getByTestId('current-metrics-llm-summary'),
+      ).toHaveTextContent('У белых небольшой перевес в подвижности.');
+      // Комментарий для блока mobility рендерится под строкой блока.
+      expect(
+        screen.getByTestId('current-metrics-block-llm-mobility'),
+      ).toHaveTextContent('перевес белых');
+    });
+
+    it('блоки без записи в ответе LLM остаются без комментария', async () => {
+      const subterms: PositionalSubterm[] = [
+        sub('mobility_knight', 'w', 60, 60),
+      ];
+      const requestOverride = vi.fn().mockResolvedValue({
+        summary: 'Только подвижность важна.',
+        blocks: [
+          {
+            id: 'mobility' as const,
+            verdict: 'перевес белых',
+            comment: 'OK',
+          },
+        ],
+      });
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          analysisId="an-1"
+          requestMetricsCommentOverride={requestOverride}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('current-metrics-explain-btn'));
+      await screen.findByTestId('current-metrics-block-llm-mobility');
+      // material нет в ответе → не должно быть блока комментария.
+      expect(
+        screen.queryByTestId('current-metrics-block-llm-material'),
+      ).toBeNull();
+    });
+
+    it('graceful: при ошибке сети рисуется только баннер ошибки, метрики живут', async () => {
+      const subterms: PositionalSubterm[] = [
+        sub('mobility_knight', 'w', 5, 5),
+      ];
+      const requestOverride = vi.fn().mockRejectedValue(new Error('429'));
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          analysisId="an-1"
+          requestMetricsCommentOverride={requestOverride}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('current-metrics-explain-btn'));
+      await screen.findByTestId('current-metrics-llm-error');
+      // Само значение мобильности по-прежнему отображается.
+      expect(
+        screen.getByTestId('current-metrics-row-mobility'),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('состояние error показывает текст ошибки', () => {
     render(
       <CurrentPositionMetricsPanel

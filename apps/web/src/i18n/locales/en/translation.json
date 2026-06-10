@@ -1084,6 +1084,11 @@
         "threats": "Threats",
         "passed": "Passed pawns",
         "space": "Space"
+      },
+      "explain": {
+        "cta": "Explain position",
+        "loading": "Requesting…",
+        "error": "Could not get an explanation. Please retry."
       }
     },
     "aiTab": {

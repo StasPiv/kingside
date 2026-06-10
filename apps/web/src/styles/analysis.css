@@ -4568,3 +4568,42 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 .current-metrics-row--contribution:hover {
   opacity: 1;
 }
+
+/* KS-4044: LLM-трактовка метрик. */
+.current-metrics-panel__llm-btn {
+  background: var(--c-2b6cb0, #2b6cb0);
+  color: var(--c-fff, #fff);
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.current-metrics-panel__llm-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.current-metrics-panel__llm-summary {
+  margin: 4px 0;
+  padding: 6px 8px;
+  background: var(--c-1a1a1a, rgba(43, 108, 176, 0.12));
+  border-left: 3px solid var(--c-2b6cb0, #2b6cb0);
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.current-metrics-block__llm {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 4px 4px 12px;
+  font-size: 11px;
+  color: var(--c-ccc, #ccc);
+  line-height: 1.4;
+}
+.current-metrics-block__llm-verdict {
+  font-weight: 600;
+}
+.current-metrics-block__llm-comment {
+  opacity: 0.85;
+}

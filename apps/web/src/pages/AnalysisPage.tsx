@@ -2778,6 +2778,11 @@ function AnalysisPageInner({
           onHighlightSquares={(info) => {
             setMetricsHighlightSquares(info ? info.squares : null);
           }}
+          // KS-4044: для отправки запроса LLM-трактовки нужен
+          // analysisId — без него кнопка «Объяснить позицию» скрыта.
+          // sf18Eval пока не прокидываем; подключим в follow-up
+          // вместе с источником оценки SF-18 для текущей позиции.
+          analysisId={analysisId ?? null}
         />
       ) : undefined,
     [showMetricsPanel, currentFen, analysisId],
