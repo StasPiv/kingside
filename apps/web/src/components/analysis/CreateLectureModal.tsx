@@ -142,6 +142,15 @@ export function CreateLectureModal({
     () => [...ALL_LECTURE_DISABLED_TOOLS],
   );
   /**
+   * KS-4045. Жалоба пользователя: в окне «Начать лекцию» не было
+   * флажка «Скрыть метрики у учеников». В KS-4040 он добавлен только в
+   * `LectureSettingsModal` (редактирование существующей лекции). Здесь
+   * тренер задаёт настройки при immediate-live из анализа — нужен тот
+   * же контроль до старта. Контракт `CreateLectureDto.hideMetricsTab`
+   * есть с KS-4039.
+   */
+  const [hideMetricsTab, setHideMetricsTab] = useState<boolean>(false);
+  /**
    * KS-3973 / ADR-119 §8 эпик C (C04). Visibility лекции, выбирается
    * через `LectureAccessPanel` в compact-режиме (allowlist скрыт,
    * пока лекция не создана). Дефолт — `'public'`, как и в backend
@@ -273,6 +282,11 @@ export function CreateLectureModal({
         ...(description.trim() ? { description: description.trim() } : {}),
         analysisId,
         disabledTools,
+        // KS-4045. Новое поле `CreateLectureDto.hideMetricsTab` (KS-4039).
+        // Шлём всегда — DB-default `false`, но фронт обязан передать
+        // явное значение, иначе случайный refetch контракта в фоне
+        // нивелировал бы выбор тренера.
+        hideMetricsTab,
         // KS-3973 / ADR-119 C04. visibility отправляем всегда —
         // backend по умолчанию ставит `public`, но при выборе
         // тренером `unlisted`/`restricted` модалка обязана
@@ -458,6 +472,43 @@ export function CreateLectureModal({
                       </label>
                     );
                   })}
+                  {/* KS-4045. Отдельный пункт в том же списке инструментов:
+                      «Скрыть метрики у учеников». Семантически отличается
+                      от других галочек (backend держит как самостоятельное
+                      поле `hideMetricsTab`, KS-4039, не часть массива
+                      `disabledTools`), но визуально кладём сюда — это и
+                      есть контроль доступа учеников к одному из
+                      инструментов (вкладка «Метрики»). */}
+                  <label
+                    htmlFor="create-lecture-hide-metrics-tab"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      cursor: submitting ? 'not-allowed' : 'pointer',
+                      fontWeight: 'normal',
+                      marginTop: 4,
+                      paddingTop: 4,
+                      borderTop: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                  >
+                    <input
+                      id="create-lecture-hide-metrics-tab"
+                      type="checkbox"
+                      checked={hideMetricsTab}
+                      onChange={(e) =>
+                        setHideMetricsTab(e.target.checked)
+                      }
+                      disabled={submitting}
+                      data-testid="create-lecture-hide-metrics-tab"
+                    />
+                    <span>
+                      {t(
+                        'lectureTools.hideMetricsTab.label',
+                        'Hide metrics from students',
+                      )}
+                    </span>
+                  </label>
                 </div>
               </div>
 

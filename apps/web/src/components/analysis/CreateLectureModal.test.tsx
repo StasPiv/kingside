@@ -360,3 +360,40 @@ describe('<CreateLectureModal> KS-4000 (bind to scheduled)', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('<CreateLectureModal> KS-4045 hideMetricsTab', () => {
+  it('по умолчанию `hideMetricsTab=false` — метрики у учеников видны', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <CreateLectureModal
+        analysisId={ANALYSIS_ID}
+        defaultTitle="Lecture"
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /Start lecture/i }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+    const [, body] = apiPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.hideMetricsTab).toBe(false);
+  });
+
+  it('установка чекбокса → `hideMetricsTab=true` в payload', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <CreateLectureModal
+        analysisId={ANALYSIS_ID}
+        defaultTitle="Lecture"
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    await user.click(
+      screen.getByTestId('create-lecture-hide-metrics-tab'),
+    );
+    await user.click(screen.getByRole('button', { name: /Start lecture/i }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+    const [, body] = apiPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.hideMetricsTab).toBe(true);
+  });
+});
