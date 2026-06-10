@@ -29,6 +29,7 @@
  * Tapered: тестируем по фазе `mg`/`eg`/`mix` (см. `MetricPhase`),
  * аналогично `aggregatePlySubterms`. По умолчанию `mix`.
  */
+import { Chess } from 'chess.js';
 import type {
   PositionalSubterm,
   PositionalSubtermId,
@@ -183,9 +184,23 @@ export interface MetricSquares {
   black: string[];
 }
 
+export interface SquaresForMetricOptions {
+  /**
+   * KS-4038. FEN текущей позиции. Для метрик `pawn_*` (в первую очередь
+   * `pawn_connected`) Stockfish выдаёт `square` только для пешек,
+   * которым присуждён бонус — соседи цепочки, защищающие/защищаемые,
+   * могут не иметь собственной записи. По FEN дополняем подсветку
+   * всеми пешками той же стороны, реально входящими в связанную
+   * группу (phalanx + supporter + supported).
+   * Если `fen` не передан — поведение прежнее, без обогащения.
+   */
+  fen?: string | null;
+}
+
 export function squaresForMetric(
   subterms: ReadonlyArray<PositionalSubterm>,
   id: string,
+  options: SquaresForMetricOptions = {},
 ): MetricSquares {
   const white: string[] = [];
   const black: string[] = [];
@@ -202,8 +217,102 @@ export function squaresForMetric(
   // Дедуп — у Stockfish бывает несколько subterm-записей на одну клетку
   // (например, у пешки несколько штрафов одной id). В подсветке клетка
   // должна гореть один раз.
+  let whiteSet = new Set(white);
+  let blackSet = new Set(black);
+
+  // KS-4038: для `pawn_connected` Stockfish помечает не каждую пешку
+  // цепочки — пользователь жаловался, что подсвечена только h3, а
+  // соседняя g2 (защищает h3 и сама в phalanx с f2) пропущена. По
+  // определению pawn_connected (Stockfish wiki: pawn supported by or
+  // forming a phalanx with another pawn of the same colour) добавляем
+  // ВСЕ пешки той же стороны, реально связанные с уже отмеченными.
+  // Источник — chess.js по `fen`, формальное правило соседства, без
+  // эвристики.
+  if (id === 'pawn_connected' && options.fen) {
+    whiteSet = expandPawnConnected(whiteSet, options.fen, 'w');
+    blackSet = expandPawnConnected(blackSet, options.fen, 'b');
+  }
+
   return {
-    white: Array.from(new Set(white)).sort(),
-    black: Array.from(new Set(black)).sort(),
+    white: Array.from(whiteSet).sort(),
+    black: Array.from(blackSet).sort(),
   };
+}
+
+/**
+ * KS-4038. Расширить набор клеток-пешек одной стороны до полной
+ * связанной группы (transitive closure по правилу соседства).
+ *
+ * Правило «pawn_connected» (Stockfish):
+ *  - phalanx — пешка той же стороны на той же горизонтали и соседнем файле;
+ *  - supporter — пешка той же стороны на одну горизонталь сзади (с точки
+ *    зрения движения пешки) на соседнем файле — она защищает текущую;
+ *  - supported — пешка той же стороны на одну горизонталь впереди на
+ *    соседнем файле — текущая защищает её.
+ *
+ * Итеративно добавляем соседей по этим правилам, пока набор растёт.
+ * Максимум 8 итераций (пешек ≤ 8).
+ */
+function expandPawnConnected(
+  seeds: ReadonlySet<string>,
+  fen: string,
+  color: 'w' | 'b',
+): Set<string> {
+  const out = new Set<string>(seeds);
+  if (seeds.size === 0) return out;
+  let chess: Chess;
+  try {
+    chess = new Chess(fen);
+  } catch {
+    // Невалидный FEN — возвращаем как есть, без расширения.
+    return out;
+  }
+  // Соберём все клетки с пешкой нужного цвета.
+  const pawnSquares = new Set<string>();
+  for (let f = 0; f < 8; f++) {
+    for (let r = 1; r <= 8; r++) {
+      const sq = `${'abcdefgh'[f]}${r}`;
+      const piece = chess.get(sq as Parameters<Chess['get']>[0]);
+      if (piece && piece.type === 'p' && piece.color === color) {
+        pawnSquares.add(sq);
+      }
+    }
+  }
+  // forward — направление «вперёд» с точки зрения цвета (для расчёта
+  // supporter). Stockfish-определение connected: пешка connected, если
+  // у неё есть friendly pawn на adjacent file на той же горизонтали
+  // (phalanx) ИЛИ на горизонтали-1 (supporter). Defended-вперёд
+  // (supported) НЕ делает текущую пешку connected — это статус
+  // защищаемой, не защитника. Поэтому из seed расширяемся только в
+  // сторону «назад» (supporter) и «вбок» (phalanx) — иначе цепочка
+  // утечёт через защищаемые пешки на лишние клетки (например, e3 в
+  // позиции со скриншота: f2 защищает e3, но e3 не входит в группу
+  // f2-g2-h3 по определению connected).
+  const forward = color === 'w' ? +1 : -1;
+  const isNeighbour = (sqA: string, sqB: string): boolean => {
+    const fa = sqA.charCodeAt(0);
+    const fb = sqB.charCodeAt(0);
+    if (Math.abs(fa - fb) !== 1) return false; // соседние файлы
+    const ra = Number(sqA[1]);
+    const rb = Number(sqB[1]);
+    const dr = rb - ra;
+    // phalanx (dr=0) или supporter (sqB на горизонталь сзади от sqA).
+    return dr === 0 || dr === -forward;
+  };
+  // Итеративное расширение до фиксированной точки.
+  for (let i = 0; i < 8; i++) {
+    let added = false;
+    for (const sq of pawnSquares) {
+      if (out.has(sq)) continue;
+      for (const seed of out) {
+        if (isNeighbour(seed, sq)) {
+          out.add(sq);
+          added = true;
+          break;
+        }
+      }
+    }
+    if (!added) break;
+  }
+  return out;
 }

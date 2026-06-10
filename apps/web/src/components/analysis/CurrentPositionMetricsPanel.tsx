@@ -317,7 +317,14 @@ export function CurrentPositionMetricsPanel({
     }
     setSelectedMetricId(rowId);
     const subterms = metrics.subterms ?? [];
-    const squares = squaresForMetric(subterms, rowId);
+    // KS-4038: передаём FEN текущей позиции — для `pawn_connected`
+    // SF выдаёт `square` не для каждой пешки цепочки (например,
+    // отмечает h3 и пропускает g2), и хелпер по FEN дополняет
+    // подсветку всеми пешками той же стороны, реально входящими в
+    // связанную группу (phalanx + supporter + supported).
+    const squares = squaresForMetric(subterms, rowId, {
+      fen: metrics.fenForSubterms,
+    });
     onHighlightSquares?.({ id: rowId, squares });
   };
 

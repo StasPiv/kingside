@@ -174,4 +174,109 @@ describe('squaresForMetric (KS-4033 follow-up)', () => {
       black: [],
     });
   });
+
+  /**
+   * KS-4038. Жалоба пользователя (/tmp/telegram/326131471_0.jpg):
+   * на доске с белыми пешками a2, b2, e3, f2, g2, h3 для метрики
+   * `pawn_connected` подсвечены a2, b2 и h3, а g2 (защищает h3 и
+   * сама в phalanx с f2) — пропущена. Stockfish выдаёт `square`
+   * только для пешек, которым присуждён бонус, остальные звенья
+   * цепочки восстанавливаем по FEN (phalanx + supporter + supported).
+   */
+  describe('pawn_connected: дополняем по FEN до полной связанной группы (KS-4038)', () => {
+    // FEN ровно для расстановки со скриншота (упрощённо — короли + пешки).
+    // KS-4038: добавили чёрного короля e8 — без него chess.js считает
+    // FEN невалидным и отказывается парсить позицию.
+    const FEN_USER =
+      '4k3/2p2p2/8/3p4/8/4P2P/PP3PP1/7K w - - 0 1';
+    // Stockfish отметил h3 (одиночная запись из его trace).
+    const SUBTERMS_SF_PARTIAL = [
+      sub('pawn_connected', 'w', 5, 5, 'h3'),
+    ];
+
+    it('без fen — возвращаем только то что SF отметил (как раньше)', () => {
+      expect(
+        squaresForMetric(SUBTERMS_SF_PARTIAL, 'pawn_connected'),
+      ).toEqual({
+        white: ['h3'],
+        black: [],
+      });
+    });
+
+    it('с fen — добавляем g2 (supporter h3) и f2 (phalanx с g2)', () => {
+      expect(
+        squaresForMetric(SUBTERMS_SF_PARTIAL, 'pawn_connected', {
+          fen: FEN_USER,
+        }),
+      ).toEqual({
+        white: ['f2', 'g2', 'h3'],
+        black: [],
+      });
+    });
+
+    it('phalanx-пара a2/b2 расширяется в обе стороны от любой из них', () => {
+      const subterms = [
+        sub('pawn_connected', 'w', 4, 4, 'a2'),
+      ];
+      const out = squaresForMetric(subterms, 'pawn_connected', {
+        fen: FEN_USER,
+      });
+      // a2 ↔ b2 phalanx; b2 связана с другими частями набора через
+      // soft-цепочку. Минимум — добавлена b2.
+      expect(out.white).toContain('a2');
+      expect(out.white).toContain('b2');
+    });
+
+    it('seed=e3 расширяется только до f2 (supporter), но НЕ дальше', () => {
+      const subterms = [
+        sub('pawn_connected', 'w', 1, 1, 'e3'),
+      ];
+      // По определению Stockfish-connected: для seed=e3 (белая)
+      // supporter = пешка на одну горизонталь сзади (rank 2) на
+      // соседнем файле = d2/f2. d2 нет, f2 есть → +f2.
+      // f2 phalanx с e2/g2. e2 нет, g2 есть → +g2. И так далее.
+      // Это уже путь обратной цепочки. Ничего за рамки группы
+      // f2-g2-h3 НЕ выходит — h3 не supporter для f2/g2, а ahead
+      // для них (направление supported), его не добавим из этой
+      // стороны, но он уже в наборе если был seed; в данном тесте
+      // seed только e3.
+      const out = squaresForMetric(subterms, 'pawn_connected', {
+        fen: FEN_USER,
+      });
+      expect(out.white).toEqual(
+        expect.arrayContaining(['e3', 'f2', 'g2']),
+      );
+      // h3 НЕ добавится из seed=e3 — он впереди f2/g2 по направлению
+      // движения, не supporter.
+      expect(out.white).not.toContain('h3');
+    });
+
+    it('невалидный FEN — fallback без расширения, ошибки нет', () => {
+      const subterms = [
+        sub('pawn_connected', 'w', 5, 5, 'h3'),
+      ];
+      expect(
+        squaresForMetric(subterms, 'pawn_connected', {
+          fen: 'это не fen',
+        }),
+      ).toEqual({
+        white: ['h3'],
+        black: [],
+      });
+    });
+
+    it('другие метрики (mobility_*, threat_*) НЕ расширяются по FEN', () => {
+      const subterms = [
+        sub('mobility_knight', 'w', 5, 5, 'h3'),
+      ];
+      expect(
+        squaresForMetric(subterms, 'mobility_knight', {
+          fen: FEN_USER,
+        }),
+      ).toEqual({
+        white: ['h3'],
+        black: [],
+      });
+    });
+  });
 });
