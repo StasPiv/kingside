@@ -1082,7 +1082,8 @@
         "pieces": "Pieces",
         "mobility": "Mobility",
         "threats": "Threats",
-        "passed": "Passed pawns"
+        "passed": "Passed pawns",
+        "space": "Space"
       }
     },
     "aiTab": {

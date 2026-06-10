@@ -26,7 +26,8 @@ export type MetricBlockKey =
   | 'pieces'
   | 'mobility'
   | 'threats'
-  | 'passed';
+  | 'passed'
+  | 'space';
 
 export interface MetricBlockDescriptor {
   /** Стабильный машинный ключ для UI, i18n, data-testid и localStorage. */
@@ -144,6 +145,15 @@ export const METRIC_BLOCKS: ReadonlyArray<MetricBlockDescriptor> = [
       'passed_path_advance',
       'passed_file_edge',
     ],
+  },
+  {
+    // KS-4043 follow-up: вернули `space` в основную таблицу отдельным
+    // блоком по запросу пользователя. До этого подкомпонента
+    // отбрасывалась как «почти всегда около 0, шум» — но в позициях
+    // с явным территориальным перевесом она даёт сигнал.
+    key: 'space',
+    i18nKey: 'analysis.metrics.block.space',
+    ids: ['space'],
   },
 ];
 

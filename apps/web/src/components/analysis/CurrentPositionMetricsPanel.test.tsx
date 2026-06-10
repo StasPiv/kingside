@@ -73,13 +73,12 @@ describe('<CurrentPositionMetricsPanel> KS-4043', () => {
     );
   });
 
-  it('подкомпоненты вне блоков (space, king_safe_check_*, king_attackers_*, psqt_*) НЕ показаны', () => {
+  it('подкомпоненты вне блоков (king_safe_check_*, king_attackers_*, psqt_*) НЕ показаны; space идёт в блок «Пространство»', () => {
     const subterms: PositionalSubterm[] = [
       sub('space', 'w', 5, 5),
       sub('king_safe_check_rook', 'b', -5.8, -5.8),
       sub('king_attackers_count', 'w', 3, 3),
       sub('psqt_pawn', 'w', 30, 30),
-      // Только этот попадает на UI.
       sub('mobility_knight', 'w', 4, 4),
     ];
     render(
@@ -91,10 +90,8 @@ describe('<CurrentPositionMetricsPanel> KS-4043', () => {
     const valueRows = screen.getAllByTestId(
       /^current-metrics-row-(?!value|white|black|label-wrap|popover)[a-z-]+$/,
     );
-    // 7 строк-блоков всегда рендерятся (пустые блоки тоже видны для
-    // консистентности — Gherkin-порядок). Главное — нет отдельных
-    // строк для исключённых id.
-    expect(valueRows).toHaveLength(7);
+    // 8 строк-блоков всегда рендерятся (KS-4043 follow-up: добавлен space).
+    expect(valueRows).toHaveLength(8);
     expect(
       screen.queryByTestId('current-metrics-row-king_safe_check_rook'),
     ).toBeNull();
@@ -104,6 +101,10 @@ describe('<CurrentPositionMetricsPanel> KS-4043', () => {
     expect(
       screen.queryByTestId('current-metrics-row-psqt_pawn'),
     ).toBeNull();
+    // А блок «Пространство» с diff=+5 — рендерится.
+    expect(
+      screen.getByTestId('current-metrics-row-value-space'),
+    ).toHaveTextContent('+5.00');
     // А «Подвижность» с diff=+4 — рендерится в формате пешек до сотых.
     expect(
       screen.getByTestId('current-metrics-row-value-mobility'),

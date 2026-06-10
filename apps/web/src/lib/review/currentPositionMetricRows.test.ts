@@ -285,7 +285,7 @@ describe('squaresForMetric (KS-4033 follow-up)', () => {
 });
 
 describe('buildMetricBlockRows (KS-4043)', () => {
-  it('возвращает 7 блоков в фиксированном порядке', () => {
+  it('возвращает 8 блоков в фиксированном порядке (KS-4043 follow-up: +space)', () => {
     const rows = buildMetricBlockRows([]);
     expect(rows.map((r) => r.key)).toEqual([
       'material',
@@ -295,6 +295,7 @@ describe('buildMetricBlockRows (KS-4043)', () => {
       'mobility',
       'threats',
       'passed',
+      'space',
     ]);
   });
 
@@ -329,9 +330,8 @@ describe('buildMetricBlockRows (KS-4043)', () => {
     expect(block.diff).toBe(8);
   });
 
-  it('подкомпоненты вне блоков (space, king_attackers_*, psqt_*, king_safe_check_*) НЕ попадают на основную вкладку', () => {
+  it('подкомпоненты вне блоков (king_attackers_*, psqt_*, king_safe_check_*) НЕ попадают на основную вкладку; space идёт в блок «Пространство»', () => {
     const subterms = [
-      sub('space', 'w', 5, 5),
       sub('king_attackers_count', 'w', 3, 3),
       sub('king_attackers_weight', 'b', 7, 7),
       sub('king_safe_check_rook', 'b', -5.8, -5.8),
@@ -345,6 +345,17 @@ describe('buildMetricBlockRows (KS-4043)', () => {
       expect(b.black).toBe(0);
       expect(b.contributions).toHaveLength(0);
     }
+  });
+
+  it('space попадает в отдельный блок «Пространство» (KS-4043 follow-up)', () => {
+    const subterms = [sub('space', 'w', 5, 5)];
+    const space = buildMetricBlockRows(subterms).find(
+      (r) => r.key === 'space',
+    )!;
+    expect(space.white).toBe(5);
+    expect(space.black).toBe(0);
+    expect(space.diff).toBe(5);
+    expect(space.contributions.map((c) => c.id)).toEqual(['space']);
   });
 
   it('mobility_* агрегируются в блок «Подвижность»', () => {
