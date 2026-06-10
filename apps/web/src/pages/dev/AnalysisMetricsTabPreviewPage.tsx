@@ -17,6 +17,8 @@ import type {
 import type { PanelStates } from '../analysis/accordionTogglePanel';
 import { PositionalMetricsPanel } from '../../components/analysis/PositionalMetricsPanel';
 import type { UsePositionalTraceState } from '../../hooks/usePositionalTrace';
+import { CurrentPositionMetricsPanel } from '../../components/analysis/CurrentPositionMetricsPanel';
+import type { PositionalSubterm } from '@kingside/shared';
 
 const DEMO_DTO: AnalysisPositionalTraceDto = {
   analysisId: 'demo-analysis',
@@ -79,12 +81,50 @@ export default function AnalysisMetricsTabPreviewPage() {
   const togglePanel = (key: AnalysisPanelKey) =>
     setPanelStates((p) => ({ ...p, [key]: !p[key] }));
 
+  // KS-4033: на /dev-preview показываем НОВЫЙ вариант вкладки —
+  // `CurrentPositionMetricsPanel`. Старый `PositionalMetricsPanel`
+  // оставлен в импорте: при необходимости проверить старый dev-вид
+  // (отдельная страница метрик / графика по партии) — он там же.
+  void makeTrace; // KS-4033: подавляем «unused» для старого helper'а.
+  void PositionalMetricsPanel; // см. выше.
+  const demoSubterms: PositionalSubterm[] = [
+    // psqt_pawn (white-signed): сумма положительная → столбик у белых.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'psqt_pawn', color: 'w', value_mg: 90, value_eg: 70 } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'psqt_pawn', color: 'w', value_mg: 30, value_eg: 20 } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'psqt_pawn', color: 'b', value_mg: -40, value_eg: -30 } as any,
+    // owner-signed примеры.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'mobility_knight', color: 'w', value_mg: 35, value_eg: 30 } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'mobility_knight', color: 'b', value_mg: 15, value_eg: 12 } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'threat_hanging', color: 'b', value_mg: 20, value_eg: 18 } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'pawn_connected', color: 'w', value_mg: 12, value_eg: 10 } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'pawn_connected', color: 'b', value_mg: 8, value_eg: 7 } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'king_attackers_count', color: 'w', value_mg: 4, value_eg: 3 } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: 'king_attackers_count', color: 'b', value_mg: 1, value_eg: 1 } as any,
+  ];
   const metricsContent = (
-    <PositionalMetricsPanel
-      trace={makeTrace()}
-      uciMoves={[]}
-      currentPly={3}
-      onPlySelect={NOOP}
+    <CurrentPositionMetricsPanel
+      fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+      metricsOverride={{
+        status: 'ready',
+        subterms: demoSubterms,
+        fenForSubterms:
+          'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        error: null,
+      }}
+      headerLink={{
+        label: '↗ Полная аналитика партии',
+        href: '/analyses/demo/metrics',
+      }}
     />
   );
 

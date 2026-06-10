@@ -87,9 +87,13 @@ import { LectureAudioListenerCompact } from '../components/lecture/LectureAudioL
 import { LectureRecordingBadge } from '../components/lecture/LectureRecordingBadge';
 // KS-4009 / ADR-121 Phase 1: чат лекции.
 import { LectureChatContainer } from '../components/lecture/LectureChatContainer';
-// KS-4024 / ADR-122: позиционные метрики партии.
-import { usePositionalTrace } from '../hooks/usePositionalTrace';
-import { PositionalMetricsPanel } from '../components/analysis/PositionalMetricsPanel';
+// KS-4024 / ADR-122: позиционные метрики партии. `usePositionalTrace` и
+// `PositionalMetricsPanel` остались для отдельной страницы метрик
+// (`/analyses/:id/metrics`) — там полный график по партии.
+// KS-4033: вкладка «Метрики» в правой колонке анализа больше не
+// использует график — переехала на `CurrentPositionMetricsPanel`,
+// показывающий столбики по позиции, которая сейчас на доске.
+import { CurrentPositionMetricsPanel } from '../components/analysis/CurrentPositionMetricsPanel';
 import { useLectureLookupBySlug } from '../hooks/useLectureLookupBySlug';
 // KS-3789 / ADR-113 §4 эпик 1: модальное окно создания лекции
 // и мгновенного запуска live-сессии.
@@ -2694,76 +2698,32 @@ function AnalysisPageInner({
     enabled: showAiPanel,
   });
 
-  // KS-4024 / KS-4025 / ADR-122. Позиционные метрики анализа — вкладка
-  // «Метрики» в правой колонке (desktop) и 5-я мобильная вкладка. Хук
-  // грузит с сервера (`GET /analyses/:id/positional-trace`, KS-4026),
-  // при 404 проверяет IndexedDB, при отсутствии — позволяет caller'у
-  // запустить расчёт. На страницах без `analysisId` (новый ad-hoc анализ,
-  // ещё не сохранён в БД) показываем заглушку через `trace.idle=true`.
-  const positionalTrace = usePositionalTrace({
-    analysisId: analysisId ?? null,
-  });
-  // KS-4027. UCI-ходы из mainline для start(). `ChessMove.lan` уже
-  // содержит строку формата UCI (e2e4 / e7e8q), отдельного поля `uci`
-  // в типе нет. Раньше я ошибочно фильтровал по `m.uci` → массив
-  // всегда пустой даже на партии с десятками полуходов, и панель
-  // показывала «Сделайте хотя бы один ход».
-  const uciMovesForMetrics = useMemo(
-    () =>
-      history
-        .map((m) => m?.lan)
-        .filter((u): u is string => typeof u === 'string' && u.length >= 4),
-    [history],
-  );
-  // KS-4027. SAN-ходы партии (алгебраическая нотация) для подписей
-  // оси X на графике метрик. Длина обычно совпадает с uciMovesForMetrics.
-  const sanMovesForMetrics = useMemo(
-    () =>
-      history
-        .map((m) => m?.san)
-        .filter((s): s is string => typeof s === 'string' && s.length > 0),
-    [history],
-  );
-  // KS-4025: блок «Метрики» рендерится всегда — на новом ad-hoc анализе
-  // (без id) панель показывает заглушку «Сохраните анализ перед расчётом
-  // метрик»; на пустой истории — «Сделайте хотя бы один ход».
+  // KS-4033. Вкладка «Метрики» в правой колонке анализа — позиционные
+  // факторы текущей позиции на доске, со столбиками и сортировкой по
+  // убыванию веса. До KS-4033 вкладка дублировала график со страницы
+  // `/analyses/:id/metrics` (KS-4024..KS-4027) — пользователь
+  // пожаловался, что это бесполезное дублирование.
+  //
+  // Хук `useCurrentPositionMetrics` пересчитывает `evalTrace(currentFen)`
+  // при каждой смене позиции с debounce 200 мс. Отдельная страница
+  // метрик (с полным графиком по партии) остаётся как есть — там
+  // полная аналитика; ссылку на неё панель сама подставляет через
+  // `headerLink`, когда у анализа есть `analysisId`.
   const metricsContent = useMemo(
     () => (
-      <PositionalMetricsPanel
-        trace={positionalTrace}
-        uciMoves={uciMovesForMetrics}
-        sanMoves={sanMovesForMetrics}
-        currentPly={currentGlobalIndex}
-        onPlySelect={(ply) => {
-          if (ply <= 0 || ply > history.length) return;
-          const m = history[ply - 1];
-          if (m) gotoMove(m as ChessMove);
-        }}
-        // KS-4027: ссылка на отдельную страницу + ключ localStorage
-        // одинаковый и для вкладки, и для отдельной страницы — выбор
-        // метрик шарится между ними.
+      <CurrentPositionMetricsPanel
+        fen={currentFen}
         headerLink={
           analysisId
             ? {
-                label: '↗ Открыть аналитику на отдельной странице',
+                label: '↗ Открыть полную аналитику партии',
                 href: `/analyses/${analysisId}/metrics`,
               }
             : undefined
         }
-        selectionStorageKey={
-          analysisId ? `ks:metrics:selection:${analysisId}` : undefined
-        }
       />
     ),
-    [
-      positionalTrace,
-      uciMovesForMetrics,
-      sanMovesForMetrics,
-      currentGlobalIndex,
-      history,
-      gotoMove,
-      analysisId,
-    ],
+    [currentFen, analysisId],
   );
 
   // KS-3726. Текущий комментарий узла дерева, на котором стоит

@@ -4230,3 +4230,176 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   }
 }
 
+
+/* ─────────────────────────────────────────────────────────────────
+ * KS-4033. Вкладка «Метрики» в окне анализа — столбики по текущей
+ * позиции (CurrentPositionMetricsPanel).
+ * ────────────────────────────────────────────────────────────── */
+
+.current-metrics-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--c-eee, #eee);
+}
+
+.current-metrics-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+
+.current-metrics-panel__mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--c-555, #555);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.current-metrics-panel__mode-btn {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.current-metrics-panel__mode-btn--active {
+  background: var(--c-555, #555);
+  color: var(--c-fff, #fff);
+}
+
+.current-metrics-panel__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.current-metrics-panel__link {
+  margin-left: auto;
+  color: var(--c-9cf, #9cf);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.current-metrics-panel__link:hover {
+  text-decoration: underline;
+}
+
+.current-metrics-panel__status {
+  padding: 12px;
+  text-align: center;
+  color: var(--c-999, #999);
+}
+
+.current-metrics-panel__status--error {
+  color: var(--c-dc2626, #dc2626);
+}
+
+.current-metrics-panel__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: opacity 120ms ease-in-out;
+}
+
+.current-metrics-panel__rows--stale {
+  /* loading при наличии предыдущих данных — слегка приглушаем, чтобы
+   * было видно «считаем», но UI не дёргался. */
+  opacity: 0.55;
+}
+
+.current-metrics-row {
+  display: grid;
+  align-items: center;
+  column-gap: 8px;
+  padding: 2px 0;
+}
+
+.current-metrics-row--diff {
+  grid-template-columns: 120px 1fr 56px;
+}
+
+.current-metrics-row--parallel {
+  grid-template-columns: 120px 1fr;
+}
+
+.current-metrics-row__label {
+  font-family: var(--font-mono, ui-monospace, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  color: var(--c-ccc, #ccc);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.current-metrics-row__bar-track {
+  position: relative;
+  height: 12px;
+  background: var(--c-222, #222);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.current-metrics-row__bar-axis {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--c-555, #555);
+}
+
+.current-metrics-row__bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 2px;
+}
+
+.current-metrics-row__bar--white {
+  background: var(--c-eee, #eee);
+}
+
+.current-metrics-row__bar--black {
+  background: var(--c-333, #333);
+  border: 1px solid var(--c-555, #555);
+}
+
+.current-metrics-row__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--c-ccc, #ccc);
+}
+
+.current-metrics-row__bars-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.current-metrics-row__bars-stack-row {
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  column-gap: 6px;
+  align-items: center;
+}
+
+.current-metrics-row__bars-stack-row .current-metrics-row__bar {
+  position: relative;
+  top: 0;
+  bottom: 0;
+  height: 10px;
+}
+
+.current-metrics-row__value--inline {
+  font-size: 10px;
+}
