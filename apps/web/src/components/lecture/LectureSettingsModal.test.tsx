@@ -65,14 +65,16 @@ describe('<LectureSettingsModal> KS-4040', () => {
       <LectureSettingsModal lectureId="lec-1" onClose={() => {}} initialTab="tools" />,
     );
 
+    // KS-4047: новая семантика — галочка «Метрики» стоит = блок виден.
+    // У лекции `hideMetricsTab=true` → галочка НЕ стоит.
     const checkbox = (await screen.findByTestId(
-      'lecture-settings-hide-metrics-tab',
+      'lecture-settings-visibility-metrics',
     )) as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
-
-    // Выключаем флажок и сохраняем.
-    fireEvent.click(checkbox);
     expect(checkbox.checked).toBe(false);
+
+    // Включаем галочку → `hideMetricsTab=false` в PATCH.
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
 
     fireEvent.click(screen.getByTestId('lecture-settings-save'));
 
@@ -97,10 +99,11 @@ describe('<LectureSettingsModal> KS-4040', () => {
       <LectureSettingsModal lectureId="lec-1" onClose={() => {}} initialTab="tools" />,
     );
 
+    // KS-4047: default `hideMetricsTab=false` → галочка стоит.
     const checkbox = (await screen.findByTestId(
-      'lecture-settings-hide-metrics-tab',
+      'lecture-settings-visibility-metrics',
     )) as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
+    expect(checkbox.checked).toBe(true);
 
     fireEvent.click(screen.getByTestId('lecture-settings-save'));
 

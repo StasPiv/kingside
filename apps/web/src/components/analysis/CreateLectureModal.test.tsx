@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 describe('<CreateLectureModal> KS-3911', () => {
-  it('по умолчанию все чекбоксы инструментов отмечены', () => {
+  it('по умолчанию все 4 пункта «Что видят ученики» отмечены (KS-4047)', () => {
     renderWithProviders(
       <CreateLectureModal
         analysisId={ANALYSIS_ID}
@@ -103,12 +103,16 @@ describe('<CreateLectureModal> KS-3911', () => {
         onCreated={vi.fn()}
       />,
     );
-    for (const tool of ALL_LECTURE_DISABLED_TOOLS) {
+    for (const key of ['ai', 'engine', 'book', 'metrics']) {
       const cb = screen.getByTestId(
-        `create-lecture-tool-${tool}`,
+        `create-lecture-visibility-${key}`,
       ) as HTMLInputElement;
       expect(cb.checked).toBe(true);
     }
+    // KS-4047: мёртвые пункты убраны.
+    expect(
+      screen.queryByTestId('create-lecture-visibility-analyze_game'),
+    ).toBeNull();
   });
 
   it('submit без снятых галочек → disabledTools: []', async () => {
@@ -146,8 +150,8 @@ describe('<CreateLectureModal> KS-3911', () => {
 
     // Снимаем галочки с движка и AI-комментария — ученикам они должны
     // прийти в `disabledTools` как запрет.
-    await user.click(screen.getByTestId('create-lecture-tool-engine'));
-    await user.click(screen.getByTestId('create-lecture-tool-ai_comment'));
+    await user.click(screen.getByTestId('create-lecture-visibility-engine'));
+    await user.click(screen.getByTestId('create-lecture-visibility-ai'));
 
     await user.click(screen.getByRole('button', { name: /Start lecture/i }));
 
@@ -159,7 +163,6 @@ describe('<CreateLectureModal> KS-3911', () => {
     // контрактом (`ALL_LECTURE_DISABLED_TOOLS.filter` сохраняет порядок
     // whitelist'а, но тест не должен зависеть от внутренней реализации).
     expect(new Set(disabled)).toEqual(new Set(['engine', 'ai_comment']));
-    expect(disabled).toHaveLength(2);
   });
 
   it('повторный клик по чекбоксу возвращает инструмент в разрешённые', async () => {
@@ -173,8 +176,8 @@ describe('<CreateLectureModal> KS-3911', () => {
       />,
     );
 
-    await user.click(screen.getByTestId('create-lecture-tool-book'));
-    await user.click(screen.getByTestId('create-lecture-tool-book'));
+    await user.click(screen.getByTestId('create-lecture-visibility-book'));
+    await user.click(screen.getByTestId('create-lecture-visibility-book'));
 
     await user.click(screen.getByRole('button', { name: /Start lecture/i }));
     await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
@@ -389,7 +392,7 @@ describe('<CreateLectureModal> KS-4045 hideMetricsTab', () => {
       />,
     );
     await user.click(
-      screen.getByTestId('create-lecture-hide-metrics-tab'),
+      screen.getByTestId('create-lecture-visibility-metrics'),
     );
     await user.click(screen.getByRole('button', { name: /Start lecture/i }));
     await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));

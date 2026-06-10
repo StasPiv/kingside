@@ -8,6 +8,7 @@ import {
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
 import { LectureAccessPanel } from '../lecture/LectureAccessPanel';
+import { StudentVisibilityChecklist } from '../lecture/StudentVisibilityChecklist';
 import type { UserSearchItem } from '../../hooks/useUserSearch';
 
 /**
@@ -106,6 +107,13 @@ export function ScheduleLectureModal({
   const [enabledTools, setEnabledTools] = useState<LectureDisabledTool[]>(
     () => [...ALL_LECTURE_DISABLED_TOOLS],
   );
+  /**
+   * KS-4047. Поле `hideMetricsTab` (KS-4039) теперь часть единого
+   * списка «Что видят ученики» вместе с тремя пунктами из
+   * `disabledTools`. До этой задачи отдельного контроля в окне
+   * планирования лекции не было — поле отправлялось `false`.
+   */
+  const [hideMetricsTab, setHideMetricsTab] = useState<boolean>(false);
   // KS-3997 / KS-3934. Локальный буфер выбранных учеников до
   // создания scheduled-лекции. При смене visibility на public/
   // unlisted очищается, чтобы случайно не отправились лишние ids.
@@ -167,6 +175,9 @@ export function ScheduleLectureModal({
           scheduledAt: parsedScheduledAt!.toISOString(),
           visibility,
           disabledTools,
+          // KS-4047. Шлём всегда — DB-default `false`, но без явного
+          // значения случайный refetch контракта мог бы перетереть.
+          hideMetricsTab,
           // KS-3997 / KS-3934. При restricted шлём выбранных
           // учеников одним списком — backend bulk-INSERT'ит их в
           // `lecture_access_grants`. На public/unlisted поле
@@ -288,42 +299,29 @@ export function ScheduleLectureModal({
                 data-testid="schedule-lecture-tools-section"
               >
                 <label style={{ marginBottom: 6 }}>
-                  {t('lectureTools.sectionTitle', 'Student tools access')}
+                  {t(
+                    'studentVisibility.sectionLabel',
+                    'What students see',
+                  )}
                 </label>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
+                <StudentVisibilityChecklist
+                  value={{
+                    disabledTools: ALL_LECTURE_DISABLED_TOOLS.filter(
+                      (tool) => !enabledTools.includes(tool),
+                    ),
+                    hideMetricsTab,
                   }}
-                >
-                  {ALL_LECTURE_DISABLED_TOOLS.map((tool) => {
-                    const checked = enabledTools.includes(tool);
-                    return (
-                      <label
-                        key={tool}
-                        htmlFor={`schedule-lecture-tool-${tool}`}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          cursor: submitting ? 'not-allowed' : 'pointer',
-                          fontWeight: 'normal',
-                        }}
-                      >
-                        <input
-                          id={`schedule-lecture-tool-${tool}`}
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleTool(tool)}
-                          disabled={submitting}
-                          data-testid={`schedule-lecture-tool-${tool}`}
-                        />
-                        <span>{t(`lectureTools.tools.${tool}`)}</span>
-                      </label>
+                  onChange={(next) => {
+                    setEnabledTools(
+                      ALL_LECTURE_DISABLED_TOOLS.filter(
+                        (tool) => !next.disabledTools.includes(tool),
+                      ),
                     );
-                  })}
-                </div>
+                    setHideMetricsTab(next.hideMetricsTab);
+                  }}
+                  disabled={submitting}
+                  testIdPrefix="schedule-lecture-visibility"
+                />
               </div>
 
               <div

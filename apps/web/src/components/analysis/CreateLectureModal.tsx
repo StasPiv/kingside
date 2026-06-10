@@ -9,6 +9,7 @@ import {
 import { api } from '../../api';
 import { ApiError } from '../../ApiError';
 import { LectureAccessPanel } from '../lecture/LectureAccessPanel';
+import { StudentVisibilityChecklist } from '../lecture/StudentVisibilityChecklist';
 import type { UserSearchItem } from '../../hooks/useUserSearch';
 import { useMyLectures } from '../../hooks/useMyLectures';
 import { useAuth } from '../../context/AuthContext';
@@ -432,84 +433,42 @@ export function CreateLectureModal({
                 />
               </div>
 
+              {/* KS-4047. Единый список из 5 пунктов «Что видят ученики»
+                  (ИИ / Движок / База партий / Метрики; пункт «Ходы» ждёт
+                  расширения enum в shared — отдельная задача backend).
+                  Семантика: галочка стоит → блок виден ученику. Маппинг
+                  UI → DTO сделан внутри компонента. Мёртвые пункты
+                  (`analyze_game`/`generate_puzzle`/`find_by_position`)
+                  не показываются, но при сохранении не теряются — для
+                  лекций, у которых они были выставлены до KS-4047. */}
               <div
                 className="import-field"
                 data-testid="create-lecture-tools-section"
               >
                 <label style={{ marginBottom: 6 }}>
-                  {t('lectureTools.sectionTitle', 'Student tools access')}
+                  {t(
+                    'studentVisibility.sectionLabel',
+                    'What students see',
+                  )}
                 </label>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
+                <StudentVisibilityChecklist
+                  value={{
+                    disabledTools: ALL_LECTURE_DISABLED_TOOLS.filter(
+                      (tool) => !enabledTools.includes(tool),
+                    ),
+                    hideMetricsTab,
                   }}
-                >
-                  {ALL_LECTURE_DISABLED_TOOLS.map((tool) => {
-                    const checked = enabledTools.includes(tool);
-                    return (
-                      <label
-                        key={tool}
-                        htmlFor={`create-lecture-tool-${tool}`}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          cursor: submitting ? 'not-allowed' : 'pointer',
-                          fontWeight: 'normal',
-                        }}
-                      >
-                        <input
-                          id={`create-lecture-tool-${tool}`}
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleTool(tool)}
-                          disabled={submitting}
-                          data-testid={`create-lecture-tool-${tool}`}
-                        />
-                        <span>{t(`lectureTools.tools.${tool}`)}</span>
-                      </label>
+                  onChange={(next) => {
+                    setEnabledTools(
+                      ALL_LECTURE_DISABLED_TOOLS.filter(
+                        (tool) => !next.disabledTools.includes(tool),
+                      ),
                     );
-                  })}
-                  {/* KS-4045. Отдельный пункт в том же списке инструментов:
-                      «Скрыть метрики у учеников». Семантически отличается
-                      от других галочек (backend держит как самостоятельное
-                      поле `hideMetricsTab`, KS-4039, не часть массива
-                      `disabledTools`), но визуально кладём сюда — это и
-                      есть контроль доступа учеников к одному из
-                      инструментов (вкладка «Метрики»). */}
-                  <label
-                    htmlFor="create-lecture-hide-metrics-tab"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      cursor: submitting ? 'not-allowed' : 'pointer',
-                      fontWeight: 'normal',
-                      marginTop: 4,
-                      paddingTop: 4,
-                      borderTop: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    <input
-                      id="create-lecture-hide-metrics-tab"
-                      type="checkbox"
-                      checked={hideMetricsTab}
-                      onChange={(e) =>
-                        setHideMetricsTab(e.target.checked)
-                      }
-                      disabled={submitting}
-                      data-testid="create-lecture-hide-metrics-tab"
-                    />
-                    <span>
-                      {t(
-                        'lectureTools.hideMetricsTab.label',
-                        'Hide metrics from students',
-                      )}
-                    </span>
-                  </label>
-                </div>
+                    setHideMetricsTab(next.hideMetricsTab);
+                  }}
+                  disabled={submitting}
+                  testIdPrefix="create-lecture-visibility"
+                />
               </div>
 
               {/* KS-3973 / ADR-119 C04 + KS-3997. Секция «Кто видит эту

@@ -10,6 +10,7 @@ import { api } from '../../api';
 import { ApiError } from '../../ApiError';
 import { useLectureDetail } from '../../hooks/useLectureDetail';
 import { LectureAccessPanel } from './LectureAccessPanel';
+import { StudentVisibilityChecklist } from './StudentVisibilityChecklist';
 
 /**
  * KS-3974 / ADR-119 §8 эпик C (C05). Модальное окно настроек
@@ -336,75 +337,38 @@ export function LectureSettingsModal({
               aria-labelledby={`${tabsLabelId}-tools-tab`}
               data-testid="lecture-settings-panel-tools"
             >
+              {/* KS-4047. Единый список «Что видят ученики». До этого
+                  тикета здесь был полный набор `ALL_LECTURE_DISABLED_TOOLS`
+                  плюс отдельный флажок `hideMetricsTab` с инвертированной
+                  семантикой. Сейчас — 4 пункта со стиля «галочка стоит =
+                  виден ученику». Внутренний маппинг компонента уважает
+                  старые id `disabledTools` (`analyze_game`/`generate_puzzle`/
+                  `find_by_position`), не показывает их в UI, но и не
+                  теряет при сохранении. */}
               <p className="lecture-modal__tools-section-title">
-                {t('lectureTools.sectionTitle', 'Student tools access')}
-              </p>
-              <div className="lecture-modal__tools-list">
-                {ALL_LECTURE_DISABLED_TOOLS.map((tool) => {
-                  const checked = enabledTools.includes(tool);
-                  return (
-                    <label
-                      key={tool}
-                      htmlFor={`lecture-settings-tool-${tool}`}
-                      className="lecture-modal__tool-row"
-                      data-disabled={submitting ? 'true' : 'false'}
-                    >
-                      <input
-                        id={`lecture-settings-tool-${tool}`}
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleTool(tool)}
-                        disabled={submitting}
-                        data-testid={`lecture-settings-tool-${tool}`}
-                      />
-                      <span>{t(`lectureTools.tools.${tool}`)}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              {/* KS-4040. Отдельный флажок «Скрыть метрики у учеников».
-                  По смыслу относится к доступу инструментов, но
-                  backend поднял это как самостоятельное поле
-                  (KS-4039 `hideMetricsTab: boolean`), не часть
-                  массива `disabledTools`. Поэтому держим в той же
-                  вкладке, но визуально отдельной секцией. */}
-              <p
-                className="lecture-modal__tools-section-title"
-                style={{ marginTop: 16 }}
-              >
                 {t(
-                  'lectureTools.metricsSectionTitle',
-                  'Stockfish metrics',
+                  'studentVisibility.sectionLabel',
+                  'What students see',
                 )}
               </p>
-              <label
-                htmlFor="lecture-settings-hide-metrics-tab"
-                className="lecture-modal__tool-row"
-                data-disabled={submitting ? 'true' : 'false'}
-              >
-                <input
-                  id="lecture-settings-hide-metrics-tab"
-                  type="checkbox"
-                  checked={hideMetricsTab}
-                  onChange={(e) => setHideMetricsTab(e.target.checked)}
-                  disabled={submitting}
-                  data-testid="lecture-settings-hide-metrics-tab"
-                />
-                <span>
-                  {t(
-                    'lectureTools.hideMetricsTab.label',
-                    'Hide metrics from students',
-                  )}
-                  <span className="lecture-modal__tool-hint">
-                    {' '}
-                    —{' '}
-                    {t(
-                      'lectureTools.hideMetricsTab.hint',
-                      'The Stockfish metrics panel will not be visible to viewers.',
-                    )}
-                  </span>
-                </span>
-              </label>
+              <StudentVisibilityChecklist
+                value={{
+                  disabledTools: ALL_LECTURE_DISABLED_TOOLS.filter(
+                    (tool) => !enabledTools.includes(tool),
+                  ),
+                  hideMetricsTab,
+                }}
+                onChange={(next) => {
+                  setEnabledTools(
+                    ALL_LECTURE_DISABLED_TOOLS.filter(
+                      (tool) => !next.disabledTools.includes(tool),
+                    ),
+                  );
+                  setHideMetricsTab(next.hideMetricsTab);
+                }}
+                disabled={submitting}
+                testIdPrefix="lecture-settings-visibility"
+              />
             </div>
           )}
 
