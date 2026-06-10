@@ -135,12 +135,60 @@ describe('<CurrentPositionMetricsPanel> KS-4043', () => {
     ).toHaveTextContent('20.00');
   });
 
-  describe('подсветка клеток при клике (KS-4033 / KS-4043)', () => {
-    it('клик по строке-блоку передаёт объединённые клетки всех подкомпонент', () => {
+  describe('двойная вложенность блок ↔ подкомпонента (KS-4043 follow-up)', () => {
+    it('клик по строке-блоку только раскрывает блок, подсветку клеток НЕ включает', () => {
       const subterms: PositionalSubterm[] = [
         sub('pawn_isolated', 'w', 5, 5, 'd4'),
         sub('pawn_doubled', 'w', 3, 3, 'd5'),
-        sub('pawn_backward', 'b', 4, 4, 'h7'),
+      ];
+      const onHighlight = vi.fn();
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          onHighlightSquares={onHighlight}
+        />,
+      );
+      const blockRow = screen.getByTestId('current-metrics-row-pawn-structure');
+      fireEvent.click(blockRow);
+      // Подкомпоненты появились.
+      expect(
+        screen.getByTestId('current-metrics-block-contributions-pawn-structure'),
+      ).toBeInTheDocument();
+      // Колбэк подсветки не вызывался.
+      expect(onHighlight).not.toHaveBeenCalled();
+    });
+
+    it('клик по подкомпоненте внутри раскрытого блока подсвечивает её клетки', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('pawn_isolated', 'w', 5, 5, 'd4'),
+        sub('pawn_doubled', 'w', 3, 3, 'd5'),
+      ];
+      const onHighlight = vi.fn();
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          onHighlightSquares={onHighlight}
+        />,
+      );
+      // Раскрываем блок.
+      fireEvent.click(
+        screen.getByTestId('current-metrics-row-pawn-structure'),
+      );
+      // Клик по конкретной подкомпоненте.
+      fireEvent.click(
+        screen.getByTestId('current-metrics-contribution-pawn_isolated'),
+      );
+      expect(onHighlight).toHaveBeenLastCalledWith({
+        id: 'pawn_isolated',
+        squares: { white: ['d4'], black: [] },
+      });
+    });
+
+    it('повторный клик по той же подкомпоненте снимает подсветку', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('pawn_isolated', 'w', 5, 5, 'd4'),
       ];
       const onHighlight = vi.fn();
       render(
@@ -153,28 +201,33 @@ describe('<CurrentPositionMetricsPanel> KS-4043', () => {
       fireEvent.click(
         screen.getByTestId('current-metrics-row-pawn-structure'),
       );
-      expect(onHighlight).toHaveBeenLastCalledWith({
-        id: 'pawn-structure',
-        squares: { white: ['d4', 'd5'], black: ['h7'] },
-      });
+      const contrib = screen.getByTestId(
+        'current-metrics-contribution-pawn_isolated',
+      );
+      fireEvent.click(contrib);
+      fireEvent.click(contrib);
+      expect(onHighlight).toHaveBeenLastCalledWith(null);
     });
 
-    it('повторный клик по той же строке снимает подсветку', () => {
+    it('повторный клик по блоку сворачивает его', () => {
       const subterms: PositionalSubterm[] = [
         sub('pawn_isolated', 'w', 5, 5, 'd4'),
       ];
-      const onHighlight = vi.fn();
       render(
         <CurrentPositionMetricsPanel
           fen={STARTING_FEN}
           metricsOverride={readyOverride(subterms)}
-          onHighlightSquares={onHighlight}
         />,
       );
-      const row = screen.getByTestId('current-metrics-row-pawn-structure');
-      fireEvent.click(row);
-      fireEvent.click(row);
-      expect(onHighlight).toHaveBeenLastCalledWith(null);
+      const blockRow = screen.getByTestId('current-metrics-row-pawn-structure');
+      fireEvent.click(blockRow);
+      expect(
+        screen.getByTestId('current-metrics-block-contributions-pawn-structure'),
+      ).toBeInTheDocument();
+      fireEvent.click(blockRow);
+      expect(
+        screen.queryByTestId('current-metrics-block-contributions-pawn-structure'),
+      ).toBeNull();
     });
   });
 

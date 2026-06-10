@@ -4547,3 +4547,24 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   white-space: normal;
   max-width: 220px;
 }
+
+/* KS-4043 follow-up: раскрывающийся блок-секция метрик. Клик по
+ * самой строке-блоку только раскрывает/сворачивает её; подсветка
+ * клеток включается только кликом по подкомпоненте внутри. */
+.current-metrics-block__contributions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 12px;
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid var(--c-555, #555);
+}
+
+.current-metrics-row--contribution {
+  opacity: 0.85;
+  font-size: 11px;
+}
+
+.current-metrics-row--contribution:hover {
+  opacity: 1;
+}

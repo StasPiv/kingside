@@ -29,7 +29,7 @@ import {
 import {
   buildMetricBlockRows,
   isRawUnitContribution,
-  squaresForMetricBlock,
+  squaresForMetric,
   type MetricBlockRow,
   type MetricSquares,
 } from '../../lib/review/currentPositionMetricRows';
@@ -166,10 +166,10 @@ interface BarRowProps {
   row: MetricBlockRow;
   mode: CurrentPositionMetricsMode;
   maxAbs: number;
-  /** KS-4033 follow-up: true, если строка сейчас выбрана (подсвечивает доску). */
-  selected: boolean;
-  /** KS-4033 follow-up: клик-обработчик для toggle подсветки. */
-  onSelect: () => void;
+  /** KS-4043 follow-up: true, если блок раскрыт (виден список подкомпонент). */
+  expanded: boolean;
+  /** KS-4043 follow-up: клик-обработчик для раскрытия/сворачивания блока. */
+  onToggle: () => void;
   /** KS-4036: `t` для локализации имени блока. */
   t: (key: string, def?: string) => string;
 }
@@ -183,7 +183,9 @@ interface BarRowProps {
  * наборе. Это даёт пропорциональную картинку и не зависит от
  * абсолютной величины (psqt в сотнях, threat_hanging в десятках).
  */
-function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
+function BarRow({ row, mode, maxAbs, expanded, onToggle, t }: BarRowProps) {
+  const selected = expanded;
+  const onSelect = onToggle;
   const ratio = maxAbs > 0 ? Math.min(1, row.score / maxAbs) : 0;
   const pct = (ratio * 50).toFixed(2); // половина ширины — на сторону
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -284,6 +286,170 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
   );
 }
 
+/**
+ * KS-4043 follow-up: одна сырая подкомпонента блока, кликабельная.
+ * При клике вызывается `onSelect(id)` — родитель подсвечивает клетки.
+ */
+interface ContributionRowProps {
+  contribution: MetricBlockRow['contributions'][number];
+  mode: CurrentPositionMetricsMode;
+  maxAbs: number;
+  selected: boolean;
+  onSelect: () => void;
+}
+
+function ContributionRow({
+  contribution,
+  mode,
+  maxAbs,
+  selected,
+  onSelect,
+}: ContributionRowProps) {
+  const ratio = maxAbs > 0 ? Math.min(1, Math.abs(contribution.diff) / maxAbs) : 0;
+  const pct = (ratio * 50).toFixed(2);
+  const isWhite = contribution.diff >= 0;
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect();
+    }
+  };
+  const raw = isRawUnitContribution(contribution.id);
+  return (
+    <div
+      className={`current-metrics-row current-metrics-row--contribution${
+        selected ? ' current-metrics-row--selected' : ''
+      }${mode === 'parallel' ? ' current-metrics-row--parallel' : ' current-metrics-row--diff'}`}
+      data-testid={`current-metrics-contribution-${contribution.id}`}
+      data-selected={selected ? 'true' : 'false'}
+      onClick={onSelect}
+      onKeyDown={onKeyDown}
+      role="button"
+      tabIndex={0}
+    >
+      <span
+        className="current-metrics-row__label"
+        title={contribution.id + (raw ? ' (raw units)' : '')}
+        tabIndex={-1}
+      >
+        {contribution.id}
+        {raw ? ' *' : ''}
+      </span>
+      {mode === 'diff' ? (
+        <>
+          <div className="current-metrics-row__bar-track">
+            <span
+              className="current-metrics-row__bar-axis"
+              aria-hidden="true"
+            />
+            <span
+              className={`current-metrics-row__bar current-metrics-row__bar--${isWhite ? 'white' : 'black'}`}
+              style={{
+                width: `${pct}%`,
+                [isWhite ? 'left' : 'right']: '50%',
+              }}
+            />
+          </div>
+          <span className="current-metrics-row__value">
+            {formatPawnsSigned(contribution.diff)}
+          </span>
+        </>
+      ) : (
+        <div className="current-metrics-row__bars-stack">
+          <div className="current-metrics-row__bars-stack-row" data-side="white">
+            <span
+              className="current-metrics-row__bar current-metrics-row__bar--white"
+              style={{
+                width: `${
+                  maxAbs > 0
+                    ? (Math.min(1, contribution.white / maxAbs) * 100).toFixed(2)
+                    : 0
+                }%`,
+              }}
+            />
+            <span className="current-metrics-row__value current-metrics-row__value--inline">
+              {formatPawns(contribution.white)}
+            </span>
+          </div>
+          <div className="current-metrics-row__bars-stack-row" data-side="black">
+            <span
+              className="current-metrics-row__bar current-metrics-row__bar--black"
+              style={{
+                width: `${
+                  maxAbs > 0
+                    ? (Math.min(1, contribution.black / maxAbs) * 100).toFixed(2)
+                    : 0
+                }%`,
+              }}
+            />
+            <span className="current-metrics-row__value current-metrics-row__value--inline">
+              {formatPawns(contribution.black)}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * KS-4043 follow-up: блок-строка + раскрываемый список подкомпонент.
+ * Клик по самой строке-блоку — toggle раскрытия (подсветка клеток НЕ
+ * включается). Клик по подкомпоненте — подсвечивает её клетки.
+ */
+interface BlockWithContributionsProps {
+  row: MetricBlockRow;
+  mode: CurrentPositionMetricsMode;
+  maxAbs: number;
+  expanded: boolean;
+  selectedContributionId: string | null;
+  onToggle: () => void;
+  onSelectContribution: (id: string) => void;
+  t: (key: string, def?: string) => string;
+}
+
+function BlockWithContributions({
+  row,
+  mode,
+  maxAbs,
+  expanded,
+  selectedContributionId,
+  onToggle,
+  onSelectContribution,
+  t,
+}: BlockWithContributionsProps) {
+  return (
+    <div className="current-metrics-block" data-testid={`current-metrics-block-${row.key}`}>
+      <BarRow
+        row={row}
+        mode={mode}
+        maxAbs={maxAbs}
+        expanded={expanded}
+        onToggle={onToggle}
+        t={t}
+      />
+      {expanded && row.contributions.length > 0 && (
+        <div
+          className="current-metrics-block__contributions"
+          data-testid={`current-metrics-block-contributions-${row.key}`}
+          role="group"
+        >
+          {row.contributions.map((c) => (
+            <ContributionRow
+              key={c.id}
+              contribution={c}
+              mode={mode}
+              maxAbs={maxAbs}
+              selected={selectedContributionId === c.id}
+              onSelect={() => onSelectContribution(c.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CurrentPositionMetricsPanel({
   fen,
   enabled = true,
@@ -306,44 +472,55 @@ export function CurrentPositionMetricsPanel({
   // из задачи). По умолчанию выключено — пользователь должен сам
   // решить, нужен ли ему фильтр.
   const [hideTiny, setHideTiny] = useState(false);
-  // KS-4033 follow-up / KS-4043: какой блок сейчас выбран для подсветки
-  // доски. `null` — ничего не подсвечено. Повторный клик по той же
-  // строке снимает выделение.
-  const [selectedMetricId, setSelectedMetricId] =
+  // KS-4043 follow-up: двойная вложенность. Клик на строку-блок только
+  // раскрывает/сворачивает его, ПОДСВЕТКУ клеток НЕ включает (блок —
+  // агрегат, у него нет одной осмысленной выборки клеток). Подсветка
+  // включается кликом на сырую подкомпоненту внутри раскрытого блока.
+  const [expandedBlockKey, setExpandedBlockKey] =
     useState<MetricBlockKey | null>(null);
+  // KS-4033 follow-up: id выбранной сырой подкомпоненты, по которой
+  // подсвечены клетки. `null` — подсветки нет.
+  const [selectedContributionId, setSelectedContributionId] = useState<
+    string | null
+  >(null);
 
-  // При смене позиции снимаем выделение — клетки прошлой позиции не
-  // имеют смысла для новой расстановки. Реагируем на `fenForSubterms`,
-  // т.к. оно обновляется ровно когда новый набор subterms готов.
+  // При смене позиции снимаем подсветку и сворачиваем блок.
   const lastFenRef = useRef<string | null>(null);
-  if (
-    metrics.fenForSubterms !== lastFenRef.current &&
-    selectedMetricId !== null
-  ) {
+  if (metrics.fenForSubterms !== lastFenRef.current) {
     lastFenRef.current = metrics.fenForSubterms;
-    setSelectedMetricId(null);
-    onHighlightSquares?.(null);
-  } else if (metrics.fenForSubterms !== lastFenRef.current) {
-    lastFenRef.current = metrics.fenForSubterms;
+    if (selectedContributionId !== null) {
+      setSelectedContributionId(null);
+      onHighlightSquares?.(null);
+    }
+    if (expandedBlockKey !== null) {
+      setExpandedBlockKey(null);
+    }
   }
 
-  const handleSelect = (blockKey: MetricBlockKey) => {
-    if (selectedMetricId === blockKey) {
-      setSelectedMetricId(null);
+  const handleBlockToggle = (blockKey: MetricBlockKey) => {
+    setExpandedBlockKey((prev) => (prev === blockKey ? null : blockKey));
+    // Сворачивание / переключение блока снимает подсветку — она была
+    // привязана к подкомпоненте, которая теперь скрыта.
+    if (selectedContributionId !== null) {
+      setSelectedContributionId(null);
+      onHighlightSquares?.(null);
+    }
+  };
+
+  const handleContributionSelect = (contributionId: string) => {
+    if (selectedContributionId === contributionId) {
+      setSelectedContributionId(null);
       onHighlightSquares?.(null);
       return;
     }
-    setSelectedMetricId(blockKey);
+    setSelectedContributionId(contributionId);
     const subterms = metrics.subterms ?? [];
-    // KS-4038: передаём FEN текущей позиции — для `pawn_connected`
-    // SF выдаёт `square` не для каждой пешки цепочки, и хелпер по FEN
-    // дополняет подсветку всеми пешками связанной группы.
-    // KS-4043: на клик подсвечиваем клетки ВСЕХ подкомпонент блока
-    // (объединение по `block.ids`).
-    const squares = squaresForMetricBlock(subterms, blockKey, {
+    // KS-4038: передаём FEN — для `pawn_connected` хелпер расширяет
+    // подсветку до полной связанной группы по правилу Stockfish-connected.
+    const squares = squaresForMetric(subterms, contributionId, {
       fen: metrics.fenForSubterms,
     });
-    onHighlightSquares?.({ id: blockKey, squares });
+    onHighlightSquares?.({ id: contributionId, squares });
   };
 
   const rows = useMemo(() => {
@@ -466,13 +643,15 @@ export function CurrentPositionMetricsPanel({
         data-testid="current-metrics-rows"
       >
         {rows.map((row) => (
-          <BarRow
+          <BlockWithContributions
             key={row.key}
             row={row}
             mode={mode}
             maxAbs={maxAbs}
-            selected={selectedMetricId === row.key}
-            onSelect={() => handleSelect(row.key)}
+            expanded={expandedBlockKey === row.key}
+            selectedContributionId={selectedContributionId}
+            onToggle={() => handleBlockToggle(row.key)}
+            onSelectContribution={handleContributionSelect}
             t={tForLabel}
           />
         ))}
