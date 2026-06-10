@@ -1,5 +1,6 @@
 /**
- * KS-4033. Тесты вкладки «Метрики» (текущая позиция).
+ * KS-4033 / KS-4036 / KS-4038 / KS-4043. Тесты вкладки «Метрики»
+ * (одна строка-блок на каждый из 7 семантических разделов Stockfish 18).
  *
  * Не запускаем реальный WASM (`evalTrace`), вместо этого передаём
  * готовые подкомпоненты через `metricsOverride`.
@@ -40,12 +41,12 @@ function readyOverride(
   };
 }
 
-describe('<CurrentPositionMetricsPanel> KS-4033', () => {
-  it('рендерит строки метрик, сортируя по убыванию |diff|', () => {
+describe('<CurrentPositionMetricsPanel> KS-4043', () => {
+  it('агрегирует подкомпоненты по 7 блокам и сортирует по убыванию |diff|', () => {
     const subterms: PositionalSubterm[] = [
-      sub('pawn_connected', 'w', 2, 2), // diff=2
-      sub('mobility_knight', 'w', 50, 50), // diff=50
-      sub('threat_hanging', 'b', 10, 10), // diff=-10 → |10|
+      sub('mobility_knight', 'w', 50, 50), // блок mobility, diff=+50
+      sub('threat_hanging', 'b', 10, 10), // блок threats, diff=−10
+      sub('pawn_connected', 'w', 2, 2), // блок pawn-structure, diff=+2
     ];
     render(
       <CurrentPositionMetricsPanel
@@ -53,29 +54,33 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
         metricsOverride={readyOverride(subterms)}
       />,
     );
-    // Только корневые data-testid строк (`current-metrics-row-<id>`), без
-    // вложенных `current-metrics-row-value-*` / `-label-wrap-*` / `-popover-*`.
     const rows = screen.getAllByTestId(
-      /^current-metrics-row-(?!value|white|black|label-wrap|popover)[a-z_]+$/,
+      /^current-metrics-row-(?!value|white|black|label-wrap|popover)[a-z-]+$/,
     );
-    // Первой строкой — самая весомая (mobility_knight).
+    // Сначала непустые по убыванию |diff|, потом пустые блоки в
+    // исходном Gherkin-порядке (материал → … → проходные).
     expect(rows[0]).toHaveAttribute(
       'data-testid',
-      'current-metrics-row-mobility_knight',
+      'current-metrics-row-mobility',
     );
     expect(rows[1]).toHaveAttribute(
       'data-testid',
-      'current-metrics-row-threat_hanging',
+      'current-metrics-row-threats',
     );
     expect(rows[2]).toHaveAttribute(
       'data-testid',
-      'current-metrics-row-pawn_connected',
+      'current-metrics-row-pawn-structure',
     );
   });
 
-  it('режим «Разница» показывает один столбик со знаком', () => {
+  it('подкомпоненты вне блоков (space, king_safe_check_*, king_attackers_*, psqt_*) НЕ показаны', () => {
     const subterms: PositionalSubterm[] = [
-      sub('mobility_knight', 'w', 50, 50),
+      sub('space', 'w', 5, 5),
+      sub('king_safe_check_rook', 'b', -5.8, -5.8),
+      sub('king_attackers_count', 'w', 3, 3),
+      sub('psqt_pawn', 'w', 30, 30),
+      // Только этот попадает на UI.
+      sub('mobility_knight', 'w', 4, 4),
     ];
     render(
       <CurrentPositionMetricsPanel
@@ -83,9 +88,26 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
         metricsOverride={readyOverride(subterms)}
       />,
     );
+    const valueRows = screen.getAllByTestId(
+      /^current-metrics-row-(?!value|white|black|label-wrap|popover)[a-z-]+$/,
+    );
+    // 7 строк-блоков всегда рендерятся (пустые блоки тоже видны для
+    // консистентности — Gherkin-порядок). Главное — нет отдельных
+    // строк для исключённых id.
+    expect(valueRows).toHaveLength(7);
     expect(
-      screen.getByTestId('current-metrics-row-value-mobility_knight'),
-    ).toHaveTextContent('+50.0');
+      screen.queryByTestId('current-metrics-row-king_safe_check_rook'),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('current-metrics-row-king_attackers_count'),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('current-metrics-row-psqt_pawn'),
+    ).toBeNull();
+    // А «Подвижность» с +4 — рендерится.
+    expect(
+      screen.getByTestId('current-metrics-row-value-mobility'),
+    ).toHaveTextContent('+4.0');
   });
 
   it('переключение режима «Разница ↔ Параллельно» меняет вид без перерасчёта', () => {
@@ -99,24 +121,65 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
         metricsOverride={readyOverride(subterms)}
       />,
     );
-    // По умолчанию — режим diff (один value).
     expect(
-      screen.queryByTestId('current-metrics-row-white-mobility_knight'),
+      screen.queryByTestId('current-metrics-row-white-mobility'),
     ).toBeNull();
-    // Переключаемся в parallel.
     fireEvent.click(screen.getByTestId('current-metrics-mode-parallel'));
     expect(
-      screen.getByTestId('current-metrics-row-white-mobility_knight'),
+      screen.getByTestId('current-metrics-row-white-mobility'),
     ).toHaveTextContent('50.0');
     expect(
-      screen.getByTestId('current-metrics-row-black-mobility_knight'),
+      screen.getByTestId('current-metrics-row-black-mobility'),
     ).toHaveTextContent('20.0');
   });
 
-  it('фильтр «Скрыть малозначимые» убирает строки с |diff| < 1', () => {
+  describe('подсветка клеток при клике (KS-4033 / KS-4043)', () => {
+    it('клик по строке-блоку передаёт объединённые клетки всех подкомпонент', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('pawn_isolated', 'w', 5, 5, 'd4'),
+        sub('pawn_doubled', 'w', 3, 3, 'd5'),
+        sub('pawn_backward', 'b', 4, 4, 'h7'),
+      ];
+      const onHighlight = vi.fn();
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          onHighlightSquares={onHighlight}
+        />,
+      );
+      fireEvent.click(
+        screen.getByTestId('current-metrics-row-pawn-structure'),
+      );
+      expect(onHighlight).toHaveBeenLastCalledWith({
+        id: 'pawn-structure',
+        squares: { white: ['d4', 'd5'], black: ['h7'] },
+      });
+    });
+
+    it('повторный клик по той же строке снимает подсветку', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('pawn_isolated', 'w', 5, 5, 'd4'),
+      ];
+      const onHighlight = vi.fn();
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          onHighlightSquares={onHighlight}
+        />,
+      );
+      const row = screen.getByTestId('current-metrics-row-pawn-structure');
+      fireEvent.click(row);
+      fireEvent.click(row);
+      expect(onHighlight).toHaveBeenLastCalledWith(null);
+    });
+  });
+
+  it('поповер показывает локализованное имя блока и подкомпоненты вклада', () => {
     const subterms: PositionalSubterm[] = [
-      sub('mobility_knight', 'w', 50, 50), // |diff|=50
-      sub('pawn_connected', 'w', 0.5, 0.5), // |diff|=0.5
+      sub('mobility_knight', 'w', 5, 5),
+      sub('mobility_bishop', 'w', 3, 3),
     ];
     render(
       <CurrentPositionMetricsPanel
@@ -124,16 +187,10 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
         metricsOverride={readyOverride(subterms)}
       />,
     );
-    expect(
-      screen.getByTestId('current-metrics-row-pawn_connected'),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('current-metrics-hide-tiny'));
-    expect(
-      screen.queryByTestId('current-metrics-row-pawn_connected'),
-    ).toBeNull();
-    expect(
-      screen.getByTestId('current-metrics-row-mobility_knight'),
-    ).toBeInTheDocument();
+    const popover = screen.getByTestId('current-metrics-row-popover-mobility');
+    expect(popover).toHaveAttribute('role', 'tooltip');
+    expect(popover).toHaveTextContent('mobility_knight');
+    expect(popover).toHaveTextContent('mobility_bishop');
   });
 
   it('состояние loading показывает заглушку, когда данных ещё нет', () => {
@@ -168,135 +225,5 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
     expect(screen.getByTestId('current-metrics-error')).toHaveTextContent(
       'wasm crash',
     );
-  });
-
-  it('скрывает строки psqt_* — техническое разложение без шахматной семантики', () => {
-    const subterms: PositionalSubterm[] = [
-      sub('psqt_pawn', 'w', 90, 70),
-      sub('psqt_knight', 'w', 50, 40),
-      sub('mobility_knight', 'w', 30, 20),
-    ];
-    render(
-      <CurrentPositionMetricsPanel
-        fen={STARTING_FEN}
-        metricsOverride={readyOverride(subterms)}
-      />,
-    );
-    expect(screen.queryByTestId('current-metrics-row-psqt_pawn')).toBeNull();
-    expect(screen.queryByTestId('current-metrics-row-psqt_knight')).toBeNull();
-    expect(
-      screen.getByTestId('current-metrics-row-mobility_knight'),
-    ).toBeInTheDocument();
-  });
-
-  describe('подсветка клеток при клике на строку (KS-4033 follow-up)', () => {
-    it('первый клик передаёт squares, повторный — null (toggle)', () => {
-      const subterms: PositionalSubterm[] = [
-        sub('pawn_isolated', 'w', 5, 5, 'd4'),
-        sub('pawn_isolated', 'b', 4, 4, 'h7'),
-      ];
-      const onHighlight = vi.fn();
-      render(
-        <CurrentPositionMetricsPanel
-          fen={STARTING_FEN}
-          metricsOverride={readyOverride(subterms)}
-          onHighlightSquares={onHighlight}
-        />,
-      );
-      const row = screen.getByTestId('current-metrics-row-pawn_isolated');
-      fireEvent.click(row);
-      expect(onHighlight).toHaveBeenLastCalledWith({
-        id: 'pawn_isolated',
-        squares: { white: ['d4'], black: ['h7'] },
-      });
-      expect(row).toHaveAttribute('data-selected', 'true');
-      fireEvent.click(row);
-      expect(onHighlight).toHaveBeenLastCalledWith(null);
-      expect(row).toHaveAttribute('data-selected', 'false');
-    });
-
-    it('клик по другой строке переключает выделение', () => {
-      const subterms: PositionalSubterm[] = [
-        sub('pawn_isolated', 'w', 5, 5, 'd4'),
-        sub('mobility_knight', 'w', 6, 6, 'f3'),
-      ];
-      const onHighlight = vi.fn();
-      render(
-        <CurrentPositionMetricsPanel
-          fen={STARTING_FEN}
-          metricsOverride={readyOverride(subterms)}
-          onHighlightSquares={onHighlight}
-        />,
-      );
-      fireEvent.click(
-        screen.getByTestId('current-metrics-row-pawn_isolated'),
-      );
-      fireEvent.click(
-        screen.getByTestId('current-metrics-row-mobility_knight'),
-      );
-      expect(onHighlight).toHaveBeenLastCalledWith({
-        id: 'mobility_knight',
-        squares: { white: ['f3'], black: [] },
-      });
-      expect(
-        screen.getByTestId('current-metrics-row-pawn_isolated'),
-      ).toHaveAttribute('data-selected', 'false');
-      expect(
-        screen.getByTestId('current-metrics-row-mobility_knight'),
-      ).toHaveAttribute('data-selected', 'true');
-    });
-  });
-
-  describe('поповер с полным названием метрики (KS-4036)', () => {
-    it('у строки есть title-атрибут с полным id (минимум — нативный tooltip)', () => {
-      const subterms: PositionalSubterm[] = [
-        sub('king_attackers_count', 'w', 5, 5),
-      ];
-      render(
-        <CurrentPositionMetricsPanel
-          fen={STARTING_FEN}
-          metricsOverride={readyOverride(subterms)}
-        />,
-      );
-      // Label-обёртка содержит вложенный span с title и видимым текстом.
-      const labelWrap = screen.getByTestId(
-        'current-metrics-row-label-wrap-king_attackers_count',
-      );
-      const labelSpan = labelWrap.querySelector(
-        '.current-metrics-row__label',
-      ) as HTMLElement | null;
-      expect(labelSpan).not.toBeNull();
-      expect(labelSpan!.getAttribute('title')).toBe('king_attackers_count');
-    });
-
-    it('визуальный поповер рендерится в DOM с полным id и role="tooltip"', () => {
-      const subterms: PositionalSubterm[] = [
-        sub('threat_slider_on_queen', 'w', 5, 5),
-      ];
-      render(
-        <CurrentPositionMetricsPanel
-          fen={STARTING_FEN}
-          metricsOverride={readyOverride(subterms)}
-        />,
-      );
-      const popover = screen.getByTestId(
-        'current-metrics-row-popover-threat_slider_on_queen',
-      );
-      expect(popover).toHaveAttribute('role', 'tooltip');
-      expect(popover).toHaveTextContent('threat_slider_on_queen');
-    });
-  });
-
-  it('headerLink рендерится когда передан', () => {
-    render(
-      <CurrentPositionMetricsPanel
-        fen={STARTING_FEN}
-        metricsOverride={readyOverride([])}
-        headerLink={{ label: '↗ Полная аналитика', href: '/analyses/x/metrics' }}
-      />,
-    );
-    const a = screen.getByTestId('current-metrics-header-link');
-    expect(a).toHaveAttribute('href', '/analyses/x/metrics');
-    expect(a).toHaveTextContent('↗ Полная аналитика');
   });
 });

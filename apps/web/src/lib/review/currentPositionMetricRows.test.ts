@@ -6,7 +6,10 @@ import { describe, it, expect } from 'vitest';
 import type { PositionalSubterm } from '@kingside/shared';
 import {
   buildCurrentPositionMetricRows,
+  buildMetricBlockRows,
+  isRawUnitContribution,
   squaresForMetric,
+  squaresForMetricBlock,
 } from './currentPositionMetricRows';
 
 function sub(
@@ -278,5 +281,128 @@ describe('squaresForMetric (KS-4033 follow-up)', () => {
         black: [],
       });
     });
+  });
+});
+
+describe('buildMetricBlockRows (KS-4043)', () => {
+  it('возвращает 7 блоков в фиксированном порядке', () => {
+    const rows = buildMetricBlockRows([]);
+    expect(rows.map((r) => r.key)).toEqual([
+      'material',
+      'pawn-structure',
+      'king-safety',
+      'pieces',
+      'mobility',
+      'threats',
+      'passed',
+    ]);
+  });
+
+  it('агрегирует material (white-signed) и imbalance в блок «Материал»', () => {
+    const subterms = [
+      sub('material', undefined, 200, 200), // +200 в пользу белых
+      sub('imbalance', undefined, 50, 50),
+    ];
+    const block = buildMetricBlockRows(subterms).find(
+      (r) => r.key === 'material',
+    )!;
+    expect(block.white).toBe(250);
+    expect(block.black).toBe(0);
+    expect(block.diff).toBe(250);
+    expect(block.contributions.map((c) => c.id).sort()).toEqual([
+      'imbalance',
+      'material',
+    ]);
+  });
+
+  it('суммирует owner-signed pawn_* в блок «Пешечная структура»', () => {
+    const subterms = [
+      sub('pawn_connected', 'w', 20, 18),
+      sub('pawn_isolated', 'b', 10, 12),
+    ];
+    const block = buildMetricBlockRows(subterms).find(
+      (r) => r.key === 'pawn-structure',
+    )!;
+    // pawn_connected mix = 19 у белых; pawn_isolated mix = 11 у чёрных.
+    expect(block.white).toBe(19);
+    expect(block.black).toBe(11);
+    expect(block.diff).toBe(8);
+  });
+
+  it('подкомпоненты вне блоков (space, king_attackers_*, psqt_*, king_safe_check_*) НЕ попадают на основную вкладку', () => {
+    const subterms = [
+      sub('space', 'w', 5, 5),
+      sub('king_attackers_count', 'w', 3, 3),
+      sub('king_attackers_weight', 'b', 7, 7),
+      sub('king_safe_check_rook', 'b', -5.8, -5.8),
+      sub('psqt_pawn', 'w', 30, 30),
+    ];
+    const blocks = buildMetricBlockRows(subterms);
+    // Все блоки нулевые.
+    for (const b of blocks) {
+      expect(b.diff).toBe(0);
+      expect(b.white).toBe(0);
+      expect(b.black).toBe(0);
+      expect(b.contributions).toHaveLength(0);
+    }
+  });
+
+  it('mobility_* агрегируются в блок «Подвижность»', () => {
+    const subterms = [
+      sub('mobility_knight', 'w', 50, 40),
+      sub('mobility_bishop', 'w', 30, 30),
+      sub('mobility_knight', 'b', 20, 20),
+    ];
+    const block = buildMetricBlockRows(subterms).find(
+      (r) => r.key === 'mobility',
+    )!;
+    // mix: w = (50+40)/2 + (30+30)/2 = 45 + 30 = 75; b = (20+20)/2 = 20
+    expect(block.white).toBe(75);
+    expect(block.black).toBe(20);
+    expect(block.diff).toBe(55);
+  });
+
+  it('king_danger входит в «Безопасность короля», без king_safe_check_*', () => {
+    const subterms = [
+      sub('king_danger', 'w', 10, 10),
+      sub('king_safe_check_rook', 'b', -5.8, -5.8),
+    ];
+    const block = buildMetricBlockRows(subterms).find(
+      (r) => r.key === 'king-safety',
+    )!;
+    // Только king_danger учтён.
+    expect(block.contributions.map((c) => c.id)).toEqual(['king_danger']);
+    expect(block.white).toBe(10);
+    expect(block.black).toBe(0);
+  });
+});
+
+describe('squaresForMetricBlock (KS-4043)', () => {
+  it('объединяет клетки от всех подкомпонент блока', () => {
+    const subterms = [
+      sub('pawn_isolated', 'w', 5, 5, 'd4'),
+      sub('pawn_doubled', 'w', 3, 3, 'd5'),
+      sub('pawn_backward', 'b', 4, 4, 'h7'),
+      // Не входит в pawn-structure — игнорируется.
+      sub('king_danger', 'w', 10, 10, 'g1'),
+    ];
+    const out = squaresForMetricBlock(subterms, 'pawn-structure');
+    expect(out.white.sort()).toEqual(['d4', 'd5']);
+    expect(out.black).toEqual(['h7']);
+  });
+});
+
+describe('isRawUnitContribution (KS-4043)', () => {
+  it('king_safe_check_* и king_attackers_* — сырые единицы', () => {
+    expect(isRawUnitContribution('king_safe_check_rook')).toBe(true);
+    expect(isRawUnitContribution('king_safe_check_queen')).toBe(true);
+    expect(isRawUnitContribution('king_attackers_count')).toBe(true);
+    expect(isRawUnitContribution('king_attackers_weight')).toBe(true);
+  });
+
+  it('обычные id — не сырые', () => {
+    expect(isRawUnitContribution('king_danger')).toBe(false);
+    expect(isRawUnitContribution('mobility_knight')).toBe(false);
+    expect(isRawUnitContribution('material')).toBe(false);
   });
 });

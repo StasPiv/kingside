@@ -35,6 +35,10 @@ import type {
   PositionalSubtermId,
 } from '@kingside/shared';
 import type { MetricPhase } from './positionalMetrics';
+import {
+  METRIC_BLOCKS,
+  type MetricBlockKey,
+} from './metricBlocks';
 
 /**
  * Идентификаторы подкомпонент, для которых Stockfish выдаёт значения
@@ -315,4 +319,124 @@ function expandPawnConnected(
     if (!added) break;
   }
   return out;
+}
+
+/**
+ * KS-4043. Одна строка таблицы блоков на вкладке «Метрики».
+ */
+export interface MetricBlockRow {
+  key: MetricBlockKey;
+  i18nKey: string;
+  /** Подкомпоненты блока, реально вкладывающиеся в значение (для поповера и режима «Подробности»). */
+  contributions: ReadonlyArray<{
+    id: string;
+    white: number;
+    black: number;
+    diff: number;
+    whiteSigned: boolean;
+  }>;
+  /** Сумма `white` по всем подкомпонентам блока. */
+  white: number;
+  /** Сумма `black` по всем подкомпонентам блока. */
+  black: number;
+  /** `white − black`. Положительная — преимущество белых. */
+  diff: number;
+  /** `|diff|` — вес блока для сортировки UI. */
+  score: number;
+}
+
+/**
+ * KS-4043. Сгруппировать `subterms` по 7 блокам и посчитать
+ * агрегированные `white`/`black`/`diff`.
+ *
+ * Использует существующий `buildCurrentPositionMetricRows` (та же
+ * знаковая конвенция, что в KS-4033), затем суммирует строки по
+ * `METRIC_ID_TO_BLOCK`. Подкомпоненты, не входящие ни в один блок
+ * (`space`, `king_attackers_*`, `king_safe_check_*`, `psqt_*` и др.),
+ * отбрасываются — это требование KS-4043.
+ *
+ * Порядок результата фиксирован: материал → структура → безопасность
+ * короля → фигуры → подвижность → угрозы → проходные (Gherkin KS-4043).
+ * Сортировку по «весу» для UI делает вызывающий код.
+ */
+export function buildMetricBlockRows(
+  subterms: ReadonlyArray<PositionalSubterm>,
+  phase: MetricPhase = 'mix',
+): MetricBlockRow[] {
+  const perId = buildCurrentPositionMetricRows(subterms, phase);
+  // Карта по id для быстрого доступа.
+  const byId = new Map<string, (typeof perId)[number]>();
+  for (const row of perId) byId.set(row.id as string, row);
+
+  return METRIC_BLOCKS.map((block) => {
+    const contributions: Array<{
+      id: string;
+      white: number;
+      black: number;
+      diff: number;
+      whiteSigned: boolean;
+    }> = [];
+    let white = 0;
+    let black = 0;
+    for (const id of block.ids) {
+      const row = byId.get(id);
+      if (!row) continue;
+      contributions.push({
+        id: row.id as string,
+        white: row.white,
+        black: row.black,
+        diff: row.diff,
+        whiteSigned: row.whiteSigned,
+      });
+      white += row.white;
+      black += row.black;
+    }
+    const diff = white - black;
+    return {
+      key: block.key,
+      i18nKey: block.i18nKey,
+      contributions,
+      white,
+      black,
+      diff,
+      score: Math.abs(diff),
+    };
+  });
+}
+
+/**
+ * KS-4043. Собирает клетки доски, связанные с любой подкомпонентой
+ * блока (объединение по всем `ids`). Используется для подсветки доски
+ * при клике на строку-блок.
+ *
+ * `fen` опционален, как у `squaresForMetric` — нужен только для
+ * расширения `pawn_connected` до полной связанной цепочки (KS-4038).
+ */
+export function squaresForMetricBlock(
+  subterms: ReadonlyArray<PositionalSubterm>,
+  blockKey: MetricBlockKey,
+  options: SquaresForMetricOptions = {},
+): MetricSquares {
+  const block = METRIC_BLOCKS.find((b) => b.key === blockKey);
+  if (!block) return { white: [], black: [] };
+  const white = new Set<string>();
+  const black = new Set<string>();
+  for (const id of block.ids) {
+    const s = squaresForMetric(subterms, id, options);
+    for (const sq of s.white) white.add(sq);
+    for (const sq of s.black) black.add(sq);
+  }
+  return {
+    white: Array.from(white).sort(),
+    black: Array.from(black).sort(),
+  };
+}
+
+/**
+ * Подкомпоненты, по которым Stockfish может выдать «сырое» значение в
+ * нелинейной шкале и которые нельзя интерпретировать как cp на одной
+ * шкале с другими. В режиме «Подробности» в UI к ним ставится пометка.
+ */
+export function isRawUnitContribution(id: string): boolean {
+  return id.startsWith('king_safe_check_') || id.startsWith('king_attackers');
 }

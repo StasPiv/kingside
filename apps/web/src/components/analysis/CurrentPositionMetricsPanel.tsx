@@ -27,12 +27,14 @@ import {
   type CurrentPositionMetricsState,
 } from '../../hooks/useCurrentPositionMetrics';
 import {
-  buildCurrentPositionMetricRows,
-  squaresForMetric,
-  type CurrentPositionMetricRow,
+  buildMetricBlockRows,
+  isRawUnitContribution,
+  squaresForMetricBlock,
+  type MetricBlockRow,
   type MetricSquares,
 } from '../../lib/review/currentPositionMetricRows';
 import type { MetricPhase } from '../../lib/review/positionalMetrics';
+import type { MetricBlockKey } from '../../lib/review/metricBlocks';
 
 export type CurrentPositionMetricsMode = 'diff' | 'parallel';
 
@@ -77,64 +79,64 @@ export interface CurrentPositionMetricsPanelProps {
   ) => void;
 }
 
-/** Длинный полу-предсказуемый список меток для UI. Без перевода: id
- *  Stockfish — это код метрики, отображается as-is (Latin) — совпадает
- *  с тем, что показывает отладочная таблица `__ksPositionalDiff()`.
- *  Отдельная задача по локализации меток — KS-followup. */
-function formatLabel(id: CurrentPositionMetricRow['id']): string {
-  return id;
-}
-
 /**
- * KS-4036: поповер с полным названием метрики при наведении / фокусе.
- * До этого тикета длинные id обрезались троеточием (`king_attackers_co...`),
- * и понять, что это за метрика, было невозможно. Поповер — компактная
- * подсказка: полный идентификатор Stockfish + (опц.) перевод из i18n.
+ * KS-4036 / KS-4043: поповер с расшифровкой блока при наведении / фокусе.
+ * На вкладке «Метрики» теперь рендерится одна строка-блок (KS-4043),
+ * поповер показывает локализованное имя блока + перечень подкомпонент
+ * Stockfish, реально дававших вклад в позицию. Подкомпоненты с
+ * пометкой `isRawUnitContribution` (king_safe_check_*, king_attackers_*)
+ * в поповере подсвечены — у них шкала не cp, а сырые единицы.
  *
- * Реализован без сторонних библиотек, через CSS `:hover` / `:focus-within`
- * родительского `.current-metrics-row__label-wrap` — работает на десктопе.
- * На мобильных устройствах (где hover нет) показывается нативный
- * браузерный tooltip через `title` атрибут — он отрабатывает на long-press.
- *
- * `t` нужен только если в i18n появятся переводы (TODO i18n — не
- * блокирующая мелочь). Сейчас словарь пустой, поповер показывает один
- * технический id.
+ * Реализован без сторонних библиотек: CSS `:hover` / `:focus-within`
+ * на родительском `.current-metrics-row__label-wrap`. На мобильном
+ * браузер показывает нативный tooltip через `title` (long-press).
  */
-const METRIC_LABEL_I18N_PREFIX = 'analysis.metrics.label.';
-
 interface MetricLabelWithPopoverProps {
-  id: CurrentPositionMetricRow['id'];
+  block: MetricBlockRow;
   t: (key: string, def?: string) => string;
 }
 
-function MetricLabelWithPopover({ id, t }: MetricLabelWithPopoverProps) {
-  const technical = formatLabel(id);
-  // TODO i18n: ключ `analysis.metrics.label.<id>` для перевода
-  // конкретной метрики. Если ключ не задан — `t` вернёт default
-  // (пустую строку), и подзаголовок локализации не рендерится.
-  const localized = t(`${METRIC_LABEL_I18N_PREFIX}${id}`, '').trim();
-  const titleAttr = localized ? `${technical} — ${localized}` : technical;
+function MetricLabelWithPopover({ block, t }: MetricLabelWithPopoverProps) {
+  const localized = t(block.i18nKey, '').trim() || block.key;
+  const technical = block.key;
+  const contributionsLine = block.contributions.length
+    ? block.contributions.map((c) => c.id).join(', ')
+    : '';
+  const titleAttr = contributionsLine
+    ? `${localized} (${contributionsLine})`
+    : localized;
   return (
     <span
       className="current-metrics-row__label-wrap"
-      data-testid={`current-metrics-row-label-wrap-${id}`}
+      data-testid={`current-metrics-row-label-wrap-${block.key}`}
     >
       <span
         className="current-metrics-row__label"
         title={titleAttr}
         tabIndex={0}
       >
-        {technical}
+        {localized}
       </span>
       <span
         className="current-metrics-row__popover"
         role="tooltip"
-        data-testid={`current-metrics-row-popover-${id}`}
+        data-testid={`current-metrics-row-popover-${block.key}`}
       >
-        <span className="current-metrics-row__popover-id">{technical}</span>
-        {localized && (
-          <span className="current-metrics-row__popover-localized">
-            {localized}
+        <span className="current-metrics-row__popover-id">{localized}</span>
+        <span className="current-metrics-row__popover-localized">
+          {technical}
+        </span>
+        {block.contributions.length > 0 && (
+          <span
+            className="current-metrics-row__popover-localized"
+            data-testid={`current-metrics-row-popover-contributions-${block.key}`}
+          >
+            {block.contributions
+              .map(
+                (c) =>
+                  `${c.id}${isRawUnitContribution(c.id) ? ' *' : ''}: ${c.diff.toFixed(1)}`,
+              )
+              .join('\n')}
           </span>
         )}
       </span>
@@ -143,14 +145,14 @@ function MetricLabelWithPopover({ id, t }: MetricLabelWithPopoverProps) {
 }
 
 interface BarRowProps {
-  row: CurrentPositionMetricRow;
+  row: MetricBlockRow;
   mode: CurrentPositionMetricsMode;
   maxAbs: number;
   /** KS-4033 follow-up: true, если строка сейчас выбрана (подсвечивает доску). */
   selected: boolean;
   /** KS-4033 follow-up: клик-обработчик для toggle подсветки. */
   onSelect: () => void;
-  /** KS-4036: `t` для попытки локализовать имя метрики. */
+  /** KS-4036: `t` для локализации имени блока. */
   t: (key: string, def?: string) => string;
 }
 
@@ -180,7 +182,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
         className={`current-metrics-row current-metrics-row--diff${
           selected ? ' current-metrics-row--selected' : ''
         }`}
-        data-testid={`current-metrics-row-${row.id}`}
+        data-testid={`current-metrics-row-${row.key}`}
         data-side={isWhite ? 'white' : 'black'}
         data-selected={selected ? 'true' : 'false'}
         onClick={onSelect}
@@ -188,7 +190,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
         role="button"
         tabIndex={0}
       >
-        <MetricLabelWithPopover id={row.id} t={t} />
+        <MetricLabelWithPopover block={row} t={t} />
         <div className="current-metrics-row__bar-track">
           <span
             className="current-metrics-row__bar-axis"
@@ -204,7 +206,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
         </div>
         <span
           className="current-metrics-row__value"
-          data-testid={`current-metrics-row-value-${row.id}`}
+          data-testid={`current-metrics-row-value-${row.key}`}
         >
           {row.diff >= 0 ? '+' : ''}
           {row.diff.toFixed(1)}
@@ -221,14 +223,14 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
       className={`current-metrics-row current-metrics-row--parallel${
         selected ? ' current-metrics-row--selected' : ''
       }`}
-      data-testid={`current-metrics-row-${row.id}`}
+      data-testid={`current-metrics-row-${row.key}`}
       data-selected={selected ? 'true' : 'false'}
       onClick={onSelect}
       onKeyDown={onKeyDown}
       role="button"
       tabIndex={0}
     >
-      <MetricLabelWithPopover id={row.id} t={t} />
+      <MetricLabelWithPopover block={row} t={t} />
       <div className="current-metrics-row__bars-stack">
         <div
           className="current-metrics-row__bars-stack-row"
@@ -240,7 +242,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
           />
           <span
             className="current-metrics-row__value current-metrics-row__value--inline"
-            data-testid={`current-metrics-row-white-${row.id}`}
+            data-testid={`current-metrics-row-white-${row.key}`}
           >
             {row.white.toFixed(1)}
           </span>
@@ -255,7 +257,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
           />
           <span
             className="current-metrics-row__value current-metrics-row__value--inline"
-            data-testid={`current-metrics-row-black-${row.id}`}
+            data-testid={`current-metrics-row-black-${row.key}`}
           >
             {row.black.toFixed(1)}
           </span>
@@ -287,12 +289,11 @@ export function CurrentPositionMetricsPanel({
   // из задачи). По умолчанию выключено — пользователь должен сам
   // решить, нужен ли ему фильтр.
   const [hideTiny, setHideTiny] = useState(false);
-  // KS-4033 follow-up: какая строка-метрика сейчас выбрана для подсветки
+  // KS-4033 follow-up / KS-4043: какой блок сейчас выбран для подсветки
   // доски. `null` — ничего не подсвечено. Повторный клик по той же
   // строке снимает выделение.
-  const [selectedMetricId, setSelectedMetricId] = useState<string | null>(
-    null,
-  );
+  const [selectedMetricId, setSelectedMetricId] =
+    useState<MetricBlockKey | null>(null);
 
   // При смене позиции снимаем выделение — клетки прошлой позиции не
   // имеют смысла для новой расстановки. Реагируем на `fenForSubterms`,
@@ -309,40 +310,45 @@ export function CurrentPositionMetricsPanel({
     lastFenRef.current = metrics.fenForSubterms;
   }
 
-  const handleSelect = (rowId: string) => {
-    if (selectedMetricId === rowId) {
+  const handleSelect = (blockKey: MetricBlockKey) => {
+    if (selectedMetricId === blockKey) {
       setSelectedMetricId(null);
       onHighlightSquares?.(null);
       return;
     }
-    setSelectedMetricId(rowId);
+    setSelectedMetricId(blockKey);
     const subterms = metrics.subterms ?? [];
     // KS-4038: передаём FEN текущей позиции — для `pawn_connected`
-    // SF выдаёт `square` не для каждой пешки цепочки (например,
-    // отмечает h3 и пропускает g2), и хелпер по FEN дополняет
-    // подсветку всеми пешками той же стороны, реально входящими в
-    // связанную группу (phalanx + supporter + supported).
-    const squares = squaresForMetric(subterms, rowId, {
+    // SF выдаёт `square` не для каждой пешки цепочки, и хелпер по FEN
+    // дополняет подсветку всеми пешками связанной группы.
+    // KS-4043: на клик подсвечиваем клетки ВСЕХ подкомпонент блока
+    // (объединение по `block.ids`).
+    const squares = squaresForMetricBlock(subterms, blockKey, {
       fen: metrics.fenForSubterms,
     });
-    onHighlightSquares?.({ id: rowId, squares });
+    onHighlightSquares?.({ id: blockKey, squares });
   };
 
   const rows = useMemo(() => {
-    if (!metrics.subterms) return [] as CurrentPositionMetricRow[];
-    const all = buildCurrentPositionMetricRows(metrics.subterms, phase);
-    // KS-4033 follow-up: `psqt_*` (psqt_pawn / psqt_knight / psqt_bishop /
-    // psqt_rook / psqt_queen / psqt_king) — техническое разложение
-    // позиционной таблицы фигур, без шахматной семантики. По запросу
-    // пользователя скрываем их из UI вкладки «Метрики» в окне анализа.
-    // Доступны через отладочную консоль (`window.__ksPositionalDiff`,
-    // KS-4017 / KS-4021) и на отдельной странице метрик.
-    const visible = all.filter((r) => !(r.id as string).startsWith('psqt_'));
-    if (!hideTiny) return visible;
-    return visible.filter((r) => r.score >= 1);
+    if (!metrics.subterms) return [] as MetricBlockRow[];
+    // KS-4043: вкладка теперь показывает агрегированные блоки, а не
+    // строки по id. Подкомпоненты вне 7 блоков (`space`, `king_attackers_*`,
+    // `king_safe_check_*`, любые `psqt_*`) сознательно отбрасываются —
+    // см. `metricBlocks.ts` и описание задачи.
+    const all = buildMetricBlockRows(metrics.subterms, phase);
+    // Сортировка: блоки с непустым весом по убыванию `|diff|`; пустые
+    // (`score===0`) сохраняют исходный порядок Gherkin'а (материал →
+    // структура → … → проходные).
+    const nonEmpty = all
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score);
+    const empty = all.filter((r) => r.score === 0);
+    const ordered = [...nonEmpty, ...empty];
+    if (!hideTiny) return ordered;
+    return ordered.filter((r) => r.score >= 1);
   }, [metrics.subterms, phase, hideTiny]);
 
-  const maxAbs = rows.length > 0 ? rows[0].score : 0;
+  const maxAbs = rows.length > 0 ? Math.max(...rows.map((r) => r.score)) : 0;
 
   const isLoading =
     metrics.status === 'loading' && rows.length === 0;
@@ -444,12 +450,12 @@ export function CurrentPositionMetricsPanel({
       >
         {rows.map((row) => (
           <BarRow
-            key={row.id}
+            key={row.key}
             row={row}
             mode={mode}
             maxAbs={maxAbs}
-            selected={selectedMetricId === row.id}
-            onSelect={() => handleSelect(row.id)}
+            selected={selectedMetricId === row.key}
+            onSelect={() => handleSelect(row.key)}
             t={tForLabel}
           />
         ))}

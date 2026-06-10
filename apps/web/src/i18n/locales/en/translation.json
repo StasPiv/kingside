@@ -1073,6 +1073,18 @@
     "clear": "Clear Board"
   },
   "analysis": {
+    "metrics": {
+      "title": "Metrics",
+      "block": {
+        "material": "Material",
+        "pawnStructure": "Pawn structure",
+        "kingSafety": "King safety",
+        "pieces": "Pieces",
+        "mobility": "Mobility",
+        "threats": "Threats",
+        "passed": "Passed pawns"
+      }
+    },
     "aiTab": {
       "title": "AI"
     },

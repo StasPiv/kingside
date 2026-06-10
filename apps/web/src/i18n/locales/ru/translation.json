@@ -1264,6 +1264,18 @@
     "clear": "Очистить доску"
   },
   "analysis": {
+    "metrics": {
+      "title": "Метрики",
+      "block": {
+        "material": "Материал",
+        "pawnStructure": "Пешечная структура",
+        "kingSafety": "Безопасность короля",
+        "pieces": "Фигуры",
+        "mobility": "Подвижность",
+        "threats": "Угрозы",
+        "passed": "Проходные"
+      }
+    },
     "aiTab": {
       "title": "AI"
     },
