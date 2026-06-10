@@ -1010,4 +1010,116 @@ describe('PositionCommentService', () => {
       expect(logSpy).not.toHaveBeenCalled();
     });
   });
+
+  // ─── KS-4049: metrics + phase ──────────────────────────────────────
+
+  describe('KS-4049: metrics + phase из тела запроса', () => {
+    function makeMetricsDto(): PositionCommentDto {
+      return makeDto({
+        metrics: {
+          material:        { value_cp: -0.5 },
+          pawn_structure:  { value_cp: 0.2 },
+          king_safety:     { value_cp: 1.3 },
+          pieces:          { value_cp: 0.8 },
+          mobility:        { value_cp: 0.4 },
+          threats:         { value_cp: -0.2 },
+          passed_pawns:    { value_cp: 0.0 },
+        },
+        phase: 200,
+      });
+    }
+
+    it('comment(): когда есть metrics — systemPrompt содержит дополнение про агрегаты', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      const fetchSpy = jest.fn().mockResolvedValue({
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ response: '{"comment":"x"}' }),
+        text: async () => '',
+      });
+      global.fetch = fetchSpy as never;
+
+      await svc.comment('user-1', makeMetricsDto());
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.systemPrompt).toContain('metrics');
+      expect(body.systemPrompt).toContain('7 групп');
+      expect(body.message).toContain('"metrics"');
+      expect(body.message).toContain('"phase":200');
+    });
+
+    it('comment(): без metrics — systemPrompt НЕ содержит дополнения, message без metrics/phase', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
+        makeRedisStub(),
+      );
+      const fetchSpy = jest.fn().mockResolvedValue({
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ response: '{"comment":"x"}' }),
+        text: async () => '',
+      });
+      global.fetch = fetchSpy as never;
+
+      await svc.comment('user-1', makeDto());
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.systemPrompt).not.toContain('7 групп');
+      expect(body.message).not.toContain('"metrics"');
+      expect(body.message).not.toContain('"phase"');
+    });
+
+    it('buildSystemPrompt(hasMetrics=true) — добавляет блок про агрегаты в RU', () => {
+      const svc = new PositionCommentService(
+        makeConfigService({}),
+        makeRedisStub(),
+      );
+      const withMetrics = svc.buildSystemPrompt('ru', undefined, true);
+      const withoutMetrics = svc.buildSystemPrompt('ru', undefined, false);
+      expect(withMetrics.length).toBeGreaterThan(withoutMetrics.length);
+      expect(withMetrics).toContain('metrics');
+      expect(withMetrics).toContain('фазовой свёртки');
+      // Запрет на цифры остаётся.
+      expect(withMetrics).toContain('value_cp');
+    });
+
+    it('buildSystemPrompt(hasMetrics=true) — добавляет блок про агрегаты в EN', () => {
+      const svc = new PositionCommentService(
+        makeConfigService({}),
+        makeRedisStub(),
+      );
+      const p = svc.buildSystemPrompt('en', undefined, true);
+      expect(p).toContain('`metrics`');
+      expect(p).toContain('tapered by');
+      expect(p).toContain('sf18_eval');
+    });
+
+    it('POSITION_COMMENT_DEBUG=true: extractDebugMeta содержит has_metrics + phase', async () => {
+      const svc = new PositionCommentService(
+        makeConfigService({
+          AI_CHAT_WEBHOOK_URL: 'http://wh.test',
+          POSITION_COMMENT_DEBUG: 'true',
+        }),
+        makeRedisStub(),
+      );
+      global.fetch = jest.fn().mockResolvedValue({
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ response: '{"comment":"x"}' }),
+        text: async () => '',
+      }) as never;
+      const logSpy = jest
+        .spyOn(Logger.prototype, 'log')
+        .mockImplementation(() => {});
+
+      await svc.comment('user-1', makeMetricsDto());
+
+      const logged = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(logged).toContain('"has_metrics":true');
+      expect(logged).toContain('"phase":200');
+    });
+  });
 });

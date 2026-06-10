@@ -147,10 +147,31 @@ export class PositionCommentService {
   buildSystemPrompt(
     language: PositionCommentLanguage = 'ru',
     usedIds?: ReadonlySet<string>,
+    hasMetrics: boolean = false,
   ): string {
-    return this.promptVariant === 'long'
-      ? this.buildSystemPromptLong(language, usedIds)
-      : this.buildSystemPromptShort(language, usedIds);
+    const base =
+      this.promptVariant === 'long'
+        ? this.buildSystemPromptLong(language, usedIds)
+        : this.buildSystemPromptShort(language, usedIds);
+    if (!hasMetrics) return base;
+    return base + '\n\n' + this.buildMetricsAddendum(language);
+  }
+
+  /**
+   * KS-4049. Короткая добавка к системной инструкции, когда фронт
+   * прислал `metrics` (агрегаты по 7 блокам KS-4043). Модель видит и
+   * сырой `factors[]`, и сведённый `metrics`; нужно объяснить как их
+   * сочетать. Запреты по числам/ходам/стилю остаются из базовой части.
+   */
+  private buildMetricsAddendum(language: PositionCommentLanguage): string {
+    if (language === 'en') {
+      return [
+        'Additional input — `metrics`: aggregated contribution of 7 groups (material, pawn_structure, king_safety, pieces, mobility, threats, passed_pawns) in pawns, already tapered by `phase` (0..256). Use the aggregate to ground the overall picture; use raw `factors` for details. Source of truth stays sf18_eval — neither aggregate nor raw factors override its sign. Do NOT quote the raw `value_cp` numbers nor the `phase` value in the answer.',
+      ].join('\n');
+    }
+    return [
+      'Дополнительный вход — `metrics`: агрегированный вклад 7 групп (материал, пешечная структура, безопасность короля, фигуры, подвижность, угрозы, проходные) в пешках, уже после фазовой свёртки по `phase` (0..256). Используй агрегат для общей картины, сырой `factors` — для деталей. Источник истины остаётся sf18_eval; ни агрегат, ни сырые подкомпоненты не отменяют его знак. Сами числа `value_cp` и `phase` в ответе НЕ упоминай.',
+    ].join('\n');
   }
 
   /**
@@ -440,11 +461,22 @@ export class PositionCommentService {
     // KS-3813: сжимаем словарь расшифровок до id, реально пришедших в
     // factors. Раньше отправлялись все 59 пар (~3 КБ), сейчас 0.5–1 КБ.
     const usedIds = this.extractUsedSubtermIds(factorsForModel);
-    const systemPrompt = this.buildSystemPrompt(dto.language, usedIds);
+    // KS-4049: фронт может прислать `metrics` (агрегаты 7 блоков) и
+    // `phase`. Если есть — добавим в системную инструкцию короткую
+    // секцию о том, как комбинировать агрегат с сырым `factors`.
+    const hasMetrics = dto.metrics !== undefined;
+    const systemPrompt = this.buildSystemPrompt(
+      dto.language,
+      usedIds,
+      hasMetrics,
+    );
     const dataJson = JSON.stringify({
       fen: dto.fen,
       factors: factorsForModel,
       ...(dto.eval ? { eval: dto.eval } : {}),
+      // KS-4049: сводный агрегат и фаза, если фронт их прислал.
+      ...(dto.metrics ? { metrics: dto.metrics } : {}),
+      ...(dto.phase !== undefined ? { phase: dto.phase } : {}),
     });
 
     // KS-3694: обработчик внешнего вызова за AI_CHAT_WEBHOOK_URL
@@ -515,6 +547,9 @@ export class PositionCommentService {
       has_sf18_pv: hasSf18Pv,
       terminal_count: terminalCount,
       ...(dto.eval ? { eval: dto.eval } : {}),
+      // KS-4049: диагностика — пришли ли metrics/phase от фронта.
+      has_metrics: dto.metrics !== undefined,
+      ...(dto.phase !== undefined ? { phase: dto.phase } : {}),
     };
   }
 

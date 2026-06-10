@@ -1852,6 +1852,61 @@ export interface PositionCommentResponse {
   arrows: AiArrow[];
 }
 
+/**
+ * KS-4049. Значение одного блока сгруппированных метрик в пешках
+ * (после фазовой свёртки `(mg·phase + eg·(256−phase))/256`). Имя
+ * поля `value_cp` сохранено как в payload фронта (исторический
+ * остаток от первой итерации в KS-4044), фактическое число — в
+ * пешках с возможной дробью.
+ */
+export interface PositionCommentMetricsBlock {
+  value_cp: number;
+}
+
+/**
+ * KS-4049 / KS-4043. Агрегаты по 7 блокам метрик (материал,
+ * пешечная структура, безопасность короля, фигуры, подвижность,
+ * угрозы, проходные). Опциональное расширение тела запроса
+ * `POST /analyses/position/comment` (см. `PositionCommentRequest`).
+ * Источник — `PositionalSubterm`, группировка делается на фронте
+ * (см. логику KS-4043 / KS-4050).
+ */
+export interface PositionCommentMetrics {
+  material: PositionCommentMetricsBlock;
+  pawn_structure: PositionCommentMetricsBlock;
+  king_safety: PositionCommentMetricsBlock;
+  pieces: PositionCommentMetricsBlock;
+  mobility: PositionCommentMetricsBlock;
+  threats: PositionCommentMetricsBlock;
+  passed_pawns: PositionCommentMetricsBlock;
+}
+
+/**
+ * KS-4049. Тело запроса `POST /analyses/position/comment`. Контракт
+ * между фронтом (`useAiPositionComment`, `AiPositionCommentPanel`,
+ * вкладка «Метрики») и `PositionCommentService`.
+ *
+ *  - `fen` — FEN текущей позиции;
+ *  - `factors` — сырая трасса Stockfish-trace (`subterms` + sentinel'ы
+ *    `sf18_eval`/`sf18_pv`), как раньше; структура каждого элемента
+ *    не типизируется;
+ *  - `eval` — финальная оценка `total` из `eval json` (опц.);
+ *  - `language` — `'ru' | 'en'` (default `'ru'`);
+ *  - `metrics` — сгруппированные агрегаты по 7 блокам (KS-4043), опц.;
+ *  - `phase` — фаза позиции 0..256 (опц., сопровождает `metrics`).
+ *
+ * Сами `metrics.*.value_cp` и `phase` модели подаются как контекст;
+ * в ответе их упоминать запрещено (см. системную инструкцию).
+ */
+export interface PositionCommentRequest {
+  fen: string;
+  factors: unknown[];
+  eval?: { mg: number; eg: number; v: number };
+  language?: 'ru' | 'en';
+  metrics?: PositionCommentMetrics;
+  phase?: number;
+}
+
 /** Участник размена на квадрате висячей фигуры (атакующий или защитник). */
 export interface FactsExchangeParticipant {
   piece: FactsAnyPiece;
