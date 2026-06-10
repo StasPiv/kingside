@@ -2246,6 +2246,11 @@ model Lecture {
   /// валидация — на стороне DTO (A02 / KS-3899). Изменения публикуются
   /// событием `live-analysis:lecture-tools` (KS-3896 D01).
   disabledTools  String[]           @default([]) @map("disabled_tools")
+  /// KS-4039. Скрывать ли блок «Метрики» (позиционные подкомпоненты
+  /// Stockfish, KS-4033/4034/4036/4038) у зрителей-учеников в режиме
+  /// лекции. Default false — блок виден всем. Тренер всегда видит
+  /// блок независимо от значения.
+  hideMetricsTab Boolean            @default(false) @map("hide_metrics_tab")
   /// KS-3930 / ADR-118 §3.2. Allowlist для `visibility='restricted'`.
   /// Каждая запись — один разрешённый субъект (MVP: только `subjectType='user'`,
   /// задел под `'course'`). При `visibility != 'restricted'` массив

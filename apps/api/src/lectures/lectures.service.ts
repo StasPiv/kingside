@@ -169,6 +169,11 @@ export class LecturesService {
           startedAt: new Date(),
           liveAnalysisId: session.id,
           ...(disabledTools !== undefined ? { disabledTools } : {}),
+          // KS-4039. Передаём только если клиент указал явно — иначе
+          // Prisma подставит DB-default (false).
+          ...(dto.hideMetricsTab !== undefined
+            ? { hideMetricsTab: dto.hideMetricsTab }
+            : {}),
         },
       });
       await this.seedInitialAccessGrants(lecture.id, ownerId, initialAccessUserIds);
@@ -190,6 +195,10 @@ export class LecturesService {
         scheduledAt,
         status: 'scheduled',
         ...(disabledTools !== undefined ? { disabledTools } : {}),
+        // KS-4039.
+        ...(dto.hideMetricsTab !== undefined
+          ? { hideMetricsTab: dto.hideMetricsTab }
+          : {}),
       },
     });
     await this.seedInitialAccessGrants(lecture.id, ownerId, initialAccessUserIds);
@@ -728,17 +737,23 @@ export class LecturesService {
       );
     }
 
-    // disabledTools / visibility — разрешены всегда (любой статус).
-    // KS-3933 / ADR-118: visibility теперь не scheduled-only.
+    // disabledTools / visibility / hideMetricsTab — разрешены всегда
+    // (любой статус). KS-3933 / ADR-118: visibility теперь не
+    // scheduled-only. KS-4039: hideMetricsTab аналогично — тренер может
+    // переключать отображение блока «Метрики» в любой момент.
     const data: typeof scheduledOnlyData & {
       disabledTools?: string[];
       visibility?: 'public' | 'unlisted' | 'restricted';
+      hideMetricsTab?: boolean;
     } = { ...scheduledOnlyData };
     if (dto.disabledTools !== undefined) {
       data.disabledTools = dto.disabledTools;
     }
     if (dto.visibility !== undefined) {
       data.visibility = dto.visibility;
+    }
+    if (dto.hideMetricsTab !== undefined) {
+      data.hideMetricsTab = dto.hideMetricsTab;
     }
 
     if (Object.keys(data).length === 0) {

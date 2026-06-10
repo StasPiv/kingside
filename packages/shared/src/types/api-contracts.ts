@@ -3541,6 +3541,13 @@ export interface LectureSummary {
    */
   disabledTools: LectureDisabledTool[];
   /**
+   * KS-4039. Скрыт ли блок «Метрики» (позиционные подкомпоненты
+   * Stockfish, KS-4033/4034/4036/4038) у зрителей-учеников. Тренер
+   * всегда видит блок независимо от значения. Backend всегда
+   * возвращает поле (DB-default `false`).
+   */
+  hideMetricsTab: boolean;
+  /**
    * KS-3985 / ADR-119 §8. Стартовая FEN-позиция для preview-доски
    * на landing / в плитке списка. Источник:
    *   - `live`     → `LiveAnalysis.startingFen` (см. примечание ниже).

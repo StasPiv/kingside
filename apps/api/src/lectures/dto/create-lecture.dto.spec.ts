@@ -118,3 +118,81 @@ describe('UpdateLectureDto.disabledTools (KS-3899 / ADR-117)', () => {
     expect(JSON.stringify(errors[0].constraints)).toMatch(/arrayUnique/);
   });
 });
+
+/**
+ * KS-4039. Валидация `hideMetricsTab` в Create/Update DTO.
+ */
+describe('CreateLectureDto.hideMetricsTab (KS-4039)', () => {
+  const base = { title: 'Test lecture' };
+
+  it('поле опциональное: без него ошибок нет', async () => {
+    const errors = await validateDto(CreateLectureDto, base);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('hideMetricsTab=true — валидно', async () => {
+    const errors = await validateDto(CreateLectureDto, {
+      ...base,
+      hideMetricsTab: true,
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('hideMetricsTab=false — валидно', async () => {
+    const errors = await validateDto(CreateLectureDto, {
+      ...base,
+      hideMetricsTab: false,
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('не булево (строка) → ошибка валидации', async () => {
+    const errors = await validateDto(CreateLectureDto, {
+      ...base,
+      hideMetricsTab: 'yes',
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].property).toBe('hideMetricsTab');
+    expect(JSON.stringify(errors[0].constraints)).toMatch(/isBoolean/);
+  });
+
+  it('не булево (число) → ошибка валидации', async () => {
+    const errors = await validateDto(CreateLectureDto, {
+      ...base,
+      hideMetricsTab: 1,
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].property).toBe('hideMetricsTab');
+    expect(JSON.stringify(errors[0].constraints)).toMatch(/isBoolean/);
+  });
+});
+
+describe('UpdateLectureDto.hideMetricsTab (KS-4039)', () => {
+  it('опциональное: пустой payload — без ошибок', async () => {
+    const errors = await validateDto(UpdateLectureDto, {});
+    expect(errors).toHaveLength(0);
+  });
+
+  it('hideMetricsTab=true — валидно', async () => {
+    const errors = await validateDto(UpdateLectureDto, {
+      hideMetricsTab: true,
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('hideMetricsTab=false — валидно (снять флажок)', async () => {
+    const errors = await validateDto(UpdateLectureDto, {
+      hideMetricsTab: false,
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('не булево → ошибка валидации', async () => {
+    const errors = await validateDto(UpdateLectureDto, {
+      hideMetricsTab: 'on',
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].property).toBe('hideMetricsTab');
+    expect(JSON.stringify(errors[0].constraints)).toMatch(/isBoolean/);
+  });
+});

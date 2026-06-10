@@ -1,6 +1,7 @@
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsIn,
   IsInt,
@@ -101,6 +102,16 @@ export class CreateLectureDto {
   @ArrayUnique()
   @IsIn(ALL_LECTURE_DISABLED_TOOLS as readonly string[], { each: true })
   disabledTools?: LectureDisabledTool[];
+
+  /**
+   * KS-4039. Скрыть блок «Метрики» (позиционные подкомпоненты Stockfish)
+   * у зрителей-учеников в режиме лекции. Опционально на создании —
+   * без поля Prisma подставит DB-default `false`. Тренер всегда видит
+   * блок независимо от значения.
+   */
+  @IsOptional()
+  @IsBoolean()
+  hideMetricsTab?: boolean;
 }
 
 /**
@@ -169,6 +180,15 @@ export class UpdateLectureDto {
   @ArrayUnique()
   @IsIn(ALL_LECTURE_DISABLED_TOOLS as readonly string[], { each: true })
   disabledTools?: LectureDisabledTool[];
+
+  /**
+   * KS-4039. Скрыть/показать блок «Метрики» у зрителей-учеников.
+   * Разрешён в любом статусе лекции (как `disabledTools` и
+   * `visibility` — KS-3900/KS-3933).
+   */
+  @IsOptional()
+  @IsBoolean()
+  hideMetricsTab?: boolean;
 }
 
 /**

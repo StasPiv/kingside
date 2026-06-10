@@ -267,6 +267,52 @@ describe('LecturesService', () => {
       expect(data.disabledTools).toEqual(['analyze_game', 'generate_puzzle']);
     });
 
+    // ─── KS-4039: hideMetricsTab ─────────────────────────────────────
+
+    it('KS-4039: scheduled + hideMetricsTab=true передаётся в Prisma create', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-hide-1',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      await service.create('u-1', {
+        title: 'Со скрытым блоком метрик',
+        scheduledAt: '2026-06-07T18:00:00.000Z',
+        hideMetricsTab: true,
+      });
+      const data = prisma.lecture.create.mock.calls[0][0].data;
+      expect(data.hideMetricsTab).toBe(true);
+    });
+
+    it('KS-4039: scheduled без hideMetricsTab → Prisma create без поля (DB default false)', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-hide-2',
+        ownerId: 'u-1',
+        status: 'scheduled',
+      });
+      await service.create('u-1', {
+        title: 'Дефолтный блок метрик',
+        scheduledAt: '2026-06-07T18:00:00.000Z',
+      });
+      const data = prisma.lecture.create.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('hideMetricsTab');
+    });
+
+    it('KS-4039: immediate-live + hideMetricsTab=false передаётся в Prisma create', async () => {
+      prisma.lecture.create.mockResolvedValueOnce({
+        id: 'l-hide-3',
+        ownerId: 'u-1',
+        status: 'live',
+        liveAnalysisId: 'la-1',
+      });
+      await service.create('u-1', {
+        title: 'Live с явно показанным блоком метрик',
+        hideMetricsTab: false,
+      });
+      const data = prisma.lecture.create.mock.calls[0][0].data;
+      expect(data.hideMetricsTab).toBe(false);
+    });
+
     it('KS-3789: immediate-live с analysisId использует LiveAnalysisService.create', async () => {
       prisma.lecture.create.mockResolvedValueOnce({
         id: 'l-4',
@@ -1361,6 +1407,91 @@ describe('LecturesService', () => {
       await service.update('l-1', 'u-1', { disabledTools: ['engine'] });
       const args = prisma.lecture.update.mock.calls[0][0];
       expect(args.data).toEqual({ disabledTools: ['engine'] });
+    });
+
+    // ─── KS-4039: hideMetricsTab ─────────────────────────────────────
+
+    it('KS-4039: hideMetricsTab=true правится в scheduled', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(scheduled);
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        hideMetricsTab: true,
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { hideMetricsTab: true });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ hideMetricsTab: true });
+    });
+
+    it('KS-4039: hideMetricsTab правится в live (разрешено в любом статусе)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        hideMetricsTab: true,
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { hideMetricsTab: true });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ hideMetricsTab: true });
+    });
+
+    it('KS-4039: hideMetricsTab=false правится в recorded (replay)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+        hideMetricsTab: false,
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { hideMetricsTab: false });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ hideMetricsTab: false });
+    });
+
+    it('KS-4039: совмещённый PATCH {title, hideMetricsTab} в live → 400 (title scheduled-only)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      await expect(
+        service.update('l-1', 'u-1', {
+          title: 'не пройдёт',
+          hideMetricsTab: true,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
+    });
+
+    it('KS-4039: совмещённый PATCH {hideMetricsTab, disabledTools} в live — оба применяются', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        hideMetricsTab: true,
+        disabledTools: ['engine'],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {
+        hideMetricsTab: true,
+        disabledTools: ['engine'],
+      });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data.hideMetricsTab).toBe(true);
+      expect(args.data.disabledTools).toEqual(['engine']);
     });
 
     it('KS-3900: совмещённый PATCH {title, disabledTools} в live → 400, ничего не записано', async () => {
