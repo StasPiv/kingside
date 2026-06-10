@@ -3,6 +3,8 @@ import {
   shouldFinishLose,
   isWinDropExcessive,
   meetsFinalObjective,
+  chooseFinishSound,
+  FINISH_SOUND_STARS_THRESHOLD,
   PRESERVED_WIN_DROP_THRESHOLD_PERMILLE,
 } from './precisionVerdict';
 
@@ -246,5 +248,88 @@ describe('meetsFinalObjective (KS-3169)', () => {
     const wdl = { w: 99, d: 400, l: 501 };
     // (99+400)/1000 = 0.499 < 0.5.
     expect(meetsFinalObjective(wdl, -0.402, 'saveEquality', WIN_THR)).toBe(false);
+  });
+});
+
+/**
+ * KS-4028: тест на выбор финального звука по итоговой точности (звёздам),
+ * а не по бинарному win/lose-вердикту. Жалоба пользователя из Telegram
+ * (/tmp/telegram/326131465_0.jpg): saveEquality «Реализуй перевес»,
+ * Победа/Ничья/Поражение 0%/100%/0%, 5★ «Идеальное решение», 100%
+ * точность — фронт сыграл звук неудачи, потому что raner ушёл в
+ * `finishLose('lose-wdl', …)` по effWdlUser/dropTooHigh.
+ *
+ * Контракт `chooseFinishSound`:
+ *  - stars ≥ FINISH_SOUND_STARS_THRESHOLD (3) → 'puzzle-correct'
+ *  - stars <  FINISH_SOUND_STARS_THRESHOLD     → 'puzzle-incorrect'
+ *  - stars=null → fallback на бинарный исход runner'а
+ */
+describe('chooseFinishSound (KS-4028)', () => {
+  // Sanity: документируем выбранный порог, чтобы случайное изменение
+  // STAR_THRESHOLDS не сломало контракт без явного апдейта матрицы.
+  it('FINISH_SOUND_STARS_THRESHOLD = 3 (точность ≥70% → звук успеха)', () => {
+    expect(FINISH_SOUND_STARS_THRESHOLD).toBe(3);
+  });
+
+  describe('матрица итоговой точности → звук (главный кейс жалобы)', () => {
+    // scorePct → mapToStars (STAR_THRESHOLDS из precision-score.ts):
+    //   100% → 5★, 75% → 3★, 50% → 2★, 25% → 1★, 0% → 1★.
+    it('100% / 5★ → puzzle-correct (кейс пользователя, «Идеальное решение»)', () => {
+      expect(chooseFinishSound(5, 'win')).toBe('puzzle-correct');
+      // ГЛАВНОЕ: даже если runner выбрал бинарный fallback 'lose'
+      // (saveEquality + меньшая планка по WDL), при 5★ звук всё равно успеха.
+      expect(chooseFinishSound(5, 'lose')).toBe('puzzle-correct');
+    });
+
+    it('точность ≈85% / 4★ → puzzle-correct', () => {
+      expect(chooseFinishSound(4, 'win')).toBe('puzzle-correct');
+      expect(chooseFinishSound(4, 'lose')).toBe('puzzle-correct');
+    });
+
+    it('75% / 3★ «решено, но с ошибками» → puzzle-correct (нижняя граница «решено»)', () => {
+      expect(chooseFinishSound(3, 'win')).toBe('puzzle-correct');
+      expect(chooseFinishSound(3, 'lose')).toBe('puzzle-correct');
+    });
+
+    it('50% / 2★ → puzzle-incorrect', () => {
+      expect(chooseFinishSound(2, 'win')).toBe('puzzle-incorrect');
+      expect(chooseFinishSound(2, 'lose')).toBe('puzzle-incorrect');
+    });
+
+    it('25% / 1★ → puzzle-incorrect', () => {
+      expect(chooseFinishSound(1, 'win')).toBe('puzzle-incorrect');
+      expect(chooseFinishSound(1, 'lose')).toBe('puzzle-incorrect');
+    });
+
+    it('0% / 1★ → puzzle-incorrect', () => {
+      // 0% scorePct маппится в 1★ (см. mapToStars).
+      expect(chooseFinishSound(1, 'win')).toBe('puzzle-incorrect');
+      expect(chooseFinishSound(1, 'lose')).toBe('puzzle-incorrect');
+    });
+  });
+
+  describe('fallback при stars=null (computePrecisionScore не смог посчитать)', () => {
+    it('null + outcome=win → puzzle-correct', () => {
+      expect(chooseFinishSound(null, 'win')).toBe('puzzle-correct');
+    });
+
+    it('null + outcome=lose → puzzle-incorrect', () => {
+      expect(chooseFinishSound(null, 'lose')).toBe('puzzle-incorrect');
+    });
+  });
+
+  describe('звук НЕ зависит от win/lose-вердикта при наличии звёзд', () => {
+    // KS-4028: ключевое требование — звук обязан зависеть от итоговой
+    // точности/звёзд, а не от исхода партии или дельты win%. Если stars
+    // определены, fallbackOutcome игнорируется.
+    it('5★ + outcome=lose → puzzle-correct (бывший баг: было puzzle-incorrect)', () => {
+      expect(chooseFinishSound(5, 'lose')).toBe('puzzle-correct');
+    });
+
+    it('1★ + outcome=win → puzzle-incorrect', () => {
+      // Гипотетический кейс (win по факту мата против слабой игры
+      // соперника): по звёздам неудача — звук должен быть неудачи.
+      expect(chooseFinishSound(1, 'win')).toBe('puzzle-incorrect');
+    });
   });
 });

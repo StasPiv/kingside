@@ -173,3 +173,53 @@ export function meetsFinalObjective(
 function uciSquares(uci: string): string {
   return uci.slice(0, 4);
 }
+
+/**
+ * KS-4028: порог звёзд, начиная с которого финальный звук — успех
+ * (`puzzle-correct`). Меньше порога — звук неудачи (`puzzle-incorrect`).
+ *
+ * Привязка к семантике i18n плашки `precision.score.stars.*`:
+ *  - 5★ «Идеальное решение»                — успех
+ *  - 4★ «Почти идеально — одна неточность» — успех
+ *  - 3★ «Решено, но с заметными ошибками»  — успех (задача считается решённой)
+ *  - 2★, 1★                                — неудача
+ *
+ * 3★ выбран нижней границей «решено», чтобы звук соответствовал тому, что
+ * пользователь видит на финальной плашке (точность ≥70%).
+ */
+export const FINISH_SOUND_STARS_THRESHOLD = 3;
+
+/**
+ * KS-4028: какой именно звуковой ивент проиграть как итоговый. До этого
+ * фикса `finishWin` всегда вызывал `puzzle-correct`, а `finishLose` —
+ * `puzzle-incorrect`. Бинарный win/lose-вердикт runner'а основан на
+ * effWdlUser/`meetsFinalObjective` (исход партии, дельта вероятности
+ * победы) и расходился с реальной точностью решения. На скрине
+ * пользователя задача `saveEquality` была решена идеально (5★, 100%
+ * точность), но финал `meetsFinalObjective`/`dropTooHigh` помечал
+ * её как `lose-wdl` и фронт играл звук неудачи поверх плашки
+ * «Идеальное решение».
+ *
+ * Новый источник истины — итоговая точность (звёзды) precision-attempt:
+ * stars ≥ `FINISH_SOUND_STARS_THRESHOLD` → `puzzle-correct`, иначе
+ * `puzzle-incorrect`.
+ *
+ * Если расчёт точности невозможен (stars=null — данных недостаточно по
+ * `computePrecisionScore`: <1 полухода / нет ни WDL ни cp), используется
+ * fallback на бинарный исход runner'а — звук соответствует state win/lose.
+ */
+export type FinishSoundOutcome = 'win' | 'lose';
+
+export type FinishSoundEvent = 'puzzle-correct' | 'puzzle-incorrect';
+
+export function chooseFinishSound(
+  stars: 1 | 2 | 3 | 4 | 5 | null,
+  fallbackOutcome: FinishSoundOutcome,
+): FinishSoundEvent {
+  if (stars === null) {
+    return fallbackOutcome === 'win' ? 'puzzle-correct' : 'puzzle-incorrect';
+  }
+  return stars >= FINISH_SOUND_STARS_THRESHOLD
+    ? 'puzzle-correct'
+    : 'puzzle-incorrect';
+}

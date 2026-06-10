@@ -76,6 +76,7 @@ import {
   shouldFinishLose,
   isWinDropExcessive,
   meetsFinalObjective,
+  chooseFinishSound,
 } from './precisionVerdict';
 
 /**
@@ -1103,11 +1104,23 @@ export function PlayVsEngineRunner({
   );
 
   // ── Win / lose helpers ───────────────────────────────────────────────
+  // KS-4028: финальный звук считаем по итоговой точности (звёздам),
+  // а не по бинарному win/lose. Раньше `finishWin → puzzle-correct`,
+  // `finishLose → puzzle-incorrect` — это завязка на effWdlUser/
+  // meetsFinalObjective, т.е. на исход партии и дельту win%. Жалоба
+  // пользователя: saveEquality, 5★ «Идеальное решение», 100% точность,
+  // но runner ушёл в `finishLose('lose-wdl', …)` (Победа 0%→0%, дельта
+  // win% нулевая) — играл звук неудачи. Источник истины теперь —
+  // `computePrecisionScore` (та же оценка, что показывает плашка). Если
+  // stars не посчитались (нет данных) — fallback на бинарный исход.
   const finishWin = useCallback(
     (finishReason: 'win' | 'win-mate' | 'win-engine-resign', wdl: number, half: number) => {
       setState('win');
       setReason(finishReason);
-      playSound('puzzle-correct');
+      const { stars } = computePrecisionScore(
+        buildPrecisionScoreInputs(userBestLogRef.current),
+      );
+      playSound(chooseFinishSound(stars, 'win'));
       submitOnce(true, finishReason, wdl, half);
     },
     [playSound, submitOnce],
@@ -1117,7 +1130,10 @@ export function PlayVsEngineRunner({
     (finishReason: 'lose-wdl' | 'lose-mate', wdl: number, half: number) => {
       setState('lose');
       setReason(finishReason);
-      playSound('puzzle-incorrect');
+      const { stars } = computePrecisionScore(
+        buildPrecisionScoreInputs(userBestLogRef.current),
+      );
+      playSound(chooseFinishSound(stars, 'lose'));
       submitOnce(false, finishReason, wdl, half);
     },
     [playSound, submitOnce],
