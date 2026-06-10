@@ -84,10 +84,15 @@ export class PrecisionMoveSnapshotDto implements PrecisionMoveSnapshot {
   @Type(() => WdlTripleDto)
   wdlAfter?: { w: number; d: number; l: number } | null;
 
+  /**
+   * KS-4032. Фактическая глубина анализа Stockfish (ply). Прежние
+   * границы `@Min(0) @Max(60)` сняты — Stockfish регулярно выходит за
+   * 60 на тактических позициях (наблюдаемые значения 63, 70+), а
+   * нижняя граница тоже не имеет смысла (поле информационное). При
+   * нарушении формата `@IsInt` всё равно отклоняет нечисла.
+   */
   @IsOptional()
   @IsInt()
-  @Min(0)
-  @Max(60)
   depth?: number | null;
 }
 
