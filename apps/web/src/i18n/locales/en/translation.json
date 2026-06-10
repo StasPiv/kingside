@@ -832,7 +832,12 @@
       "find_by_position": "Find by position"
     },
     "saveSuccess": "Settings saved",
-    "saveError": "Failed to save settings. Please try again."
+    "saveError": "Failed to save settings. Please try again.",
+    "metricsSectionTitle": "Stockfish metrics",
+    "hideMetricsTab": {
+      "label": "Hide metrics from students",
+      "hint": "The Stockfish metrics panel will not be visible to viewers."
+    }
   },
   "liveAnalysisViewer": {
     "defaultTitle": "Live analysis",

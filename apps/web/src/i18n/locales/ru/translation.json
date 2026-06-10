@@ -846,7 +846,12 @@
     },
     "saveSuccess": "Настройки сохранены",
     "saveError": "Не удалось сохранить настройки. Попробуйте ещё раз.",
-    "save": "Сохранить"
+    "save": "Сохранить",
+    "metricsSectionTitle": "Метрики Stockfish",
+    "hideMetricsTab": {
+      "label": "Скрыть метрики у учеников",
+      "hint": "Блок Stockfish-метрик не будет виден зрителям."
+    }
   },
   "lectureLanding": {
     "badge": {

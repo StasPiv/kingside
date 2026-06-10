@@ -363,6 +363,15 @@ interface AnalysisPageProps {
    */
   studentToolsPolicy?: LectureDisabledTool[];
   /**
+   * KS-4040. Скрыть блок «Метрики» в правой колонке у зрителей-учеников
+   * (тренер видит всегда). Источник — `LectureSummary.hideMetricsTab`
+   * от backend (KS-4039). Поле передаётся вызывающим компонентом
+   * (`LectureReplayPage` через `lecture.hideMetricsTab`; `LiveAnalysisViewerPage`
+   * пока не использует — поле не входит в snapshot/event live-анализа,
+   * это отдельная задача). Применяется только в `publicMode`.
+   */
+  hideMetricsForViewers?: boolean;
+  /**
    * KS-3182 (ADR-072 §7 F2): embedded-режим — AnalysisPage встроен в
    * другой контейнер (шаг урока «Партия»). Поведение:
    *  - PGN приходит из `embeddedPgn` пропа, а не из URL/state/БД;
@@ -995,6 +1004,7 @@ export function AnalysisPage({
   liveSession,
   replay,
   studentToolsPolicy,
+  hideMetricsForViewers,
   lectureSettings,
   onLectureSettingsSaved,
 }: AnalysisPageProps = {}) {
@@ -1028,6 +1038,7 @@ export function AnalysisPage({
       liveSession={liveSession}
       replay={replay}
       studentToolsPolicy={studentToolsPolicy}
+      hideMetricsForViewers={hideMetricsForViewers}
       lectureSettings={lectureSettings}
       onLectureSettingsSaved={onLectureSettingsSaved}
     />
@@ -1041,6 +1052,7 @@ function AnalysisPageInner({
   liveSession,
   replay,
   studentToolsPolicy,
+  hideMetricsForViewers,
   lectureSettings,
   onLectureSettingsSaved,
 }: AnalysisPageProps) {
@@ -2743,24 +2755,32 @@ function AnalysisPageInner({
     white: string[];
     black: string[];
   } | null>(null);
+  // KS-4040: блок «Метрики» скрывается у зрителей-учеников, когда
+  // тренер выставил `LectureSummary.hideMetricsTab = true` (KS-4039).
+  // Гейт применяется ТОЛЬКО в `publicMode` — у владельца страница
+  // работает без ограничений. `metricsContent = undefined` приводит
+  // к тому, что `AnalysisSidebar` не рендерит ни блок accordion, ни
+  // мобильную вкладку (см. KS-4024 / ADR-122 в `AnalysisSidebar.tsx`).
+  const showMetricsPanel = !(publicMode && hideMetricsForViewers);
   const metricsContent = useMemo(
-    () => (
-      <CurrentPositionMetricsPanel
-        fen={currentFen}
-        headerLink={
-          analysisId
-            ? {
-                label: '↗ Открыть полную аналитику партии',
-                href: `/analyses/${analysisId}/metrics`,
-              }
-            : undefined
-        }
-        onHighlightSquares={(info) => {
-          setMetricsHighlightSquares(info ? info.squares : null);
-        }}
-      />
-    ),
-    [currentFen, analysisId],
+    () =>
+      showMetricsPanel ? (
+        <CurrentPositionMetricsPanel
+          fen={currentFen}
+          headerLink={
+            analysisId
+              ? {
+                  label: '↗ Открыть полную аналитику партии',
+                  href: `/analyses/${analysisId}/metrics`,
+                }
+              : undefined
+          }
+          onHighlightSquares={(info) => {
+            setMetricsHighlightSquares(info ? info.squares : null);
+          }}
+        />
+      ) : undefined,
+    [showMetricsPanel, currentFen, analysisId],
   );
   // KS-4033 follow-up. Слой подсветки доски от вкладки «Метрики».
   // Белые клетки — золотистая полу-прозрачная, чёрные — оранжевая

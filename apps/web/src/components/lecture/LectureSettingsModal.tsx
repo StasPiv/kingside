@@ -96,6 +96,13 @@ export function LectureSettingsModal({
     useState<LectureVisibility>('public');
   const [enabledTools, setEnabledTools] =
     useState<LectureDisabledTool[]>([...ALL_LECTURE_DISABLED_TOOLS]);
+  // KS-4040: новое поле `LectureSummary.hideMetricsTab` (KS-4039). Если
+  // true, блок «Метрики» в правой колонке анализа не рендерится у
+  // зрителей-учеников. Тренер видит блок всегда — флажок лишь меняет
+  // настройку для остальных. State живёт отдельно от `disabledTools`,
+  // потому что backend поднял это как самостоятельное поле, не часть
+  // массива `disabledTools` (KS-4039 контракт).
+  const [hideMetricsTab, setHideMetricsTab] = useState<boolean>(false);
   const [hydrated, setHydrated] = useState(false);
 
   // Когда `useLectureDetail` дотянул полный snapshot, инициализируем
@@ -113,6 +120,10 @@ export function LectureSettingsModal({
         (tool) => !(lecture.disabledTools ?? []).includes(tool),
       ),
     );
+    // KS-4040: backend всегда возвращает поле, на старых снапшотах
+    // (через useLectureDetail) оно может отсутствовать (типу нужно
+    // время на пересборку shared у клиентов) — fallback `false`.
+    setHideMetricsTab(Boolean(lecture.hideMetricsTab));
     setHydrated(true);
   }, [lecture, hydrated]);
 
@@ -138,6 +149,11 @@ export function LectureSettingsModal({
           description: description.trim() ? description.trim() : null,
           visibility,
           disabledTools,
+          // KS-4040: новое поле — backend KS-4039 принимает его в
+          // PATCH /lectures/:id, DB-default `false`. Отправляем всегда
+          // (а не «только при изменении»), чтобы случайный refetch
+          // лекции в фоне не перезаписал значение.
+          hideMetricsTab,
         },
       );
       onSaved?.(updated);
@@ -346,6 +362,49 @@ export function LectureSettingsModal({
                   );
                 })}
               </div>
+              {/* KS-4040. Отдельный флажок «Скрыть метрики у учеников».
+                  По смыслу относится к доступу инструментов, но
+                  backend поднял это как самостоятельное поле
+                  (KS-4039 `hideMetricsTab: boolean`), не часть
+                  массива `disabledTools`. Поэтому держим в той же
+                  вкладке, но визуально отдельной секцией. */}
+              <p
+                className="lecture-modal__tools-section-title"
+                style={{ marginTop: 16 }}
+              >
+                {t(
+                  'lectureTools.metricsSectionTitle',
+                  'Stockfish metrics',
+                )}
+              </p>
+              <label
+                htmlFor="lecture-settings-hide-metrics-tab"
+                className="lecture-modal__tool-row"
+                data-disabled={submitting ? 'true' : 'false'}
+              >
+                <input
+                  id="lecture-settings-hide-metrics-tab"
+                  type="checkbox"
+                  checked={hideMetricsTab}
+                  onChange={(e) => setHideMetricsTab(e.target.checked)}
+                  disabled={submitting}
+                  data-testid="lecture-settings-hide-metrics-tab"
+                />
+                <span>
+                  {t(
+                    'lectureTools.hideMetricsTab.label',
+                    'Hide metrics from students',
+                  )}
+                  <span className="lecture-modal__tool-hint">
+                    {' '}
+                    —{' '}
+                    {t(
+                      'lectureTools.hideMetricsTab.hint',
+                      'The Stockfish metrics panel will not be visible to viewers.',
+                    )}
+                  </span>
+                </span>
+              </label>
             </div>
           )}
 

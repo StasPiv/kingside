@@ -741,6 +741,14 @@ export function LectureReplayPage() {
                    book / меню действий). Пустой массив или
                    отсутствие поля — ученикам доступен полный набор. */
                 studentToolsPolicy={lecture.disabledTools ?? []}
+                /* KS-4040: тренер выставил `hideMetricsTab` (KS-4039) —
+                   у учеников блок «Метрики» в правой колонке скрыт.
+                   Тренер видит его всегда, гейт применяется только в
+                   `publicMode`. На старых snapshot'ах поле может
+                   отсутствовать — fallback `false`, метрики видны. */
+                hideMetricsForViewers={Boolean(
+                  (lecture as { hideMetricsTab?: boolean }).hideMetricsTab,
+                )}
                 /* KS-3912 / ADR-117 B02: пункт меню «Настройки лекции
                    для учеников» доступен тренеру и в записи. После
                    успешного PATCH обновляем локальный snapshot
