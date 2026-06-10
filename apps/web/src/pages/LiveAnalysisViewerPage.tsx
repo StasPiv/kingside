@@ -12,6 +12,7 @@ import { api } from '../api';
 import { ApiError } from '../ApiError';
 import { useLiveAnalysisSocket } from '../hooks/useLiveAnalysisSocket';
 import { useLectureToolsPolicy } from '../hooks/useLectureToolsPolicy';
+import { useLectureHideMetricsTab } from '../hooks/useLectureHideMetricsTab';
 import { deserializeLiveTree } from '../review/utils/liveTreeCodec';
 import { liveAnalysisSocket } from '../socket';
 import { AnalysisPage } from './AnalysisPage';
@@ -175,6 +176,22 @@ export function LiveAnalysisViewerPage() {
     snapshot?.lectureDisabledTools,
   );
 
+  // KS-4042. Тот же паттерн для нового поля `hideMetricsTab`
+  // (KS-4039 / KS-4041). Источники:
+  //   - REST snapshot (`LiveAnalysisResponse.lectureHideMetricsTab`)
+  //     при mount-фазе.
+  //   - Sync-snapshot при re-subscribe — приходит внутри
+  //     `useLiveAnalysisBroadcast`, не у нас. Если backend кладёт
+  //     поле в sync, `useLectureHideMetricsTab` подхватит его при
+  //     повторной передаче `initial` из обновлённого `snapshot`.
+  //   - WS-событие `live-analysis:lecture-tools` (KS-4041 добавил
+  //     обязательное поле `hideMetricsTab`) — апдейт в реальном
+  //     времени без перезагрузки.
+  const hideMetricsForViewers = useLectureHideMetricsTab(
+    !snapshot || closedReason ? null : slug ?? null,
+    snapshot?.lectureHideMetricsTab,
+  );
+
   // KS-3978 / ADR-119 D02. Слушаем событие отзыва доступа на
   // `liveAnalysisSocket`. Используем глобальный socket напрямую,
   // потому что `useLiveAnalysisSocket` не пробрасывает кастомные
@@ -311,6 +328,7 @@ export function LiveAnalysisViewerPage() {
         key={slug}
         liveSession={{ slug, mode: 'viewer' }}
         studentToolsPolicy={studentToolsPolicy}
+        hideMetricsForViewers={hideMetricsForViewers}
       />
 
       {closedReason && (
