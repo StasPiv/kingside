@@ -1569,3 +1569,45 @@
     margin: 0 auto;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────
+ * KS-4052. StudentVisibilityChecklist (KS-4047).
+ * Компонент рендерит контейнер `.student-visibility-checklist`
+ * с строками-метками `.student-visibility-checklist__row`, внутри
+ * `<input type="checkbox">` и `<span>` подписи. Стилей не было —
+ * пункты слипались в одну строку без отступов.
+ *
+ * Решение: горизонтальная раскладка с переносом (flex-wrap), gap
+ * между пунктами 14px, между флажком и подписью 6px. На узкой
+ * модалке пункты переносятся на следующую строку, а не уезжают
+ * за край.
+ * ────────────────────────────────────────────────────────────── */
+.student-visibility-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+}
+
+.student-visibility-checklist__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.2;
+  user-select: none;
+}
+
+.student-visibility-checklist__row[data-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.student-visibility-checklist__row input[type="checkbox"] {
+  margin: 0;
+  flex-shrink: 0;
+  cursor: inherit;
+  accent-color: var(--accent-primary);
+}
