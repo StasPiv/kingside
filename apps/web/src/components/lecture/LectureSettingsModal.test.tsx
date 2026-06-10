@@ -86,32 +86,118 @@ describe('<LectureSettingsModal> KS-4040', () => {
     expect(body).toMatchObject({ hideMetricsTab: false });
   });
 
-  it('default `false` отправляется в PATCH когда чекбокс не трогали', async () => {
+  it('KS-4053: пользователь ничего не менял → PATCH не вызывается, модалка закрывается', async () => {
+    const onClose = vi.fn();
     useLectureDetailMock.mockReturnValue({
       loading: false,
       lecture: makeLecture(),
       error: null,
       refetch: vi.fn(),
     });
-    patchMock.mockResolvedValue(makeLecture());
 
     renderWithProviders(
-      <LectureSettingsModal lectureId="lec-1" onClose={() => {}} initialTab="tools" />,
+      <LectureSettingsModal
+        lectureId="lec-1"
+        onClose={onClose}
+        initialTab="tools"
+      />,
     );
 
-    // KS-4047: default `hideMetricsTab=false` → галочка стоит.
-    const checkbox = (await screen.findByTestId(
-      'lecture-settings-visibility-metrics',
-    )) as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
+    // Дождёмся гидратации.
+    await screen.findByTestId('lecture-settings-visibility-metrics');
 
     fireEvent.click(screen.getByTestId('lecture-settings-save'));
 
     await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('<LectureSettingsModal> KS-4053 diff-payload', () => {
+  beforeEach(() => {
+    patchMock.mockReset();
+    useLectureDetailMock.mockReset();
+  });
+
+  it('recorded-лекция, переключение «ИИ» → PATCH содержит только disabledTools, без title/description', async () => {
+    useLectureDetailMock.mockReturnValue({
+      loading: false,
+      lecture: makeLecture({
+        status: 'recorded',
+        disabledTools: [],
+        title: 'Original recorded title',
+        description: 'Original description',
+      }),
+      error: null,
+      refetch: vi.fn(),
+    });
+    patchMock.mockResolvedValue(makeLecture({ disabledTools: ['ai_comment'] }));
+
+    renderWithProviders(
+      <LectureSettingsModal
+        lectureId="lec-1"
+        onClose={() => {}}
+        initialTab="tools"
+      />,
+    );
+
+    // Снимаем галочку «ИИ» → disabledTools.includes('ai_comment').
+    const ai = (await screen.findByTestId(
+      'lecture-settings-visibility-ai',
+    )) as HTMLInputElement;
+    expect(ai.checked).toBe(true);
+    fireEvent.click(ai);
+
+    fireEvent.click(screen.getByTestId('lecture-settings-save'));
+    await waitFor(() => {
       expect(patchMock).toHaveBeenCalledTimes(1);
     });
-    expect(patchMock.mock.calls[0][1]).toMatchObject({
-      hideMetricsTab: false,
+    const [url, body] = patchMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(url).toBe('/lectures/lec-1');
+    expect(body).toEqual({ disabledTools: ['ai_comment'] });
+    // Главное: ни title, ни description в PATCH не уехали.
+    expect(body).not.toHaveProperty('title');
+    expect(body).not.toHaveProperty('description');
+  });
+
+  it('scheduled-лекция, изменение title → PATCH содержит ровно `title`', async () => {
+    useLectureDetailMock.mockReturnValue({
+      loading: false,
+      lecture: makeLecture({
+        status: 'scheduled',
+        title: 'Old',
+      }),
+      error: null,
+      refetch: vi.fn(),
     });
+    patchMock.mockResolvedValue(makeLecture({ title: 'New' }));
+
+    renderWithProviders(
+      <LectureSettingsModal
+        lectureId="lec-1"
+        onClose={() => {}}
+        initialTab="main"
+      />,
+    );
+
+    const input = (await screen.findByTestId(
+      'lecture-settings-title-input',
+    )) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'New' } });
+
+    fireEvent.click(screen.getByTestId('lecture-settings-save'));
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledTimes(1);
+    });
+    const [, body] = patchMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(body).toEqual({ title: 'New' });
   });
 });

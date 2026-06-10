@@ -142,20 +142,46 @@ export function LectureSettingsModal({
     const disabledTools = ALL_LECTURE_DISABLED_TOOLS.filter(
       (tool) => !enabledTools.includes(tool),
     );
+    // KS-4053. Сервер запрещает редактировать `title`/`description` у
+    // лекций в статусах `live`/`recorded`/`finished` — приходил
+    // 400 «Cannot edit fields [title, description] in status
+    // "recorded"». Для долгоиграющего решения собираем PATCH как diff
+    // от исходного snapshot'а лекции: отправляем только реально
+    // изменившиеся поля. Это устраняет жалобу и снимает риск похожих
+    // регрессий в будущем (любой новый «нельзя редактировать X»
+    // больше не сломает сохранение, если пользователь X не трогал).
+    const nextDescription = description.trim() ? description.trim() : null;
+    const initialDescription = lecture?.description ?? null;
+    const initialDisabledTools = lecture?.disabledTools ?? [];
+    const initialDisabledSet = new Set<LectureDisabledTool>(
+      initialDisabledTools,
+    );
+    const nextDisabledSet = new Set<LectureDisabledTool>(disabledTools);
+    const disabledToolsChanged =
+      initialDisabledSet.size !== nextDisabledSet.size ||
+      Array.from(nextDisabledSet).some((t) => !initialDisabledSet.has(t));
+    const patch: Record<string, unknown> = {};
+    if (lecture && trimmedTitle !== lecture.title) patch.title = trimmedTitle;
+    if (lecture && nextDescription !== initialDescription) {
+      patch.description = nextDescription;
+    }
+    if (lecture && visibility !== lecture.visibility) {
+      patch.visibility = visibility;
+    }
+    if (disabledToolsChanged) patch.disabledTools = disabledTools;
+    if (lecture && Boolean(lecture.hideMetricsTab) !== hideMetricsTab) {
+      patch.hideMetricsTab = hideMetricsTab;
+    }
     try {
+      // Пустой patch означает, что пользователь ничего не менял.
+      // Закрываем модалку без сетевого запроса — `onSaved` не зовём.
+      if (Object.keys(patch).length === 0) {
+        onClose();
+        return;
+      }
       const updated = await api.patch<LectureSummary>(
         `/lectures/${encodeURIComponent(lectureId)}`,
-        {
-          title: trimmedTitle,
-          description: description.trim() ? description.trim() : null,
-          visibility,
-          disabledTools,
-          // KS-4040: новое поле — backend KS-4039 принимает его в
-          // PATCH /lectures/:id, DB-default `false`. Отправляем всегда
-          // (а не «только при изменении»), чтобы случайный refetch
-          // лекции в фоне не перезаписал значение.
-          hideMetricsTab,
-        },
+        patch,
       );
       onSaved?.(updated);
       onClose();
