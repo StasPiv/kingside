@@ -91,6 +91,18 @@ export function PuzzlePage() {
   // fromPrecision && user), after — после успешного submitAttempt.
   // `null` → блок не рендерится (гость / ещё не загружено / fetch упал).
   const [precisionRatingBefore, setPrecisionRatingBefore] = useState<number | null>(null);
+  // KS-4030: видимый признак ошибки сохранения попытки. До этого тикета
+  // `handlePlayVsEngineSubmit` и `submitAttemptResult` молча проглатывали
+  // сетевые/4xx-ошибки (`catch {}`), и попытка не доезжала до БД. Из-за
+  // этого `GET /precision/next` законно мог выдать ту же задачу
+  // (фильтр исключения работает только по реально записанным попыткам).
+  // Жалоба пользователя `Stanislav` (KS-4030): 3 раза подряд одна и та
+  // же задача `4f514c9f...` после клика «Следующая» в `source=precision`.
+  // Backend SQL подтвердил 0 строк в `puzzle_attempts` — submit не
+  // долетел. Делаем ошибку видимой и блокируем «Следующая» до повтора.
+  const [attemptSubmitError, setAttemptSubmitError] = useState<boolean>(
+    false,
+  );
   const [precisionRatingChange, setPrecisionRatingChange] = useState<{
     ratingBefore: number;
     ratingAfter: number;
@@ -260,8 +272,18 @@ export function PuzzlePage() {
       if (response.userRatingBefore != null && response.userRatingAfter != null) {
         setRatingChange({ before: response.userRatingBefore, after: response.userRatingAfter });
       }
+      setAttemptSubmitError(false);
       return response.nextPuzzle;
-    } catch {
+    } catch (e) {
+      // KS-4030: фиксируем факт несохранённой попытки. До этого тикета
+      // ошибка глоталась — пользователь шёл на «Следующая» и получал ту
+      // же задачу, потому что в БД нет записи о его попытке. Теперь UI
+      // увидит этот флаг и не пустит на следующую задачу молча.
+      attemptSubmittedRef.current = false; // разрешаем повторный submit
+      setAttemptSubmitError(true);
+      // Лог в консоль — для воспроизведения через network-инспектор
+      // (КС-4030 от backend: «нужны логи API за период жалобы»).
+      console.error('[KS-4030] submitAttempt failed', e);
       return null;
     }
   }, [puzzle, user]);
@@ -614,6 +636,9 @@ export function PuzzlePage() {
     async (data: PlayVsEngineSubmit) => {
       if (!puzzle) return;
       if (!user) return;
+      // KS-4030: при повторном вызове сбрасываем ошибку — попытка идёт
+      // заново после исправления (например, после ретрая).
+      setAttemptSubmitError(false);
       try {
         // KS-2719 F1: пробрасываем полный лог user-ходов (UserBestSnapshot[])
         // на backend для server-trust accuracy. Маппинг halfMove → ply
@@ -662,8 +687,17 @@ export function PuzzlePage() {
             /* graceful — пропускаем блок дельты при ошибке fetch'а. */
           }
         }
-      } catch {
-        /* MVP: молча игнорируем сетевые ошибки submit'а. */
+      } catch (e) {
+        // KS-4030: до этого тикета сетевая/4xx-ошибка submit'а молча
+        // глоталась — попытка пользователя не сохранялась в БД, а
+        // `GET /precision/next` законно мог выдать ту же задачу
+        // (фильтр исключения работает только по записанным попыткам).
+        // Жалоба Stanislav: 0 строк в `puzzle_attempts`, при этом
+        // пользователь видел 3-й повтор той же задачи. Делаем ошибку
+        // видимой: флаг `attemptSubmitError` блокирует «Следующая» и
+        // показывает блок «не удалось сохранить, повторить?».
+        console.error('[KS-4030] submitAttempt (PVE) failed', e);
+        setAttemptSubmitError(true);
       }
     },
     [puzzle, user, fromPrecision, precisionRatingBefore],
@@ -679,20 +713,58 @@ export function PuzzlePage() {
   // же параметрами, что были при заходе на текущий пазл. На 404
   // (`no_puzzles_available`) — fallback на /precision (пусть user сам
   // увидит сообщение «нет пазлов»).
+  // KS-4030: количество попыток получить ОТЛИЧНУЮ от текущей задачу.
+  // Защита от ситуации, когда submit упал (попытка не записана) и
+  // backend `GET /precision/next` законно возвращает тот же puzzleId.
+  // 3 повтора — компромисс между «дать шанс получить другое» и «не
+  // зависнуть на одной задаче из узкого окна».
+  const PICK_NEXT_DEDUP_RETRIES = 3;
+
   const handlePickNext = useCallback(async () => {
     if (!user || !fromPrecision) return;
     try {
       const params = buildPrecisionNextParams(searchParams, true);
       // KS-3634 / ADR-104 §8: клиентский Maia-фильтр (до 5 попыток).
       const threshold = readPrecisionMaiaThreshold();
-      const eligible = await pickEligiblePrecisionPuzzle(
-        params,
-        { threshold },
-        {
-          pickNext: precisionApi.pickNext,
-          getPuzzleById: puzzleApi.getById,
-        },
-      );
+      const deps = {
+        pickNext: precisionApi.pickNext,
+        getPuzzleById: puzzleApi.getById,
+      };
+
+      // KS-4030: если submit предыдущей попытки упал (`attemptSubmitError`
+      // = true) — НЕ идём за следующей задачей вообще, чтобы пользователь
+      // не получил ту же задачу. Блок «не удалось сохранить» в UI
+      // предложит повторить submit. Это снимает корень жалобы Stanislav.
+      if (attemptSubmitError) {
+        return;
+      }
+
+      let eligible: Awaited<
+        ReturnType<typeof pickEligiblePrecisionPuzzle>
+      > = null;
+      const currentPuzzleId = puzzle?.id;
+      // KS-4030: ретраим pickNext до PICK_NEXT_DEDUP_RETRIES раз, если
+      // backend вернул тот же puzzleId, что и текущий. В норме (нет
+      // истощения пула) повтор практически невозможен, но защищает от
+      // сценария «фильтр исключения по `attempts` не сработал». На
+      // последней итерации возвращаем что есть — лучше показать тот же
+      // пазл, чем зависнуть.
+      for (let i = 0; i < PICK_NEXT_DEDUP_RETRIES; i++) {
+        eligible = await pickEligiblePrecisionPuzzle(
+          params,
+          { threshold },
+          deps,
+        );
+        if (!eligible) break;
+        if (eligible.puzzleId !== currentPuzzleId) break;
+        // Логируем повтор — должно срабатывать редко, при срабатывании
+        // полезно понять контекст (см. KS-4030 диагностику).
+        console.warn(
+          '[KS-4030] precisionApi.pickNext returned same puzzleId',
+          { puzzleId: eligible.puzzleId, attempt: i + 1 },
+        );
+      }
+
       if (eligible) {
         // Сохраняем те же query-params на новой странице пазла —
         // buildPrecisionPuzzleQuery работает с любыми URLSearchParams,
@@ -711,7 +783,15 @@ export function PuzzlePage() {
       // Сеть упала → fallback на /precision.
       navigate(backUrl);
     }
-  }, [user, fromPrecision, searchParams, navigate, backUrl]);
+  }, [
+    user,
+    fromPrecision,
+    searchParams,
+    navigate,
+    backUrl,
+    puzzle,
+    attemptSubmitError,
+  ]);
 
   // KS-2688: единый header c хлебными крошками, back-link'ом и заголовком.
   // До тикета все три состояния ниже (allSolved / play-vs-engine /
@@ -853,6 +933,27 @@ export function PuzzlePage() {
           // для гостей и до завершения попытки.
           precisionRatingChange={precisionRatingChange}
         />
+        {/* KS-4030: предупреждение, если submit упал. Кнопка
+            «Следующая» внутри PlayVsEngineRunner вызовет handlePickNext,
+            который при `attemptSubmitError=true` блокирует переход —
+            пользователь увидит этот блок и поймёт, почему ничего не
+            происходит. До тикета ошибка submit'а молча игнорировалась,
+            и фронт переходил на «Следующую», а backend, не зная о
+            попытке, мог вернуть ту же задачу. */}
+        {attemptSubmitError && (
+          <div
+            className="attempt-submit-error"
+            data-testid="attempt-submit-error"
+            role="alert"
+          >
+            <p>
+              {t(
+                'puzzle.attemptSubmitError.message',
+                'Failed to save your attempt. The next puzzle may repeat. Please retry.',
+              )}
+            </p>
+          </div>
+        )}
         {/* KS-2488: блок «Из партии» — headers + ссылки на архив /
             Lichess. Сам компонент возвращает null если sourceGame
             отсутствует или пустой. */}
