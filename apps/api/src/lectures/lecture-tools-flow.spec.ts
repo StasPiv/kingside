@@ -13,8 +13,9 @@
  *      сообщения в gateway приводит к эмиту в правильную комнату.
  *   3. PATCH disabledTools в `recorded` — БД обновлена, publish не
  *      вызван (replay-режим, активной комнаты нет).
- *   4. PATCH `{title, disabledTools}` в `live` → 400, ничего не
- *      записано (ADR §2.3.1).
+ *   4. KS-4054: PATCH `{title, disabledTools}` в `live` — оба
+ *      применяются (title больше не scheduled-only), publish
+ *      lecture-tools-changed эмитится как обычно.
  *   5. PATCH disabledTools=[] в `live` + binding — publish c пустым
  *      массивом доходит до gateway и эмитится в комнату с тем же
  *      пустым массивом (фронт интерпретирует это как «все инструменты
@@ -249,20 +250,26 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
   });
 
   // ─── 4. совмещённый PATCH {title, disabledTools} в live ─────────
+  // KS-4054: title больше не scheduled-only — payload применяется
+  // целиком, publish lecture-tools-changed эмитится как обычно.
 
-  it('live: совмещённый PATCH {title, disabledTools} → 400, ничего не пишется и не публикуется', async () => {
+  it('KS-4054 live: совмещённый PATCH {title, disabledTools} → оба применяются, publish эмитится', async () => {
     prisma.lecture.findUnique.mockResolvedValueOnce(liveBound);
+    prisma.lecture.update.mockResolvedValueOnce(
+      liveBoundUpdated(['engine']),
+    );
 
-    await expect(
-      service.update('l-1', 'u-1', {
-        title: 'Новое название',
-        disabledTools: ['engine'],
-      }),
-    ).rejects.toThrow(BadRequestException);
+    await service.update('l-1', 'u-1', {
+      title: 'Новое название',
+      disabledTools: ['engine'],
+    });
 
-    expect(prisma.lecture.update).not.toHaveBeenCalled();
-    expect(redis.publish).not.toHaveBeenCalled();
-    expect(serverTo).not.toHaveBeenCalled();
+    const args = prisma.lecture.update.mock.calls[0][0];
+    expect(args.data.title).toBe('Новое название');
+    expect(args.data.disabledTools).toEqual(['engine']);
+    expect(redis.publish).toHaveBeenCalledTimes(1);
+    relayLastPublish();
+    expect(serverTo).toHaveBeenCalledWith('live-analysis:FLOWSLUG01');
   });
 
   // ─── 5. пустой массив в live ────────────────────────────────────

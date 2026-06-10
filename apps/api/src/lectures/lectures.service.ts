@@ -675,11 +675,17 @@ export class LecturesService {
 
   /**
    * KS-3800 / ADR-113 §4 крупная задача 3. PATCH лекции. Семантика
-   * статусного гейта (KS-3900 / ADR-117 §2, KS-3933 / ADR-118 §2.4.1):
+   * статусного гейта (KS-3900 / ADR-117 §2, KS-3933 / ADR-118 §2.4.1,
+   * KS-4054):
    *
-   *   - Поля `title`, `description`, `scheduledAt` — scheduled-only:
-   *     их можно править, только если лекция в статусе `scheduled`.
-   *     В live / recorded / cancelled — `BadRequestException`.
+   *   - Поле `scheduledAt` — scheduled-only: двигать дату начала
+   *     можно только пока лекция `scheduled`. В live / recorded /
+   *     cancelled — `BadRequestException` (нет смысла двигать дату
+   *     уже идущей или завершённой записи).
+   *   - Поля `title`, `description` (KS-4054) — разрешены в любом
+   *     статусе. Это пользовательские метаданные, никак не влияют на
+   *     содержимое записи/трансляции; тренеру должно быть можно
+   *     переименовать или дописать описание после завершения.
    *   - Поле `disabledTools` (ADR-117) — разрешено в любом статусе.
    *     Тренеру нужно уметь включать/выключать инструменты учеников
    *     прямо во время идущей лекции и даже после её завершения
@@ -690,14 +696,12 @@ export class LecturesService {
    *     завершения. При смене `restricted → public/unlisted` записи
    *     `LectureAccessGrant` НЕ удаляются — allowlist сохраняется
    *     на случай отката тренером.
+   *   - Поле `hideMetricsTab` (KS-4039) — разрешено в любом статусе.
    *
-   * Совмещённая правка `{ title, visibility }` или
-   * `{ title, disabledTools }` в live: трактуется по строгому правилу
-   * — если хотя бы одно scheduled-only поле в payload, а статус не
-   * `scheduled`, отвергаем запрос целиком (`BadRequestException`).
-   * Это безопаснее, чем «частичное применение» с молчаливым игнором:
-   * клиент видит ошибку и понимает, что `disabledTools`/`visibility`
-   * не сохранились, а не подумает, что title тоже ушёл.
+   * Если в payload есть `scheduledAt`, а статус не `scheduled`,
+   * запрос отвергается целиком (`BadRequestException`) — чтобы клиент
+   * не подумал, что остальные поля тоже не сохранились (исторический
+   * принцип, см. KS-3900).
    *
    * Пустой payload (DTO без полей) — no-op: возвращаем текущую запись.
    */
@@ -710,19 +714,17 @@ export class LecturesService {
       throw new ForbiddenException('Only the owner can update this lecture');
     }
 
-    // KS-3900 / KS-3933: scheduled-only поля выделяем отдельно от
-    // полей, которые разрешены в любом статусе (`disabledTools`,
-    // `visibility`).
+    // KS-4054: `title` и `description` — пользовательские метаданные,
+    // не влияют на содержимое записи/трансляции, разрешены в любом
+    // статусе. До KS-4054 они входили в `scheduled-only` группу и
+    // блокировались 400-ошибкой на recorded/live/cancelled, что мешало
+    // тренеру переименовать запись после её появления.
+    // Scheduled-only осталось только `scheduledAt`: двигать дату
+    // запланированного начала на already-live/recorded/cancelled не
+    // имеет смысла и блокируется как раньше.
     const scheduledOnlyData: {
-      title?: string;
-      description?: string | null;
       scheduledAt?: Date;
     } = {};
-    if (dto.title !== undefined) scheduledOnlyData.title = dto.title;
-    if (dto.description !== undefined) {
-      scheduledOnlyData.description =
-        dto.description === '' ? null : dto.description;
-    }
     if (dto.scheduledAt !== undefined) {
       scheduledOnlyData.scheduledAt = new Date(dto.scheduledAt);
     }
@@ -732,20 +734,25 @@ export class LecturesService {
       throw new BadRequestException(
         `Cannot edit fields [${Object.keys(scheduledOnlyData).join(', ')}]` +
           ` in status "${lecture.status}" — these fields are editable only` +
-          ` while the lecture is scheduled. Use disabledTools or visibility` +
-          ` alone for lectures already started or finished.`,
+          ` while the lecture is scheduled.`,
       );
     }
 
-    // disabledTools / visibility / hideMetricsTab — разрешены всегда
-    // (любой статус). KS-3933 / ADR-118: visibility теперь не
-    // scheduled-only. KS-4039: hideMetricsTab аналогично — тренер может
-    // переключать отображение блока «Метрики» в любой момент.
+    // KS-4054: `title`, `description`, `disabledTools`, `visibility`,
+    // `hideMetricsTab` — разрешены всегда (любой статус). KS-3933 /
+    // ADR-118: visibility — не scheduled-only. KS-4039: hideMetricsTab
+    // — тренер переключает в любой момент.
     const data: typeof scheduledOnlyData & {
+      title?: string;
+      description?: string | null;
       disabledTools?: string[];
       visibility?: 'public' | 'unlisted' | 'restricted';
       hideMetricsTab?: boolean;
     } = { ...scheduledOnlyData };
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.description !== undefined) {
+      data.description = dto.description === '' ? null : dto.description;
+    }
     if (dto.disabledTools !== undefined) {
       data.disabledTools = dto.disabledTools;
     }

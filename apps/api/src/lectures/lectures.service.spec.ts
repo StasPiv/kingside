@@ -1284,14 +1284,85 @@ describe('LecturesService', () => {
       expect(prisma.lecture.update).not.toHaveBeenCalled();
     });
 
-    it('400 если статус recorded', async () => {
+    it('KS-4054: title правится в recorded — успех', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+        title: 'Новое название',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { title: 'Новое название' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ title: 'Новое название' });
+    });
+
+    it('KS-4054: description правится в recorded — успех', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'recorded',
+        description: 'Новое описание',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { description: 'Новое описание' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ description: 'Новое описание' });
+    });
+
+    it('KS-4054: title правится в live — успех', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        title: 'Live title',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { title: 'Live title' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ title: 'Live title' });
+    });
+
+    it('KS-4054: description правится в cancelled — успех', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'cancelled',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'cancelled',
+        description: 'Отменено по причине X',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', { description: 'Отменено по причине X' });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data).toEqual({ description: 'Отменено по причине X' });
+    });
+
+    it('KS-4054: scheduledAt по-прежнему scheduled-only (recorded → 400)', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         ...scheduled,
         status: 'recorded',
       });
       await expect(
-        service.update('l-1', 'u-1', { title: 'new' }),
+        service.update('l-1', 'u-1', {
+          scheduledAt: '2026-07-01T10:00:00Z',
+        }),
       ).rejects.toThrow(BadRequestException);
+      expect(prisma.lecture.update).not.toHaveBeenCalled();
     });
 
     it('обновляет title/description/scheduledAt/visibility для scheduled', async () => {
@@ -1458,18 +1529,26 @@ describe('LecturesService', () => {
       expect(args.data).toEqual({ hideMetricsTab: false });
     });
 
-    it('KS-4039: совмещённый PATCH {title, hideMetricsTab} в live → 400 (title scheduled-only)', async () => {
+    it('KS-4054: совмещённый PATCH {title, hideMetricsTab} в live — оба применяются (title больше не scheduled-only)', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         ...scheduled,
         status: 'live',
       });
-      await expect(
-        service.update('l-1', 'u-1', {
-          title: 'не пройдёт',
-          hideMetricsTab: true,
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(prisma.lecture.update).not.toHaveBeenCalled();
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        title: 'live title',
+        hideMetricsTab: true,
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {
+        title: 'live title',
+        hideMetricsTab: true,
+      });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data.title).toBe('live title');
+      expect(args.data.hideMetricsTab).toBe(true);
     });
 
     it('KS-4039: совмещённый PATCH {hideMetricsTab, disabledTools} в live — оба применяются', async () => {
@@ -1494,14 +1573,37 @@ describe('LecturesService', () => {
       expect(args.data.disabledTools).toEqual(['engine']);
     });
 
-    it('KS-3900: совмещённый PATCH {title, disabledTools} в live → 400, ничего не записано', async () => {
+    it('KS-4054: совмещённый PATCH {title, disabledTools} в live — оба применяются (title больше не scheduled-only)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: null,
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        title: 'live title',
+        disabledTools: ['engine'],
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {
+        title: 'live title',
+        disabledTools: ['engine'],
+      });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data.title).toBe('live title');
+      expect(args.data.disabledTools).toEqual(['engine']);
+    });
+
+    it('KS-4054: совмещённый PATCH {scheduledAt, disabledTools} в live → 400 (scheduledAt scheduled-only)', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         ...scheduled,
         status: 'live',
       });
       await expect(
         service.update('l-1', 'u-1', {
-          title: 'не пройдёт',
+          scheduledAt: '2026-07-01T10:00:00Z',
           disabledTools: ['engine'],
         }),
       ).rejects.toThrow(BadRequestException);
@@ -1737,18 +1839,26 @@ describe('LecturesService', () => {
       expect(args.data).toEqual({ visibility: 'unlisted' });
     });
 
-    it('KS-3933: совмещённый {title, visibility} в live → 400, ничего не записано', async () => {
+    it('KS-4054: совмещённый {title, visibility} в live — оба применяются (title больше не scheduled-only)', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         ...scheduled,
         status: 'live',
       });
-      await expect(
-        service.update('l-1', 'u-1', {
-          title: 'не пройдёт',
-          visibility: 'restricted',
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(prisma.lecture.update).not.toHaveBeenCalled();
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        title: 'live title',
+        visibility: 'restricted',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+      });
+      await service.update('l-1', 'u-1', {
+        title: 'live title',
+        visibility: 'restricted',
+      });
+      const args = prisma.lecture.update.mock.calls[0][0];
+      expect(args.data.title).toBe('live title');
+      expect(args.data.visibility).toBe('restricted');
     });
 
     it('KS-3933: совмещённый {visibility, disabledTools} в live — оба поля применяются', async () => {
