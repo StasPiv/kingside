@@ -53,7 +53,11 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
         metricsOverride={readyOverride(subterms)}
       />,
     );
-    const rows = screen.getAllByTestId(/current-metrics-row-(?!.*value)/);
+    // Только корневые data-testid строк (`current-metrics-row-<id>`), без
+    // вложенных `current-metrics-row-value-*` / `-label-wrap-*` / `-popover-*`.
+    const rows = screen.getAllByTestId(
+      /^current-metrics-row-(?!value|white|black|label-wrap|popover)[a-z_]+$/,
+    );
     // Первой строкой — самая весомая (mobility_knight).
     expect(rows[0]).toHaveAttribute(
       'data-testid',
@@ -240,6 +244,46 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
       expect(
         screen.getByTestId('current-metrics-row-mobility_knight'),
       ).toHaveAttribute('data-selected', 'true');
+    });
+  });
+
+  describe('поповер с полным названием метрики (KS-4036)', () => {
+    it('у строки есть title-атрибут с полным id (минимум — нативный tooltip)', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('king_attackers_count', 'w', 5, 5),
+      ];
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+        />,
+      );
+      // Label-обёртка содержит вложенный span с title и видимым текстом.
+      const labelWrap = screen.getByTestId(
+        'current-metrics-row-label-wrap-king_attackers_count',
+      );
+      const labelSpan = labelWrap.querySelector(
+        '.current-metrics-row__label',
+      ) as HTMLElement | null;
+      expect(labelSpan).not.toBeNull();
+      expect(labelSpan!.getAttribute('title')).toBe('king_attackers_count');
+    });
+
+    it('визуальный поповер рендерится в DOM с полным id и role="tooltip"', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('threat_slider_on_queen', 'w', 5, 5),
+      ];
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+        />,
+      );
+      const popover = screen.getByTestId(
+        'current-metrics-row-popover-threat_slider_on_queen',
+      );
+      expect(popover).toHaveAttribute('role', 'tooltip');
+      expect(popover).toHaveTextContent('threat_slider_on_queen');
     });
   });
 

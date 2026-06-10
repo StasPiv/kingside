@@ -21,6 +21,7 @@
  * `evalTrace(fen)` при каждой смене `fen` с debounce 200мс.
  */
 import { useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   useCurrentPositionMetrics,
   type CurrentPositionMetricsState,
@@ -84,6 +85,63 @@ function formatLabel(id: CurrentPositionMetricRow['id']): string {
   return id;
 }
 
+/**
+ * KS-4036: поповер с полным названием метрики при наведении / фокусе.
+ * До этого тикета длинные id обрезались троеточием (`king_attackers_co...`),
+ * и понять, что это за метрика, было невозможно. Поповер — компактная
+ * подсказка: полный идентификатор Stockfish + (опц.) перевод из i18n.
+ *
+ * Реализован без сторонних библиотек, через CSS `:hover` / `:focus-within`
+ * родительского `.current-metrics-row__label-wrap` — работает на десктопе.
+ * На мобильных устройствах (где hover нет) показывается нативный
+ * браузерный tooltip через `title` атрибут — он отрабатывает на long-press.
+ *
+ * `t` нужен только если в i18n появятся переводы (TODO i18n — не
+ * блокирующая мелочь). Сейчас словарь пустой, поповер показывает один
+ * технический id.
+ */
+const METRIC_LABEL_I18N_PREFIX = 'analysis.metrics.label.';
+
+interface MetricLabelWithPopoverProps {
+  id: CurrentPositionMetricRow['id'];
+  t: (key: string, def?: string) => string;
+}
+
+function MetricLabelWithPopover({ id, t }: MetricLabelWithPopoverProps) {
+  const technical = formatLabel(id);
+  // TODO i18n: ключ `analysis.metrics.label.<id>` для перевода
+  // конкретной метрики. Если ключ не задан — `t` вернёт default
+  // (пустую строку), и подзаголовок локализации не рендерится.
+  const localized = t(`${METRIC_LABEL_I18N_PREFIX}${id}`, '').trim();
+  const titleAttr = localized ? `${technical} — ${localized}` : technical;
+  return (
+    <span
+      className="current-metrics-row__label-wrap"
+      data-testid={`current-metrics-row-label-wrap-${id}`}
+    >
+      <span
+        className="current-metrics-row__label"
+        title={titleAttr}
+        tabIndex={0}
+      >
+        {technical}
+      </span>
+      <span
+        className="current-metrics-row__popover"
+        role="tooltip"
+        data-testid={`current-metrics-row-popover-${id}`}
+      >
+        <span className="current-metrics-row__popover-id">{technical}</span>
+        {localized && (
+          <span className="current-metrics-row__popover-localized">
+            {localized}
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
 interface BarRowProps {
   row: CurrentPositionMetricRow;
   mode: CurrentPositionMetricsMode;
@@ -92,6 +150,8 @@ interface BarRowProps {
   selected: boolean;
   /** KS-4033 follow-up: клик-обработчик для toggle подсветки. */
   onSelect: () => void;
+  /** KS-4036: `t` для попытки локализовать имя метрики. */
+  t: (key: string, def?: string) => string;
 }
 
 /**
@@ -103,7 +163,7 @@ interface BarRowProps {
  * наборе. Это даёт пропорциональную картинку и не зависит от
  * абсолютной величины (psqt в сотнях, threat_hanging в десятках).
  */
-function BarRow({ row, mode, maxAbs, selected, onSelect }: BarRowProps) {
+function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
   const ratio = maxAbs > 0 ? Math.min(1, row.score / maxAbs) : 0;
   const pct = (ratio * 50).toFixed(2); // половина ширины — на сторону
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -128,9 +188,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect }: BarRowProps) {
         role="button"
         tabIndex={0}
       >
-        <span className="current-metrics-row__label">
-          {formatLabel(row.id)}
-        </span>
+        <MetricLabelWithPopover id={row.id} t={t} />
         <div className="current-metrics-row__bar-track">
           <span
             className="current-metrics-row__bar-axis"
@@ -170,9 +228,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect }: BarRowProps) {
       role="button"
       tabIndex={0}
     >
-      <span className="current-metrics-row__label">
-        {formatLabel(row.id)}
-      </span>
+      <MetricLabelWithPopover id={row.id} t={t} />
       <div className="current-metrics-row__bars-stack">
         <div
           className="current-metrics-row__bars-stack-row"
@@ -219,6 +275,12 @@ export function CurrentPositionMetricsPanel({
 }: CurrentPositionMetricsPanelProps) {
   const hookState = useCurrentPositionMetrics({ fen, enabled });
   const metrics = metricsOverride ?? hookState;
+  // KS-4036: `t` для попытки локализовать имя метрики через
+  // `analysis.metrics.label.<id>`. Подпись `as` — `t` из i18n возвращает
+  // `string | ResourceKey`, в нашем случае второй аргумент-default
+  // всегда `string`, поэтому суживаем тип под `MetricLabelWithPopover`.
+  const { t } = useTranslation();
+  const tForLabel = t as unknown as (key: string, def?: string) => string;
 
   const [mode, setMode] = useState<CurrentPositionMetricsMode>('diff');
   // Скрывать метрики с почти нулевой разницей (опциональное усмотрение
@@ -381,6 +443,7 @@ export function CurrentPositionMetricsPanel({
             maxAbs={maxAbs}
             selected={selectedMetricId === row.id}
             onSelect={() => handleSelect(row.id)}
+            t={tForLabel}
           />
         ))}
       </div>
