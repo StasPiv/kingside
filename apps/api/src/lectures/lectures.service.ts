@@ -803,17 +803,20 @@ export class LecturesService {
       });
     }
 
-    // KS-3901 / ADR-117 §3. Уведомить WebSocket-шлюз об изменении
-    // `disabledTools`, если:
-    //   - в payload было поле `disabledTools` (иначе значение не
+    // KS-3901 / ADR-117 §3 / KS-4041. Уведомить WebSocket-шлюз об
+    // изменении настроек лекции (`disabledTools` или `hideMetricsTab`),
+    // если:
+    //   - в payload было хотя бы одно из этих полей (иначе значение не
     //     менялось);
     //   - лекция в статусе `live` (вне эфира подписчиков нет);
     //   - есть привязка к LiveAnalysis (slug — ключ комнаты в gateway).
-    // Это покрывает требование «publish при live + привязка»; для
-    // scheduled/recorded/cancelled или для лекций без `liveAnalysisId`
-    // тихо пропускаем.
+    // payload события содержит ОБА поля — фронт не держит частичный
+    // кэш предыдущего значения, всегда применяет актуальное состояние.
+    // Для scheduled/recorded/cancelled или для лекций без
+    // `liveAnalysisId` тихо пропускаем.
     if (
-      dto.disabledTools !== undefined &&
+      (dto.disabledTools !== undefined ||
+        dto.hideMetricsTab !== undefined) &&
       updated.status === 'live' &&
       updated.liveAnalysisId !== null &&
       updated.liveAnalysis?.slug
@@ -822,6 +825,7 @@ export class LecturesService {
         slug: updated.liveAnalysis.slug,
         lectureId: updated.id,
         disabledTools: updated.disabledTools as LectureToolsChangedEvent['disabledTools'],
+        hideMetricsTab: updated.hideMetricsTab,
       });
     }
 

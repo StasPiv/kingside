@@ -362,8 +362,8 @@ export class LiveAnalysisService implements OnModuleInit {
 
     const state = await this.readRedisState(row.id);
     const viewerCount = await this.readViewerCount(row.id);
-    const lectureDisabledTools =
-      await this.loadLiveLectureDisabledToolsForResponse(row.id);
+    const lectureSettings =
+      await this.loadLiveLectureSettingsForResponse(row.id);
     return this.toResponse(row, publicBaseUrl, {
       currentFen:
         state?.currentFen ??
@@ -373,7 +373,8 @@ export class LiveAnalysisService implements OnModuleInit {
       orientation: state?.orientation ?? 'white',
       viewerCount,
       currentPgn: state?.currentPgn,
-      lectureDisabledTools,
+      lectureDisabledTools: lectureSettings?.disabledTools,
+      lectureHideMetricsTab: lectureSettings?.hideMetricsTab,
     });
   }
 
@@ -398,8 +399,8 @@ export class LiveAnalysisService implements OnModuleInit {
 
     const state = await this.readRedisState(found.id);
     const viewerCount = await this.readViewerCount(found.id);
-    const lectureDisabledTools =
-      await this.loadLiveLectureDisabledToolsForResponse(found.id);
+    const lectureSettings =
+      await this.loadLiveLectureSettingsForResponse(found.id);
 
     return this.toResponse(found, publicBaseUrl, {
       currentFen: state?.currentFen ?? found.startingFen ?? LiveAnalysisService.INITIAL_FEN,
@@ -411,7 +412,8 @@ export class LiveAnalysisService implements OnModuleInit {
       // KS-3775: headers больше не дублируем — фронт извлекает их
       // из самого PGN.
       currentPgn: state?.currentPgn,
-      lectureDisabledTools,
+      lectureDisabledTools: lectureSettings?.disabledTools,
+      lectureHideMetricsTab: lectureSettings?.hideMetricsTab,
     });
   }
 
@@ -870,14 +872,14 @@ export class LiveAnalysisService implements OnModuleInit {
       throw new NotFoundException(`Live analysis "${slug}" not available`);
     }
     const state = await this.readRedisState(row.id);
-    // KS-3902 / ADR-117 §2. Если эта live-сессия привязана к лекции
-    // — забираем её текущий `disabledTools`, чтобы новый подписчик
-    // сразу применил запрет/разблокировку инструментов учеников
-    // без отдельного REST-запроса. Прод-индекс `lectures.liveAnalysisId`
-    // даёт быструю выборку single-row (`findFirst` + select).
+    // KS-3902 / ADR-117 §2 / KS-4041. Если live-сессия привязана к
+    // лекции — забираем её настройки одним запросом (`disabledTools` +
+    // `hideMetricsTab`), чтобы новый подписчик сразу применил все
+    // ограничения без отдельного REST. Индекс `lectures.liveAnalysisId`
+    // даёт быструю выборку single-row.
     const lecture = await this.prisma.lecture.findFirst({
       where: { liveAnalysisId: row.id },
-      select: { disabledTools: true },
+      select: { disabledTools: true, hideMetricsTab: true },
     });
     return {
       slug,
@@ -890,11 +892,12 @@ export class LiveAnalysisService implements OnModuleInit {
       ...(state?.currentGlobalIndex !== undefined && {
         currentGlobalIndex: state.currentGlobalIndex,
       }),
-      // KS-3902 / ADR-117. Снапшот политики инструментов лекции
+      // KS-3902 / ADR-117 / KS-4041. Снапшот настроек лекции
       // (опциональный — отсутствует для трансляций без привязки).
       ...(lecture && {
         lectureDisabledTools:
           lecture.disabledTools as LiveAnalysisSyncSnapshot['lectureDisabledTools'],
+        lectureHideMetricsTab: lecture.hideMetricsTab,
       }),
     };
   }
@@ -1609,6 +1612,12 @@ export class LiveAnalysisService implements OnModuleInit {
        * (фронт читает «нет ограничений» по undefined одинаково).
        */
       lectureDisabledTools?: string[];
+      /**
+       * KS-4041. Снапшот флага «скрыть блок Метрики». undefined —
+       * трансляция не привязана к лекции (фронт трактует как «не
+       * скрыто»). Явный boolean — у привязанной лекции.
+       */
+      lectureHideMetricsTab?: boolean;
     },
   ): LiveAnalysisResponse {
     return {
@@ -1635,33 +1644,46 @@ export class LiveAnalysisService implements OnModuleInit {
         lectureDisabledTools:
           extras.lectureDisabledTools as LiveAnalysisResponse['lectureDisabledTools'],
       }),
+      // KS-4041. Флаг «скрыть блок Метрики» из Lecture.
+      ...(extras.lectureHideMetricsTab !== undefined && {
+        lectureHideMetricsTab: extras.lectureHideMetricsTab,
+      }),
     };
   }
 
   /**
-   * KS-3903 / ADR-117 §2. Загрузить `disabledTools` привязанной к
-   * этой live-сессии лекции для `LiveAnalysisResponse`. Контракт:
+   * KS-3903 / ADR-117 §2 / KS-4041. Сводка настроек лекции, привязанной
+   * к данной live-сессии (status='live'), для `LiveAnalysisResponse`.
+   * Контракт:
    *
    *   - Лекция должна быть в статусе `live` (других подписчиков на
    *     политику инструментов нет: для scheduled/recorded/cancelled
    *     зрителей в эфире нет).
-   *   - Возвращаем `undefined`, если привязки нет ИЛИ массив пустой.
-   *     Это отличается от `getSyncSnapshot` (KS-3902), где `[]`
-   *     подмешивается — там snapshot строится для активной WS-сессии,
-   *     `[]` ≡ «явно ничего не отключено». В REST-Response
-   *     `undefined` и `[]` для фронта эквивалентны, поэтому скрываем
-   *     лишнюю информацию (см. описание задачи KS-3903).
+   *   - `disabledTools`: возвращаем `undefined`, если массив пустой
+   *     (для REST `undefined` и `[]` эквивалентны фронту, скрываем
+   *     лишнюю информацию — KS-3903).
+   *   - `hideMetricsTab`: явный boolean (DB-default false) — фронту
+   *     нужно различать «не скрыто» и «скрыто», обе ветки имеют смысл,
+   *     поэтому всегда возвращаем актуальное значение.
+   *   - `null` (трансляция без привязки к live-лекции) — вызывающая
+   *     сторона не подмешивает поля в ответ.
    */
-  private async loadLiveLectureDisabledToolsForResponse(
+  private async loadLiveLectureSettingsForResponse(
     liveAnalysisId: string,
-  ): Promise<string[] | undefined> {
+  ): Promise<{
+    disabledTools?: string[];
+    hideMetricsTab?: boolean;
+  } | null> {
     const lecture = await this.prisma.lecture.findFirst({
       where: { liveAnalysisId, status: 'live' },
-      select: { disabledTools: true },
+      select: { disabledTools: true, hideMetricsTab: true },
     });
-    if (!lecture) return undefined;
-    if (lecture.disabledTools.length === 0) return undefined;
-    return lecture.disabledTools;
+    if (!lecture) return null;
+    return {
+      disabledTools:
+        lecture.disabledTools.length === 0 ? undefined : lecture.disabledTools,
+      hideMetricsTab: lecture.hideMetricsTab,
+    };
   }
 
   // Redis key naming — `live_analysis:<id>:<suffix>`, см. ADR §2.1.

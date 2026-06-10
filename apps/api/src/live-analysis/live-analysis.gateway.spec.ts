@@ -896,6 +896,8 @@ describe('LiveAnalysisGateway pub/sub lecture-tools-changed (KS-3902)', () => {
       slug: 'SLUGAAAAAA',
       lectureId: 'l-1',
       disabledTools: ['engine', 'book'],
+      // KS-4041: hideMetricsTab — обязательное поле payload.
+      hideMetricsTab: false,
     };
     (gateway as any).handleRedisMessage(
       'lecture-tools-changed',
@@ -908,10 +910,31 @@ describe('LiveAnalysisGateway pub/sub lecture-tools-changed (KS-3902)', () => {
     );
   });
 
+  it('KS-4041: ретранслирует payload с hideMetricsTab=true', () => {
+    const payload = {
+      slug: 'SLUGAAAAAA',
+      lectureId: 'l-1',
+      disabledTools: [],
+      hideMetricsTab: true,
+    };
+    (gateway as any).handleRedisMessage(
+      'lecture-tools-changed',
+      JSON.stringify(payload),
+    );
+    expect(emit).toHaveBeenCalledWith(
+      'live-analysis:lecture-tools',
+      payload,
+    );
+  });
+
   it('игнорирует сообщение без slug', () => {
     (gateway as any).handleRedisMessage(
       'lecture-tools-changed',
-      JSON.stringify({ lectureId: 'l-1', disabledTools: [] }),
+      JSON.stringify({
+        lectureId: 'l-1',
+        disabledTools: [],
+        hideMetricsTab: false,
+      }),
     );
     expect(to).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
@@ -924,6 +947,34 @@ describe('LiveAnalysisGateway pub/sub lecture-tools-changed (KS-3902)', () => {
         slug: 'SLUGAAAAAA',
         lectureId: 'l-1',
         disabledTools: 'engine,book',
+        hideMetricsTab: false,
+      }),
+    );
+    expect(to).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('KS-4041: игнорирует payload с hideMetricsTab не-boolean', () => {
+    (gateway as any).handleRedisMessage(
+      'lecture-tools-changed',
+      JSON.stringify({
+        slug: 'SLUGAAAAAA',
+        lectureId: 'l-1',
+        disabledTools: [],
+        hideMetricsTab: 'true',
+      }),
+    );
+    expect(to).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('KS-4041: игнорирует payload без hideMetricsTab', () => {
+    (gateway as any).handleRedisMessage(
+      'lecture-tools-changed',
+      JSON.stringify({
+        slug: 'SLUGAAAAAA',
+        lectureId: 'l-1',
+        disabledTools: [],
       }),
     );
     expect(to).not.toHaveBeenCalled();

@@ -1528,7 +1528,7 @@ describe('LecturesService', () => {
 
     // ─── KS-3901 / ADR-117 §3: Redis publish lecture-tools-changed ────
 
-    it('KS-3901: publish в Redis при live + liveAnalysisId — payload {slug, lectureId, disabledTools}', async () => {
+    it('KS-3901: publish в Redis при live + liveAnalysisId — payload {slug, lectureId, disabledTools, hideMetricsTab}', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         ...scheduled,
         status: 'live',
@@ -1539,6 +1539,8 @@ describe('LecturesService', () => {
         status: 'live',
         liveAnalysisId: 'la-1',
         disabledTools: ['engine', 'book'],
+        // KS-4041: actual значение из updated-записи попадает в payload.
+        hideMetricsTab: false,
         liveAnalysis: { id: 'la-1', slug: 'LIVESLUG01' },
       });
       await service.update('l-1', 'u-1', {
@@ -1551,6 +1553,32 @@ describe('LecturesService', () => {
         slug: 'LIVESLUG01',
         lectureId: 'l-1',
         disabledTools: ['engine', 'book'],
+        hideMetricsTab: false,
+      });
+    });
+
+    it('KS-4041: publish при PATCH hideMetricsTab=true даже без disabledTools', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: 'la-1',
+      });
+      prisma.lecture.update.mockResolvedValueOnce({
+        ...scheduled,
+        status: 'live',
+        liveAnalysisId: 'la-1',
+        disabledTools: [],
+        hideMetricsTab: true,
+        liveAnalysis: { id: 'la-1', slug: 'LIVESLUG01' },
+      });
+      await service.update('l-1', 'u-1', { hideMetricsTab: true });
+      expect(redis.publish).toHaveBeenCalledTimes(1);
+      const [, payload] = redis.publish.mock.calls[0];
+      expect(JSON.parse(payload)).toEqual({
+        slug: 'LIVESLUG01',
+        lectureId: 'l-1',
+        disabledTools: [],
+        hideMetricsTab: true,
       });
     });
 

@@ -3584,19 +3584,26 @@ export interface LectureSummary {
 }
 
 /**
- * KS-3896 / ADR-117 §3. Событие `LECTURE_TOOLS` (namespace
- * `/live-analysis`): тренер изменил набор отключённых инструментов
- * для учеников. Шлётся всем подписчикам live-сессии лекции, чтобы
- * ученики применили запрет/разблокировку без перезагрузки.
+ * KS-3896 / ADR-117 §3 / KS-4041. Событие `LECTURE_TOOLS` (namespace
+ * `/live-analysis`): тренер изменил настройки инструментов лекции для
+ * учеников. Шлётся всем подписчикам live-сессии лекции, чтобы ученики
+ * применили запрет/разблокировку без перезагрузки.
  *
  * `slug` — slug live-analysis сессии (комната подписки), `lectureId`
  * — id лекции (для соотнесения с локальным состоянием UI ученика).
- * `disabledTools` — полный новый набор (НЕ дельта).
+ * `disabledTools` — полный новый набор (НЕ дельта). `hideMetricsTab`
+ * — текущее значение флага «скрыть блок Метрики» (KS-4039/4041);
+ * frontend ученика применяет его при получении события.
+ *
+ * Событие эмитится, если в PATCH-е изменилось хотя бы одно из полей
+ * `disabledTools` / `hideMetricsTab`; в payload идёт актуальное
+ * значение обоих, чтобы фронт не держал private-кэш предыдущего.
  */
 export interface LectureToolsChangedEvent {
   slug: string;
   lectureId: string;
   disabledTools: LectureDisabledTool[];
+  hideMetricsTab: boolean;
 }
 
 /**

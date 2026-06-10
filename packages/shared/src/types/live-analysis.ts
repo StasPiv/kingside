@@ -127,6 +127,16 @@ export type LiveAnalysisResponse = {
    * (последующие изменения приходят событием `LECTURE_TOOLS`).
    */
   lectureDisabledTools?: LectureDisabledTool[];
+  /**
+   * KS-4041. Скрыт ли блок «Метрики» (позиционные подкомпоненты
+   * Stockfish) у зрителей-учеников. Источник истины —
+   * `Lecture.hideMetricsTab` (KS-4039). Поле опциональное: присутствует
+   * только когда трансляция привязана к лекции; для непривязанных
+   * трансляций отсутствует (фронт трактует undefined как «не скрыто»).
+   * Изменения тренером в живой трансляции приходят событием
+   * `LECTURE_TOOLS` (см. `LectureToolsChangedEvent`).
+   */
+  lectureHideMetricsTab?: boolean;
 };
 
 /**
@@ -328,6 +338,13 @@ export type LiveAnalysisSyncSnapshot = {
    * присутствует только для трансляций, привязанных к лекции.
    */
   lectureDisabledTools?: LectureDisabledTool[];
+  /**
+   * KS-4041. Снапшот флага «скрыть блок Метрики» из `Lecture`
+   * (KS-4039). Дублируется в sync для re-subscribe — без отдельного
+   * REST-запроса. Опциональное: присутствует только для трансляций,
+   * привязанных к лекции.
+   */
+  lectureHideMetricsTab?: boolean;
 };
 
 /**

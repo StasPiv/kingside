@@ -72,12 +72,16 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
     status: 'live' as const,
     liveAnalysisId: 'la-1',
   };
-  const liveBoundUpdated = (disabledTools: string[]) => ({
+  const liveBoundUpdated = (
+    disabledTools: string[],
+    hideMetricsTab = false,
+  ) => ({
     id: 'l-1',
     ownerId: 'u-1',
     status: 'live' as const,
     liveAnalysisId: 'la-1',
     disabledTools,
+    hideMetricsTab,
     liveAnalysis: { id: 'la-1', slug: 'FLOWSLUG01' },
   });
 
@@ -198,6 +202,8 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
       slug: 'FLOWSLUG01',
       lectureId: 'l-1',
       disabledTools: ['engine', 'book'],
+      // KS-4041: payload всегда содержит текущее значение флага.
+      hideMetricsTab: false,
     });
 
     // (в) Gateway получает сообщение и эмитит в комнату
@@ -209,6 +215,7 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
         slug: 'FLOWSLUG01',
         lectureId: 'l-1',
         disabledTools: ['engine', 'book'],
+        hideMetricsTab: false,
       },
     );
   });
@@ -271,7 +278,9 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
     });
     expect(redis.publish).toHaveBeenCalledTimes(1);
     const [, message] = redis.publish.mock.calls[0];
-    expect(JSON.parse(message).disabledTools).toEqual([]);
+    const parsed = JSON.parse(message);
+    expect(parsed.disabledTools).toEqual([]);
+    expect(parsed.hideMetricsTab).toBe(false);
 
     relayLastPublish();
     expect(serverEmit).toHaveBeenCalledWith(
@@ -280,6 +289,37 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
         slug: 'FLOWSLUG01',
         lectureId: 'l-1',
         disabledTools: [],
+        hideMetricsTab: false,
+      }),
+    );
+  });
+
+  // ─── KS-4041: PATCH hideMetricsTab без disabledTools ─────────────
+
+  it('KS-4041: live + binding: PATCH hideMetricsTab=true → publish + gateway emit', async () => {
+    prisma.lecture.findUnique.mockResolvedValueOnce(liveBound);
+    prisma.lecture.update.mockResolvedValueOnce(liveBoundUpdated([], true));
+
+    await service.update('l-1', 'u-1', { hideMetricsTab: true });
+
+    expect(prisma.lecture.update.mock.calls[0][0].data).toEqual({
+      hideMetricsTab: true,
+    });
+    expect(redis.publish).toHaveBeenCalledTimes(1);
+    const [, message] = redis.publish.mock.calls[0];
+    expect(JSON.parse(message)).toEqual({
+      slug: 'FLOWSLUG01',
+      lectureId: 'l-1',
+      disabledTools: [],
+      hideMetricsTab: true,
+    });
+
+    relayLastPublish();
+    expect(serverEmit).toHaveBeenCalledWith(
+      LiveAnalysisEvents.LECTURE_TOOLS,
+      expect.objectContaining({
+        slug: 'FLOWSLUG01',
+        hideMetricsTab: true,
       }),
     );
   });

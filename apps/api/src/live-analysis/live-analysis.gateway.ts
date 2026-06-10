@@ -243,15 +243,21 @@ export class LiveAnalysisGateway
       } else if (
         channel === LiveAnalysisGateway.CHANNEL_LECTURE_TOOLS_CHANGED
       ) {
-        // KS-3902 / ADR-117 §3. Ретрансляция: REST-сервер обновил
-        // `Lecture.disabledTools` идущей live-лекции (KS-3901) →
-        // публикует payload `{ slug, lectureId, disabledTools }` в
-        // служебный Redis-канал → этот шлюз превращает в WS-событие
-        // `live-analysis:lecture-tools` для всех подписчиков комнаты.
-        // Доп. валидация payload: `disabledTools` должен быть массивом
-        // (отсекаем сломанные сообщения, чтобы клиенты не получали
-        // мусор).
-        if (!Array.isArray(payload.disabledTools)) return;
+        // KS-3902 / ADR-117 §3 / KS-4041. Ретрансляция: REST-сервер
+        // обновил настройки лекции (`Lecture.disabledTools` или
+        // `Lecture.hideMetricsTab`) идущей live-лекции (KS-3901) →
+        // публикует payload `{ slug, lectureId, disabledTools,
+        // hideMetricsTab }` в служебный Redis-канал → этот шлюз
+        // превращает в WS-событие `live-analysis:lecture-tools` для
+        // всех подписчиков комнаты. Валидация payload: `disabledTools`
+        // обязан быть массивом, `hideMetricsTab` — boolean (отсекаем
+        // сломанные сообщения).
+        if (
+          !Array.isArray(payload.disabledTools) ||
+          typeof payload.hideMetricsTab !== 'boolean'
+        ) {
+          return;
+        }
         this.server
           .to(room)
           .emit(
