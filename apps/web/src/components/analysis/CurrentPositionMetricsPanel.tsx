@@ -96,6 +96,22 @@ interface MetricLabelWithPopoverProps {
   t: (key: string, def?: string) => string;
 }
 
+/**
+ * KS-4043: значения от Stockfish-trace приходят в сантипешках
+ * (целые/дробные после tapered и нашего `mix=(mg+eg)/2`). В UI
+ * показываем в пешках с точностью до сотых — это совпадает с
+ * разрешающей способностью движка (1 cp = 0.01 пешки) и с шкалой
+ * основной оценки в панели движка.
+ */
+function formatPawns(cp: number): string {
+  return (cp / 100).toFixed(2);
+}
+
+function formatPawnsSigned(cp: number): string {
+  const sign = cp >= 0 ? '+' : '';
+  return `${sign}${(cp / 100).toFixed(2)}`;
+}
+
 function MetricLabelWithPopover({ block, t }: MetricLabelWithPopoverProps) {
   const localized = t(block.i18nKey, '').trim() || block.key;
   const technical = block.key;
@@ -134,7 +150,7 @@ function MetricLabelWithPopover({ block, t }: MetricLabelWithPopoverProps) {
             {block.contributions
               .map(
                 (c) =>
-                  `${c.id}${isRawUnitContribution(c.id) ? ' *' : ''}: ${c.diff.toFixed(1)}`,
+                  `${c.id}${isRawUnitContribution(c.id) ? ' *' : ''}: ${formatPawnsSigned(c.diff)}`,
               )
               .join('\n')}
           </span>
@@ -208,8 +224,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
           className="current-metrics-row__value"
           data-testid={`current-metrics-row-value-${row.key}`}
         >
-          {row.diff >= 0 ? '+' : ''}
-          {row.diff.toFixed(1)}
+          {formatPawnsSigned(row.diff)}
         </span>
       </div>
     );
@@ -244,7 +259,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
             className="current-metrics-row__value current-metrics-row__value--inline"
             data-testid={`current-metrics-row-white-${row.key}`}
           >
-            {row.white.toFixed(1)}
+            {formatPawns(row.white)}
           </span>
         </div>
         <div
@@ -259,7 +274,7 @@ function BarRow({ row, mode, maxAbs, selected, onSelect, t }: BarRowProps) {
             className="current-metrics-row__value current-metrics-row__value--inline"
             data-testid={`current-metrics-row-black-${row.key}`}
           >
-            {row.black.toFixed(1)}
+            {formatPawns(row.black)}
           </span>
         </div>
       </div>

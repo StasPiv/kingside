@@ -104,10 +104,10 @@ describe('<CurrentPositionMetricsPanel> KS-4043', () => {
     expect(
       screen.queryByTestId('current-metrics-row-psqt_pawn'),
     ).toBeNull();
-    // А «Подвижность» с +4 — рендерится.
+    // А «Подвижность» с +4 cp = +0.04 пешки — рендерится.
     expect(
       screen.getByTestId('current-metrics-row-value-mobility'),
-    ).toHaveTextContent('+4.0');
+    ).toHaveTextContent('+0.04');
   });
 
   it('переключение режима «Разница ↔ Параллельно» меняет вид без перерасчёта', () => {
@@ -125,12 +125,14 @@ describe('<CurrentPositionMetricsPanel> KS-4043', () => {
       screen.queryByTestId('current-metrics-row-white-mobility'),
     ).toBeNull();
     fireEvent.click(screen.getByTestId('current-metrics-mode-parallel'));
+    // KS-4043 follow-up: вывод в пешках с точностью до сотых
+    // (50 cp → 0.50 пешки, 20 cp → 0.20 пешки).
     expect(
       screen.getByTestId('current-metrics-row-white-mobility'),
-    ).toHaveTextContent('50.0');
+    ).toHaveTextContent('0.50');
     expect(
       screen.getByTestId('current-metrics-row-black-mobility'),
-    ).toHaveTextContent('20.0');
+    ).toHaveTextContent('0.20');
   });
 
   describe('подсветка клеток при клике (KS-4033 / KS-4043)', () => {
