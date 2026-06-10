@@ -165,6 +165,25 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
     );
   });
 
+  it('скрывает строки psqt_* — техническое разложение без шахматной семантики', () => {
+    const subterms: PositionalSubterm[] = [
+      sub('psqt_pawn', 'w', 90, 70),
+      sub('psqt_knight', 'w', 50, 40),
+      sub('mobility_knight', 'w', 30, 20),
+    ];
+    render(
+      <CurrentPositionMetricsPanel
+        fen={STARTING_FEN}
+        metricsOverride={readyOverride(subterms)}
+      />,
+    );
+    expect(screen.queryByTestId('current-metrics-row-psqt_pawn')).toBeNull();
+    expect(screen.queryByTestId('current-metrics-row-psqt_knight')).toBeNull();
+    expect(
+      screen.getByTestId('current-metrics-row-mobility_knight'),
+    ).toBeInTheDocument();
+  });
+
   it('headerLink рендерится когда передан', () => {
     render(
       <CurrentPositionMetricsPanel

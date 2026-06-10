@@ -190,8 +190,15 @@ export function CurrentPositionMetricsPanel({
   const rows = useMemo(() => {
     if (!metrics.subterms) return [] as CurrentPositionMetricRow[];
     const all = buildCurrentPositionMetricRows(metrics.subterms, phase);
-    if (!hideTiny) return all;
-    return all.filter((r) => r.score >= 1);
+    // KS-4033 follow-up: `psqt_*` (psqt_pawn / psqt_knight / psqt_bishop /
+    // psqt_rook / psqt_queen / psqt_king) — техническое разложение
+    // позиционной таблицы фигур, без шахматной семантики. По запросу
+    // пользователя скрываем их из UI вкладки «Метрики» в окне анализа.
+    // Доступны через отладочную консоль (`window.__ksPositionalDiff`,
+    // KS-4017 / KS-4021) и на отдельной странице метрик.
+    const visible = all.filter((r) => !(r.id as string).startsWith('psqt_'));
+    if (!hideTiny) return visible;
+    return visible.filter((r) => r.score >= 1);
   }, [metrics.subterms, phase, hideTiny]);
 
   const maxAbs = rows.length > 0 ? rows[0].score : 0;
