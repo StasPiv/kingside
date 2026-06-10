@@ -208,7 +208,11 @@ export async function triggerPveGeneration(
       awsvpcConfiguration: {
         subnets,
         securityGroups,
-        assignPublicIp: 'DISABLED',
+        // KS-4029: ENABLED — временно, до KS-3061 (поднять VPC endpoint'ы
+        // для ECR / Secrets Manager / CloudWatch Logs в подсетях). Без
+        // публичного IP контейнер шарда зависает в PENDING (не может
+        // скачать образ из ECR и забрать секреты).
+        assignPublicIp: 'ENABLED',
       },
     },
     overrides: {
