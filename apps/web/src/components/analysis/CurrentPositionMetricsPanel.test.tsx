@@ -4,7 +4,7 @@
  * Не запускаем реальный WASM (`evalTrace`), вместо этого передаём
  * готовые подкомпоненты через `metricsOverride`.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { PositionalSubterm } from '@kingside/shared';
 import { CurrentPositionMetricsPanel } from './CurrentPositionMetricsPanel';
@@ -15,11 +15,12 @@ function sub(
   color: 'w' | 'b' | undefined,
   value_mg: number,
   value_eg: number,
+  square?: string,
 ): PositionalSubterm {
   return {
     id: id as PositionalSubterm['id'],
     color,
-    square: undefined,
+    square,
     value_mg,
     value_eg,
   } as PositionalSubterm;
@@ -182,6 +183,64 @@ describe('<CurrentPositionMetricsPanel> KS-4033', () => {
     expect(
       screen.getByTestId('current-metrics-row-mobility_knight'),
     ).toBeInTheDocument();
+  });
+
+  describe('подсветка клеток при клике на строку (KS-4033 follow-up)', () => {
+    it('первый клик передаёт squares, повторный — null (toggle)', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('pawn_isolated', 'w', 5, 5, 'd4'),
+        sub('pawn_isolated', 'b', 4, 4, 'h7'),
+      ];
+      const onHighlight = vi.fn();
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          onHighlightSquares={onHighlight}
+        />,
+      );
+      const row = screen.getByTestId('current-metrics-row-pawn_isolated');
+      fireEvent.click(row);
+      expect(onHighlight).toHaveBeenLastCalledWith({
+        id: 'pawn_isolated',
+        squares: { white: ['d4'], black: ['h7'] },
+      });
+      expect(row).toHaveAttribute('data-selected', 'true');
+      fireEvent.click(row);
+      expect(onHighlight).toHaveBeenLastCalledWith(null);
+      expect(row).toHaveAttribute('data-selected', 'false');
+    });
+
+    it('клик по другой строке переключает выделение', () => {
+      const subterms: PositionalSubterm[] = [
+        sub('pawn_isolated', 'w', 5, 5, 'd4'),
+        sub('mobility_knight', 'w', 6, 6, 'f3'),
+      ];
+      const onHighlight = vi.fn();
+      render(
+        <CurrentPositionMetricsPanel
+          fen={STARTING_FEN}
+          metricsOverride={readyOverride(subterms)}
+          onHighlightSquares={onHighlight}
+        />,
+      );
+      fireEvent.click(
+        screen.getByTestId('current-metrics-row-pawn_isolated'),
+      );
+      fireEvent.click(
+        screen.getByTestId('current-metrics-row-mobility_knight'),
+      );
+      expect(onHighlight).toHaveBeenLastCalledWith({
+        id: 'mobility_knight',
+        squares: { white: ['f3'], black: [] },
+      });
+      expect(
+        screen.getByTestId('current-metrics-row-pawn_isolated'),
+      ).toHaveAttribute('data-selected', 'false');
+      expect(
+        screen.getByTestId('current-metrics-row-mobility_knight'),
+      ).toHaveAttribute('data-selected', 'true');
+    });
   });
 
   it('headerLink рендерится когда передан', () => {

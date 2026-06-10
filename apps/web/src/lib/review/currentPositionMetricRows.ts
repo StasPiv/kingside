@@ -160,3 +160,50 @@ export function buildCurrentPositionMetricRows(
 
   return rows;
 }
+
+/**
+ * KS-4033 follow-up. Собирает клетки, на которых Stockfish заполнил
+ * `square` для подкомпонент с конкретным `id`. Используется для
+ * подсветки доски при клике на строку метрики во вкладке «Метрики».
+ *
+ * Возвращает раздельные списки клеток по сторонам:
+ *  - `white` — клетки от `color='w'` подкомпонент (с учётом знаковой
+ *    конвенции SF: для `psqt_*`/`material`/`imbalance`, отсортированных
+ *    как «сумма со стороны белых», вклад идёт от `color` Stockfish — это
+ *    и есть владелец фигуры/пешки на клетке);
+ *  - `black` — клетки от `color='b'`.
+ *
+ * Если для подкомпоненты `square` не заполнен (агрегаты вроде
+ * `material`, `king_attackers_count` целиком — без привязки к клетке) —
+ * она в результат не попадает; вызывающий код может отдельно сигнализировать
+ * «у этой метрики нет конкретной клетки» (например, отсутствием подсветки).
+ */
+export interface MetricSquares {
+  white: string[];
+  black: string[];
+}
+
+export function squaresForMetric(
+  subterms: ReadonlyArray<PositionalSubterm>,
+  id: string,
+): MetricSquares {
+  const white: string[] = [];
+  const black: string[] = [];
+  for (const s of subterms) {
+    if (s.id !== id) continue;
+    if (typeof s.square !== 'string') continue;
+    if (!/^[a-h][1-8]$/.test(s.square)) continue;
+    if (s.color === 'b') {
+      black.push(s.square);
+    } else if (s.color === 'w') {
+      white.push(s.square);
+    }
+  }
+  // Дедуп — у Stockfish бывает несколько subterm-записей на одну клетку
+  // (например, у пешки несколько штрафов одной id). В подсветке клетка
+  // должна гореть один раз.
+  return {
+    white: Array.from(new Set(white)).sort(),
+    black: Array.from(new Set(black)).sort(),
+  };
+}

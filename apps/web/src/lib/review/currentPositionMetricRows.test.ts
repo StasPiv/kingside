@@ -4,18 +4,22 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { PositionalSubterm } from '@kingside/shared';
-import { buildCurrentPositionMetricRows } from './currentPositionMetricRows';
+import {
+  buildCurrentPositionMetricRows,
+  squaresForMetric,
+} from './currentPositionMetricRows';
 
 function sub(
   id: string,
   color: 'w' | 'b' | undefined,
   value_mg: number,
   value_eg: number,
+  square?: string,
 ): PositionalSubterm {
   return {
     id: id as PositionalSubterm['id'],
     color,
-    square: undefined,
+    square,
     value_mg,
     value_eg,
   } as PositionalSubterm;
@@ -132,5 +136,42 @@ describe('buildCurrentPositionMetricRows (KS-4033)', () => {
     const row = rows.find((r) => r.id === 'pawn_connected')!;
     expect(row.white).toBe(0);
     expect(row.black).toBe(3);
+  });
+});
+
+describe('squaresForMetric (KS-4033 follow-up)', () => {
+  it('возвращает раздельные списки клеток по сторонам, дедуп и сортировка', () => {
+    const subterms = [
+      sub('pawn_isolated', 'w', 5, 5, 'd4'),
+      sub('pawn_isolated', 'w', 5, 5, 'a2'),
+      sub('pawn_isolated', 'w', 5, 5, 'a2'), // дубль
+      sub('pawn_isolated', 'b', 4, 4, 'h7'),
+    ];
+    expect(squaresForMetric(subterms, 'pawn_isolated')).toEqual({
+      white: ['a2', 'd4'],
+      black: ['h7'],
+    });
+  });
+
+  it('игнорирует подкомпоненты другого id', () => {
+    const subterms = [
+      sub('pawn_isolated', 'w', 5, 5, 'd4'),
+      sub('pawn_backward', 'w', 5, 5, 'e5'),
+    ];
+    expect(squaresForMetric(subterms, 'pawn_isolated')).toEqual({
+      white: ['d4'],
+      black: [],
+    });
+  });
+
+  it('игнорирует записи без square (агрегаты вроде material)', () => {
+    const subterms = [
+      sub('material', undefined, -200, -180),
+      sub('material', undefined, 0, 0, 'invalid'),
+    ];
+    expect(squaresForMetric(subterms, 'material')).toEqual({
+      white: [],
+      black: [],
+    });
   });
 });

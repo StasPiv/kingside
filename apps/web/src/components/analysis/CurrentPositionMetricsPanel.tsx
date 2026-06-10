@@ -20,14 +20,16 @@
  * агрегатор `buildCurrentPositionMetricRows`. Хук пересчитывает
  * `evalTrace(fen)` при каждой смене `fen` с debounce 200мс.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   useCurrentPositionMetrics,
   type CurrentPositionMetricsState,
 } from '../../hooks/useCurrentPositionMetrics';
 import {
   buildCurrentPositionMetricRows,
+  squaresForMetric,
   type CurrentPositionMetricRow,
+  type MetricSquares,
 } from '../../lib/review/currentPositionMetricRows';
 import type { MetricPhase } from '../../lib/review/positionalMetrics';
 
@@ -60,6 +62,18 @@ export interface CurrentPositionMetricsPanelProps {
    * (dev) и в unit-тестах.
    */
   metricsOverride?: CurrentPositionMetricsState;
+  /**
+   * KS-4033 follow-up. Колбэк подсветки доски: при клике на строку
+   * метрики передаются клетки, на которых Stockfish заполнил `square`
+   * для этой подкомпоненты. Повторный клик по той же строке снимает
+   * выделение (`info=null`). Если для подкомпоненты нет привязки к
+   * клеткам (агрегаты вроде `material`, `king_attackers_count` целиком)
+   * — `info.white`/`info.black` будут пустыми массивами; вызывающий
+   * код может молча игнорировать такой клик.
+   */
+  onHighlightSquares?: (
+    info: { id: string; squares: MetricSquares } | null,
+  ) => void;
 }
 
 /** Длинный полу-предсказуемый список меток для UI. Без перевода: id
@@ -74,6 +88,10 @@ interface BarRowProps {
   row: CurrentPositionMetricRow;
   mode: CurrentPositionMetricsMode;
   maxAbs: number;
+  /** KS-4033 follow-up: true, если строка сейчас выбрана (подсвечивает доску). */
+  selected: boolean;
+  /** KS-4033 follow-up: клик-обработчик для toggle подсветки. */
+  onSelect: () => void;
 }
 
 /**
@@ -85,17 +103,30 @@ interface BarRowProps {
  * наборе. Это даёт пропорциональную картинку и не зависит от
  * абсолютной величины (psqt в сотнях, threat_hanging в десятках).
  */
-function BarRow({ row, mode, maxAbs }: BarRowProps) {
+function BarRow({ row, mode, maxAbs, selected, onSelect }: BarRowProps) {
   const ratio = maxAbs > 0 ? Math.min(1, row.score / maxAbs) : 0;
   const pct = (ratio * 50).toFixed(2); // половина ширины — на сторону
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect();
+    }
+  };
 
   if (mode === 'diff') {
     const isWhite = row.diff >= 0;
     return (
       <div
-        className="current-metrics-row current-metrics-row--diff"
+        className={`current-metrics-row current-metrics-row--diff${
+          selected ? ' current-metrics-row--selected' : ''
+        }`}
         data-testid={`current-metrics-row-${row.id}`}
         data-side={isWhite ? 'white' : 'black'}
+        data-selected={selected ? 'true' : 'false'}
+        onClick={onSelect}
+        onKeyDown={onKeyDown}
+        role="button"
+        tabIndex={0}
       >
         <span className="current-metrics-row__label">
           {formatLabel(row.id)}
@@ -129,8 +160,15 @@ function BarRow({ row, mode, maxAbs }: BarRowProps) {
   const blackRatio = maxAbs > 0 ? Math.min(1, row.black / maxAbs) : 0;
   return (
     <div
-      className="current-metrics-row current-metrics-row--parallel"
+      className={`current-metrics-row current-metrics-row--parallel${
+        selected ? ' current-metrics-row--selected' : ''
+      }`}
       data-testid={`current-metrics-row-${row.id}`}
+      data-selected={selected ? 'true' : 'false'}
+      onClick={onSelect}
+      onKeyDown={onKeyDown}
+      role="button"
+      tabIndex={0}
     >
       <span className="current-metrics-row__label">
         {formatLabel(row.id)}
@@ -177,6 +215,7 @@ export function CurrentPositionMetricsPanel({
   headerLink,
   phase = 'mix',
   metricsOverride,
+  onHighlightSquares,
 }: CurrentPositionMetricsPanelProps) {
   const hookState = useCurrentPositionMetrics({ fen, enabled });
   const metrics = metricsOverride ?? hookState;
@@ -186,6 +225,39 @@ export function CurrentPositionMetricsPanel({
   // из задачи). По умолчанию выключено — пользователь должен сам
   // решить, нужен ли ему фильтр.
   const [hideTiny, setHideTiny] = useState(false);
+  // KS-4033 follow-up: какая строка-метрика сейчас выбрана для подсветки
+  // доски. `null` — ничего не подсвечено. Повторный клик по той же
+  // строке снимает выделение.
+  const [selectedMetricId, setSelectedMetricId] = useState<string | null>(
+    null,
+  );
+
+  // При смене позиции снимаем выделение — клетки прошлой позиции не
+  // имеют смысла для новой расстановки. Реагируем на `fenForSubterms`,
+  // т.к. оно обновляется ровно когда новый набор subterms готов.
+  const lastFenRef = useRef<string | null>(null);
+  if (
+    metrics.fenForSubterms !== lastFenRef.current &&
+    selectedMetricId !== null
+  ) {
+    lastFenRef.current = metrics.fenForSubterms;
+    setSelectedMetricId(null);
+    onHighlightSquares?.(null);
+  } else if (metrics.fenForSubterms !== lastFenRef.current) {
+    lastFenRef.current = metrics.fenForSubterms;
+  }
+
+  const handleSelect = (rowId: string) => {
+    if (selectedMetricId === rowId) {
+      setSelectedMetricId(null);
+      onHighlightSquares?.(null);
+      return;
+    }
+    setSelectedMetricId(rowId);
+    const subterms = metrics.subterms ?? [];
+    const squares = squaresForMetric(subterms, rowId);
+    onHighlightSquares?.({ id: rowId, squares });
+  };
 
   const rows = useMemo(() => {
     if (!metrics.subterms) return [] as CurrentPositionMetricRow[];
@@ -307,6 +379,8 @@ export function CurrentPositionMetricsPanel({
             row={row}
             mode={mode}
             maxAbs={maxAbs}
+            selected={selectedMetricId === row.id}
+            onSelect={() => handleSelect(row.id)}
           />
         ))}
       </div>

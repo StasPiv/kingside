@@ -2709,6 +2709,15 @@ function AnalysisPageInner({
   // метрик (с полным графиком по партии) остаётся как есть — там
   // полная аналитика; ссылку на неё панель сама подставляет через
   // `headerLink`, когда у анализа есть `analysisId`.
+  //
+  // KS-4033 follow-up: клик по строке метрики подсвечивает на доске
+  // клетки, на которых Stockfish заполнил `square` для подкомпоненты с
+  // этим `id`. Подсветка живёт отдельным слоем `metricsHighlightStyles`
+  // и накладывается поверх системных стилей через `mergeSquareStyleLayers`.
+  const [metricsHighlightSquares, setMetricsHighlightSquares] = useState<{
+    white: string[];
+    black: string[];
+  } | null>(null);
   const metricsContent = useMemo(
     () => (
       <CurrentPositionMetricsPanel
@@ -2721,10 +2730,36 @@ function AnalysisPageInner({
               }
             : undefined
         }
+        onHighlightSquares={(info) => {
+          setMetricsHighlightSquares(info ? info.squares : null);
+        }}
       />
     ),
     [currentFen, analysisId],
   );
+  // KS-4033 follow-up. Слой подсветки доски от вкладки «Метрики».
+  // Белые клетки — золотистая полу-прозрачная, чёрные — оранжевая
+  // полу-прозрачная (отличаются от last-move-yellow / AI-overlay).
+  // Перерисовывается только при смене выбранной метрики.
+  const metricsHighlightStyles = useMemo<
+    Record<string, React.CSSProperties>
+  >(() => {
+    if (!metricsHighlightSquares) return {};
+    const styles: Record<string, React.CSSProperties> = {};
+    for (const sq of metricsHighlightSquares.white) {
+      styles[sq] = {
+        backgroundColor: 'rgba(34, 197, 94, 0.45)',
+        boxShadow: 'inset 0 0 0 2px rgba(34, 197, 94, 0.85)',
+      };
+    }
+    for (const sq of metricsHighlightSquares.black) {
+      styles[sq] = {
+        backgroundColor: 'rgba(168, 85, 247, 0.45)',
+        boxShadow: 'inset 0 0 0 2px rgba(168, 85, 247, 0.85)',
+      };
+    }
+    return styles;
+  }, [metricsHighlightSquares]);
 
   // KS-3726. Текущий комментарий узла дерева, на котором стоит
   // пользователь — нужен и для AI-панели (показать «Добавлено» когда
@@ -3433,10 +3468,31 @@ function AnalysisPageInner({
   // предыдущего по той же клетке. Сама логика — в чистом хелпере, чтобы
   // её можно было проверять без подъёма всего AnalysisPage (см.
   // aiOverlayMerge.test.ts).
-  const mergedSquareStyles = useMemo(
-    () => mergeSquareStyleLayers(systemStylesEffective, aiSquareStyles, highlightStyles),
-    [systemStylesEffective, aiSquareStyles, highlightStyles],
-  );
+  //
+  // KS-4033 follow-up: поверх трёх слоёв накладываем подсветку
+  // «Метрики» — её приоритет максимальный, потому что это явный клик
+  // пользователя по конкретной строке. Когда пользователь снимает
+  // выделение (повторный клик / переход на другую позицию),
+  // `metricsHighlightStyles` пустой и доска возвращается в обычное
+  // состояние.
+  const mergedSquareStyles = useMemo(() => {
+    const base = mergeSquareStyleLayers(
+      systemStylesEffective,
+      aiSquareStyles,
+      highlightStyles,
+    );
+    if (Object.keys(metricsHighlightStyles).length === 0) return base;
+    const merged: Record<string, React.CSSProperties> = { ...base };
+    for (const [sq, style] of Object.entries(metricsHighlightStyles)) {
+      merged[sq] = { ...merged[sq], ...style };
+    }
+    return merged;
+  }, [
+    systemStylesEffective,
+    aiSquareStyles,
+    highlightStyles,
+    metricsHighlightStyles,
+  ]);
 
   // Объединённые стрелки: hover-suggestion → AI стрелки → пользовательские
   // аннотации.

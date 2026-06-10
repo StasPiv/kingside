@@ -4403,3 +4403,22 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
 .current-metrics-row__value--inline {
   font-size: 10px;
 }
+
+/* KS-4033 follow-up: визуальный признак выбранной строки-метрики
+ * (строка кликабельна, при выборе на доске подсвечиваются клетки этой
+ * подкомпоненты Stockfish). */
+.current-metrics-row {
+  cursor: pointer;
+  border-radius: 3px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.current-metrics-row:hover {
+  background: var(--c-2a2a2a, rgba(255, 255, 255, 0.04));
+}
+
+.current-metrics-row--selected {
+  background: var(--c-3a3a3a, rgba(255, 213, 0, 0.12));
+  outline: 1px solid var(--c-9cf, rgba(56, 189, 248, 0.65));
+}
