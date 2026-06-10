@@ -832,4 +832,56 @@ describe('useAiPositionComment', () => {
     await waitFor(() => expect(result.current.state.kind).toBe('success'));
     expect(result.current.softCounter.used).toBe(2);
   });
+
+  describe('KS-4050: payload содержит metrics+phase', () => {
+    it('при наличии subterms payload включает metrics и phase', async () => {
+      // Минимальный набор подкомпонент: 1 mobility_knight у белых.
+      // По агрегации этого хватит, чтобы блок `mobility` имел
+      // value_cp !== 0.
+      (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          id: 'mobility_knight',
+          color: 'w',
+          value_mg: 50,
+          value_eg: 50,
+        },
+      ]);
+      fetchSpy.mockResolvedValue(jsonResponse({ comment: 'ok' }));
+      const { result } = renderHook(() =>
+        useAiPositionComment({ fen: FEN_A, user: { id: 'u1' } }),
+      );
+      act(() => result.current.request());
+      await waitFor(() =>
+        expect(result.current.state.kind).toBe('success'),
+      );
+
+      // Проверяем body последнего fetch-запроса.
+      const last = fetchSpy.mock.calls[fetchSpy.mock.calls.length - 1];
+      const init = last[1] as RequestInit;
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body).toHaveProperty('metrics');
+      expect(body).toHaveProperty('phase');
+      const metrics = body.metrics as Record<string, { value_cp: number }>;
+      expect(metrics.mobility.value_cp).toBe(50);
+      // По стартовому FEN — фаза 256 (миттельшпиль, полный материал).
+      expect(typeof body.phase).toBe('number');
+    });
+
+    it('пустой массив subterms → metrics/phase в payload отсутствуют', async () => {
+      (evalTrace as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      fetchSpy.mockResolvedValue(jsonResponse({ comment: 'ok' }));
+      const { result } = renderHook(() =>
+        useAiPositionComment({ fen: FEN_A, user: { id: 'u1' } }),
+      );
+      act(() => result.current.request());
+      await waitFor(() =>
+        expect(result.current.state.kind).toBe('success'),
+      );
+      const last = fetchSpy.mock.calls[fetchSpy.mock.calls.length - 1];
+      const init = last[1] as RequestInit;
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body).not.toHaveProperty('metrics');
+      expect(body).not.toHaveProperty('phase');
+    });
+  });
 });

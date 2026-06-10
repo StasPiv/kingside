@@ -56,6 +56,7 @@ import type {
 
 import { mergeFactors, playOutPv } from '../lib/review/factorsMerge';
 import { evalTrace } from '../lib/review/stockfishTrace';
+import { buildMetricsCommentRequest } from '../lib/review/metricsCommentPayload';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -251,6 +252,17 @@ interface PositionCommentPayload {
   factors: unknown[];
   eval?: number;
   language?: 'ru' | 'en';
+  /**
+   * KS-4050. Сгруппированные агрегаты по 7 блокам для текущей позиции
+   * (`material`, `pawn_structure`, `king_safety`, `pieces`, `mobility`,
+   * `threats`, `passed_pawns`). Поле опциональное: если по какой-то
+   * причине нет `subterms` (нет trace для позиции) — не отправляется.
+   * Backend (`PositionCommentService`) обновится отдельной задачей
+   * (KS-4049); до неё сервер просто проигнорирует лишнее поле.
+   */
+  metrics?: import('../lib/review/metricsCommentPayload').MetricsCommentRequest['metrics'];
+  /** KS-4050. `phase` 0..256 — рассчитывается по FEN (см. `computePhaseFromFen`). */
+  phase?: number;
 }
 
 interface FetchOk {
@@ -675,6 +687,26 @@ export function useAiPositionComment(
       if (language) payload.language = language;
       if (engineEvalCp != null && Number.isFinite(engineEvalCp)) {
         payload.eval = engineEvalCp;
+      }
+      // KS-4050. Опциональное поле `metrics` (7 блоков) + `phase` —
+      // готовим из исходных `factors` (PositionalSubterm[]) той же
+      // функцией, что использовала отозванная вкладка «Объяснить
+      // позицию». Backend на этой неделе обновит
+      // `PositionCommentService` под расширенный контракт; до раскатки
+      // сервер просто проигнорирует поле, ответ модели не сломается.
+      if (factors.length > 0) {
+        try {
+          const grouped = buildMetricsCommentRequest({
+            fen,
+            subterms: factors,
+          });
+          payload.metrics = grouped.metrics;
+          payload.phase = grouped.phase;
+        } catch {
+          // Защитный catch — если по какой-то причине агрегация
+          // упала, отправляем payload без `metrics`, не блокируем
+          // основной поток комментария.
+        }
       }
 
       // 3) Считаем запрос для soft-counter ДО fetch'а — даже если он

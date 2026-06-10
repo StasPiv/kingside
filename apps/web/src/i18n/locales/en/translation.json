@@ -820,6 +820,15 @@
       "bindHint": "The chosen lecture will go live with this analysis. Title, description, tools and access stay as configured."
     }
   },
+  "studentVisibility": {
+    "sectionLabel": "What students see",
+    "items": {
+      "ai": "AI",
+      "engine": "Engine",
+      "book": "Database",
+      "metrics": "Metrics"
+    }
+  },
   "lectureTools": {
     "modalTitle": "Lecture settings for students",
     "sectionTitle": "Student tools access",
@@ -1084,11 +1093,6 @@
         "threats": "Threats",
         "passed": "Passed pawns",
         "space": "Space"
-      },
-      "explain": {
-        "cta": "Explain position",
-        "loading": "Requesting…",
-        "error": "Could not get an explanation. Please retry."
       }
     },
     "aiTab": {

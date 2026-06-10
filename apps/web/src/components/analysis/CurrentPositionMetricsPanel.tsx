@@ -23,11 +23,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  buildMetricsCommentRequest,
-  type MetricsCommentResponse,
-} from '../../lib/review/metricsCommentPayload';
-import { requestMetricsComment } from '../../api/metricsCommentApi';
-import {
   useCurrentPositionMetrics,
   type CurrentPositionMetricsState,
 } from '../../hooks/useCurrentPositionMetrics';
@@ -82,29 +77,6 @@ export interface CurrentPositionMetricsPanelProps {
   onHighlightSquares?: (
     info: { id: string; squares: MetricSquares } | null,
   ) => void;
-  /**
-   * KS-4044. `analysisId` нужен для отправки запроса LLM-трактовки
-   * `POST /analyses/:analysisId/metrics-comment`. Если не передан —
-   * кнопка «Объяснить позицию» скрыта (например, ad-hoc анализ ещё
-   * не сохранён в БД).
-   */
-  analysisId?: string | null;
-  /**
-   * KS-4044. Опциональная оценка SF-18 для текущей позиции — уходит в
-   * payload вместе с метриками. Если не передана — поле опускается.
-   */
-  sf18Eval?: { type: 'cp' | 'mate'; value: number } | null;
-  /**
-   * KS-4044. Тестовый override клиента запроса LLM-трактовки. Без него
-   * по клику «Объяснить позицию» вызывается реальный API
-   * (`requestMetricsComment`).
-   */
-  requestMetricsCommentOverride?: (
-    analysisId: string,
-    payload: import('../../lib/review/metricsCommentPayload').MetricsCommentRequest,
-  ) => Promise<
-    import('../../lib/review/metricsCommentPayload').MetricsCommentResponse
-  >;
 }
 
 /**
@@ -437,13 +409,7 @@ interface BlockWithContributionsProps {
   /**
    * KS-4044. Если LLM вернула трактовку для этого блока — `verdict` и
    * `comment` рисуются под строкой блока. Если поле не задано (LLM
-   * молчит / блок пропущен) — ничего не рисуется (по Gherkin KS-4044:
-   * «никакого „нет данных“ / пустой строки»).
    */
-  llmBlock?: {
-    verdict: string;
-    comment: string;
-  };
 }
 
 function BlockWithContributions({
@@ -455,7 +421,6 @@ function BlockWithContributions({
   onToggle,
   onSelectContribution,
   t,
-  llmBlock,
 }: BlockWithContributionsProps) {
   return (
     <div className="current-metrics-block" data-testid={`current-metrics-block-${row.key}`}>
@@ -467,23 +432,6 @@ function BlockWithContributions({
         onToggle={onToggle}
         t={t}
       />
-      {llmBlock && (llmBlock.verdict.trim() || llmBlock.comment.trim()) && (
-        <div
-          className="current-metrics-block__llm"
-          data-testid={`current-metrics-block-llm-${row.key}`}
-        >
-          {llmBlock.verdict.trim() && (
-            <span className="current-metrics-block__llm-verdict">
-              {llmBlock.verdict}
-            </span>
-          )}
-          {llmBlock.comment.trim() && (
-            <span className="current-metrics-block__llm-comment">
-              {llmBlock.comment}
-            </span>
-          )}
-        </div>
-      )}
       {expanded && row.contributions.length > 0 && (
         <div
           className="current-metrics-block__contributions"
@@ -513,9 +461,6 @@ export function CurrentPositionMetricsPanel({
   phase = 'mix',
   metricsOverride,
   onHighlightSquares,
-  analysisId,
-  sf18Eval,
-  requestMetricsCommentOverride,
 }: CurrentPositionMetricsPanelProps) {
   const hookState = useCurrentPositionMetrics({ fen, enabled });
   const metrics = metricsOverride ?? hookState;
@@ -543,24 +488,6 @@ export function CurrentPositionMetricsPanel({
     string | null
   >(null);
 
-  // KS-4044. Состояние ответа LLM-трактовки. `summary` рисуется сверху
-  // одной строкой, по каждому блоку — `verdict + comment` под строкой
-  // блока (только если в ответе есть запись для этого блока).
-  // `loading`/`error` — UX-индикаторы. На смене позиции (`fenForSubterms`)
-  // ответ сбрасывается — комментарий относится к предыдущей расстановке.
-  const [llm, setLlm] = useState<{
-    status: 'idle' | 'loading' | 'ready' | 'error';
-    response: MetricsCommentResponse | null;
-    error: string | null;
-  }>({ status: 'idle', response: null, error: null });
-  const llmFenRef = useRef<string | null>(null);
-  if (
-    llm.response !== null &&
-    metrics.fenForSubterms !== llmFenRef.current
-  ) {
-    setLlm({ status: 'idle', response: null, error: null });
-  }
-  llmFenRef.current = metrics.fenForSubterms;
 
   // При смене позиции снимаем подсветку и сворачиваем блок.
   const lastFenRef = useRef<string | null>(null);
@@ -621,33 +548,6 @@ export function CurrentPositionMetricsPanel({
   }, [metrics.subterms, phase, hideTiny]);
 
   const maxAbs = rows.length > 0 ? Math.max(...rows.map((r) => r.score)) : 0;
-
-  // KS-4044: маппинг ответа LLM `blocks[].id` → ключ блока из
-  // `metricBlocks.ts`. `pawn_structure`/`king_safety`/`passed_pawns`
-  // в API названы по-другому, остальные совпадают.
-  const llmBlockByKey = useMemo(() => {
-    const map = new Map<
-      MetricBlockKey,
-      { verdict: string; comment: string }
-    >();
-    const apiToInternal: Record<string, MetricBlockKey> = {
-      material: 'material',
-      pawn_structure: 'pawn-structure',
-      king_safety: 'king-safety',
-      pieces: 'pieces',
-      mobility: 'mobility',
-      threats: 'threats',
-      passed_pawns: 'passed',
-    };
-    if (llm.response) {
-      for (const block of llm.response.blocks) {
-        const key = apiToInternal[block.id];
-        if (!key) continue;
-        map.set(key, { verdict: block.verdict, comment: block.comment });
-      }
-    }
-    return map;
-  }, [llm.response]);
 
   const isLoading =
     metrics.status === 'loading' && rows.length === 0;
@@ -710,76 +610,7 @@ export function CurrentPositionMetricsPanel({
             {headerLink.label}
           </a>
         )}
-        {/* KS-4044: кнопка «Объяснить позицию». Видима только когда
-            есть `analysisId` (без него POST некуда отправить) и subterms
-            готовы. Состояния:
-              idle    — «Объяснить позицию»
-              loading — «Запрашиваю…»
-              ready/error — снова доступна для повторного запроса. */}
-        {analysisId && metrics.subterms && metrics.subterms.length > 0 && (
-          <button
-            type="button"
-            className="current-metrics-panel__llm-btn"
-            onClick={async () => {
-              if (!metrics.subterms || !metrics.fenForSubterms) return;
-              setLlm({ status: 'loading', response: null, error: null });
-              try {
-                const payload = buildMetricsCommentRequest({
-                  fen: metrics.fenForSubterms,
-                  subterms: metrics.subterms,
-                  sf18Eval: sf18Eval ?? null,
-                });
-                const fn =
-                  requestMetricsCommentOverride ?? requestMetricsComment;
-                const resp = await fn(analysisId, payload);
-                setLlm({
-                  status: 'ready',
-                  response: resp,
-                  error: null,
-                });
-              } catch (e) {
-                setLlm({
-                  status: 'error',
-                  response: null,
-                  error: e instanceof Error ? e.message : String(e),
-                });
-              }
-            }}
-            disabled={llm.status === 'loading'}
-            data-testid="current-metrics-explain-btn"
-          >
-            {llm.status === 'loading'
-              ? t(
-                  'analysis.metrics.explain.loading',
-                  'Запрашиваю…',
-                )
-              : t(
-                  'analysis.metrics.explain.cta',
-                  'Объяснить позицию',
-                )}
-          </button>
-        )}
       </div>
-
-      {llm.status === 'ready' && llm.response?.summary && (
-        <div
-          className="current-metrics-panel__llm-summary"
-          data-testid="current-metrics-llm-summary"
-        >
-          {llm.response.summary}
-        </div>
-      )}
-      {llm.status === 'error' && (
-        <div
-          className="current-metrics-panel__status current-metrics-panel__status--error"
-          data-testid="current-metrics-llm-error"
-        >
-          {t(
-            'analysis.metrics.explain.error',
-            'Не удалось получить пояснение. Попробуйте снова.',
-          )}
-        </div>
-      )}
 
       {isLoading && (
         <div
@@ -827,7 +658,6 @@ export function CurrentPositionMetricsPanel({
             onToggle={() => handleBlockToggle(row.key)}
             onSelectContribution={handleContributionSelect}
             t={tForLabel}
-            llmBlock={llmBlockByKey.get(row.key)}
           />
         ))}
       </div>
