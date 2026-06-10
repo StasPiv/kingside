@@ -51,16 +51,22 @@ export type PrecisionAttemptMoveSnapshot = {
   playedUci: string;
   /** UCI, рекомендованный движком в той же позиции (PV1 pre-analyze). */
   bestUci: string;
-  /** cp POV user в `fenBefore` (mate кодируется ±100000). */
-  cpBefore: number | null;
-  /** cp POV user в позиции ПОСЛЕ playedUci. */
-  cpAfter: number | null;
-  /** WDL POV user в `fenBefore` (после bestUci — это PV1). */
+  /**
+   * KS-4028. WDL POV user в `fenBefore` (после bestUci — это PV1).
+   * Единственный источник для серверного подсчёта score/objectiveAchieved/
+   * verdictKey. Поля `cpBefore`/`cpAfter` удалены (бэкенд их больше не
+   * принимает и не хранит, классификация — только по WDL-дельте).
+   */
   wdlBefore: { w: number; d: number; l: number } | null;
   /** WDL POV user в позиции после playedUci. */
   wdlAfter: { w: number; d: number; l: number } | null;
-  /** Глубина анализа Stockfish, на которой сняты cpBefore/wdlBefore. */
+  /** Глубина анализа Stockfish, на которой сняты wdlBefore. */
   depth: number | null;
+  /**
+   * KS-2754. UCI ответа движка на user-ход (`playedUci`). `null` для
+   * последнего полухода — движок не ответил.
+   */
+  engineUci?: string | null;
 };
 
 /**

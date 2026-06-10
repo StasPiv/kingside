@@ -39,11 +39,10 @@ const SAMPLE_USER_BEST_LOG: UserBestSnapshot[] = [
     fenBefore: STARTING_FEN_W,
     playedUci: 'e2e4',
     bestUci: 'e2e4',
-    cpBefore: 30,
-    cpAfter: 30,
     wdlBefore: { w: 480, d: 460, l: 60 },
     wdlAfter: { w: 480, d: 460, l: 60 },
     depth: 14,
+    engineUci: null,
   },
   // halfMove=3 — белые играют 2.Nf3 (best).
   {
@@ -51,11 +50,10 @@ const SAMPLE_USER_BEST_LOG: UserBestSnapshot[] = [
     fenBefore: FEN_AFTER_E4_E5,
     playedUci: 'g1f3',
     bestUci: 'g1f3',
-    cpBefore: 35,
-    cpAfter: 30,
     wdlBefore: { w: 490, d: 450, l: 60 },
     wdlAfter: { w: 480, d: 460, l: 60 },
     depth: 14,
+    engineUci: null,
   },
   // halfMove=5 — белые играют 3.Nh4? (blunder, best — 3.Bb5).
   {
@@ -63,11 +61,10 @@ const SAMPLE_USER_BEST_LOG: UserBestSnapshot[] = [
     fenBefore: FEN_AFTER_NF3_NC6,
     playedUci: 'f3h4',
     bestUci: 'f1b5',
-    cpBefore: 30,
-    cpAfter: -340,
     wdlBefore: { w: 480, d: 460, l: 60 },
     wdlAfter: { w: 30, d: 320, l: 650 },
     depth: 14,
+    engineUci: null,
   },
 ];
 
@@ -251,8 +248,6 @@ function KS3068ReproCard() {
       fenBefore: REPRO_FEN_BLACK_TO_MOVE,
       playedUci: 'c6d4', // не важно для NAG-теста — used as best
       bestUci: 'c6d4',
-      cpBefore: 1500,
-      cpAfter: 1500,
       wdlBefore: { w: 1000, d: 0, l: 0 },
       wdlAfter: { w: 1000, d: 0, l: 0 },
       depth: 18,
@@ -302,8 +297,6 @@ function KS3068ReproCard() {
               fenBefore: REPRO_FEN_BLACK_TO_MOVE,
               playedUci: 'c6d4',
               bestUci: 'c6b4', // другой ход — best, играли не его
-              cpBefore: 1500,
-              cpAfter: 600,
               wdlBefore: { w: 1000, d: 0, l: 0 },
               wdlAfter: { w: 870, d: 130, l: 0 },
               depth: 18,
@@ -328,8 +321,6 @@ function KS3068ReproCard() {
               fenBefore: REPRO_FEN_BLACK_TO_MOVE,
               playedUci: 'c6d4',
               bestUci: 'c6b4',
-              cpBefore: 1500,
-              cpAfter: -1500,
               wdlBefore: { w: 1000, d: 0, l: 0 },
               wdlAfter: { w: 0, d: 0, l: 1000 },
               depth: 18,

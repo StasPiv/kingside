@@ -130,14 +130,41 @@ class ScriptedEngine implements EngineAdapter {
   destroy(): void { /* no-op */ }
 }
 
+/**
+ * KS-4028: если тест не задал WDL явно, выводим его из cp по Lichess
+ * формуле `Win = 1/(1+exp(-0.00368·cp))`. До KS-4028 classifyMove
+ * умел работать только по cp (legacy fallback). Со сменой контракта
+ * `PrecisionMoveSnapshot` на чисто WDL фронт больше не передаёт cp в
+ * снимок попытки — для существующих cp-сценарных тестов выводим WDL
+ * автоматически, чтобы не переписывать каждый. Передача `wdl=null`
+ * отключает автодополнение (нужно для legacy-тестов «без wdl»).
+ */
+function deriveWdlFromCp(score: InfoLine['score']): {
+  w: number;
+  d: number;
+  l: number;
+} {
+  if (score.type === 'mate') {
+    if (score.value > 0) return { w: 990, d: 5, l: 5 };
+    return { w: 5, d: 5, l: 990 };
+  }
+  const win = 1 / (1 + Math.exp(-0.00368208 * score.value));
+  const w = Math.round(win * 1000);
+  return { w, d: 0, l: 1000 - w };
+}
+
 function line(
   score: InfoLine['score'],
   pv: string[],
   depth = 12,
   multipv = 1,
-  wdl?: { w: number; d: number; l: number },
+  wdl?: { w: number; d: number; l: number } | null,
 ): InfoLine {
-  return { depth, multipv, score, pv, ...(wdl ? { wdl } : {}) };
+  if (wdl === null) {
+    return { depth, multipv, score, pv };
+  }
+  const wdlOut = wdl ?? deriveWdlFromCp(score);
+  return { depth, multipv, score, pv, wdl: wdlOut };
 }
 
 function result(infoLine: InfoLine): AnalysisResult {
@@ -153,9 +180,14 @@ function result(infoLine: InfoLine): AnalysisResult {
  * KS-2507: первый запрос к движку — initial analyze стартовой позиции
  * (для EvalBar). ScriptedEngine выдаёт ответы FIFO, поэтому каждому
  * тесту прикрепляем «фиктивный» нулевой ответ в начало очереди.
+ *
+ * KS-4028: явно отключаем WDL у этого «фиктивного» ответа, чтобы он не
+ * становился клиентским бейзлайном — иначе `deriveWdlFromCp(cp=0)` даёт
+ * {500,0,500}, и `clientBaselineWdl` подставляется вместо
+ * `puzzle.playVsEngine.wdlAfter`.
  */
 const INITIAL_ANALYZE = (): AnalysisResult =>
-  result(line({ type: 'cp', value: 0 }, ['e2e4']));
+  result(line({ type: 'cp', value: 0 }, ['e2e4'], 12, 1, null));
 
 function makePuzzle(over: Partial<PuzzleDto> = {}): PuzzleDto {
   return {
@@ -724,7 +756,9 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       },
     });
     const engine = new ScriptedEngine([
-      result(line({ type: 'cp', value: 25 }, ['e2e4'])), // без wdl
+      // KS-4028: явно отключаем WDL, чтобы убедиться, что когда движок не
+      // отдаёт распределение, `latestWdl` остаётся `null`.
+      result(line({ type: 'cp', value: 25 }, ['e2e4'], 12, 1, null)),
     ]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
@@ -885,13 +919,16 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
       },
     });
     // KS-3380: extra cp=-500 POV user.
+    // KS-4028: legacy-сценарий «движок не отдаёт WDL» — явно null во всех
+    // строках, иначе автодополнение даст распределение и summary
+    // отрендерится.
     const engine = new ScriptedEngine(
       [
         INITIAL_ANALYZE(),
-        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
-        result(line({ type: 'cp', value: 800 }, ['d7d5'])),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'], 12, 1, null)),
+        result(line({ type: 'cp', value: 800 }, ['d7d5'], 12, 1, null)),
       ],
-      [result(line({ type: 'cp', value: -500 }, ['e2e4']))],
+      [result(line({ type: 'cp', value: -500 }, ['e2e4'], 12, 1, null))],
     );
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
@@ -907,13 +944,11 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(
       screen.queryByTestId('puzzle-engine-wdl-summary'),
     ).toBeNull();
-    // KS-3018: вместо бинарной плашки «You lost the advantage» теперь
-    // рендерится PrecisionScoreBlock. Для legacy-теста с 1 ходом (<2 →
-    // §3.2) score=null → null-state (data-tone="unavailable").
+    // KS-3018 → KS-4028: PrecisionScoreBlock без WDL остаётся в
+    // null-состоянии (`tone='unavailable'`). До KS-4028 score считался
+    // через cp-fallback, но cp убран из снимка precision-попытки.
     const scoreBlock = screen.getByTestId('precision-score-block');
-    // KS-3033 (shared MIN_HALF_MOVES_FOR_SCORE=1): 1-полуход теперь
-    // получает реальный score; tone не unavailable.
-    expect(scoreBlock.getAttribute('data-tone')).not.toBe('unavailable');
+    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
   });
 
   it('KS-2686: legacy preserved (без wdlAfter) → summary не рендерится, reasonLabel «Advantage preserved»', async () => {
@@ -928,10 +963,11 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     });
     // KS-2754 follow-up: post-analyze cp=-800 → wdl_user≥winThreshold,
     // финиш после первого user-хода (target=ceil(2/2)=1) без engine reply.
+    // KS-4028: legacy-сценарий «без WDL» — явно null во всех строках.
     const engine = new ScriptedEngine([
       INITIAL_ANALYZE(),
-      result(line({ type: 'cp', value: 100 }, ['e2e4'])),
-      result(line({ type: 'cp', value: -800 }, ['e7e5'])),
+      result(line({ type: 'cp', value: 100 }, ['e2e4'], 12, 1, null)),
+      result(line({ type: 'cp', value: -800 }, ['e7e5'], 12, 1, null)),
     ]);
     renderWithProviders(
       <PlayVsEngineRunner puzzle={puzzle} engineFactory={() => engine} />,
@@ -946,11 +982,13 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
     expect(
       screen.queryByTestId('puzzle-engine-wdl-summary'),
     ).toBeNull();
-    // KS-3018: PrecisionScoreBlock с null-state (1 ход < §3.2 минимума).
+    // KS-3018 → KS-4028: PrecisionScoreBlock без WDL остаётся в
+    // null-state (`tone='unavailable'`). До KS-4028 score считался по
+    // cp-fallback, но cp убран из снимка precision-попытки (контракт
+    // `PrecisionMoveSnapshot` сейчас только WDL). Без WDL рассчитать
+    // accuracy нельзя — score=null.
     const scoreBlock = screen.getByTestId('precision-score-block');
-    // KS-3033 (shared MIN_HALF_MOVES_FOR_SCORE=1): 1-полуход теперь
-    // получает реальный score; tone не unavailable.
-    expect(scoreBlock.getAttribute('data-tone')).not.toBe('unavailable');
+    expect(scoreBlock.getAttribute('data-tone')).toBe('unavailable');
   });
 
   it('KS-2528: primary path — три строки Win/Draw/Loss с per-mille→% и сigned-дельтой', async () => {
@@ -1672,10 +1710,12 @@ describe('PlayVsEngineRunner KS-2466 state-machine', () => {
           wdlAfter: { w: 850, d: 130, l: 20 },
         },
       });
+      // KS-4028: legacy «без wdl на initial» — явно null, иначе
+      // автодополнение даст {500,0,500} и clientBaselineWdl перебьёт
+      // серверный wdlAfter.
       const engine = new ScriptedEngine([
-        // initial без wdl → clientBaselineWdl остаётся null.
-        result(line({ type: 'cp', value: 0 }, ['e2e4'])),
-        result(line({ type: 'cp', value: 50 }, ['d2d4'])),
+        result(line({ type: 'cp', value: 0 }, ['e2e4'], 12, 1, null)),
+        result(line({ type: 'cp', value: 50 }, ['d2d4'], 12, 1, null)),
         result(
           line({ type: 'cp', value: 800 }, ['d7d5'], 12, 1, {
             w: 780,
@@ -2268,8 +2308,6 @@ describe('PlayVsEngineRunner KS-3393 — классификация из глу�
     // KS-3380: best-case → cpAfter=cpBefore (не из post-analyze!).
     expect(arg.moves[0].playedUci).toBe('e2e4');
     expect(arg.moves[0].bestUci).toBe('e2e4');
-    expect(arg.moves[0].cpBefore).toBe(50);
-    expect(arg.moves[0].cpAfter).toBe(50); // КРИТИЧЕСКИЙ: pre-frame
     expect(arg.moves[0].wdlBefore).toEqual({ w: 380, d: 620, l: 0 });
     expect(arg.moves[0].wdlAfter).toEqual({ w: 380, d: 620, l: 0 });
   });
@@ -2317,7 +2355,6 @@ describe('PlayVsEngineRunner KS-3393 — классификация из глу�
     expect(arg.moves[0].bestUci).toBe('d2d4');
     expect(arg.moves[0].playedUci).toBe('e2e4');
     // KS-3393: из глубокого post-analyze позиции после хода, POV решателя.
-    expect(arg.moves[0].cpAfter).toBe(-800);
     expect(arg.moves[0].wdlAfter).toEqual({ w: 50, d: 350, l: 600 });
   });
 
@@ -2394,10 +2431,8 @@ describe('PlayVsEngineRunner KS-3393 — классификация из глу�
     const arg = onSubmit.mock.calls[0][0];
     // wdlBefore/cpBefore/bestUci — из глубокого live-снимка.
     expect(arg.moves[0].bestUci).toBe('d2d4');
-    expect(arg.moves[0].cpBefore).toBe(120);
     expect(arg.moves[0].wdlBefore).toEqual({ w: 560, d: 400, l: 40 });
     // wdlAfter — из глубокого post, POV решателя (flip/negate).
-    expect(arg.moves[0].cpAfter).toBe(-500);
     expect(arg.moves[0].wdlAfter).toEqual({ w: 250, d: 450, l: 300 });
   });
 });

@@ -39,8 +39,6 @@ type AutoSubmitPayload = {
     fenBefore: string;
     playedUci: string;
     bestUci: string;
-    cpBefore: number | null;
-    cpAfter: number | null;
     wdlBefore: { w: number; d: number; l: number } | null;
     wdlAfter: { w: number; d: number; l: number } | null;
     depth: number | null;
@@ -267,8 +265,6 @@ describe('<PuzzlePage> KS-2657', () => {
           fenBefore: 'fen1',
           playedUci: 'e2e4',
           bestUci: 'd2d4',
-          cpBefore: 50,
-          cpAfter: 30,
           wdlBefore: { w: 600, d: 200, l: 200 },
           wdlAfter: { w: 550, d: 250, l: 200 },
           depth: 12,
@@ -278,8 +274,6 @@ describe('<PuzzlePage> KS-2657', () => {
           fenBefore: 'fen2',
           playedUci: 'g1f3',
           bestUci: 'g1f3',
-          cpBefore: 40,
-          cpAfter: 40,
           wdlBefore: { w: 580, d: 220, l: 200 },
           wdlAfter: { w: 580, d: 220, l: 200 },
           depth: 12,
@@ -297,9 +291,12 @@ describe('<PuzzlePage> KS-2657', () => {
     expect(body.moves[0].ply).toBe(1);
     expect(body.moves[0].playedUci).toBe('e2e4');
     expect(body.moves[0].bestUci).toBe('d2d4');
-    expect(body.moves[0].cpBefore).toBe(50);
-    expect(body.moves[0].cpAfter).toBe(30);
+    // KS-4028: контракт `PrecisionMoveSnapshot` без cpBefore/cpAfter —
+    // сервер считает score только по WDL.
+    expect(body.moves[0].cpBefore).toBeUndefined();
+    expect(body.moves[0].cpAfter).toBeUndefined();
     expect(body.moves[0].wdlBefore).toEqual({ w: 600, d: 200, l: 200 });
+    expect(body.moves[0].wdlAfter).toEqual({ w: 550, d: 250, l: 200 });
     expect(body.moves[0].depth).toBe(12);
     expect(body.moves[1].ply).toBe(2);
     expect(body.moves[1].playedUci).toBe('g1f3');
@@ -324,8 +321,6 @@ describe('<PuzzlePage> KS-2657', () => {
           fenBefore: 'fen1',
           playedUci: 'e2e4',
           bestUci: 'd2d4',
-          cpBefore: 50,
-          cpAfter: 30,
           wdlBefore: null,
           wdlAfter: null,
           depth: 12,

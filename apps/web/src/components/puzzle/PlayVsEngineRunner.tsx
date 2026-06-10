@@ -19,6 +19,8 @@ import { PuzzleObjectiveBadge } from './PuzzleObjectiveBadge';
 // после POST attempt и даёт мгновенный результат на финальном экране.
 import {
   computePrecisionScore,
+  computeAttemptObjectiveAchieved,
+  computeVerdictKey,
   type PrecisionMoveInput,
 } from '@kingside/shared';
 
@@ -38,17 +40,17 @@ export function buildPrecisionScoreInputs(
   log: ReadonlyArray<{
     wdlBefore: WdlDistribution | null;
     wdlAfter: WdlDistribution | null;
-    cpBefore: number | null;
-    cpAfter: number | null;
     playedUci: string;
     bestUci: string;
   }>,
 ): PrecisionMoveInput[] {
+  // KS-4028: cp-поля удалены из снимка precision-попытки. Источник
+  // для `accuracyMove` теперь только WDL + best-override (playedUci===
+  // bestUci → accuracy=100). cp-ветка в shared `accuracyMove` сохранена,
+  // но в precision больше не активируется — приходит только WDL.
   return log.map((m) => ({
     wdlBefore: m.wdlBefore,
     wdlAfter: m.wdlAfter,
-    cpBefore: m.cpBefore,
-    cpAfter: m.cpAfter,
     playedUci: m.playedUci,
     bestUci: m.bestUci,
   }));
@@ -181,34 +183,25 @@ export type UserBestSnapshot = {
   /** UCI, который рекомендовал движок в той же позиции. */
   bestUci: string;
   /**
-   * KS-2505 → KS-3393. cp-оценка позиции `fenBefore` POV решателя.
-   * Источник — ГЛУБОКИЙ live-снимок позиции до хода (то, что показывала
-   * полоса; на fenBefore ходит решатель → score POV side-to-move уже POV
-   * решателя). PV1 ведёт через bestUci. Mate кодируется ±100000
-   * (`cpFromScore`). null — ни live-снимка, ни fallback pre-analyze
-   * (классификатор downstream грейсфолит).
-   */
-  cpBefore: number | null;
-  /**
-   * KS-2506 → KS-3393. cp-оценка позиции ПОСЛЕ сыгранного хода, POV
-   * решателя. Источник — ГЛУБОКИЙ post-analyze `next.fen()` (на нём ходит
-   * соперник → POV решателя = `-cpFromScore`). Обе оценки (before — из
-   * глубокого live, after — из глубокого post) на сопоставимой глубине,
-   * поэтому вердикт классификации совпадает с тем, что игрок видел на
-   * полосе (KS-3393). Если `playedUci===bestUci` → `cpAfter=cpBefore`
-   * (lossE=0). null — post-analyze не успел; fallback-effect добьёт на
-   * win/lose. (KS-3380 extra-analyze `searchmoves` удалён.)
-   */
-  cpAfter: number | null;
-  /**
    * KS-2686 → KS-3393. WDL POV решателя в позиции ДО хода (`fenBefore`)
    * из глубокого live-снимка. PV1 ведёт через bestUci.
+   *
+   * KS-4028. cp-поля (`cpBefore`/`cpAfter`) удалены — серверный контракт
+   * `PrecisionMoveSnapshot` больше их не принимает и в БД не хранит.
+   * Классификация хода и score считаются строго по WDL-дельте
+   * (см. `classifyMove`, `computePrecisionScore`).
    */
   wdlBefore: WdlDistribution | null;
   /**
    * KS-2686 → KS-3393. WDL POV решателя позиции ПОСЛЕ сыгранного хода:
    * глубокий post-analyze `next.fen()` с `flipWdl` (на нём ходит
-   * соперник). Best-ход → `wdlAfter=wdlBefore`. См. `cpAfter`.
+   * соперник). Best-ход → `wdlAfter=wdlBefore`.
+   *
+   * KS-4028. Для НЕ-лучшего хода это значение проставляется глубоким
+   * post-analyze в `runEngineCycle` (промежуточная фаза) или в
+   * inline-final-branch (последний полуход). Если глубокий проход не
+   * успел дать значение до `finishWin`/`finishLose`, fallback-effect в
+   * конце попытки добивает его через `queueAnalyze(next.fen())`.
    */
   wdlAfter: WdlDistribution | null;
   /**
@@ -1104,39 +1097,48 @@ export function PlayVsEngineRunner({
   );
 
   // ── Win / lose helpers ───────────────────────────────────────────────
-  // KS-4028: финальный звук считаем по итоговой точности (звёздам),
-  // а не по бинарному win/lose. Раньше `finishWin → puzzle-correct`,
-  // `finishLose → puzzle-incorrect` — это завязка на effWdlUser/
-  // meetsFinalObjective, т.е. на исход партии и дельту win%. Жалоба
+  // KS-4028: финальный звук считаем через `verdictKey` от shared
+  // `computeVerdictKey(stars, objectiveAchieved)` — та же функция, что
+  // использует бэкенд при подсчёте `PrecisionAttempt`. Звук и плашка в
+  // UI получают идентичный ключ, рассогласования нет.
+  //
+  // Прежняя завязка (`finishWin → puzzle-correct`, `finishLose →
+  // puzzle-incorrect`) опиралась на бинарный win/lose-вердикт раннера
+  // (`effWdlUser`/`meetsFinalObjective`/`dropTooHigh`). Жалоба
   // пользователя: saveEquality, 5★ «Идеальное решение», 100% точность,
   // но runner ушёл в `finishLose('lose-wdl', …)` (Победа 0%→0%, дельта
-  // win% нулевая) — играл звук неудачи. Источник истины теперь —
-  // `computePrecisionScore` (та же оценка, что показывает плашка). Если
-  // stars не посчитались (нет данных) — fallback на бинарный исход.
+  // win% нулевая) — играл звук неудачи. Источник истины теперь — тот же
+  // `verdictKey`, что отдаёт сервер: для `flawless`/`confident`/
+  // `suboptimal`/`with-mistakes`/`with-blunders` → puzzle-correct, для
+  // `goal-missed-*` → puzzle-incorrect. Если данных недостаточно
+  // (`stars=null`) — fallback на бинарный исход раннера.
+  const computeFinishVerdictKey = useCallback((): string | null => {
+    const inputs = buildPrecisionScoreInputs(userBestLogRef.current);
+    const { stars } = computePrecisionScore(inputs);
+    const objectiveAchieved = objective
+      ? computeAttemptObjectiveAchieved(inputs, objective)
+      : null;
+    return computeVerdictKey(stars, objectiveAchieved);
+  }, [objective]);
+
   const finishWin = useCallback(
     (finishReason: 'win' | 'win-mate' | 'win-engine-resign', wdl: number, half: number) => {
       setState('win');
       setReason(finishReason);
-      const { stars } = computePrecisionScore(
-        buildPrecisionScoreInputs(userBestLogRef.current),
-      );
-      playSound(chooseFinishSound(stars, 'win'));
+      playSound(chooseFinishSound(computeFinishVerdictKey(), 'win'));
       submitOnce(true, finishReason, wdl, half);
     },
-    [playSound, submitOnce],
+    [computeFinishVerdictKey, playSound, submitOnce],
   );
 
   const finishLose = useCallback(
     (finishReason: 'lose-wdl' | 'lose-mate', wdl: number, half: number) => {
       setState('lose');
       setReason(finishReason);
-      const { stars } = computePrecisionScore(
-        buildPrecisionScoreInputs(userBestLogRef.current),
-      );
-      playSound(chooseFinishSound(stars, 'lose'));
+      playSound(chooseFinishSound(computeFinishVerdictKey(), 'lose'));
       submitOnce(false, finishReason, wdl, half);
     },
-    [playSound, submitOnce],
+    [computeFinishVerdictKey, playSound, submitOnce],
   );
 
   // ── Engine response cycle ────────────────────────────────────────────
@@ -1187,13 +1189,13 @@ export function PlayVsEngineRunner({
       // и UI показывал lose-wdl при идеальной игре (см. KS-2533).
       const effWdlUser = effectiveSignedWdl(wdlUserObj, wdlUser);
 
-      // KS-3393: этот глубокий post-analyze И ЕСТЬ источник wdlAfter/
-      // cpAfter для классификации НЕ-лучшего хода (POV решателя через
-      // flip/negate). Для лучшего хода (played===best) оставляем значения,
-      // проставленные в applyUserMove (wdlAfter = wdlBefore, lossE=0). Так
-      // before (глубокий live-снимок) и after (глубокий post) — на
-      // сопоставимой глубине, вердикт совпадает с полосой.
-      const cpAfterDeep = -cpFromScore(best.score);
+      // KS-3393 / KS-4028: этот глубокий post-analyze И ЕСТЬ источник
+      // wdlAfter для классификации НЕ-лучшего хода (POV решателя через
+      // flip). Для лучшего хода (played===best) оставляем значение,
+      // проставленное в applyUserMove (wdlAfter = wdlBefore, lossE=0).
+      // Так before (глубокий live-снимок) и after (глубокий post) — на
+      // сопоставимой глубине, вердикт совпадает с полосой. cp-поле
+      // удалено из снимка (см. UserBestSnapshot).
       const wdlAfterDeep = best.wdl ? flipWdl(best.wdl) : null;
       updateUserBestLog((prev) =>
         prev.map((s) => {
@@ -1201,7 +1203,6 @@ export function PlayVsEngineRunner({
           const isBest = s.playedUci === s.bestUci;
           return {
             ...s,
-            cpAfter: isBest ? s.cpAfter : cpAfterDeep,
             wdlAfter: isBest ? s.wdlAfter : wdlAfterDeep,
             depth: Math.max(s.depth ?? 0, best.depth),
           };
@@ -1521,11 +1522,10 @@ export function PlayVsEngineRunner({
                 fenBefore,
                 playedUci,
                 bestUci: b.bestUci,
-                cpBefore: b.cp,
-                // KS-3393: best-ход — cpAfter=cpBefore (lossE=0). НЕ-best —
-                // null, заполнит глубокий post-analyze ниже / в runEngineCycle.
-                cpAfter: isBest ? b.cp : null,
                 wdlBefore: b.wdl,
+                // KS-4028: best-ход — `wdlAfter=wdlBefore` (lossE=0).
+                // Для НЕ-best — `null`, заполнит глубокий post-analyze
+                // ниже / в `runEngineCycle`. cp-поля удалены.
                 wdlAfter: isBest ? b.wdl : null,
                 depth: b.depth,
                 engineUci: null,
@@ -1550,14 +1550,14 @@ export function PlayVsEngineRunner({
             // KS-3393: записать wdlAfter/cpAfter (POV решателя через
             // flip/negate) для НЕ-лучшего хода — на той же глубокой глубине.
             if (before && !isBest && best) {
-              const cpAfterDeep = -cpFromScore(best.score);
+              // KS-4028: пишем только wdlAfter (POV решателя через flip).
+              // cp-поле удалено из контракта.
               const wdlAfterDeep = best.wdl ? flipWdl(best.wdl) : null;
               updateUserBestLog((prev) =>
                 prev.map((s) =>
                   s.halfMove === halfAfterUser
                     ? {
                         ...s,
-                        cpAfter: cpAfterDeep,
                         wdlAfter: wdlAfterDeep,
                         depth: Math.max(s.depth ?? 0, best.depth),
                       }
@@ -1821,19 +1821,19 @@ export function PlayVsEngineRunner({
     stopLiveAnalysis,
   ]);
 
-  // ── KS-2508 → KS-3393 fallback-analyze ──────────────────────────────
-  // KS-3393: fallback под новую семантику. cpAfter/wdlAfter — оценка
-  // позиции ПОСЛЕ сыгранного хода (POV решателя через flip/negate), на
-  // ГЛУБОКОЙ глубине (сопоставимо с live-полосой). Запускается, если
-  // глубокий post-analyze в applyUserMove/runEngineCycle не успел
-  // заполнить snapshot (упал/прерван). После завершения партии (win|lose)
-  // пробегаем snapshot'ы с `cpAfter===null`. Best-ход (played===best) —
-  // копируем cpBefore/wdlBefore без SF-вызова.
+  // ── KS-2508 → KS-3393 → KS-4028 fallback-analyze ────────────────────
+  // KS-4028: fallback под WDL-only контракт. wdlAfter — оценка позиции
+  // ПОСЛЕ сыгранного хода (POV решателя через flip), на ГЛУБОКОЙ
+  // глубине (сопоставимо с live-полосой). Запускается, если глубокий
+  // post-analyze в applyUserMove/runEngineCycle не успел заполнить
+  // snapshot (упал/прерван). После завершения партии (win|lose)
+  // пробегаем snapshot'ы с `wdlAfter===null`. Best-ход (played===best)
+  // — копируем wdlBefore без SF-вызова. cp-поля удалены из контракта.
   useEffect(() => {
     if (state !== 'win' && state !== 'lose') return;
     let cancelled = false;
     void (async () => {
-      const missing = userBestLog.filter((s) => s.cpAfter === null);
+      const missing = userBestLog.filter((s) => s.wdlAfter === null);
       if (missing.length === 0) return;
       try {
         await ensureEngine();
@@ -1842,19 +1842,18 @@ export function PlayVsEngineRunner({
       }
       for (const s of missing) {
         if (cancelled) return;
-        if (s.bestUci && s.playedUci === s.bestUci && s.cpBefore != null) {
+        if (s.bestUci && s.playedUci === s.bestUci && s.wdlBefore != null) {
           updateUserBestLog((prev) =>
             prev.map((x) =>
               x.halfMove === s.halfMove
-                ? { ...x, cpAfter: x.cpBefore, wdlAfter: x.wdlBefore }
+                ? { ...x, wdlAfter: x.wdlBefore }
                 : x,
             ),
           );
           continue;
         }
         // KS-3393: реконструируем позицию ПОСЛЕ хода и глубоко её
-        // анализируем; POV решателя = flip/negate (на fenAfter ходит
-        // соперник).
+        // анализируем; POV решателя = flip (на fenAfter ходит соперник).
         let fenAfter: string | null = null;
         try {
           const tmp = new Chess(s.fenBefore);
@@ -1876,14 +1875,12 @@ export function PlayVsEngineRunner({
           if (cancelled) return;
           const b = pickBestLine(r);
           if (!b) continue;
-          const cpAfter = -cpFromScore(b.score);
           const wdlAfter = b.wdl ? flipWdl(b.wdl) : null;
           updateUserBestLog((prev) =>
             prev.map((x) =>
               x.halfMove === s.halfMove
                 ? {
                     ...x,
-                    cpAfter,
                     wdlAfter,
                     depth: x.depth ?? b.depth,
                   }
@@ -1891,7 +1888,7 @@ export function PlayVsEngineRunner({
             ),
           );
         } catch {
-          /* ignore — отсутствие cpAfter PostGameReview грейсфолит. */
+          /* ignore — отсутствие wdlAfter PostGameReview грейсфолит. */
         }
       }
     })();

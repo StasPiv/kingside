@@ -4,7 +4,6 @@ import {
   isWinDropExcessive,
   meetsFinalObjective,
   chooseFinishSound,
-  FINISH_SOUND_STARS_THRESHOLD,
   PRESERVED_WIN_DROP_THRESHOLD_PERMILLE,
 } from './precisionVerdict';
 
@@ -252,63 +251,79 @@ describe('meetsFinalObjective (KS-3169)', () => {
 });
 
 /**
- * KS-4028: тест на выбор финального звука по итоговой точности (звёздам),
- * а не по бинарному win/lose-вердикту. Жалоба пользователя из Telegram
- * (/tmp/telegram/326131465_0.jpg): saveEquality «Реализуй перевес»,
- * Победа/Ничья/Поражение 0%/100%/0%, 5★ «Идеальное решение», 100%
- * точность — фронт сыграл звук неудачи, потому что raner ушёл в
- * `finishLose('lose-wdl', …)` по effWdlUser/dropTooHigh.
+ * KS-4028: финальный звук выбирается по `verdictKey` от shared
+ * `computeVerdictKey(stars, objectiveAchieved)` — та же функция, что
+ * использует бэкенд при подсчёте `PrecisionAttempt`. Звук и плашка в UI
+ * получают идентичный ключ.
  *
- * Контракт `chooseFinishSound`:
- *  - stars ≥ FINISH_SOUND_STARS_THRESHOLD (3) → 'puzzle-correct'
- *  - stars <  FINISH_SOUND_STARS_THRESHOLD     → 'puzzle-incorrect'
- *  - stars=null → fallback на бинарный исход runner'а
+ * Контракт:
+ *  - верхний ряд (цель достигнута): `flawless`, `confident`, `suboptimal`,
+ *    `with-mistakes`, `with-blunders` → `puzzle-correct`;
+ *  - нижний ряд (цель не достигнута): `goal-missed-clean`, `goal-missed`,
+ *    `goal-missed-mistakes`, `goal-missed-blunders` → `puzzle-incorrect`;
+ *  - `null` → fallback на бинарный исход раннера.
+ *
+ * Жалоба пользователя из Telegram (/tmp/telegram/326131465_0.jpg):
+ * saveEquality, 5★ «Идеальное решение», 100% точность — звук должен
+ * быть успеха. По матрице `computeVerdictKey(5, …)` → `flawless`
+ * (защитный fallback в shared: 5★ всегда `flawless` независимо от
+ * objectiveAchieved) → puzzle-correct.
  */
 describe('chooseFinishSound (KS-4028)', () => {
-  // Sanity: документируем выбранный порог, чтобы случайное изменение
-  // STAR_THRESHOLDS не сломало контракт без явного апдейта матрицы.
-  it('FINISH_SOUND_STARS_THRESHOLD = 3 (точность ≥70% → звук успеха)', () => {
-    expect(FINISH_SOUND_STARS_THRESHOLD).toBe(3);
-  });
-
-  describe('матрица итоговой точности → звук (главный кейс жалобы)', () => {
-    // scorePct → mapToStars (STAR_THRESHOLDS из precision-score.ts):
-    //   100% → 5★, 75% → 3★, 50% → 2★, 25% → 1★, 0% → 1★.
-    it('100% / 5★ → puzzle-correct (кейс пользователя, «Идеальное решение»)', () => {
-      expect(chooseFinishSound(5, 'win')).toBe('puzzle-correct');
-      // ГЛАВНОЕ: даже если runner выбрал бинарный fallback 'lose'
-      // (saveEquality + меньшая планка по WDL), при 5★ звук всё равно успеха.
-      expect(chooseFinishSound(5, 'lose')).toBe('puzzle-correct');
+  describe('верхний ряд матрицы (цель достигнута) → puzzle-correct', () => {
+    it('flawless (5★) → puzzle-correct (главный случай жалобы)', () => {
+      expect(chooseFinishSound('flawless', 'win')).toBe('puzzle-correct');
+      // Даже если бинарный fallback раннера сказал «потерял» — звук
+      // успеха, потому что плашка показывает «Идеальное решение».
+      expect(chooseFinishSound('flawless', 'lose')).toBe('puzzle-correct');
     });
 
-    it('точность ≈85% / 4★ → puzzle-correct', () => {
-      expect(chooseFinishSound(4, 'win')).toBe('puzzle-correct');
-      expect(chooseFinishSound(4, 'lose')).toBe('puzzle-correct');
+    it('confident (4★ + achieved) → puzzle-correct', () => {
+      expect(chooseFinishSound('confident', 'win')).toBe('puzzle-correct');
+      expect(chooseFinishSound('confident', 'lose')).toBe('puzzle-correct');
     });
 
-    it('75% / 3★ «решено, но с ошибками» → puzzle-correct (нижняя граница «решено»)', () => {
-      expect(chooseFinishSound(3, 'win')).toBe('puzzle-correct');
-      expect(chooseFinishSound(3, 'lose')).toBe('puzzle-correct');
+    it('suboptimal (3★ + achieved) → puzzle-correct', () => {
+      expect(chooseFinishSound('suboptimal', 'win')).toBe('puzzle-correct');
     });
 
-    it('50% / 2★ → puzzle-incorrect', () => {
-      expect(chooseFinishSound(2, 'win')).toBe('puzzle-incorrect');
-      expect(chooseFinishSound(2, 'lose')).toBe('puzzle-incorrect');
+    it('with-mistakes (2★ + achieved) → puzzle-correct', () => {
+      expect(chooseFinishSound('with-mistakes', 'win')).toBe('puzzle-correct');
     });
 
-    it('25% / 1★ → puzzle-incorrect', () => {
-      expect(chooseFinishSound(1, 'win')).toBe('puzzle-incorrect');
-      expect(chooseFinishSound(1, 'lose')).toBe('puzzle-incorrect');
-    });
-
-    it('0% / 1★ → puzzle-incorrect', () => {
-      // 0% scorePct маппится в 1★ (см. mapToStars).
-      expect(chooseFinishSound(1, 'win')).toBe('puzzle-incorrect');
-      expect(chooseFinishSound(1, 'lose')).toBe('puzzle-incorrect');
+    it('with-blunders (1★ + achieved) → puzzle-correct', () => {
+      expect(chooseFinishSound('with-blunders', 'win')).toBe('puzzle-correct');
     });
   });
 
-  describe('fallback при stars=null (computePrecisionScore не смог посчитать)', () => {
+  describe('нижний ряд матрицы (цель не достигнута) → puzzle-incorrect', () => {
+    it('goal-missed-clean (4★ + missed) → puzzle-incorrect', () => {
+      expect(chooseFinishSound('goal-missed-clean', 'win')).toBe(
+        'puzzle-incorrect',
+      );
+      expect(chooseFinishSound('goal-missed-clean', 'lose')).toBe(
+        'puzzle-incorrect',
+      );
+    });
+
+    it('goal-missed (3★ + missed) → puzzle-incorrect', () => {
+      expect(chooseFinishSound('goal-missed', 'lose')).toBe('puzzle-incorrect');
+    });
+
+    it('goal-missed-mistakes (2★ + missed) → puzzle-incorrect', () => {
+      expect(chooseFinishSound('goal-missed-mistakes', 'lose')).toBe(
+        'puzzle-incorrect',
+      );
+    });
+
+    it('goal-missed-blunders (1★ + missed) → puzzle-incorrect', () => {
+      expect(chooseFinishSound('goal-missed-blunders', 'lose')).toBe(
+        'puzzle-incorrect',
+      );
+    });
+  });
+
+  describe('fallback при verdictKey=null (stars не посчитались)', () => {
     it('null + outcome=win → puzzle-correct', () => {
       expect(chooseFinishSound(null, 'win')).toBe('puzzle-correct');
     });
@@ -318,18 +333,18 @@ describe('chooseFinishSound (KS-4028)', () => {
     });
   });
 
-  describe('звук НЕ зависит от win/lose-вердикта при наличии звёзд', () => {
-    // KS-4028: ключевое требование — звук обязан зависеть от итоговой
-    // точности/звёзд, а не от исхода партии или дельты win%. Если stars
-    // определены, fallbackOutcome игнорируется.
-    it('5★ + outcome=lose → puzzle-correct (бывший баг: было puzzle-incorrect)', () => {
-      expect(chooseFinishSound(5, 'lose')).toBe('puzzle-correct');
+  describe('звук НЕ зависит от бинарного исхода при наличии verdictKey', () => {
+    // KS-4028: ключевое требование — звук обязан зависеть от итогового
+    // вердикта (плашки), а не от исхода партии или дельты win%. Если
+    // verdictKey определён, fallbackOutcome игнорируется.
+    it('flawless + outcome=lose → puzzle-correct (бывшая ошибка: было puzzle-incorrect)', () => {
+      expect(chooseFinishSound('flawless', 'lose')).toBe('puzzle-correct');
     });
 
-    it('1★ + outcome=win → puzzle-incorrect', () => {
-      // Гипотетический кейс (win по факту мата против слабой игры
-      // соперника): по звёздам неудача — звук должен быть неудачи.
-      expect(chooseFinishSound(1, 'win')).toBe('puzzle-incorrect');
+    it('goal-missed-blunders + outcome=win → puzzle-incorrect', () => {
+      expect(chooseFinishSound('goal-missed-blunders', 'win')).toBe(
+        'puzzle-incorrect',
+      );
     });
   });
 });

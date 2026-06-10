@@ -175,51 +175,49 @@ function uciSquares(uci: string): string {
 }
 
 /**
- * KS-4028: порог звёзд, начиная с которого финальный звук — успех
- * (`puzzle-correct`). Меньше порога — звук неудачи (`puzzle-incorrect`).
+ * KS-4028: какой именно звуковой ивент проиграть как итоговый.
  *
- * Привязка к семантике i18n плашки `precision.score.stars.*`:
- *  - 5★ «Идеальное решение»                — успех
- *  - 4★ «Почти идеально — одна неточность» — успех
- *  - 3★ «Решено, но с заметными ошибками»  — успех (задача считается решённой)
- *  - 2★, 1★                                — неудача
+ * Источник истины — `verdictKey` от shared `computeVerdictKey(stars,
+ * objectiveAchieved)`, та же функция что использует сервер при подсчёте
+ * `PrecisionAttempt`. Звук и плашка в UI получают идентичный ключ —
+ * рассогласования больше нет.
  *
- * 3★ выбран нижней границей «решено», чтобы звук соответствовал тому, что
- * пользователь видит на финальной плашке (точность ≥70%).
- */
-export const FINISH_SOUND_STARS_THRESHOLD = 3;
-
-/**
- * KS-4028: какой именно звуковой ивент проиграть как итоговый. До этого
- * фикса `finishWin` всегда вызывал `puzzle-correct`, а `finishLose` —
- * `puzzle-incorrect`. Бинарный win/lose-вердикт runner'а основан на
- * effWdlUser/`meetsFinalObjective` (исход партии, дельта вероятности
- * победы) и расходился с реальной точностью решения. На скрине
- * пользователя задача `saveEquality` была решена идеально (5★, 100%
- * точность), но финал `meetsFinalObjective`/`dropTooHigh` помечал
- * её как `lose-wdl` и фронт играл звук неудачи поверх плашки
- * «Идеальное решение».
+ * Правило (матрица 5×2 verdictKey → звук):
+ *  - верхний ряд (цель достигнута): `flawless`, `confident`, `suboptimal`,
+ *    `with-mistakes`, `with-blunders` → `puzzle-correct`;
+ *  - нижний ряд (цель не достигнута): `goal-missed-clean`, `goal-missed`,
+ *    `goal-missed-mistakes`, `goal-missed-blunders` → `puzzle-incorrect`.
  *
- * Новый источник истины — итоговая точность (звёзды) precision-attempt:
- * stars ≥ `FINISH_SOUND_STARS_THRESHOLD` → `puzzle-correct`, иначе
- * `puzzle-incorrect`.
+ * Особый случай 5★ (`flawless`): по defensive-fallback в `computeVerdictKey`
+ * 5★ всегда даёт `flawless` независимо от `objectiveAchieved` — это
+ * совпадает с UI-правилом `isEffectivelySolved` в истории попыток
+ * (KS-3173: `solved || score===5`), который тоже считает 5★ успехом
+ * даже при `solved=false`.
  *
- * Если расчёт точности невозможен (stars=null — данных недостаточно по
- * `computePrecisionScore`: <1 полухода / нет ни WDL ни cp), используется
- * fallback на бинарный исход runner'а — звук соответствует state win/lose.
+ * `verdictKey=null` — данных недостаточно для расчёта (`stars=null`):
+ * fallback на бинарный исход раннера (`'win'` → `puzzle-correct`,
+ * `'lose'` → `puzzle-incorrect`).
  */
 export type FinishSoundOutcome = 'win' | 'lose';
 
 export type FinishSoundEvent = 'puzzle-correct' | 'puzzle-incorrect';
 
+const SUCCESS_VERDICT_KEYS: ReadonlySet<string> = new Set([
+  'flawless',
+  'confident',
+  'suboptimal',
+  'with-mistakes',
+  'with-blunders',
+]);
+
 export function chooseFinishSound(
-  stars: 1 | 2 | 3 | 4 | 5 | null,
+  verdictKey: string | null,
   fallbackOutcome: FinishSoundOutcome,
 ): FinishSoundEvent {
-  if (stars === null) {
+  if (verdictKey === null) {
     return fallbackOutcome === 'win' ? 'puzzle-correct' : 'puzzle-incorrect';
   }
-  return stars >= FINISH_SOUND_STARS_THRESHOLD
+  return SUCCESS_VERDICT_KEYS.has(verdictKey)
     ? 'puzzle-correct'
     : 'puzzle-incorrect';
 }

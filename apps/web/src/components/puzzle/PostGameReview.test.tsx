@@ -22,13 +22,12 @@ function snap(over: Partial<UserBestSnapshot> = {}): UserBestSnapshot {
     fenBefore: STARTING_FEN,
     playedUci: 'e2e4',
     bestUci: 'e2e4',
-    cpBefore: 30,
-    cpAfter: 30,
     // KS-2686: новые WDL/depth-поля с null по умолчанию — большинство
     // тестов проверяют логику классификации/NAG и WDL им не нужен.
     wdlBefore: null,
     wdlAfter: null,
     depth: null,
+    engineUci: null,
     ...over,
   };
 }
@@ -55,8 +54,6 @@ describe('<PostGameReview> KS-2534', () => {
         fenBefore: STARTING_FEN,
         playedUci: 'e2e4',
         bestUci: 'e2e4',
-        cpBefore: 30,
-        cpAfter: 30,
       }),
       snap({
         halfMove: 3,
@@ -64,8 +61,6 @@ describe('<PostGameReview> KS-2534', () => {
           'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
         playedUci: 'g1f3',
         bestUci: 'g1f3',
-        cpBefore: 50,
-        cpAfter: 50,
       }),
     ];
     renderWithProviders(
@@ -179,8 +174,6 @@ describe('<PostGameReview> KS-2534', () => {
         bestUci: 'e2e4', // user не сыграл best, но WDL не упал
         wdlBefore: { w: 1000, d: 0, l: 0 },
         wdlAfter: { w: 1000, d: 0, l: 0 },
-        cpBefore: 1500, // cp-loss = 700, по старой формуле — blunder
-        cpAfter: 800,
       }),
     ];
     renderWithProviders(
@@ -233,8 +226,6 @@ describe('<PostGameReview> KS-2534', () => {
         fenBefore: fen,
         playedUci: 'b8c6',
         bestUci: 'b8c6',
-        cpBefore: 0,
-        cpAfter: 0,
       }),
     ];
     renderWithProviders(
@@ -258,8 +249,6 @@ describe('<PostGameReview> KS-2534', () => {
         fenBefore: STARTING_FEN,
         playedUci: 'e2e4',
         bestUci: 'e2e4',
-        cpBefore: 30,
-        cpAfter: 30,
       }),
     ];
     renderWithProviders(
@@ -285,8 +274,10 @@ describe('<PostGameReview> KS-2534', () => {
         fenBefore: STARTING_FEN,
         playedUci: 'd2d3',
         bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: -300, // blunder, вариант показан
+        // KS-4028: WDL-only классификация. Полный провал
+        // (W=1000→0, L=0→1000, loss_E=1.0) → blunder, рисуется вариант.
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 0, d: 0, l: 1000 },
       }),
     ];
     renderWithProviders(
@@ -311,8 +302,6 @@ describe('<PostGameReview> KS-2534', () => {
         fenBefore: STARTING_FEN,
         playedUci: 'e2e4',
         bestUci: 'e2e4',
-        cpBefore: 30,
-        cpAfter: 30,
       }),
     ];
     renderWithProviders(
@@ -338,16 +327,16 @@ describe('<PostGameReview> KS-2534', () => {
 
 describe('buildPgnReviewTokens KS-2534', () => {
   it('партия с одним blunder + лучший ход в варианте', () => {
-    // KS-3617 follow-up: blunder теперь требует loss_E > 0.50; cp 100/-300
-    // даёт всего ~0.40 → mistake. Поднимаем до 200/-2000 для blunder.
+    // KS-4028: классификация теперь только по WDL. Blunder требует
+    // loss_E > 0.50 → даём полный коллапс (100/0/0 → 0/0/100).
     const log: UserBestSnapshot[] = [
       snap({
         halfMove: 1,
         fenBefore: STARTING_FEN,
         playedUci: 'd2d3',
         bestUci: 'e2e4',
-        cpBefore: 200,
-        cpAfter: -2000,
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 0, d: 0, l: 1000 },
       }),
     ];
     const tokens = buildPgnReviewTokens({
@@ -379,8 +368,6 @@ describe('buildPgnReviewTokens KS-2534', () => {
         fenBefore: STARTING_FEN,
         playedUci: 'e2e4',
         bestUci: 'e2e4',
-        cpBefore: 30,
-        cpAfter: 30,
       }),
     ];
     const tokens = buildPgnReviewTokens({
@@ -395,14 +382,17 @@ describe('buildPgnReviewTokens KS-2534', () => {
   });
 
   it('несколько ошибок подряд (mistake + blunder) — два варианта', () => {
+    // KS-4028: классификация только по WDL.
+    //  mistake: 0.12 < loss_E ≤ 0.50 — E=1.0 → 0.6 (loss=0.4).
+    //  blunder: loss_E > 0.50 — полный коллапс E=1.0 → 0.
     const log: UserBestSnapshot[] = [
       snap({
         halfMove: 1,
         fenBefore: STARTING_FEN,
         playedUci: 'd2d3',
         bestUci: 'e2e4',
-        cpBefore: 100,
-        cpAfter: -50, // mistake
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 500, d: 200, l: 300 }, // E_after=0.6, loss=0.4 → mistake
       }),
       snap({
         halfMove: 3,
@@ -412,8 +402,8 @@ describe('buildPgnReviewTokens KS-2534', () => {
         // d2-d4 здесь нелегален (d2 пуст после первого хода d3); берём
         // легальный лучший ход g1-f3 (Nf3).
         bestUci: 'g1f3',
-        cpBefore: 100,
-        cpAfter: -300, // blunder
+        wdlBefore: { w: 1000, d: 0, l: 0 },
+        wdlAfter: { w: 0, d: 0, l: 1000 }, // loss=1.0 → blunder
       }),
     ];
     const tokens = buildPgnReviewTokens({

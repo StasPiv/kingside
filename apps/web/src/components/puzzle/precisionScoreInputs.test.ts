@@ -27,24 +27,18 @@ const THREE_BEST_LOG = [
   {
     wdlBefore: NOISY_BEFORE,
     wdlAfter: NOISY_AFTER,
-    cpBefore: 30,
-    cpAfter: 28,
     playedUci: 'a1a7',
     bestUci: 'a1a7', // best
   },
   {
     wdlBefore: NOISY_BEFORE,
     wdlAfter: NOISY_AFTER,
-    cpBefore: 40,
-    cpAfter: 38,
     playedUci: 'b2b4',
     bestUci: 'b2b4', // best
   },
   {
     wdlBefore: NOISY_BEFORE,
     wdlAfter: NOISY_AFTER,
-    cpBefore: 35,
-    cpAfter: 33,
     playedUci: 'f1b3',
     bestUci: 'f1b3', // best
   },
@@ -68,8 +62,6 @@ describe('KS-3074: buildPrecisionScoreInputs', () => {
     const inputsBroken = THREE_BEST_LOG.map((m) => ({
       wdlBefore: m.wdlBefore,
       wdlAfter: m.wdlAfter,
-      cpBefore: m.cpBefore,
-      cpAfter: m.cpAfter,
       // playedUci/bestUci НЕ переданы — best-override KS-3030 не сработает.
     }));
     const result = computePrecisionScore(inputsBroken);
@@ -82,8 +74,6 @@ describe('KS-3074: buildPrecisionScoreInputs', () => {
       {
         wdlBefore: { w: 700, d: 200, l: 100 },
         wdlAfter: { w: 300, d: 400, l: 300 },
-        cpBefore: 200,
-        cpAfter: -100,
         playedUci: 'd2d4',
         bestUci: 'e2e4', // НЕ best
       },

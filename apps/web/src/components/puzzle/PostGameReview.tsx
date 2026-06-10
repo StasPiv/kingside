@@ -116,17 +116,18 @@ export function buildPgnReviewTokens({
 
     if (isUser) {
       const log = userBestLog[userIdx];
-      if (log && (log.wdlBefore || log.cpBefore != null) && (log.wdlAfter || log.cpAfter != null)) {
+      if (log && log.wdlBefore && log.wdlAfter) {
         const isBest = log.playedUci === log.bestUci;
-        // KS-3068: WDL primary (ADR-066). cp передаём как fallback —
-        // если pre/post-analyze не успел снять WDL (старые сборки
-        // Stockfish без UCI_ShowWDL), классификатор сам перейдёт
-        // на cp через winPctFromCp.
+        // KS-4028: классификация хода — только по WDL-дельте. cp-поля
+        // удалены из снимка precision-попытки (контракт
+        // `PrecisionMoveSnapshot` без cpBefore/cpAfter). Старые сборки
+        // Stockfish без `UCI_ShowWDL` в precision больше не
+        // поддерживаются; для классификации архивных партий ветка cp в
+        // shared `classifyMove` сохранена, но в precision-раннере не
+        // активируется.
         cls = classifyMove({
           wdlBefore: log.wdlBefore,
           wdlAfter: log.wdlAfter,
-          cpBefore: log.cpBefore,
-          cpAfter: log.cpAfter,
           isBestMove: isBest,
         });
         nag = NAG_BY_CLASS[cls];

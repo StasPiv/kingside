@@ -625,13 +625,16 @@ export function PuzzlePage() {
           halfMovesPlayed: data.halfMovesPlayed,
           finalWdl: data.finalWdl,
           reason: data.reason,
+          // KS-4028: контракт `PrecisionMoveSnapshot` (KS-3994) убрал
+          // `cpBefore`/`cpAfter` — сервер считает score/objectiveAchieved/
+          // verdictKey только по WDL. Поля cp в payload больше не идут;
+          // в локальном UserBestSnapshot они остаются для PostGameReview /
+          // fallback-effect и для совместимости старых тестов.
           moves: data.moves.map((s) => ({
             ply: s.halfMove,
             fenBefore: s.fenBefore,
             playedUci: s.playedUci,
             bestUci: s.bestUci,
-            cpBefore: s.cpBefore,
-            cpAfter: s.cpAfter,
             wdlBefore: s.wdlBefore,
             wdlAfter: s.wdlAfter,
             depth: s.depth,
@@ -868,17 +871,17 @@ export function PuzzlePage() {
         </div>
       )}
 
-      <div className="puzzle-stats" id="ks3662-anchor">
+      <div className="puzzle-stats">
         <span>{t('puzzle.streak', { count: streak })}</span>
         <span>{t('puzzle.totalSolved', { count: totalSolved })}</span>
         {puzzle && <span>{t('puzzle.puzzleRating', { rating: puzzle.rating })}</span>}
         {/* KS-3660: на /precision-флоу показываем сложность Maia
             weak-choice probability в %. Вне precision — не показываем
             (lichess-пазлы / generated без разметки). */}
-        {puzzle && (
+        {fromPrecision && puzzle && (
           <PrecisionPuzzleDifficulty
-            maiaWeakChoiceProb={0.42}
-            maiaMetricVersion={1}
+            maiaWeakChoiceProb={puzzle.maiaWeakChoiceProb}
+            maiaMetricVersion={puzzle.maiaMetricVersion}
           />
         )}
         {isGenerated && puzzle && (puzzle as unknown as { acceptedMoves?: string }).acceptedMoves && (

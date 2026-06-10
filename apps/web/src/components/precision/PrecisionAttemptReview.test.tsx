@@ -29,8 +29,6 @@ function move(over: Partial<PrecisionMoveDto>): PrecisionMoveDto {
     fenBefore: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
     playedUci: 'e2e4',
     bestUci: 'e2e4',
-    cpBefore: 30,
-    cpAfter: 30,
     wdlBefore: { w: 500, d: 400, l: 100 },
     wdlAfter: { w: 500, d: 400, l: 100 },
     depth: 18,
@@ -200,7 +198,6 @@ describe('<PrecisionAttemptReview>', () => {
         playedUci: 'a2a3',
         bestUci: 'e2e4',
         wdlBefore: null,
-        cpBefore: 200, // cp есть, но мы намеренно не используем как fallback
         classification: 'mistake',
         engineUci: 'e7e5',
       }),
