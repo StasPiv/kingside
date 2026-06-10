@@ -144,6 +144,11 @@ import {
   omitLastMoveIfAiOverlayActive,
 } from './analysis/aiOverlayMerge';
 import { panelToggleReducer } from './analysis/accordionTogglePanel';
+// KS-4035: общий хук «синхронизированное со `localStorage` состояние».
+// Применяется и к свёрнутости блоков правой колонки, и к последней
+// активной мобильной вкладке. Один ключ-объект на все панели вместо
+// множества per-panel ключей (см. п. 2 описания тикета).
+import { useLocalStorageState } from '../hooks/useLocalStorageState';
 // KS-2867 (ADR-060 §3.1 FR4): единый источник «что мы открываем» —
 // discriminated union review/analysis/puzzle. Заменяет разбросанные
 // `params.id`/`params.gameId`/`puzzleFen`/`localId` производные.
@@ -1136,7 +1141,14 @@ function AnalysisPageInner({
   // KS-4024: добавили `'metrics'` — 5-я мобильная вкладка для
   // позиционных метрик партии (ADR-122).
   type MobileTabId = 'moves' | 'engine' | 'tree' | 'ai' | 'metrics';
-  const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
+  // KS-4035: запоминаем последнюю активную мобильную вкладку между
+  // анализами / перезагрузками страницы (per-device, не привязано к
+  // учётной записи). Битый JSON / неизвестное значение упадут на
+  // дефолт `moves`.
+  const [mobileTab, setMobileTab] = useLocalStorageState<MobileTabId>(
+    'ks:analysis-sidebar:mobile-tab',
+    'moves',
+  );
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
   // KS-3471 (ADR-090 V4 F1): модалка выбора movetime + F2 поток.
@@ -1810,19 +1822,32 @@ function AnalysisPageInner({
   // Дефолт на desktop: открыты «Движок», «Нотация», «Книга»; «AI» закрыт
   // (раз «Движок» открыт). На узких экранах всё свёрнуто, чтобы не
   // занимать высоту.
-  const [panelStates, setPanelStates] = useState(() => {
-    const narrow = typeof window !== 'undefined' && window.innerWidth <= 768;
-    return {
-      gameInfo: !narrow,
-      engine: !narrow,
-      moves: !narrow,
-      ai: false,
-      book: !narrow,
-      // KS-4024: панель «Метрики» по умолчанию свёрнута — не мешает
-      // основному потоку, открывается по клику.
-      metrics: false,
-    };
-  });
+  //
+  // KS-4035: состояние свёрнутости сохраняется между анализами в
+  // localStorage по ключу `ks:analysis-sidebar:collapsed`. Один
+  // ключ-объект для всех блоков. Если в сохранённом объекте нет
+  // какого-то блока (например, в будущем добавим новый) — он берёт
+  // значение из defaults через `merge`. Битый JSON → defaults.
+  const [panelStates, setPanelStates] = useLocalStorageState(
+    'ks:analysis-sidebar:collapsed',
+    () => {
+      const narrow =
+        typeof window !== 'undefined' && window.innerWidth <= 768;
+      return {
+        gameInfo: !narrow,
+        engine: !narrow,
+        moves: !narrow,
+        ai: false,
+        book: !narrow,
+        // KS-4024: панель «Метрики» по умолчанию свёрнута — не мешает
+        // основному потоку, открывается по клику.
+        metrics: false,
+      };
+    },
+    {
+      merge: (saved, defaults) => ({ ...defaults, ...saved }),
+    },
+  );
   // KS-3696. Ref-обёртка для «приостановить движок при схлопывании
   // engine-панели». Сама функция `toggleAnalysis`/`stopEngine` объявлена
   // ниже (после useEngine), поэтому здесь читаем её через ref. До
