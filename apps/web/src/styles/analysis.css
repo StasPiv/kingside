@@ -4422,3 +4422,74 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   background: var(--c-3a3a3a, rgba(255, 213, 0, 0.12));
   outline: 1px solid var(--c-9cf, rgba(56, 189, 248, 0.65));
 }
+
+/* ──────────────────────────────────────────────────────────────
+ * KS-4034. Светлая тема: столбики метрик были невидимы —
+ * `--c-eee` (бар «белые») сливался с канвасом, `--c-333` (бар
+ * «чёрные») слабо контрастировал с `--c-222` (track). Здесь
+ * точечно поднимаем контраст столбиков, оси и текстов шапки.
+ * Тёмная тема не затронута — переопределения только под
+ * `:root[data-theme="light"]`.
+ * Цвета подобраны под WCAG AA для не-текстовых элементов (≥3:1
+ * на canvas `#f6f7fb`/track `#e2e6ee`).
+ * ────────────────────────────────────────────────────────────── */
+:root[data-theme="light"] .current-metrics-panel {
+  color: #1f2937;
+}
+
+:root[data-theme="light"] .current-metrics-panel__mode-switch {
+  border-color: #6b7280;
+}
+
+:root[data-theme="light"] .current-metrics-panel__mode-btn {
+  color: #374151;
+}
+
+:root[data-theme="light"] .current-metrics-panel__mode-btn--active {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+:root[data-theme="light"] .current-metrics-panel__filter {
+  color: #1f2937;
+}
+
+:root[data-theme="light"] .current-metrics-panel__filter input[type="checkbox"] {
+  accent-color: #4f46e5;
+}
+
+:root[data-theme="light"] .current-metrics-panel__status {
+  color: #4b5563;
+}
+
+:root[data-theme="light"] .current-metrics-row__label {
+  color: #374151;
+}
+
+:root[data-theme="light"] .current-metrics-row__value {
+  color: #374151;
+}
+
+:root[data-theme="light"] .current-metrics-row__bar-track {
+  /* Подложка чуть темнее канваса, чтобы светлый бар «белых» имел
+   * контраст края. */
+  background: #dde1ea;
+}
+
+:root[data-theme="light"] .current-metrics-row__bar-axis {
+  background: #4b5563;
+}
+
+:root[data-theme="light"] .current-metrics-row__bar--white {
+  /* Светлый заполнитель + тёмная обводка — край отчётливо виден
+   * и в режиме «Параллельно», и в режиме «Разница». */
+  background: #f8fafc;
+  border: 1px solid #475569;
+}
+
+:root[data-theme="light"] .current-metrics-row__bar--black {
+  /* slate-700: контраст с track ≈ 7:1, с осью (#4b5563) ≈ 1.8:1
+   * — но за счёт сплошной заливки край бара читается. */
+  background: #334155;
+  border: 0;
+}
