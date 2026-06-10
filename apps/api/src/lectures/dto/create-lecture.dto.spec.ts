@@ -51,6 +51,18 @@ describe('CreateLectureDto.disabledTools (KS-3899 / ADR-117)', () => {
     expect(errors).toHaveLength(0);
   });
 
+  it('KS-4051: disabledTools: ["moves"] — принимается', async () => {
+    const errors = await validateDto(CreateLectureDto, {
+      ...base,
+      disabledTools: ['moves'],
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('KS-4051: ALL_LECTURE_DISABLED_TOOLS содержит "moves"', () => {
+    expect(ALL_LECTURE_DISABLED_TOOLS).toContain('moves');
+  });
+
   it('невалидное значение в массиве → ошибка валидации (isIn)', async () => {
     const errors = await validateDto(CreateLectureDto, {
       ...base,

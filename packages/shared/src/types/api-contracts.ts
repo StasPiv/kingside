@@ -3535,6 +3535,9 @@ export interface LectureAccessRevokedEvent {
  *    (создание Analysis из текущей позиции).
  *  - `generate_puzzle`    — создание пазла из позиции.
  *  - `find_by_position`   — поиск по позиции в архиве.
+ *  - `moves`              — KS-4051. Панель «Ходы» (нотация партии)
+ *    на странице зрителя. Скрытие используется тренером, когда хочет
+ *    чтобы ученик сам восстановил последовательность ходов.
  *
  * Whitelist строго закрыт: новое значение требует миграции
  * `ALL_LECTURE_DISABLED_TOOLS` + ADR-update.
@@ -3545,7 +3548,8 @@ export type LectureDisabledTool =
   | 'ai_comment'
   | 'analyze_game'
   | 'generate_puzzle'
-  | 'find_by_position';
+  | 'find_by_position'
+  | 'moves';
 
 /**
  * KS-3896 / ADR-117. Полный список значений `LectureDisabledTool` —
@@ -3560,6 +3564,8 @@ export const ALL_LECTURE_DISABLED_TOOLS: readonly LectureDisabledTool[] = [
   'analyze_game',
   'generate_puzzle',
   'find_by_position',
+  // KS-4051.
+  'moves',
 ] as const;
 
 /**
