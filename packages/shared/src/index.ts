@@ -19,6 +19,10 @@ export * from './types/live-analysis.js';
 export * from './types/lecture-chat.js';
 // KS-4023 (ADR-122): аналитика позиционных метрик партии (DTO + версия).
 export * from './types/positional-trace.js';
+// KS-4071: единый источник истины для разбиения подкомпонент Stockfish
+// на 7 групп `metrics` LLM-комментария (формула tapered, состав групп,
+// знаковая конвенция white-signed / owner-signed).
+export * from './review/metrics-comment.js';
 export * from './synthetic-chat-phrases.js';
 export * from './constants.js';
 export * from './constants/archive.js';

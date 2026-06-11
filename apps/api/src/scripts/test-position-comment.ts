@@ -23,6 +23,8 @@
 import { spawn } from 'node:child_process';
 import { ConfigService } from '@nestjs/config';
 import { PositionCommentService } from '../position-comment/position-comment.service';
+import { MaiaService } from '../position-comment/maia.service';
+import { ForcedLineRollerService } from '../position-comment/forced-line-roller.service';
 
 const STOCKFISH = '/project/tools/stockfish-trace/src/stockfish';
 
@@ -47,146 +49,33 @@ interface TraceOutput {
  * в `POST /analyses/position/comment`. `psqt_*` сюда НЕ входят
  * (исторически не вошли в группы метрик). `space` отнесён к `pieces`.
  */
-const METRIC_GROUPS: Record<
-  keyof typeof METRIC_GROUP_KEYS,
-  readonly string[]
-> = {
-  // По уточнению пользователя (KS-4070 ход 2026-06-11): `metrics.material`
-  // на фронте — это PSQT-агрегат (вес фигур на занимаемых полях), а не
-  // суммарный материал/имбаланс. Поэтому сюда идут только `psqt_*`.
-  // Stockfish-trace эмитит psqt_*, фронт собирает их в группу.
-  material: [
-    'psqt_pawn',
-    'psqt_knight',
-    'psqt_bishop',
-    'psqt_rook',
-    'psqt_queen',
-    'psqt_king',
-  ],
-  pawn_structure: [
-    'pawn_doubled_early',
-    'pawn_connected',
-    'pawn_doubled',
-    'pawn_isolated',
-    'pawn_backward',
-    'pawn_lever_double',
-    'pawn_blocked',
-  ],
-  king_safety: [
-    'king_shelter_strength',
-    'king_blocked_storm',
-    'king_unblocked_storm',
-    'king_on_file',
-    'king_safety_pawn',
-    'king_danger',
-    'king_safe_check_rook',
-    'king_safe_check_queen',
-    'king_safe_check_bishop',
-    'king_safe_check_knight',
-    'king_pawnless_flank',
-    'king_flank_attacks',
-    'king_attackers_count',
-    'king_attackers_weight',
-  ],
-  pieces: [
-    'rook_on_king_ring',
-    'bishop_on_king_ring',
-    'knight_uncontested_outpost',
-    'outpost_knight',
-    'outpost_bishop',
-    'knight_reachable_outpost',
-    'minor_behind_pawn',
-    'knight_king_protector_distance',
-    'bishop_king_protector_distance',
-    'bishop_pawns',
-    'bishop_xray_pawns',
-    'bishop_long_diagonal',
-    'bishop_cornered',
-    'rook_on_open_file',
-    'rook_on_closed_file',
-    'rook_trapped',
-    'queen_weak',
-    'space',
-  ],
-  mobility: [
-    'mobility_knight',
-    'mobility_bishop',
-    'mobility_rook',
-    'mobility_queen',
-  ],
-  threats: [
-    'threat_by_minor',
-    'threat_by_rook',
-    'threat_by_king',
-    'threat_hanging',
-    'threat_weak_queen_protection',
-    'threat_restricted_piece',
-    'threat_by_safe_pawn',
-    'threat_by_pawn_push',
-    'threat_knight_on_queen',
-    'threat_slider_on_queen',
-  ],
-  passed_pawns: [
-    'passed_rank',
-    'passed_king_proximity',
-    'passed_path_advance',
-    'passed_file_edge',
-  ],
-};
-const METRIC_GROUP_KEYS = {
-  material: 1,
-  pawn_structure: 1,
-  king_safety: 1,
-  pieces: 1,
-  mobility: 1,
-  threats: 1,
-  passed_pawns: 1,
-} as const;
+// KS-4071. Единая реализация формулы и состава групп вынесена в
+// `@kingside/shared`. Здесь оставлена только тонкая обёртка
+// `buildMetricsLocal`, которая знает FEN — этого достаточно, чтобы
+// получить phase автоматически. Старая локальная реализация удалена:
+// в ней `material` ошибочно собирался из `psqt_*`, в `king_safety`
+// сидели сырые `king_attackers_*` / `king_safe_check_*`, а в `pieces` —
+// `space`. См. comment в `metrics-comment.ts` для подробностей.
+import {
+  buildMetricsCommentRequest,
+  type MetricsCommentBlockKey,
+  type PositionalSubtermInput,
+} from '@kingside/shared';
 
-/**
- * Соберёт metrics + phase в формате KS-4049 из массива subterms и
- * total из stockfish-trace. phase оценивается обратной формулой
- * tapered eval: `v = (mg·phase + eg·(256−phase))/256`, отсюда
- * `phase = 256·(v − eg)/(mg − eg)`, при `mg == eg` — берём 128.
- */
 function buildMetrics(
   subterms: Subterm[],
-  total: { mg: number; eg: number; v: number },
-): { metrics: Record<string, { value_cp: number }>; phase: number } {
-  let phase = 128;
-  if (Math.abs(total.mg - total.eg) > 1e-9) {
-    const p = (256 * (total.v - total.eg)) / (total.mg - total.eg);
-    phase = Math.max(0, Math.min(256, Math.round(p)));
-  }
-  const idToGroup = new Map<string, keyof typeof METRIC_GROUP_KEYS>();
-  for (const [group, ids] of Object.entries(METRIC_GROUPS) as Array<
-    [keyof typeof METRIC_GROUP_KEYS, readonly string[]]
-  >) {
-    for (const id of ids) idToGroup.set(id, group);
-  }
-  const acc: Record<string, number> = {
-    material: 0,
-    pawn_structure: 0,
-    king_safety: 0,
-    pieces: 0,
-    mobility: 0,
-    threats: 0,
-    passed_pawns: 0,
-  };
-  for (const s of subterms) {
-    const g = idToGroup.get(s.id);
-    if (!g) continue;
-    const mg = s.value_mg ?? 0;
-    const eg = s.value_eg ?? 0;
-    const tapered = (mg * phase + eg * (256 - phase)) / 256;
-    const sign = s.color === 'b' ? -1 : 1; // знак приводим к стороне белых
-    acc[g] += sign * tapered;
-  }
-  const metrics: Record<string, { value_cp: number }> = {};
-  for (const k of Object.keys(acc)) {
-    metrics[k] = { value_cp: Number(acc[k].toFixed(4)) };
-  }
-  return { metrics, phase };
+  fen: string,
+): {
+  metrics: Record<MetricsCommentBlockKey, { value_cp: number }>;
+  phase: number;
+} {
+  const subtermsInput: PositionalSubtermInput[] = subterms.map((s) => ({
+    id: s.id,
+    color: s.color,
+    value_mg: s.value_mg,
+    value_eg: s.value_eg,
+  }));
+  return buildMetricsCommentRequest(subtermsInput, { fen });
 }
 
 interface Sf18Eval {
@@ -368,7 +257,7 @@ async function main() {
     ...subterms.map((s) => ({ ...s })), // оставляем как есть
   ];
 
-  const { metrics, phase } = buildMetrics(subterms, trace.total);
+  const { metrics, phase } = buildMetrics(subterms, fen);
   const evalSummary = {
     mg: Number(trace.total.mg.toFixed(4)),
     eg: Number(trace.total.eg.toFixed(4)),
@@ -397,7 +286,36 @@ async function main() {
       exec: async () => [],
     }),
   };
-  const service = new PositionCommentService(config, redisStub as any);
+  const maia = new MaiaService(config);
+  const roller = new ForcedLineRollerService(config, maia);
+  const service = new PositionCommentService(config, redisStub as any, roller);
+
+  // Прокатка форсированной линии — для лога вызываем roller отдельно,
+  // чтобы вывести trace; сервис всё равно повторит расчёт внутри.
+  console.error('> rolling forced line via Maia...');
+  const rolled = await roller.roll(fen);
+  if (rolled.playedMoves.length > 0) {
+    console.log('═══ FORCED LINE (Maia ≥ threshold) ════════════════════════');
+    console.log(`played_moves: ${rolled.playedMoves.join(' ')}`);
+    console.log(`final_fen:    ${rolled.finalFen}`);
+    for (const step of rolled.trace) {
+      console.log(
+        `  ${step.decision.padEnd(18, ' ')} maia_top=${step.maiaTop ?? '-'} p=${
+          step.maiaProb !== undefined ? step.maiaProb.toFixed(4) : '-'
+        }`,
+      );
+    }
+  } else {
+    console.log('═══ FORCED LINE ════════════════════════════════════════════');
+    console.log('(no forced moves)');
+    for (const step of rolled.trace) {
+      console.log(
+        `  ${step.decision.padEnd(18, ' ')} maia_top=${step.maiaTop ?? '-'} p=${
+          step.maiaProb !== undefined ? step.maiaProb.toFixed(4) : '-'
+        }`,
+      );
+    }
+  }
 
   const usedIds = new Set<string>();
   for (const f of factors) {
