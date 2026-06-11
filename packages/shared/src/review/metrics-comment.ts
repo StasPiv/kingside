@@ -193,6 +193,12 @@ export const WHITE_SIGNED_IDS: ReadonlySet<string> = new Set<string>([
  * и нижнем регистре считаются одинаково.
  */
 export function computePhaseFromFen(fen: string): number {
+  // KS-4071 follow-up. Защита от пустого/невалидного FEN: возвращаем
+  // среднюю фазу 128, как делает клиентская часть
+  // (`apps/web/src/lib/review/metricsCommentPayload.ts`). Без этой
+  // защиты пустая строка дала бы 0 (эндшпиль), что искажало бы
+  // последующие tapered-расчёты.
+  if (typeof fen !== 'string' || fen.length === 0) return 128;
   const board = (fen.split(' ')[0] ?? '').toLowerCase();
   let phaseValue = 0;
   for (const ch of board) {
@@ -214,9 +220,17 @@ export function pickValueWithPhase(
   subterm: PositionalSubtermInput,
   phase: number,
 ): number {
-  const mg = subterm.value_mg ?? 0;
-  const eg = subterm.value_eg ?? 0;
-  return (mg * phase + eg * (256 - phase)) / 256;
+  // KS-4071 follow-up. Защита от NaN/Infinity у `value_mg`/`value_eg`:
+  // Stockfish-trace в редких пограничных позициях может выдать
+  // нечисловое значение, которое затем испортит весь агрегат группы.
+  // Клиентская часть проверяет `Number.isFinite`; повторяем здесь.
+  // Отсутствующая часть (`undefined`) трактуется как 0 — это
+  // согласуется с поведением фронта (там `s.value_mg` обязательное
+  // поле, но в наших sentinel-факторах оно может быть пустым).
+  const mgRaw = subterm.value_mg ?? 0;
+  const egRaw = subterm.value_eg ?? 0;
+  if (!Number.isFinite(mgRaw) || !Number.isFinite(egRaw)) return 0;
+  return (mgRaw * phase + egRaw * (256 - phase)) / 256;
 }
 
 // ─── Aggregation ────────────────────────────────────────────────────

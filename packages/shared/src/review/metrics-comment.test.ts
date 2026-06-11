@@ -186,6 +186,14 @@ describe('KS-4071 computePhaseFromFen', () => {
     const fen = '4k2r/r7/8/8/8/8/N1N1Q3/4K3 w - - 0 1';
     expect(computePhaseFromFen(fen)).toBe(107);
   });
+
+  it('пустая строка / не-строка → 128 (defensive fallback клиентской части)', () => {
+    expect(computePhaseFromFen('')).toBe(128);
+    // @ts-expect-error — намеренно передаём не-строку, проверка runtime-guard
+    expect(computePhaseFromFen(null)).toBe(128);
+    // @ts-expect-error — то же для undefined
+    expect(computePhaseFromFen(undefined)).toBe(128);
+  });
 });
 
 describe('KS-4071 pickValueWithPhase', () => {
@@ -208,6 +216,17 @@ describe('KS-4071 pickValueWithPhase', () => {
     expect(pickValueWithPhase({ id: 'x' }, 128)).toBe(0);
     expect(pickValueWithPhase({ id: 'x', value_mg: 1 }, 256)).toBe(1);
     expect(pickValueWithPhase({ id: 'x', value_eg: 1 }, 0)).toBe(1);
+  });
+
+  it('NaN/Infinity → 0 (defensive guard клиентской части)', () => {
+    expect(pickValueWithPhase({ id: 'x', value_mg: NaN, value_eg: 0 }, 128)).toBe(0);
+    expect(pickValueWithPhase({ id: 'x', value_mg: 0, value_eg: NaN }, 128)).toBe(0);
+    expect(
+      pickValueWithPhase({ id: 'x', value_mg: Infinity, value_eg: 0 }, 128),
+    ).toBe(0);
+    expect(
+      pickValueWithPhase({ id: 'x', value_mg: 0, value_eg: -Infinity }, 128),
+    ).toBe(0);
   });
 });
 
