@@ -108,11 +108,14 @@ COPY --from=build /app/packages/maia-core ./packages/maia-core
 # maia3_simplified.onnx, переопределяется в production на /app/tools/
 # maia3/maia3_simplified.onnx через переменную окружения сервиса).
 COPY tools/maia3 ./tools/maia3
-# KS-4070: бинарь Stockfish-trace для FactorsRebuilderService
-# (apps/api/src/position-comment/factors-rebuilder.service.ts). Нативный
-# ELF64 для linux/x64, ~40 МБ. Копируем только сам исполняемый файл, не
-# исходники.
-COPY tools/stockfish-trace/src/stockfish ./tools/stockfish-trace/src/stockfish
+# KS-4070: Stockfish-trace бинарь (FactorsRebuilderService) в образ
+# временно не включается — он gitignored (tools/stockfish-trace/.gitignore:
+# src/stockfish*), и build context из git его не получает. Без бинаря
+# `POSITION_COMMENT_FACTORS_REBUILD_ENABLED=false` отключает пересборку
+# factors на финальной FEN; Maia-фильтр работает, но модель получит
+# исходные factors с initial_fen — поведение откатано к состоянию до
+# rebuild'а. Подключение бинаря — отдельная задача под devops (положить
+# в S3 / pre-build pull / GitHub Release).
 COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY apps/api/package.json ./apps/api/
 # KS-3717: entrypoint вызывает node /app/apps/api/scripts/download-model.mjs
@@ -166,8 +169,11 @@ ENV NODE_EXTRA_CA_CERTS=/app/apps/api/certs/rds-ca.pem
 # фильтра. WORKDIR в production = /app/apps/api, поэтому относительный
 # путь не сработает — задаём абсолютным.
 ENV POSITION_COMMENT_MAIA_MODEL_PATH=/app/tools/maia3/maia3_simplified.onnx
-# KS-4070: путь к Stockfish-trace для FactorsRebuilderService.
-ENV POSITION_COMMENT_STOCKFISH_BINARY=/app/tools/stockfish-trace/src/stockfish
+# KS-4070: Stockfish-trace бинарь не включён в образ (см. COPY-блок).
+# Отключаем пересборку factors на финальной FEN — Maia-фильтр работает,
+# модель получит исходные factors с initial_fen. Включить, как только
+# devops положит бинарь в build context.
+ENV POSITION_COMMENT_FACTORS_REBUILD_ENABLED=false
 
 EXPOSE 3001
 
