@@ -273,6 +273,17 @@ async function main() {
     AI_PROMPT_VARIANT: process.env.AI_PROMPT_VARIANT,
     POSITION_COMMENT_FETCH_TIMEOUT_MS:
       process.env.POSITION_COMMENT_FETCH_TIMEOUT_MS,
+    // Maia-3 модель: default путь в сервисе — относительный
+    // `tools/maia3/maia3_simplified.onnx`, рассчитан на cwd `/app`
+    // (production) или `/project` (dev-сервер). Скрипт запускается из
+    // /project/apps/api, поэтому подменяем абсолютным путём, иначе
+    // engine падает с ENOENT.
+    POSITION_COMMENT_MAIA_MODEL_PATH:
+      process.env.POSITION_COMMENT_MAIA_MODEL_PATH ??
+      '/project/tools/maia3/maia3_simplified.onnx',
+    POSITION_COMMENT_STOCKFISH_BINARY:
+      process.env.POSITION_COMMENT_STOCKFISH_BINARY ??
+      '/project/tools/stockfish-trace/src/stockfish',
   };
   const config = {
     get: (key: string, fallback?: unknown) =>
