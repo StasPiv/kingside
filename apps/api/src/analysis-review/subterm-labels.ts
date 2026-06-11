@@ -271,8 +271,8 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
 
   // ─── Space (evaluate.cpp::space, 1) ─────────────────────────────
   space: {
-    ru: 'пространственный перевес',
-    en: 'space advantage',
+    ru: 'пространство',
+    en: 'space',
   },
 
   // ─── Mobility per piece (KS-3677, ADR-107 rev 2 §2.2, фаза 10 C1a) ──
