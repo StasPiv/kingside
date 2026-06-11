@@ -22,6 +22,7 @@ import type {
   AiOverlayColor,
   PositionCommentResponse,
 } from '@kingside/shared';
+import { isArrowGeometryValid } from './validate-arrow-geometry';
 
 const SQUARE_RE = /^[a-h][1-8]$/;
 const COLORS: ReadonlySet<AiOverlayColor> = new Set<AiOverlayColor>([
@@ -74,7 +75,14 @@ function parseHighlights(input: unknown): AiHighlight[] {
   return Array.from(bySquare.values()).slice(0, MAX_HIGHLIGHTS);
 }
 
-function parseArrows(input: unknown): AiArrow[] {
+/**
+ * KS-4069: если передан `fen`, кроме базовой проверки регулярки клеток
+ * и цвета — отбрасываем стрелки, у которых фигура на `from` не атакует
+ * `to` в текущей позиции (включая блок собственными/чужими фигурами,
+ * тип фигуры и её дальность). Без `fen` валидация пропускается ради
+ * обратной совместимости с unit-тестами разбора (parse-model-output.spec.ts).
+ */
+function parseArrows(input: unknown, fen?: string): AiArrow[] {
   if (!Array.isArray(input)) return [];
   const byPair = new Map<string, AiArrow>();
   for (const item of input) {
@@ -87,6 +95,9 @@ function parseArrows(input: unknown): AiArrow[] {
     ) {
       continue;
     }
+    if (fen && !isArrowGeometryValid(item.from, item.to, fen)) {
+      continue;
+    }
     const key = `${item.from}->${item.to}`;
     byPair.delete(key);
     byPair.set(key, { from: item.from, to: item.to, color: item.color });
@@ -94,7 +105,10 @@ function parseArrows(input: unknown): AiArrow[] {
   return Array.from(byPair.values()).slice(0, MAX_ARROWS);
 }
 
-export function parseModelOutput(raw: string): PositionCommentResponse {
+export function parseModelOutput(
+  raw: string,
+  fen?: string,
+): PositionCommentResponse {
   if (raw == null) return { comment: '', highlights: [], arrows: [] };
 
   const body = stripFences(raw);
@@ -114,6 +128,6 @@ export function parseModelOutput(raw: string): PositionCommentResponse {
   return {
     comment: parsed.comment.trim(),
     highlights: parseHighlights(parsed.highlights),
-    arrows: parseArrows(parsed.arrows),
+    arrows: parseArrows(parsed.arrows, fen),
   };
 }

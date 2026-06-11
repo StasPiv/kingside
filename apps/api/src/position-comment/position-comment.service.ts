@@ -511,7 +511,10 @@ export class PositionCommentService {
         systemPrompt,
         userMessage,
       );
-      return parseModelOutput(response ?? '');
+      // KS-4069: pass FEN to parser → невалидные геометрически стрелки
+      // (например, c4 → h6 при слоне c4 с заблокированной диагональю)
+      // отбрасываются ещё до возврата клиенту.
+      return parseModelOutput(response ?? '', dto.fen);
     } catch (e) {
       this.logger.error(
         `comment user=${userId.slice(0, 8)} failed: ${(e as Error).message}`,

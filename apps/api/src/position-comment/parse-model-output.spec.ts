@@ -218,4 +218,69 @@ describe('parseModelOutput (KS-3690 / ADR-108b §6)', () => {
       arrows: [],
     });
   });
+
+  // ─── KS-4069: геометрическая валидация стрелок (с FEN) ─────────
+
+  describe('KS-4069: фильтрация невалидных стрелок при наличии FEN', () => {
+    it('Gherkin: фактор называет цель, недостижимую для фигуры → стрелка не рисуется', () => {
+      // Реальный кейс из жалобы пользователя: слон c4 → h6 при блоке
+      // собственной d5 и чужой e6.
+      const fen = '7k/8/4p2n/3P4/2B5/8/8/4K3 w - - 0 1';
+      const raw = JSON.stringify({
+        comment: 'давление на h6',
+        arrows: [{ from: 'c4', to: 'h6', color: 'red' }],
+      });
+      const out = parseModelOutput(raw, fen);
+      expect(out.arrows).toEqual([]);
+      // comment и highlights не страдают.
+      expect(out.comment).toBe('давление на h6');
+    });
+
+    it('Gherkin: цель достижима → стрелка рисуется', () => {
+      // Слон c4 действительно атакует пешку d5 — стрелка остаётся.
+      const fen = '4k3/8/8/3p4/2B5/8/8/4K3 w - - 0 1';
+      const raw = JSON.stringify({
+        comment: 'давление на d5',
+        arrows: [{ from: 'c4', to: 'd5', color: 'red' }],
+      });
+      const out = parseModelOutput(raw, fen);
+      expect(out.arrows).toEqual([{ from: 'c4', to: 'd5', color: 'red' }]);
+    });
+
+    it('смешанная пачка: валидные сохраняются, невалидные отбрасываются', () => {
+      const fen = '7k/8/4p2n/3P4/2B5/8/8/4K3 w - - 0 1';
+      const raw = JSON.stringify({
+        comment: 'x',
+        arrows: [
+          { from: 'c4', to: 'h6', color: 'red' }, // невалидно — отбросить
+          { from: 'c4', to: 'd5', color: 'red' }, // валидно — оставить
+          { from: 'd5', to: 'e6', color: 'green' }, // пешка ест по диагонали — валидно
+        ],
+      });
+      const out = parseModelOutput(raw, fen);
+      expect(out.arrows).toEqual([
+        { from: 'c4', to: 'd5', color: 'red' },
+        { from: 'd5', to: 'e6', color: 'green' },
+      ]);
+    });
+
+    it('без FEN — геометрия не проверяется (backward-compat)', () => {
+      const raw = JSON.stringify({
+        comment: 'x',
+        arrows: [{ from: 'c4', to: 'h6', color: 'red' }],
+      });
+      // Старый вызов без fen — стрелка остаётся (поведение до KS-4069).
+      expect(parseModelOutput(raw).arrows).toEqual([
+        { from: 'c4', to: 'h6', color: 'red' },
+      ]);
+    });
+
+    it('битый FEN → все стрелки отбрасываются (geom-validator возвращает false)', () => {
+      const raw = JSON.stringify({
+        comment: 'x',
+        arrows: [{ from: 'e2', to: 'e4', color: 'green' }],
+      });
+      expect(parseModelOutput(raw, 'definitely-not-fen').arrows).toEqual([]);
+    });
+  });
 });
