@@ -48,15 +48,16 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type {
-  AiArrow,
-  AiHighlight,
-  PositionalSubterm,
+import {
+  buildMetricsCommentRequest,
+  type AiArrow,
+  type AiHighlight,
+  type MetricsCommentBuildResult,
+  type PositionalSubterm,
 } from '@kingside/shared';
 
 import { mergeFactors, playOutPv } from '../lib/review/factorsMerge';
 import { evalTrace } from '../lib/review/stockfishTrace';
-import { buildMetricsCommentRequest } from '../lib/review/metricsCommentPayload';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -260,7 +261,7 @@ interface PositionCommentPayload {
    * Backend (`PositionCommentService`) обновится отдельной задачей
    * (KS-4049); до неё сервер просто проигнорирует лишнее поле.
    */
-  metrics?: import('../lib/review/metricsCommentPayload').MetricsCommentRequest['metrics'];
+  metrics?: MetricsCommentBuildResult['metrics'];
   /** KS-4050. `phase` 0..256 — рассчитывается по FEN (см. `computePhaseFromFen`). */
   phase?: number;
 }
@@ -696,10 +697,11 @@ export function useAiPositionComment(
       // сервер просто проигнорирует поле, ответ модели не сломается.
       if (factors.length > 0) {
         try {
-          const grouped = buildMetricsCommentRequest({
-            fen,
-            subterms: factors,
-          });
+          // KS-4072. Единый источник истины для разбиения подкомпонент
+          // по 7 LLM-блокам — `@kingside/shared` (`metrics-comment.ts`).
+          // Сигнатура отличается от прежней локальной: позиционный
+          // массив subterms + объект с `fen`/`phase`.
+          const grouped = buildMetricsCommentRequest(factors, { fen });
           payload.metrics = grouped.metrics;
           payload.phase = grouped.phase;
         } catch {

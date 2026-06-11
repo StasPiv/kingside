@@ -30,9 +30,10 @@
  * аналогично `aggregatePlySubterms`. По умолчанию `mix`.
  */
 import { Chess } from 'chess.js';
-import type {
-  PositionalSubterm,
-  PositionalSubtermId,
+import {
+  WHITE_SIGNED_IDS,
+  type PositionalSubterm,
+  type PositionalSubtermId,
 } from '@kingside/shared';
 import type { MetricPhase } from './positionalMetrics';
 import {
@@ -40,23 +41,11 @@ import {
   type MetricBlockKey,
 } from './metricBlocks';
 
-/**
- * Идентификаторы подкомпонент, для которых Stockfish выдаёт значения
- * уже со стороны белых. Совпадает с `WHITE_SIGNED_IDS` в
- * `dev/debugPositionalDiff.ts`. Дублируется здесь намеренно — модуль
- * `dev/*` помечен как dev-обвязка и не должен импортироваться
- * production-компонентами.
- */
-const WHITE_SIGNED_IDS: ReadonlySet<string> = new Set([
-  'psqt_pawn',
-  'psqt_knight',
-  'psqt_bishop',
-  'psqt_rook',
-  'psqt_queen',
-  'psqt_king',
-  'material',
-  'imbalance',
-]);
+// KS-4072. `WHITE_SIGNED_IDS` — знаковая конвенция подкомпонент
+// Stockfish (psqt_*, material, imbalance отдаются со знаком от белых;
+// остальные — со стороны владельца). Источник истины — `@kingside/shared`
+// (`review/metrics-comment.ts`); раньше было локальное определение
+// здесь и в `dev/debugPositionalDiff.ts`.
 
 export interface CurrentPositionMetricRow {
   /** Идентификатор подкомпоненты Stockfish. */

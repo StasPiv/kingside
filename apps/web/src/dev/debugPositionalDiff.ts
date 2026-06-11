@@ -26,9 +26,10 @@
  *   - В prod — установить `localStorage.setItem('ks:dev','1')` и
  *     перезагрузить страницу.
  */
-import type {
-  PositionalSubterm,
-  PositionalSubtermId,
+import {
+  WHITE_SIGNED_IDS,
+  type PositionalSubterm,
+  type PositionalSubtermId,
 } from '@kingside/shared';
 import type { EngineBestLineInput } from '../lib/review/collectAiFactors';
 import { PSQT_EXTRA_IDS, evalTrace } from '../lib/review/stockfishTrace';
@@ -86,23 +87,12 @@ function round3(x: number): number {
 }
 
 /**
- * KS-4021 follow-up. Идентификаторы подкомпонент, для которых Stockfish
- * выдаёт значения уже со знаком со стороны белых (у белых положительные,
- * у чёрных отрицательные). Для них правильная метрика — `sum_*`
- * (арифметическая сумма всех value по id, около нуля = равноценно).
- * Остальные подкомпоненты SF выдаёт со стороны владельца (положительные
- * у обеих сторон) — там правильно `diff_*` = white_sum − black_sum.
+ * KS-4021 follow-up / KS-4072. Знаковая конвенция SF: `psqt_*`,
+ * `material`, `imbalance` выходят со знаком со стороны белых
+ * (правильно — `sum_*`); остальные — со стороны владельца
+ * (правильно — `diff_*`). Источник истины — `@kingside/shared`
+ * (`review/metrics-comment.ts`).
  */
-const WHITE_SIGNED_IDS: ReadonlySet<string> = new Set([
-  'psqt_pawn',
-  'psqt_knight',
-  'psqt_bishop',
-  'psqt_rook',
-  'psqt_queen',
-  'psqt_king',
-  'material',
-  'imbalance',
-]);
 
 /**
  * Чистая функция-агрегатор. Принимает массив подкомпонент (тот же

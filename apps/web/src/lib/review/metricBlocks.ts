@@ -1,6 +1,6 @@
 /**
- * KS-4043. Группировка `PositionalSubterm` Stockfish 18 по 7 «блокам»
- * на вкладке «Метрики» окна анализа.
+ * KS-4043. Группировка `PositionalSubterm` Stockfish 18 по «блокам» на
+ * вкладке «Метрики» окна анализа.
  *
  * До KS-4043 вкладка показывала каждый id отдельной строкой —
  * пользователь видел десятки технических подкомпонент со схожей семантикой
@@ -10,14 +10,24 @@
  *   материал → пешечная структура → безопасность короля → фигуры →
  *   подвижность → угрозы → проходные.
  *
- * Подкомпоненты, не упомянутые ни в одном блоке (например, `space`,
- * `king_attackers_count`/`weight`, `king_safe_check_*`, любые `psqt_*`),
- * сознательно не входят в основную вкладку — это либо служебные
- * единицы шкалы, либо внутренняя декомпозиция движка без шахматной
- * семантики. См. описание задачи KS-4043 и обсуждение KS-4041 по поводу
- * `king_safe_check_*`.
+ * Подкомпоненты, не упомянутые ни в одном блоке (`king_attackers_*`,
+ * `king_safe_check_*`, любые `psqt_*`), сознательно не входят в основную
+ * вкладку — это либо служебные единицы шкалы, либо внутренняя
+ * декомпозиция движка без шахматной семантики. См. описание задачи
+ * KS-4043 и обсуждение KS-4041 по поводу `king_safe_check_*`.
+ *
+ * KS-4072. Состав 7 LLM-блоков берётся из `@kingside/shared`
+ * (`METRIC_BLOCKS as SHARED_METRIC_BLOCKS`) — единый источник истины,
+ * общий с backend (`POST /analyses/position/comment`). Здесь только
+ * UI-обёртка: мэппинг snake_case-ключей LLM-контракта в kebab-case
+ * UI-ключи + i18n-метки + 8-й блок `space`, который в LLM-payload не
+ * уходит, но в UI-таблице нужен (KS-4043 follow-up).
  */
-import type { PositionalSubtermId } from '@kingside/shared';
+import {
+  METRIC_BLOCKS as SHARED_METRIC_BLOCKS,
+  type MetricsCommentBlockKey,
+  type PositionalSubtermId,
+} from '@kingside/shared';
 
 export type MetricBlockKey =
   | 'material'
@@ -48,109 +58,74 @@ export interface MetricBlockDescriptor {
 }
 
 /**
+ * Соответствие UI-ключа блока (kebab-case) ↔ ключа LLM-контракта
+ * (snake_case, из `MetricsCommentBlockKey` в `@kingside/shared`).
+ * 8-й блок `space` не имеет пары на стороне shared — он не уходит в
+ * LLM, отображается только в UI.
+ */
+const UI_TO_LLM: Readonly<
+  Record<Exclude<MetricBlockKey, 'space'>, MetricsCommentBlockKey>
+> = {
+  material: 'material',
+  'pawn-structure': 'pawn_structure',
+  'king-safety': 'king_safety',
+  pieces: 'pieces',
+  mobility: 'mobility',
+  threats: 'threats',
+  passed: 'passed_pawns',
+};
+
+/**
  * Порядок в массиве соответствует Gherkin требованию из KS-4043:
  * материал → структура → безопасность короля → фигуры → подвижность →
- * угрозы → проходные. Сортировка по «весу» на UI не меняет этот порядок
- * для пустых/нулевых блоков, но активные блоки выводятся по убыванию
+ * угрозы → проходные. Восьмой блок `space` — KS-4043 follow-up: после
+ * запроса пользователя вернули отдельной строкой UI; в LLM-payload не
+ * уходит. Сортировка по «весу» на UI не меняет этот порядок для
+ * пустых/нулевых блоков, но активные блоки выводятся по убыванию
  * абсолютной разницы (см. UI-логику).
  */
 export const METRIC_BLOCKS: ReadonlyArray<MetricBlockDescriptor> = [
   {
     key: 'material',
     i18nKey: 'analysis.metrics.block.material',
-    ids: ['material', 'imbalance'],
+    ids: SHARED_METRIC_BLOCKS[UI_TO_LLM.material],
   },
   {
     key: 'pawn-structure',
     i18nKey: 'analysis.metrics.block.pawnStructure',
-    ids: [
-      'pawn_connected',
-      'pawn_isolated',
-      'pawn_doubled',
-      'pawn_backward',
-      'pawn_lever_double',
-      'pawn_blocked',
-      'pawn_doubled_early',
-    ],
+    ids: SHARED_METRIC_BLOCKS[UI_TO_LLM['pawn-structure']],
   },
   {
     key: 'king-safety',
     i18nKey: 'analysis.metrics.block.kingSafety',
-    ids: [
-      'king_danger',
-      'king_safety_pawn',
-      'king_shelter_strength',
-      'king_blocked_storm',
-      'king_unblocked_storm',
-      'king_on_file',
-      'king_pawnless_flank',
-      'king_flank_attacks',
-    ],
+    ids: SHARED_METRIC_BLOCKS[UI_TO_LLM['king-safety']],
   },
   {
     key: 'pieces',
     i18nKey: 'analysis.metrics.block.pieces',
-    ids: [
-      'rook_on_open_file',
-      'rook_on_closed_file',
-      'rook_trapped',
-      'rook_on_king_ring',
-      'bishop_on_king_ring',
-      'bishop_long_diagonal',
-      'bishop_pawns',
-      'bishop_xray_pawns',
-      'bishop_cornered',
-      'outpost_knight',
-      'outpost_bishop',
-      'knight_uncontested_outpost',
-      'knight_reachable_outpost',
-      'minor_behind_pawn',
-      'knight_king_protector_distance',
-      'bishop_king_protector_distance',
-      'queen_weak',
-    ],
+    ids: SHARED_METRIC_BLOCKS[UI_TO_LLM.pieces],
   },
   {
     key: 'mobility',
     i18nKey: 'analysis.metrics.block.mobility',
-    ids: [
-      'mobility_knight',
-      'mobility_bishop',
-      'mobility_rook',
-      'mobility_queen',
-    ],
+    ids: SHARED_METRIC_BLOCKS[UI_TO_LLM.mobility],
   },
   {
     key: 'threats',
     i18nKey: 'analysis.metrics.block.threats',
-    ids: [
-      'threat_by_minor',
-      'threat_by_rook',
-      'threat_by_king',
-      'threat_hanging',
-      'threat_weak_queen_protection',
-      'threat_restricted_piece',
-      'threat_by_safe_pawn',
-      'threat_by_pawn_push',
-      'threat_knight_on_queen',
-      'threat_slider_on_queen',
-    ],
+    ids: SHARED_METRIC_BLOCKS[UI_TO_LLM.threats],
   },
   {
     key: 'passed',
     i18nKey: 'analysis.metrics.block.passed',
-    ids: [
-      'passed_rank',
-      'passed_king_proximity',
-      'passed_path_advance',
-      'passed_file_edge',
-    ],
+    ids: SHARED_METRIC_BLOCKS[UI_TO_LLM.passed],
   },
   {
     // KS-4043 follow-up: вернули `space` в основную таблицу отдельным
     // блоком по запросу пользователя. До этого подкомпонента
     // отбрасывалась как «почти всегда около 0, шум» — но в позициях
-    // с явным территориальным перевесом она даёт сигнал.
+    // с явным территориальным перевесом она даёт сигнал. В LLM-payload
+    // `space` не уходит — это UI-only блок.
     key: 'space',
     i18nKey: 'analysis.metrics.block.space',
     ids: ['space'],
