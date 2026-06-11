@@ -382,6 +382,22 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/on the board NOW.*not the one that arises in a few moves/);
     });
 
+    it('KS-4070 long RU: запрет «нехватка/недостаток X», уточнение про material/imbalance', () => {
+      const p = svc.buildSystemPrompt('ru');
+      expect(p).toMatch(/Знаковые подкомпоненты/);
+      expect(p).toMatch(/ЗАПРЕЩЕНО.*«нехватка X»/);
+      expect(p).toContain('«недостаток X»');
+      expect(p).toMatch(/material.*оценочная подкомпонента.*НЕ сырая разница фигур/);
+    });
+
+    it('KS-4070 long EN: ban on «lack of X», clarification for material/imbalance', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(/Signed subterms/);
+      expect(p).toMatch(/FORBIDDEN.*"lack of X"/);
+      expect(p).toContain('"shortage of X"');
+      expect(p).toMatch(/material.*Stockfish evaluation subterm.*NOT raw piece count/);
+    });
+
     it('обе версии — без преамбул в стиле CRITICAL RULES / few-shot / ELO', () => {
       const ru = svc.buildSystemPrompt('ru');
       const en = svc.buildSystemPrompt('en');
@@ -399,8 +415,12 @@ describe('PositionCommentService', () => {
         // KS-3727: добавлена шкала cp → вердикт и явный пример
         // расхождения материала и sf18_eval.
         // KS-4068: добавлен блок про источник фактов (terminal_value —
-        // ориентир тренда, не источник фактов). Верхняя граница 10000.
-        expect(p.length).toBeLessThan(10000);
+        // ориентир тренда, не источник фактов).
+        // KS-4070: добавлен блок про знаковые подкомпоненты
+        // (material, imbalance) и запрет «нехватка X». Верхняя граница
+        // поднята до 11000, чтобы вместить уточнения и не урезать
+        // существующие правила.
+        expect(p.length).toBeLessThan(11000);
       }
     });
   });
@@ -952,6 +972,45 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/FORBIDDEN/);
       expect(p).toContain('long-range pieces');
       expect(p).toContain('Output format — ONE JSON object');
+    });
+
+    // ─── KS-4070: запрет «нехватка X» для знаковых подкомпонент ───
+
+    it('KS-4070 short RU: запрет «нехватка/недостаток X», уточнение про material/imbalance', () => {
+      const p = svc.buildSystemPrompt('ru');
+      // Блок про знаковые подкомпоненты — есть прямое указание на знак.
+      expect(p).toMatch(/Знаковые подкомпоненты/);
+      expect(p).toContain('material');
+      expect(p).toContain('imbalance');
+      expect(p).toMatch(/знак показывает, в чью пользу фактор/);
+      expect(p).toMatch(/плюс — белым, минус — чёрным/);
+      // Прямой запрет формулировок «нехватка X».
+      expect(p).toMatch(/ЗАПРЕЩЕНО.*«нехватка X»/);
+      expect(p).toContain('«недостаток X»');
+      expect(p).toContain('«у Y не хватает X»');
+      // Допустимая альтернативная формулировка.
+      expect(p).toMatch(/«фактор X в пользу/);
+      // Специально про material: подкомпонента, не сырая разница фигур.
+      expect(p).toMatch(/material.*оценочная подкомпонента.*НЕ сырая разница фигур/);
+      expect(p).toMatch(/При равном числе фигур значение может быть ненулевым/);
+      expect(p).toContain('пары слонов');
+    });
+
+    it('KS-4070 short EN: ban on «lack of X», clarification for material/imbalance', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(/Signed subterms/);
+      expect(p).toContain('material');
+      expect(p).toContain('imbalance');
+      expect(p).toMatch(/the sign tells which side the factor favours/);
+      expect(p).toMatch(/positive — White, negative — Black/);
+      expect(p).toMatch(/FORBIDDEN.*"lack of X"/);
+      expect(p).toContain('"shortage of X"');
+      expect(p).toContain('"Y is short on X"');
+      expect(p).toMatch(/"the X factor favours White\/Black"/);
+      // Specifically about material.
+      expect(p).toMatch(/material.*Stockfish evaluation subterm.*NOT raw piece count/);
+      expect(p).toMatch(/at an equal piece count it may still be non-zero/);
+      expect(p).toContain('bishop pair');
     });
 
     it('short — не содержит обучающий пример cp=-665 (он перенесён в JSDoc)', () => {

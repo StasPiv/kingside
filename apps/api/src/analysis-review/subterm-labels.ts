@@ -283,14 +283,22 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     en: 'total weight of pieces attacking the king',
   },
 
-  // ─── Material / imbalance (KS-3678 follow-up) ───────────────────
+  // ─── Material / imbalance (KS-3678 follow-up; KS-4070 уточнено) ─
+  // KS-4070. Жалоба пользователя: модель писала «нехватка материала
+  // и имбаланса» при равном составе фигур. Подписи прежней редакции
+  // («материальный перевес», «имбаланс — комбинация фигур, дающая
+  // позиционный вклад») допускали буквальное прочтение «у X не хватает
+  // материала». Уточнено: эти id — знаковые оценочные подкомпоненты,
+  // у которых значение указывает направление, а не количество.
+  // Дополнительный запрет на формулировки «нехватка/недостаток X»
+  // вынесен в системную инструкцию `position-comment.service.ts`.
   material: {
-    ru: 'материальный перевес',
-    en: 'material advantage',
+    ru: 'материальная подкомпонента оценки Stockfish (значение со знаком: + в пользу белых, − в пользу чёрных; может отклоняться от нуля даже при равном составе фигур)',
+    en: "Stockfish material evaluation subterm (signed value: + favours White, − favours Black; may deviate from zero even with equal piece count)",
   },
   imbalance: {
-    ru: 'имбаланс — комбинация фигур, дающая позиционный вклад',
-    en: 'imbalance — piece-combination positional contribution',
+    ru: 'оценочный дисбаланс комбинации фигур по Stockfish (значение со знаком: + в пользу белых, − в пользу чёрных)',
+    en: 'Stockfish piece-combination imbalance subterm (signed value: + favours White, − favours Black)',
   },
 };
 
