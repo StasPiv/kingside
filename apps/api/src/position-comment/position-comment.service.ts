@@ -13,6 +13,8 @@ import {
   PositionCommentLanguage,
 } from './dto/position-comment.dto';
 import { parseModelOutput } from './parse-model-output';
+import { ForcedLineRollerService } from './forced-line-roller.service';
+import { FactorsRebuilderService } from './factors-rebuilder.service';
 
 const EMPTY_RESPONSE: PositionCommentResponse = {
   comment: '',
@@ -87,6 +89,8 @@ export class PositionCommentService {
   constructor(
     private readonly config: ConfigService,
     private readonly redis: RedisService,
+    private readonly forcedLineRoller?: ForcedLineRollerService,
+    private readonly factorsRebuilder?: FactorsRebuilderService,
   ) {
     this.webhookUrl = this.config.get<string>('AI_CHAT_WEBHOOK_URL', '');
     this.webhookSecret = this.config.get<string>('WEBHOOK_AUTH_TOKEN', '');
@@ -263,7 +267,9 @@ export class PositionCommentService {
         '',
         'Signed subterms (`material`, `imbalance` and any subterm with value_mg/value_eg): the sign tells which side the factor favours (positive — White, negative — Black). It is NOT a quantity. FORBIDDEN — writing "lack of X", "shortage of X", "Y is short on X"; signed factors have a direction, not a level you can be short on. Use phrasings like "the X factor favours White/Black", "a small correction in White\'s/Black\'s favour".',
         '',
-        'Description order. First inspect the absolute values of `metrics.*.value_cp` across all groups (`pawn_structure`, `king_safety`, `pieces`, `mobility`, `threats`, `passed_pawns`) and prioritise the comment by descending |value_cp|. The largest group by magnitude is the main subject of the comment and deserves most of the text. Groups whose value is close to zero (|value_cp| < 0.1) usually should not be mentioned at all. Use raw `factors` subterms to EXPAND the group you have already picked from `metrics`, not as standalone subjects: e.g. when `king_safety` dominates, describe king_attackers_count/weight, king_flank_attacks, king_safe_check_*, pawn shelter in detail, and only briefly touch the rest. Do not get distracted by minor subterms whose group is insignificant in `metrics`.',
+        'Forced line (`forced_line`). If the request body has a `forced_line` field with `played_moves: [...]`, several obvious replies have been played automatically from `initial_fen` and the position you must comment on is `final_fen` (also duplicated in the top-level `fen`). `factors`, `piece_count` and the relevant part of `metrics` describe this FINAL position. Describe what is left after the forced sequence: which threats were neutralised, what arose in their place, who stands better in the end. The forced moves themselves can be mentioned briefly at the start as "after an obvious series of trades" / "after the forced replies", without listing concrete moves like e2-e4. If `forced_line` is absent, comment on the FEN as usual.',
+        '',
+        'Description order. First inspect the sign of `sf18_eval` — it gives the verdict direction (positive — White is better, negative — Black is better, near zero — equality). Then inspect `metrics.*.value_cp` across the six groups (`pawn_structure`, `king_safety`, `pieces`, `mobility`, `threats`, `passed_pawns`). The main subject is the heaviest group IN FAVOUR of the side that the verdict points to (for a White edge — the group with the largest positive `value_cp`; for a Black edge — the most negative). A group does NOT become the main subject just because its absolute value is the largest — if its sign opposes the verdict, it is a counter-factor, not the main story. Counter-factors are mentioned as "but the opponent does have X in return", without building the whole comment around them. Groups with |value_cp| < 0.1 are insignificant; do not make them the main subject and mention only when needed. If every group is below 0.1 — say "roughly equal, both sides have balanced activity", no main subject. When |sf18_eval| ≤ 30 (rough equality), the verdict direction is undefined — pick the main subject by |value_cp| alone and describe symmetrically ("White has X, Black has Y"). Use raw `factors` subterms to EXPAND the chosen group, not as standalone subjects.',
         '',
         'Important correction to the order. Stockfish computes the `threats` subterms statically, regardless of whose turn it is. Before promoting `threats` to the main subject, check the side-to-move in the FEN: if `threats` favours the side OPPOSITE to the one to move (i.e. the threats come from the side that is NOT moving) and the attacking piece itself is under attack, or the target is easily defended in one move — those threats are only potential and the defender can clear them. In that case do NOT make `threats` the main subject. Switch to the next group by magnitude or to what the side to move can do (e.g. trade off the threatening piece). The same rule applies symmetrically to individual `threat_*` subterms: if a concrete threat is from the side opposite to the one to move and can be removed in one reply, only mention it briefly without building the whole comment around it.',
         '',
@@ -271,7 +277,11 @@ export class PositionCommentService {
         '',
         '`threat_by_pawn_push` is a threat from the opponent pushing a pawn ONE square forward, after which that pawn attacks our piece. It is NOT a passed-pawn breakthrough and NOT advancement toward promotion. Do NOT describe this factor as "the pawn breaks through" or "passes through". Use phrasings like "an enemy pawn push attacks our piece" or "a one-square pawn advance threatens our piece".',
         '',
-        'For `threat_knight_on_queen` and `threat_slider_on_queen` mind the direction: `color` is the side that ATTACKS; `square` is the queen square of the OPPOSITE side (the queen being threatened). So `color="w" square="d4"` means: a White piece threatens to attack the BLACK queen on d4. For `threat_slider_on_queen` Stockfish does NOT specify whether it is a rook or a bishop — work it out from the FEN: which rook/bishop of side `color` actually reaches the queen on `square` along a file/rank/diagonal (including an x-ray through one blocker). If the attacker is unique — name it explicitly with its square: "the White rook on d1 x-rays the Black queen on d4", "the Black bishop on c6 targets the White queen on d1". FORBIDDEN — leaving the wording "rook or bishop"; it is ambiguous. If the attacker cannot be uniquely identified from the FEN — write the generic "a long-range piece of side `color`", WITHOUT listing "rook or bishop". For `threat_knight_on_queen` name the specific knight with its square ("the White knight on d3 threatens the Black queen on e6"). FORBIDDEN — the term "major piece" for `threat_slider_on_queen`: major pieces are rook and queen, but the attacker here may be a bishop. Do NOT write "a threat on <square>" — the threat goes FROM another square INTO `square` (the queen square).',
+        'The subterms `threat_knight_on_queen` and `threat_slider_on_queen` mean that the queen of the side opposite to `color` is under a potential attack. `square` is the queen square. Do NOT try to reconstruct the specific attacker and its path along the FEN: walking ranks/files/diagonals and reasoning about blockers regularly produces hallucinations (e.g. "the rook on a8 reaches a3 in one move" while a own pawn stands on a7). Describe this threat in general words: "the queen on <square> is unstable", "the queen on <square> is under a potential attack", "pressure on the queen on <square>". Do NOT reconstruct concrete attacking pieces, their squares or paths from the FEN. The wordings "rook or bishop" and "major piece" for `threat_slider_on_queen` are forbidden.',
+        '',
+        'The subterms `king_shelter_strength`, `king_blocked_storm`, `king_unblocked_storm` are weights of the pawn shelter and of opponent pawns on the files adjacent to the king; this is the Stockfish penalty scale, NOT a literal pawn layout. Do NOT describe them as "the opponent\'s pawns have moved closer to the king", "a pawn storm is incoming", "pawns are advancing on the king". Use general summary phrasings: "the pawn shelter is solid/loose", "the king\'s flank is dense/airy", "the king cover is stable/eroded". Do NOT name specific pawns (a7, h6, g5, etc.) or describe their "advance" under these subterms — Stockfish counted them by adjacent files, not by actual pawn moves.',
+        '',
+        'For the subterm `king_flank_attacks` the `square` is the square of the king of side `color` itself. The flank is named by the file of that square: a-d → queenside, e-h → kingside. So g1 means the kingside (for White), b8 means the queenside (for Black), etc. Describe as "opponent activity on the kingside/queenside", "pressure on the kingside/queenside flank". Do NOT call the king\'s square itself "the flank" — phrasings like "on the flank g1" or "the flank g1" are WRONG. ALSO do NOT attach any concrete square to the flank phrasing: "activity near h8", "pressure around g1", "attack near e8" — WRONG. The flank is named "kingside" or "queenside", with NO square attached.',
         '',
         'For `threat_hanging` and `threat_weak_queen_protection` the object on `square` may be either a piece or a PAWN; `color` is the threatening side and the vulnerable object belongs to the opposite side. ALWAYS check the FEN: if a pawn stands on `square`, call it "pawn", not "piece". For example, `threat_weak_queen_protection color="w" square="e5"` with a Black pawn on e5 reads as "Black pawn on e5 is defended only by the queen", not "Black piece on e5". In chess terminology the word "piece" excludes pawns.',
         '',
@@ -325,7 +335,9 @@ export class PositionCommentService {
       '',
       'Знаковые подкомпоненты (`material`, `imbalance` и любые подкомпоненты со значением value_mg/value_eg): знак показывает, в чью пользу фактор (плюс — белым, минус — чёрным). Это направление, а НЕ количество. ЗАПРЕЩЕНО писать «нехватка X», «недостаток X», «у Y не хватает X» — у знаковых подкомпонент нет «нехватки». Допустимо: «фактор X в пользу белых/чёрных», «небольшая поправка в пользу белых/чёрных».',
       '',
-      'Порядок описания. Сначала смотри на абсолютные значения `metrics.*.value_cp` всех групп (`pawn_structure`, `king_safety`, `pieces`, `mobility`, `threats`, `passed_pawns`) и приоритизируй описание по убыванию |value_cp|. Самая весомая по модулю группа — главный сюжет комментария, ей отводи большую часть текста. Группы со значением, близким к нулю (|value_cp| < 0.1), как правило, не упоминай вовсе. Сырые подкомпоненты внутри `factors` используй для РАСКРЫТИЯ той группы, которую уже выбрал по `metrics`, а не как самостоятельные сюжеты: например, при доминирующем `king_safety` подробно опиши king_attackers_count/weight, king_flank_attacks, king_safe_check_*, прикрытие короля по pawn-shelter, и только потом коротко — остальное. Не отвлекайся на мелкие подкомпоненты, если их группа в metrics незначима.',
+      'Форсированная линия (`forced_line`). Если в теле запроса есть поле `forced_line` с `played_moves: [...]`, это значит, что от исходной позиции `initial_fen` несколько очевидных для человека ходов сыграны автоматически, и теперь комментировать нужно ПОЗИЦИЮ ПОСЛЕ этих ходов — она лежит в `final_fen` и в верхнем поле `fen`. `factors`, `piece_count` и часть `metrics` соответствуют именно этой финальной позиции. Опиши то, что осталось в финале: какие угрозы исчезли после размена, что появилось взамен, кто в итоге стоит лучше. Сами форсированные ходы можно вкратце упомянуть в начале как «после очевидной серии разменов» / «после форсированной серии ответов», без перечисления конкретных ходов в виде e2-e4. Если `forced_line` отсутствует — это обычный случай, комментируешь FEN как есть.',
+      '',
+      'Порядок описания. Сначала смотри на знак `sf18_eval` — это направление вердикта (плюс — белые лучше, минус — чёрные лучше, около нуля — равенство). Затем смотри на `metrics.*.value_cp` всех шести групп (`pawn_structure`, `king_safety`, `pieces`, `mobility`, `threats`, `passed_pawns`). Главный сюжет — самая весомая группа В ПОЛЬЗУ той стороны, у которой перевес по `sf18_eval` (для перевеса белых — группа с самым большим положительным `value_cp`; для перевеса чёрных — с самым отрицательным). Группа сама собой не «доминирует» в комментарии только потому, что у неё максимальный модуль — если её знак ПРОТИВ вердикта, это контрфактор, а не главный сюжет. Контрфакторы (группы в сторону, противоположную вердикту) описываются как «но у соперника есть встречно …», без раскручивания вокруг них всего комментария. Если у группы |value_cp| < 0.1 — она не значима, не делай её главным сюжетом и упоминай только при необходимости. Если все группы дают |value_cp| < 0.1 — это «примерное равенство, активность сторон сбалансирована», без главного сюжета. При |sf18_eval| ≤ 30 (примерное равенство) знак направления не определён — главный сюжет тогда выбирается по |value_cp| без учёта знака, но описывается симметрично («у белых X, у чёрных Y»). Сырые подкомпоненты `factors` используй для РАСКРЫТИЯ выбранной главной группы, не как самостоятельные сюжеты.',
       '',
       'Важная поправка к порядку. Подкомпоненты `threats` Stockfish считает статически, не учитывая, чей ход. Перед тем как сделать `threats` главным сюжетом, проверь side-to-move в FEN: если `threats` в пользу стороны, противоположной той, чей ход (то есть «грозит» не та сторона, которая ходит), и атакующая фигура сама стоит под боем, или цель угрозы легко защищается одним ходом — угрозы потенциальные, защитник может их устранить. В таком случае НЕ ставь `threats` главным сюжетом. Переключайся на следующую по весу группу или на то, что может сделать сторона на ходу (например, разменять угрожающую фигуру). Это же правило симметрично распространяется на единичные подкомпоненты `threat_*`: если конкретная угроза висит от стороны, противоположной ходящей, и устраняется одним ответом, она лишь упоминается коротко, без раскачивания вокруг неё всего комментария.',
       '',
@@ -333,7 +345,11 @@ export class PositionCommentService {
       '',
       '`threat_by_pawn_push` означает, что наша фигура попадает под пешечную угрозу после хода пешки соперника вперёд. Это НЕ «проход пешки» и НЕ «прорыв к полю превращения». Слова «проход», «прорыв», «продвижение к превращению» к этому фактору применять ЗАПРЕЩЕНО. Описывай как «фигура под пешечной угрозой» или «пешка соперника угрожает напасть на нашу фигуру».',
       '',
-      'Подкомпоненты `threat_knight_on_queen` и `threat_slider_on_queen`: ВНИМАНИЕ к направлению. `color` — сторона, которая УГРОЖАЕТ; `square` — поле ферзя ПРОТИВОПОЛОЖНОЙ стороны (того, кому угрожают). То есть `color="w" square="d4"` означает: белая фигура угрожает напасть на ЧЁРНОГО ферзя, который стоит на d4. Для `threat_slider_on_queen` Stockfish НЕ уточняет, ладья это или слон — определи сам из FEN: посмотри по вертикалям/горизонталям/диагоналям, какая ладья или слон стороны `color` реально выходит к ферзю на `square` (в том числе через рентген — одну блокирующую фигуру). Если фигура определяется однозначно — назови её конкретно с клеткой: «ладья белых на d1 рентгенит чёрного ферзя на d4», «слон чёрных с c6 целит в белого ферзя на d1». ЗАПРЕЩЕНО оставлять формулировку «ладья или слон» — это двусмысленно. Если из FEN однозначно не определяется (несколько вариантов или неочевидное направление) — пиши общее «фигура дальнего боя стороны `color`», БЕЗ перечисления «ладья или слон». Для `threat_knight_on_queen` назови конкретного коня с клеткой («конь белых с d3 угрожает чёрному ферзю на e6»). ЗАПРЕЩЕНО слово «тяжёлая фигура» для `threat_slider_on_queen`: тяжёлые — ладья и ферзь, а угрожающим может быть и слон. Не пиши «угроза по полю <square>» — угроза направлена ИЗ другого поля НА `square` (поле ферзя).',
+      'Подкомпоненты `threat_knight_on_queen` и `threat_slider_on_queen` обозначают, что ферзь стороны, противоположной `color`, под потенциальной угрозой нападения. `square` — поле ферзя. НЕ пытайся восстанавливать конкретную атакующую фигуру и её путь до ферзя по FEN: проход по линиям и анализ блокировок чужими и своими фигурами регулярно даёт галлюцинации (например, «ладья с a8 одним ходом выходит на a3», тогда как на a7 стоит своя пешка). Описывай эту угрозу общими словами: «неустойчивое положение ферзя на <square>», «ферзь на <square> под потенциальной угрозой нападения», «давление на ферзя <color-противника> на <square>». Конкретные фигуры-атакующих, их клетки и пути ИЗ FEN не реконструируй. Слова «ладья или слон», «тяжёлая фигура» для `threat_slider_on_queen` запрещены.',
+      '',
+      'Подкомпоненты `king_shelter_strength`, `king_blocked_storm`, `king_unblocked_storm` — это веса пешечного прикрытия и пешек соперника на соседних с королём вертикалях; шкала Stockfish, не сама расстановка пешек на доске. НЕ описывай их буквально как «пешки сдвинуты ближе к королю», «пешки соперника надвигаются», «пешечный штурм идёт». Используй общие итоговые формулировки: «пешечное прикрытие крепче/слабее», «фланг короля плотнее/прозрачнее», «прикрытие короля устойчивое/просевшее». Конкретные пешки (a7, h6, g5 и т.п.) и их «движение» в рамках этих подкомпонент НЕ называй — Stockfish их учёл по соседним столбцам, а не по фактическим ходам.',
+      '',
+      'Подкомпонента `king_flank_attacks`: `square` — поле короля той же стороны, у которой `color`. Это атаки соперника по флангу, на котором стоит этот король. Имя фланга — «королевский» (файлы e-h) или «ферзевый» (файлы a-d), определяется по файлу клетки `square`: g1, h8 и т.п. → королевский, a1, b8 и т.п. → ферзевый. Описывай как «активность соперника по королевскому/ферзевому флангу», «давление по королевскому/ферзевому флангу», «атака на королевском/ферзевом фланге». Конкретную клетку короля как «фланг» НЕ пиши: «по флангу g1», «фланг g1» — НЕДОПУСТИМО. Любую привязку к конкретному полю в формулировке этой подкомпоненты ТОЖЕ НЕ пиши: «активность у h8», «давление рядом с g1», «атака возле e8» — НЕДОПУСТИМО. Фланг описывается только как «королевский» или «ферзевый», без клеток.',
       '',
       'Подкомпоненты `threat_hanging` и `threat_weak_queen_protection`: объект на `square` — это либо фигура, либо ПЕШКА; `color` — сторона, которая угрожает, а сам уязвимый объект стоит у противоположной стороны. ОБЯЗАТЕЛЬНО сверяйся с FEN: если на `square` пешка — называй её «пешка», не «фигура». Например, `threat_weak_queen_protection color="w" square="e5"` при чёрной пешке на e5 — это «чёрная пешка на e5 защищена только ферзём», а не «чёрная фигура на e5». Слово «фигура» в шахматной терминологии не покрывает пешку.',
       '',
@@ -545,9 +561,73 @@ export class PositionCommentService {
       return { ...EMPTY_RESPONSE };
     }
 
+    // KS-4070 follow-up. Прокатка форсированной линии перед сборкой
+    // payload. Сервис roller прогоняет Stockfish multipv=2 + Maia и
+    // играет ходы, у которых обе оценки сходятся на «очевидном
+    // единственном ответе». Если линия пуста — `finalFen` === `dto.fen`
+    // и payload собирается как раньше. Если линия не пуста — passему
+    // в payload `initial_fen`/`forced_moves`/`final_fen` как контекст,
+    // factors остаются от клиента (они для исходной позиции; в
+    // инструкции явно сказано, что после форсированной линии
+    // комментировать нужно финал, а исходные factors игнорировать).
+    let forcedLine: {
+      initialFen: string;
+      playedMoves: string[];
+      finalFen: string;
+    } = {
+      initialFen: dto.fen,
+      playedMoves: [],
+      finalFen: dto.fen,
+    };
+    if (this.forcedLineRoller) {
+      try {
+        const rolled = await this.forcedLineRoller.roll(dto.fen);
+        forcedLine = {
+          initialFen: rolled.initialFen,
+          playedMoves: rolled.playedMoves,
+          finalFen: rolled.finalFen,
+        };
+      } catch (e) {
+        this.logger.warn(
+          `comment user=${userId.slice(0, 8)}: forced-line roller failed: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    // KS-4070 follow-up. Если форсированная линия что-то проиграла,
+    // factors/metrics/eval/phase от клиентской части описывают
+    // ИСХОДНУЮ позицию — модель путалась («у белых пешка на c5»
+    // после взятия `b6×c5`). Пересобираем всё на final_fen через
+    // локальный Stockfish-trace. При сбое или отсутствии rebuilder'а
+    // оставляем исходные данные.
+    let rebuiltFactors: unknown[] | undefined;
+    let rebuiltMetrics:
+      | Record<string, { value_cp: number }>
+      | undefined;
+    let rebuiltEval: { mg: number; eg: number; v: number } | undefined;
+    let rebuiltPhase: number | undefined;
+    if (
+      this.factorsRebuilder &&
+      forcedLine.playedMoves.length > 0 &&
+      this.factorsRebuilder.isEnabled()
+    ) {
+      const rebuilt = await this.factorsRebuilder.rebuild(
+        forcedLine.finalFen,
+      );
+      if (rebuilt) {
+        rebuiltFactors = rebuilt.factors;
+        rebuiltMetrics = rebuilt.metrics;
+        rebuiltEval = rebuilt.eval;
+        rebuiltPhase = rebuilt.phase;
+      }
+    }
+
     // KS-3721: вырезаем sf18_pv до сериализации — модель не должна
     // получать UCI-линию как почву для выдумывания манёвров.
-    const factorsForModel = this.stripPvFactor(dto.factors);
+    const factorsForModel = this.stripPvFactor(
+      (rebuiltFactors as PositionCommentDto['factors'] | undefined) ??
+        dto.factors,
+    );
     // KS-3813: сжимаем словарь расшифровок до id, реально пришедших в
     // factors. Раньше отправлялись все 59 пар (~3 КБ), сейчас 0.5–1 КБ.
     const usedIds = this.extractUsedSubtermIds(factorsForModel);
@@ -569,10 +649,19 @@ export class PositionCommentService {
     //  - `material_quality` — переименованный PSQT-агрегат (то, что
     //    раньше присылалось от фронта как `metrics.material`). Это
     //    качество расстановки фигур по полям, а НЕ материал.
-    const fromFen = buildMaterialFromFen(dto.fen);
+    // `material_count` / `piece_count` считаем по `final_fen` — это
+    // позиция, которую модель должна комментировать (исходная FEN или
+    // конец форсированной линии). Это согласуется с инструкцией:
+    // материал берётся из финальной позиции, factors остаются как
+    // у клиентской части (для исходной FEN), но модель опирается на
+    // финал по правилу `forced_line.played_moves.length > 0 → describe final`.
+    const fromFen = buildMaterialFromFen(forcedLine.finalFen);
+    const metricsSource = (rebuiltMetrics as
+      | Record<string, unknown>
+      | undefined) ?? dto.metrics;
     const metricsForModel: Record<string, unknown> = {};
-    if (dto.metrics) {
-      for (const [k, v] of Object.entries(dto.metrics)) {
+    if (metricsSource) {
+      for (const [k, v] of Object.entries(metricsSource)) {
         if (k === 'material') {
           metricsForModel.material_quality = v;
         } else {
@@ -584,14 +673,26 @@ export class PositionCommentService {
       value_cp: fromFen.material_balance_cp,
     };
 
+    const evalForModel = rebuiltEval ?? dto.eval;
+    const phaseForModel = rebuiltPhase ?? dto.phase;
+
     const dataJson = JSON.stringify({
-      fen: dto.fen,
+      fen: forcedLine.finalFen,
+      ...(forcedLine.playedMoves.length > 0
+        ? {
+            forced_line: {
+              initial_fen: forcedLine.initialFen,
+              played_moves: forcedLine.playedMoves,
+              final_fen: forcedLine.finalFen,
+            },
+          }
+        : {}),
       factors: factorsForModel,
       piece_count: fromFen.piece_count,
-      ...(dto.eval ? { eval: dto.eval } : {}),
+      ...(evalForModel ? { eval: evalForModel } : {}),
       // KS-4049: сводный агрегат и фаза, если фронт их прислал.
       metrics: metricsForModel,
-      ...(dto.phase !== undefined ? { phase: dto.phase } : {}),
+      ...(phaseForModel !== undefined ? { phase: phaseForModel } : {}),
     });
 
     // KS-3694: обработчик внешнего вызова за AI_CHAT_WEBHOOK_URL

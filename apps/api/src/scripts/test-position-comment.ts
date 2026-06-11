@@ -25,6 +25,7 @@ import { ConfigService } from '@nestjs/config';
 import { PositionCommentService } from '../position-comment/position-comment.service';
 import { MaiaService } from '../position-comment/maia.service';
 import { ForcedLineRollerService } from '../position-comment/forced-line-roller.service';
+import { FactorsRebuilderService } from '../position-comment/factors-rebuilder.service';
 
 const STOCKFISH = '/project/tools/stockfish-trace/src/stockfish';
 
@@ -288,7 +289,13 @@ async function main() {
   };
   const maia = new MaiaService(config);
   const roller = new ForcedLineRollerService(config, maia);
-  const service = new PositionCommentService(config, redisStub as any, roller);
+  const rebuilder = new FactorsRebuilderService(config);
+  const service = new PositionCommentService(
+    config,
+    redisStub as any,
+    roller,
+    rebuilder,
+  );
 
   // Прокатка форсированной линии — для лога вызываем roller отдельно,
   // чтобы вывести trace; сервис всё равно повторит расчёт внутри.
