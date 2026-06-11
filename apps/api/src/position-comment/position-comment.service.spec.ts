@@ -1021,7 +1021,7 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/под пешечной угрозой/);
       // В новом стиле — прямая формулировка, а не список запретов.
       expect(p).toMatch(/Без слова «проход»/);
-      expect(p).toMatch(/без описания пути пешки/);
+      expect(p).toMatch(/без описания маршрута пешки/);
     });
 
     it('KS-4070 short EN: direct phrasing for threat_by_pawn_push, no breakthrough wording', () => {
