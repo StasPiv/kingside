@@ -202,13 +202,19 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     ru: 'король атакует слабую фигуру',
     en: 'king attacks a weak piece',
   },
+  // KS-4070. Stockfish включает в эти подкомпоненты и пешки. В прежней
+  // подписи стояло «фигура», что в шахматной терминологии исключает
+  // пешку — модель путалась и называла пешку фигурой. Уточнено: цель
+  // на `square` может быть и пешкой; `color` — сторона, которая
+  // атакует / получает плюс, а уязвимый объект стоит у противоположной
+  // стороны.
   threat_hanging: {
-    ru: 'висячая фигура без защиты',
-    en: 'hanging piece (undefended)',
+    ru: 'фигура или пешка стороны, противоположной `color`, стоит без защиты под боем стороны `color` (висячий объект; `square` — поле объекта; обязательно сверяться с FEN: на `square` может быть пешка, тогда называть «пешка», а не «фигура»)',
+    en: 'a piece OR pawn of the side opposite to `color` is attacked and undefended by side `color` (a hanging object; `square` is the object square; ALWAYS check the FEN — if a pawn stands on `square`, call it "pawn", not "piece")',
   },
   threat_weak_queen_protection: {
-    ru: 'фигура защищена только ферзём',
-    en: 'piece defended only by the queen',
+    ru: 'фигура или пешка стороны, противоположной `color`, защищена только своим ферзём (слабая защита; `square` — поле объекта; обязательно сверяться с FEN: на `square` может быть пешка, тогда называть «пешка», а не «фигура»; `color` — сторона, которая угрожает)',
+    en: 'a piece OR pawn of the side opposite to `color` is defended only by its own queen (weak defense; `square` is the object square; ALWAYS check the FEN — if a pawn stands on `square`, call it "pawn", not "piece"; `color` is the threatening side)',
   },
   threat_restricted_piece: {
     ru: 'фигуры соперника ограничены в подвижности',
@@ -228,13 +234,21 @@ export const SUBTERM_LABELS: Record<PositionalSubtermId, SubtermLabel> = {
     ru: 'фигура под пешечной угрозой (после хода пешки соперника вперёд)',
     en: "piece is under a pawn threat (after an opponent's pawn push)",
   },
+  // KS-4070. Жалоба пользователя на формулировку модели «угроза
+  // тяжёлой фигурой по полю d4 с чёрным ферзём в качестве мишени».
+  // Слово «тяжёлая» применено неверно (тяжёлые = ладья + ферзь,
+  // не слон). Кроме того, у этих подкомпонент `square` — это клетка
+  // ферзя-мишени, а не атакующей фигуры. Подписи переписаны так,
+  // чтобы оба нюанса были явными: для slider — «фигура дальнего
+  // боя (ладья или слон)», для knight — «конь»; в обоих случаях
+  // `square` — поле ферзя.
   threat_knight_on_queen: {
-    ru: 'конь может одним ходом напасть на ферзя',
-    en: 'knight threatens the enemy queen',
+    ru: "конь стороны `color` может одним ходом напасть на ферзя противоположной стороны; `square` — поле ферзя-мишени (стоит у стороны, противоположной `color`), а не клетка коня",
+    en: "a knight of side `color` can attack the enemy queen in one move; `square` is the target queen square (the queen belongs to the side OPPOSITE to `color`), not the knight square",
   },
   threat_slider_on_queen: {
-    ru: 'слон или ладья могут одним ходом напасть на ферзя',
-    en: 'slider piece (bishop or rook) threatens the enemy queen',
+    ru: "фигура дальнего боя — ладья или слон — стороны `color` может одним ходом напасть на ферзя противоположной стороны; `square` — поле ферзя-мишени (стоит у стороны, противоположной `color`), а не клетка атакующей фигуры; слово «тяжёлая фигура» здесь НЕ применимо: тяжёлые — ладья и ферзь, а угрожать может и слон",
+    en: "a long-range piece — rook or bishop — of side `color` can attack the enemy queen in one move; `square` is the target queen square (the queen belongs to the side OPPOSITE to `color`), not the attacker; do NOT call this a 'major piece threat' — major = rook/queen, but the attacker may be a bishop",
   },
 
   // ─── Passed pawns (evaluate.cpp::passed, 4) ─────────────────────

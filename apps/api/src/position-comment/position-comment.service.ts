@@ -20,6 +20,47 @@ const EMPTY_RESPONSE: PositionCommentResponse = {
   arrows: [],
 };
 
+// KS-4070. Стандартные стоимости фигур в пешечном эквиваленте, для
+// расчёта материального баланса по FEN. Король не считается. Эти же
+// веса используются в большинстве шахматных программ при подсчёте
+// «обычного» материала (без учёта позиционных бонусов).
+const PIECE_VALUE: Record<string, number> = {
+  p: 1,
+  n: 3,
+  b: 3,
+  r: 5,
+  q: 9,
+};
+
+/**
+ * KS-4070. Развёрнутый счёт фигур каждой стороны по типам и сводный
+ * материальный баланс в пешках (положительный — у белых, отрицательный
+ * — у чёрных). Считается прямо из строки FEN (первое поле).
+ */
+function buildMaterialFromFen(fen: string): {
+  piece_count: {
+    w: Record<string, number>;
+    b: Record<string, number>;
+  };
+  material_balance_cp: number;
+} {
+  const board = fen.split(' ')[0] ?? '';
+  const w: Record<string, number> = { p: 0, n: 0, b: 0, r: 0, q: 0, k: 0 };
+  const b: Record<string, number> = { p: 0, n: 0, b: 0, r: 0, q: 0, k: 0 };
+  for (const ch of board) {
+    if (ch === '/' || /\d/.test(ch)) continue;
+    const lower = ch.toLowerCase();
+    if (!'pnbrqk'.includes(lower)) continue;
+    const side = ch === lower ? b : w;
+    side[lower] += 1;
+  }
+  let balance = 0;
+  for (const k of Object.keys(PIECE_VALUE)) {
+    balance += PIECE_VALUE[k] * (w[k] - b[k]);
+  }
+  return { piece_count: { w, b }, material_balance_cp: balance };
+}
+
 @Injectable()
 export class PositionCommentService {
   private readonly logger = new Logger(PositionCommentService.name);
@@ -220,9 +261,21 @@ export class PositionCommentService {
         '',
         'Forbidden words: "slider", "sliders", "sliding piece(s)". Use "long-range pieces" (rook, bishop, queen), "major pieces" (rook, queen), "minor pieces" (knight, bishop).',
         '',
-        'Signed subterms (`material`, `imbalance` and any subterm with value_mg/value_eg): the sign tells which side the factor favours (positive — White, negative — Black). It is NOT a quantity. FORBIDDEN — writing "lack of X", "shortage of X", "Y is short on X" for these factors; they have a direction, not a level you can be short on. Use phrasings like "the X factor favours White/Black", "a small correction in White\'s/Black\'s favour". Specifically for `material`: this is a Stockfish evaluation subterm, NOT raw piece count — at an equal piece count it may still be non-zero (bishop pair, piece placement, phase). Do NOT describe it as "extra material" or "missing material" unless the piece count itself differs.',
+        'Signed subterms (`material`, `imbalance` and any subterm with value_mg/value_eg): the sign tells which side the factor favours (positive — White, negative — Black). It is NOT a quantity. FORBIDDEN — writing "lack of X", "shortage of X", "Y is short on X"; signed factors have a direction, not a level you can be short on. Use phrasings like "the X factor favours White/Black", "a small correction in White\'s/Black\'s favour".',
+        '',
+        'Description order. First inspect the absolute values of `metrics.*.value_cp` across all groups (`pawn_structure`, `king_safety`, `pieces`, `mobility`, `threats`, `passed_pawns`) and prioritise the comment by descending |value_cp|. The largest group by magnitude is the main subject of the comment and deserves most of the text. Groups whose value is close to zero (|value_cp| < 0.1) usually should not be mentioned at all. Use raw `factors` subterms to EXPAND the group you have already picked from `metrics`, not as standalone subjects: e.g. when `king_safety` dominates, describe king_attackers_count/weight, king_flank_attacks, king_safe_check_*, pawn shelter in detail, and only briefly touch the rest. Do not get distracted by minor subterms whose group is insignificant in `metrics`.',
+        '',
+        'Important correction to the order. Stockfish computes the `threats` subterms statically, regardless of whose turn it is. Before promoting `threats` to the main subject, check the side-to-move in the FEN: if `threats` favours the side OPPOSITE to the one to move (i.e. the threats come from the side that is NOT moving) and the attacking piece itself is under attack, or the target is easily defended in one move — those threats are only potential and the defender can clear them. In that case do NOT make `threats` the main subject. Switch to the next group by magnitude or to what the side to move can do (e.g. trade off the threatening piece). The same rule applies symmetrically to individual `threat_*` subterms: if a concrete threat is from the side opposite to the one to move and can be removed in one reply, only mention it briefly without building the whole comment around it.',
+        '',
+        'Material. The source of truth is the `piece_count` field (exact p/n/b/r/q counts for w and b). Compare counts BY TYPE using standard chess values: pawn = 1, knight = 3, bishop = 3, rook = 5, queen = 9. A bishop and a knight are equal: if one side has an extra bishop and the other has an extra knight, that is a minor-piece TRADE, not a double advantage. Phrasings: 1) if after netting equal-value pieces there is no difference — material is equal, do NOT mention it (even with a bishop-vs-knight mix); 2) if a difference in pawns remains — "X has an extra pawn" / "X has two extra pawns"; 3) if one extra minor piece remains — "X is up a minor piece" (or specifically "up a bishop" / "up a knight" only when the opponent has no minor piece of that type at all); 4) if a rook is extra — "X is up a rook" or, when a rook is traded for a minor, "X is up the exchange"; 5) if a queen is extra — "X is up a queen". FORBIDDEN — writing "one side has an extra bishop, the other has an extra knight" as two separate advantages; that is a trade. The `material_count.value_cp` field is an internal aggregate of the same evaluation; do NOT mention it or the word "centipawns" in the comment. `material_quality.value_cp` is NOT material — it is a raw "piece placement on squares" aggregate (PSQT). Do NOT call it "material" or "material balance"; you do not need to describe it separately. The words "PSQT", "piece placement aggregate" are FORBIDDEN.',
         '',
         '`threat_by_pawn_push` is a threat from the opponent pushing a pawn ONE square forward, after which that pawn attacks our piece. It is NOT a passed-pawn breakthrough and NOT advancement toward promotion. Do NOT describe this factor as "the pawn breaks through" or "passes through". Use phrasings like "an enemy pawn push attacks our piece" or "a one-square pawn advance threatens our piece".',
+        '',
+        'For `threat_knight_on_queen` and `threat_slider_on_queen` mind the direction: `color` is the side that ATTACKS; `square` is the queen square of the OPPOSITE side (the queen being threatened). So `color="w" square="d4"` means: a White piece threatens to attack the BLACK queen on d4. For `threat_slider_on_queen` Stockfish does NOT specify whether it is a rook or a bishop — work it out from the FEN: which rook/bishop of side `color` actually reaches the queen on `square` along a file/rank/diagonal (including an x-ray through one blocker). If the attacker is unique — name it explicitly with its square: "the White rook on d1 x-rays the Black queen on d4", "the Black bishop on c6 targets the White queen on d1". FORBIDDEN — leaving the wording "rook or bishop"; it is ambiguous. If the attacker cannot be uniquely identified from the FEN — write the generic "a long-range piece of side `color`", WITHOUT listing "rook or bishop". For `threat_knight_on_queen` name the specific knight with its square ("the White knight on d3 threatens the Black queen on e6"). FORBIDDEN — the term "major piece" for `threat_slider_on_queen`: major pieces are rook and queen, but the attacker here may be a bishop. Do NOT write "a threat on <square>" — the threat goes FROM another square INTO `square` (the queen square).',
+        '',
+        'For `threat_hanging` and `threat_weak_queen_protection` the object on `square` may be either a piece or a PAWN; `color` is the threatening side and the vulnerable object belongs to the opposite side. ALWAYS check the FEN: if a pawn stands on `square`, call it "pawn", not "piece". For example, `threat_weak_queen_protection color="w" square="e5"` with a Black pawn on e5 reads as "Black pawn on e5 is defended only by the queen", not "Black piece on e5". In chess terminology the word "piece" excludes pawns.',
+        '',
+        'FORBIDDEN — mentioning the words "Stockfish", "sf18", "sf18_eval", "NNUE", "engine", "subterm", "subcomponent", "value_cp", "metrics", "phase" anywhere in the answer. These are internal technical terms; the user must not see them. Instead of "according to Stockfish — slight edge for White" write "slight edge for White". Instead of "Stockfish has already accounted for it" — "the evaluation already accounts for it" or omit. Instead of "material subterm" — "material balance" or "material" (in the sense of an evaluation factor, not raw piece count).',
         '',
         'Do NOT put a technical id in the answer — translate via the glossary:',
         glossary,
@@ -270,9 +323,21 @@ export class PositionCommentService {
       '',
       'Запрещённые слова: «слайдер», «слайдеры», «слайдинг». Замена: «фигуры дальнего боя» (ладья, слон, ферзь), «тяжёлые фигуры» (ладья, ферзь), «лёгкие фигуры» (конь, слон).',
       '',
-      'Знаковые подкомпоненты (`material`, `imbalance` и любые подкомпоненты со значением value_mg/value_eg): знак показывает, в чью пользу фактор (плюс — белым, минус — чёрным). Это направление, а НЕ количество. ЗАПРЕЩЕНО писать «нехватка X», «недостаток X», «у Y не хватает X» — у знаковых подкомпонент нет «нехватки». Допустимо: «фактор X в пользу белых/чёрных», «небольшая поправка в пользу белых/чёрных». Особенно для `material`: это оценочная подкомпонента Stockfish, а НЕ сырая разница фигур. При равном числе фигур значение может быть ненулевым (пары слонов, расположение фигур, фаза). Не пиши «лишний материал у X», «X не хватает материала», если фигурный состав на доске одинаков.',
+      'Знаковые подкомпоненты (`material`, `imbalance` и любые подкомпоненты со значением value_mg/value_eg): знак показывает, в чью пользу фактор (плюс — белым, минус — чёрным). Это направление, а НЕ количество. ЗАПРЕЩЕНО писать «нехватка X», «недостаток X», «у Y не хватает X» — у знаковых подкомпонент нет «нехватки». Допустимо: «фактор X в пользу белых/чёрных», «небольшая поправка в пользу белых/чёрных».',
+      '',
+      'Порядок описания. Сначала смотри на абсолютные значения `metrics.*.value_cp` всех групп (`pawn_structure`, `king_safety`, `pieces`, `mobility`, `threats`, `passed_pawns`) и приоритизируй описание по убыванию |value_cp|. Самая весомая по модулю группа — главный сюжет комментария, ей отводи большую часть текста. Группы со значением, близким к нулю (|value_cp| < 0.1), как правило, не упоминай вовсе. Сырые подкомпоненты внутри `factors` используй для РАСКРЫТИЯ той группы, которую уже выбрал по `metrics`, а не как самостоятельные сюжеты: например, при доминирующем `king_safety` подробно опиши king_attackers_count/weight, king_flank_attacks, king_safe_check_*, прикрытие короля по pawn-shelter, и только потом коротко — остальное. Не отвлекайся на мелкие подкомпоненты, если их группа в metrics незначима.',
+      '',
+      'Важная поправка к порядку. Подкомпоненты `threats` Stockfish считает статически, не учитывая, чей ход. Перед тем как сделать `threats` главным сюжетом, проверь side-to-move в FEN: если `threats` в пользу стороны, противоположной той, чей ход (то есть «грозит» не та сторона, которая ходит), и атакующая фигура сама стоит под боем, или цель угрозы легко защищается одним ходом — угрозы потенциальные, защитник может их устранить. В таком случае НЕ ставь `threats` главным сюжетом. Переключайся на следующую по весу группу или на то, что может сделать сторона на ходу (например, разменять угрожающую фигуру). Это же правило симметрично распространяется на единичные подкомпоненты `threat_*`: если конкретная угроза висит от стороны, противоположной ходящей, и устраняется одним ответом, она лишь упоминается коротко, без раскачивания вокруг неё всего комментария.',
+      '',
+      'Материал. Источник истины — поле `piece_count` (точные счётчики p/n/b/r/q для w и b). Сравнивай счётчики ПО ТИПАМ и применяй обычные шахматные стоимости: пешка = 1, конь = 3, слон = 3, ладья = 5, ферзь = 9. Слон и конь равноценны: если у одной стороны лишний слон, а у другой лишний конь — это РАЗМЕН лёгких фигур, не двойной перевес. Правила формулировок: 1) если после взаимозачёта равноценных фигур разницы нет — материал равный, НЕ упоминай его (даже если состав смешан, например «слон у одних, конь у других»); 2) если после взаимозачёта остаётся разница в пешках — «у X лишняя пешка» / «у X две лишние пешки»; 3) если остаётся одна лишняя лёгкая фигура — «у X лишняя лёгкая фигура» (или конкретно «лишний слон» / «лишний конь», если у соперника лёгких фигур этого типа нет вообще); 4) если лишняя ладья — «у X лишняя ладья» либо, при размене ладья-за-лёгкую, «у X качество»; 5) если лишний ферзь — «у X лишний ферзь». ЗАПРЕЩЕНО писать «у одной стороны лишний слон, у другой лишний конь» как два самостоятельных перевеса — это размен. Поле `material_count.value_cp` — внутренний агрегат той же оценки; в тексте комментария про него и про сантипешки НЕ пиши. `material_quality.value_cp` — это НЕ материал, а сырой агрегат «расстановка фигур по полям» (PSQT). Слова «материал», «материальный баланс» к нему НЕ применяй; самостоятельно эту группу описывать не нужно — она уже учтена в общей оценке. Слова «PSQT», «расположение фигур по полям» — запрещены.',
       '',
       '`threat_by_pawn_push` означает, что наша фигура попадает под пешечную угрозу после хода пешки соперника вперёд. Это НЕ «проход пешки» и НЕ «прорыв к полю превращения». Слова «проход», «прорыв», «продвижение к превращению» к этому фактору применять ЗАПРЕЩЕНО. Описывай как «фигура под пешечной угрозой» или «пешка соперника угрожает напасть на нашу фигуру».',
+      '',
+      'Подкомпоненты `threat_knight_on_queen` и `threat_slider_on_queen`: ВНИМАНИЕ к направлению. `color` — сторона, которая УГРОЖАЕТ; `square` — поле ферзя ПРОТИВОПОЛОЖНОЙ стороны (того, кому угрожают). То есть `color="w" square="d4"` означает: белая фигура угрожает напасть на ЧЁРНОГО ферзя, который стоит на d4. Для `threat_slider_on_queen` Stockfish НЕ уточняет, ладья это или слон — определи сам из FEN: посмотри по вертикалям/горизонталям/диагоналям, какая ладья или слон стороны `color` реально выходит к ферзю на `square` (в том числе через рентген — одну блокирующую фигуру). Если фигура определяется однозначно — назови её конкретно с клеткой: «ладья белых на d1 рентгенит чёрного ферзя на d4», «слон чёрных с c6 целит в белого ферзя на d1». ЗАПРЕЩЕНО оставлять формулировку «ладья или слон» — это двусмысленно. Если из FEN однозначно не определяется (несколько вариантов или неочевидное направление) — пиши общее «фигура дальнего боя стороны `color`», БЕЗ перечисления «ладья или слон». Для `threat_knight_on_queen` назови конкретного коня с клеткой («конь белых с d3 угрожает чёрному ферзю на e6»). ЗАПРЕЩЕНО слово «тяжёлая фигура» для `threat_slider_on_queen`: тяжёлые — ладья и ферзь, а угрожающим может быть и слон. Не пиши «угроза по полю <square>» — угроза направлена ИЗ другого поля НА `square` (поле ферзя).',
+      '',
+      'Подкомпоненты `threat_hanging` и `threat_weak_queen_protection`: объект на `square` — это либо фигура, либо ПЕШКА; `color` — сторона, которая угрожает, а сам уязвимый объект стоит у противоположной стороны. ОБЯЗАТЕЛЬНО сверяйся с FEN: если на `square` пешка — называй её «пешка», не «фигура». Например, `threat_weak_queen_protection color="w" square="e5"` при чёрной пешке на e5 — это «чёрная пешка на e5 защищена только ферзём», а не «чёрная фигура на e5». Слово «фигура» в шахматной терминологии не покрывает пешку.',
+      '',
+      'ЗАПРЕЩЕНО упоминать в ответе слова «Stockfish», «sf18», «sf18_eval», «NNUE», «движок», «engine», «подкомпонента», «value_cp», «metrics», «phase». Это внутренние технические термины — пользователь их видеть не должен. Вместо «по Stockfish — небольшой перевес белых» пиши «небольшой перевес белых». Вместо «Stockfish это уже учёл» — «оценка это уже учитывает» либо вовсе опусти. Вместо «материальная подкомпонента» — «материальный баланс» или «материал» (в значении оценочного фактора, не сырого подсчёта фигур).',
       '',
       'Технический id в ответ НЕ пиши — переводи через словарь:',
       glossary,
@@ -354,6 +419,8 @@ export class PositionCommentService {
         '',
         'Signed subterms (`material`, `imbalance` and any subterm with value_mg/value_eg): the sign tells which side the factor favours (positive — White, negative — Black). It is NOT a quantity. FORBIDDEN — writing "lack of X", "shortage of X", "Y is short on X" for these factors; they have a direction, not a level you can be short on. Use phrasings like "the X factor favours White/Black", "a small correction in White\'s/Black\'s favour". Specifically for `material`: this is a Stockfish evaluation subterm, NOT raw piece count — at an equal piece count it may still be non-zero (bishop pair, piece placement, phase). Do NOT describe it as "extra material" or "missing material" unless the piece count itself differs.',
         '',
+        'FORBIDDEN — mentioning the words "Stockfish", "sf18", "sf18_eval", "NNUE", "engine", "subterm", "subcomponent", "value_cp", "metrics", "phase" anywhere in the answer. These are internal technical terms; the user must not see them. Instead of "according to Stockfish — slight edge for White" write "slight edge for White". Instead of "Stockfish has already accounted for it" — "the evaluation already accounts for it" or omit.',
+        '',
         'Output format — ONE JSON object:',
         '{ "comment": "<text>", "highlights": [...], "arrows": [...] }',
         '',
@@ -410,6 +477,8 @@ export class PositionCommentService {
       '',
       'Знаковые подкомпоненты (`material`, `imbalance` и любые подкомпоненты со значением value_mg/value_eg): знак показывает, в чью пользу фактор (плюс — белым, минус — чёрным). Это направление, а НЕ количество. ЗАПРЕЩЕНО писать «нехватка X», «недостаток X», «у Y не хватает X» — у знаковых подкомпонент нет «нехватки». Допустимо: «фактор X в пользу белых/чёрных», «небольшая поправка в пользу белых/чёрных». Особенно для `material`: это оценочная подкомпонента Stockfish, а НЕ сырая разница фигур. При равном числе фигур значение может быть ненулевым (пары слонов, расположение фигур, фаза). Не пиши «лишний материал у X», «X не хватает материала», если фигурный состав на доске одинаков.',
       '',
+      'ЗАПРЕЩЕНО упоминать в ответе слова «Stockfish», «sf18», «sf18_eval», «NNUE», «движок», «engine», «подкомпонента», «value_cp», «metrics», «phase». Это внутренние технические термины — пользователь их видеть не должен. Вместо «по Stockfish — небольшой перевес белых» пиши «небольшой перевес белых». Вместо «Stockfish это уже учёл» — «оценка это уже учитывает» либо опусти.',
+      '',
       'Формат ответа — ОДИН JSON-объект:',
       '{ "comment": "<текст>", "highlights": [...], "arrows": [...] }',
       '',
@@ -435,6 +504,7 @@ export class PositionCommentService {
    * вырезаем его из подаваемых модели факторов целиком. Терминальные
    * значения `terminal_value_*` у статических подкомпонент остаются:
    * тенденция (value → terminal) сохраняется без знания самой линии.
+   *
    */
   private stripPvFactor(
     factors: PositionCommentDto['factors'],
@@ -481,21 +551,46 @@ export class PositionCommentService {
     // KS-3813: сжимаем словарь расшифровок до id, реально пришедших в
     // factors. Раньше отправлялись все 59 пар (~3 КБ), сейчас 0.5–1 КБ.
     const usedIds = this.extractUsedSubtermIds(factorsForModel);
-    // KS-4049: фронт может прислать `metrics` (агрегаты 7 блоков) и
-    // `phase`. Если есть — добавим в системную инструкцию короткую
-    // секцию о том, как комбинировать агрегат с сырым `factors`.
-    const hasMetrics = dto.metrics !== undefined;
+    // KS-4049 + KS-4070. `metrics` теперь всегда есть в payload —
+    // как минимум там `material_count`, считаемый из FEN на бэке.
+    // Дополнительная секция в инструкции про агрегаты остаётся.
+    const hasMetrics = true;
     const systemPrompt = this.buildSystemPrompt(
       dto.language,
       usedIds,
       hasMetrics,
     );
+    // KS-4070. Метрика «материал» разделена на два независимых блока:
+    //  - `material_count` — обычный материальный баланс по стандартным
+    //    стоимостям фигур (p=1, n=3, b=3, r=5, q=9), считается из FEN
+    //    на бэке. Это «материал в обыденном смысле»: если у одной из
+    //    сторон лишняя пешка или фигура — модель это увидит и опишет
+    //    словами через `piece_count`.
+    //  - `material_quality` — переименованный PSQT-агрегат (то, что
+    //    раньше присылалось от фронта как `metrics.material`). Это
+    //    качество расстановки фигур по полям, а НЕ материал.
+    const fromFen = buildMaterialFromFen(dto.fen);
+    const metricsForModel: Record<string, unknown> = {};
+    if (dto.metrics) {
+      for (const [k, v] of Object.entries(dto.metrics)) {
+        if (k === 'material') {
+          metricsForModel.material_quality = v;
+        } else {
+          metricsForModel[k] = v;
+        }
+      }
+    }
+    metricsForModel.material_count = {
+      value_cp: fromFen.material_balance_cp,
+    };
+
     const dataJson = JSON.stringify({
       fen: dto.fen,
       factors: factorsForModel,
+      piece_count: fromFen.piece_count,
       ...(dto.eval ? { eval: dto.eval } : {}),
       // KS-4049: сводный агрегат и фаза, если фронт их прислал.
-      ...(dto.metrics ? { metrics: dto.metrics } : {}),
+      metrics: metricsForModel,
       ...(dto.phase !== undefined ? { phase: dto.phase } : {}),
     });
 

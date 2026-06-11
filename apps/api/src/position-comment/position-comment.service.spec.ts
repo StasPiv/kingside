@@ -416,11 +416,13 @@ describe('PositionCommentService', () => {
         // расхождения материала и sf18_eval.
         // KS-4068: добавлен блок про источник фактов (terminal_value —
         // ориентир тренда, не источник фактов).
-        // KS-4070: добавлен блок про знаковые подкомпоненты
-        // (material, imbalance) и запрет «нехватка X». Верхняя граница
-        // поднята до 11000, чтобы вместить уточнения и не урезать
-        // существующие правила.
-        expect(p.length).toBeLessThan(11000);
+        // KS-4070: добавлены блоки про знаковые подкомпоненты
+        // (material, imbalance), запрет «нехватка X», запрет
+        // упоминать Stockfish/NNUE/sf18, уточнение про `metrics.material`
+        // как PSQT-агрегат, запрет слова «проход/прорыв» для
+        // `threat_by_pawn_push`, направление и square у
+        // `threat_*_on_queen`. Верхняя граница поднята до 12000.
+        expect(p.length).toBeLessThan(12000);
       }
     });
   });
@@ -976,41 +978,41 @@ describe('PositionCommentService', () => {
 
     // ─── KS-4070: запрет «нехватка X» для знаковых подкомпонент ───
 
-    it('KS-4070 short RU: запрет «нехватка/недостаток X», уточнение про material/imbalance', () => {
+    it('KS-4070 short RU: piece_count как источник, правило размена слон-конь', () => {
       const p = svc.buildSystemPrompt('ru');
-      // Блок про знаковые подкомпоненты — есть прямое указание на знак.
       expect(p).toMatch(/Знаковые подкомпоненты/);
-      expect(p).toContain('material');
-      expect(p).toContain('imbalance');
       expect(p).toMatch(/знак показывает, в чью пользу фактор/);
-      expect(p).toMatch(/плюс — белым, минус — чёрным/);
-      // Прямой запрет формулировок «нехватка X».
       expect(p).toMatch(/ЗАПРЕЩЕНО.*«нехватка X»/);
-      expect(p).toContain('«недостаток X»');
-      expect(p).toContain('«у Y не хватает X»');
-      // Допустимая альтернативная формулировка.
-      expect(p).toMatch(/«фактор X в пользу/);
-      // Специально про material: подкомпонента, не сырая разница фигур.
-      expect(p).toMatch(/material.*оценочная подкомпонента.*НЕ сырая разница фигур/);
-      expect(p).toMatch(/При равном числе фигур значение может быть ненулевым/);
-      expect(p).toContain('пары слонов');
+      // piece_count — источник истины для материала.
+      expect(p).toMatch(/Источник истины — поле `piece_count`/);
+      expect(p).toMatch(/пешка = 1, конь = 3, слон = 3, ладья = 5, ферзь = 9/);
+      expect(p).toMatch(/Слон и конь равноценны/);
+      expect(p).toMatch(/РАЗМЕН лёгких фигур/);
+      expect(p).toContain('«у X лишняя пешка»');
+      expect(p).toContain('«у X лишняя лёгкая фигура»');
+      expect(p).toContain('«у X качество»');
+      // Запрет на сантипешки в тексте.
+      expect(p).toMatch(/про сантипешки НЕ пиши/);
+      // material_quality — НЕ материал.
+      expect(p).toMatch(/`material_quality\.value_cp` — это НЕ материал/);
+      expect(p).toMatch(/«PSQT».*запрещен/);
     });
 
-    it('KS-4070 short EN: ban on «lack of X», clarification for material/imbalance', () => {
+    it('KS-4070 short EN: piece_count as source, bishop-knight trade rule', () => {
       const p = svc.buildSystemPrompt('en');
       expect(p).toMatch(/Signed subterms/);
-      expect(p).toContain('material');
-      expect(p).toContain('imbalance');
       expect(p).toMatch(/the sign tells which side the factor favours/);
-      expect(p).toMatch(/positive — White, negative — Black/);
       expect(p).toMatch(/FORBIDDEN.*"lack of X"/);
-      expect(p).toContain('"shortage of X"');
-      expect(p).toContain('"Y is short on X"');
-      expect(p).toMatch(/"the X factor favours White\/Black"/);
-      // Specifically about material.
-      expect(p).toMatch(/material.*Stockfish evaluation subterm.*NOT raw piece count/);
-      expect(p).toMatch(/at an equal piece count it may still be non-zero/);
-      expect(p).toContain('bishop pair');
+      expect(p).toMatch(/source of truth is the `piece_count`/);
+      expect(p).toMatch(/pawn = 1, knight = 3, bishop = 3, rook = 5, queen = 9/);
+      expect(p).toMatch(/A bishop and a knight are equal/);
+      expect(p).toMatch(/minor-piece TRADE/);
+      expect(p).toContain('"X has an extra pawn"');
+      expect(p).toContain('"X is up a minor piece"');
+      expect(p).toContain('"X is up the exchange"');
+      expect(p).toMatch(/do NOT mention.*centipawns/);
+      expect(p).toMatch(/`material_quality\.value_cp` is NOT material/);
+      expect(p).toMatch(/"PSQT".*FORBIDDEN/);
     });
 
     it('KS-4070 short RU: запрет «проход/прорыв» для threat_by_pawn_push', () => {
@@ -1205,8 +1207,12 @@ describe('PositionCommentService', () => {
       await svc.comment('user-1', makeDto());
 
       const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-      expect(body.systemPrompt).not.toContain('7 групп');
-      expect(body.message).not.toContain('"metrics"');
+      // KS-4070: metrics теперь всегда есть в payload (как минимум
+      // `material_count`, считаемый из FEN); проверяем что от фронта
+      // metrics не прислан, но в payload есть только material_count
+      // и нет phase (её фронт не прислал).
+      expect(body.message).toContain('"metrics"');
+      expect(body.message).toContain('"material_count"');
       expect(body.message).not.toContain('"phase"');
     });
 
