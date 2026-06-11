@@ -1015,22 +1015,21 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/"PSQT".*FORBIDDEN/);
     });
 
-    it('KS-4070 short RU: запрет «проход/прорыв» для threat_by_pawn_push', () => {
+    it('KS-4070 short RU: формулировка threat_by_pawn_push в прямом стиле, без слов «проход/прорыв»', () => {
       const p = svc.buildSystemPrompt('ru');
       expect(p).toContain('threat_by_pawn_push');
-      expect(p).toMatch(/фигура под пешечной угрозой|пешечную угрозу/);
-      // Явный запрет слов «проход», «прорыв» применительно к этому фактору.
-      expect(p).toMatch(/Слова «проход», «прорыв».*ЗАПРЕЩЕНО/);
-      expect(p).toMatch(/НЕ «проход пешки»/);
-      expect(p).toMatch(/НЕ «прорыв к полю превращения»/);
+      expect(p).toMatch(/под пешечной угрозой/);
+      // В новом стиле — прямая формулировка, а не список запретов.
+      expect(p).toMatch(/Без слова «проход»/);
+      expect(p).toMatch(/без описания пути пешки/);
     });
 
-    it('KS-4070 short EN: ban "passed-pawn breakthrough" wording for threat_by_pawn_push', () => {
+    it('KS-4070 short EN: direct phrasing for threat_by_pawn_push, no breakthrough wording', () => {
       const p = svc.buildSystemPrompt('en');
       expect(p).toContain('threat_by_pawn_push');
-      expect(p).toMatch(/NOT a passed-pawn breakthrough/);
-      expect(p).toMatch(/NOT advancement toward promotion/);
-      expect(p).toMatch(/Do NOT describe.*"the pawn breaks through".*"passes through"/);
+      expect(p).toMatch(/under a pawn threat/);
+      expect(p).toMatch(/No "breakthrough"/);
+      expect(p).toMatch(/no description of the pawn's path/);
     });
 
     it('short — не содержит обучающий пример cp=-665 (он перенесён в JSDoc)', () => {
