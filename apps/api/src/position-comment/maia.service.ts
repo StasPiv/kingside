@@ -32,9 +32,13 @@ export class MaiaService {
   private initFailed = false;
 
   constructor(private readonly config: ConfigService) {
+    // Default — относительный путь, работает и локально (запуск из
+    // /project), и в production-Docker (запуск из /app, см. Dockerfile:
+    // `COPY tools/maia3 ./tools/maia3` + `WORKDIR /app/apps/api`).
+    // Переопределяется через ENV `POSITION_COMMENT_MAIA_MODEL_PATH`.
     this.modelPath = this.config.get<string>(
       'POSITION_COMMENT_MAIA_MODEL_PATH',
-      '/project/tools/maia3/maia3_simplified.onnx',
+      'tools/maia3/maia3_simplified.onnx',
     );
     this.elo = parseInt(
       this.config.get<string>('POSITION_COMMENT_MAIA_ELO', '2400'),

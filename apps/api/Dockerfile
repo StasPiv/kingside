@@ -41,6 +41,11 @@ COPY apps/game-service/package.json apps/game-service/
 COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
+# KS-4070: position-comment подключает Maia-3 как forced-line фильтр
+# (apps/api/src/position-comment/maia.service.ts через @kingside/maia-core).
+# Сам пакет резолвится из packages/maia-core (workspace symlink), его
+# package.json нужен до `npm ci`, чтобы зависимость не была NotFound.
+COPY packages/maia-core/package.json packages/maia-core/
 RUN npm ci --ignore-scripts
 # KS-2216: отдельно запускаем postinstall @prisma/engines (он же скачивает schema-engine
 # для текущей платформы). Без этого `npx prisma migrate deploy` в production-стадии
@@ -49,14 +54,19 @@ RUN node node_modules/@prisma/engines/scripts/postinstall.js
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
 COPY packages/board-image-to-fen ./packages/board-image-to-fen
+COPY packages/maia-core ./packages/maia-core
 COPY apps/api ./apps/api
 COPY tsconfig.base.json ./
 RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN rm -f packages/board-image-to-fen/tsconfig.tsbuildinfo
+RUN rm -f packages/maia-core/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
 # KS-2363 / ADR-040 §5.1: dist/ нужен в production для `await import(
 # '@kingside/board-image-to-fen')` из BoardRecognitionService (lazy).
 RUN npx tsc --build packages/board-image-to-fen
+# KS-4070: пакет @kingside/maia-core нужен для position-comment Maia-фильтра.
+# Собираем в build-стадии до nest build, чтобы apps/api подхватил его типы.
+RUN npx tsc --build packages/maia-core
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies (typescript,
@@ -89,6 +99,20 @@ COPY --from=build /app/packages/db ./packages/db
 # src/python/* (board_detect.py / board_recognize.py — spawn'ятся через
 # child_process). Без src/python модуль не сможет вызывать Python-стек.
 COPY --from=build /app/packages/board-image-to-fen ./packages/board-image-to-fen
+# KS-4070: @kingside/maia-core для position-comment forced-line фильтра
+# (apps/api/src/position-comment/maia.service.ts).
+COPY --from=build /app/packages/maia-core ./packages/maia-core
+# KS-4070: ONNX-модель Maia-3 (44 МБ, gitignored). Тот же шаблон, что в
+# apps/tactic-worker/Dockerfile. Путь задаётся ENV
+# POSITION_COMMENT_MAIA_MODEL_PATH (default /project/tools/maia3/
+# maia3_simplified.onnx, переопределяется в production на /app/tools/
+# maia3/maia3_simplified.onnx через переменную окружения сервиса).
+COPY tools/maia3 ./tools/maia3
+# KS-4070: бинарь Stockfish-trace для FactorsRebuilderService
+# (apps/api/src/position-comment/factors-rebuilder.service.ts). Нативный
+# ELF64 для linux/x64, ~40 МБ. Копируем только сам исполняемый файл, не
+# исходники.
+COPY tools/stockfish-trace/src/stockfish ./tools/stockfish-trace/src/stockfish
 COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY apps/api/package.json ./apps/api/
 # KS-3717: entrypoint вызывает node /app/apps/api/scripts/download-model.mjs
@@ -129,6 +153,8 @@ COPY apps/api/certs ./apps/api/certs
 RUN rm -rf node_modules/@kingside/shared && ln -s ../../packages/shared node_modules/@kingside/shared
 RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@kingside/db
 RUN rm -rf node_modules/@kingside/board-image-to-fen && ln -s ../../packages/board-image-to-fen node_modules/@kingside/board-image-to-fen
+# KS-4070: символическая ссылка на maia-core, по образцу tactic-worker.
+RUN rm -rf node_modules/@kingside/maia-core && ln -s ../../packages/maia-core node_modules/@kingside/maia-core
 
 ENV NODE_ENV=production
 # KS-2411: Node автоматически подхватывает этот CA bundle для всех
@@ -136,6 +162,12 @@ ENV NODE_ENV=production
 # через NODE_TLS_REJECT_UNAUTHORIZED=0. Путь можно переопределить
 # через ENV в task-def при необходимости (например, под regional bundle).
 ENV NODE_EXTRA_CA_CERTS=/app/apps/api/certs/rds-ca.pem
+# KS-4070: путь к ONNX-модели Maia-3 для position-comment forced-line
+# фильтра. WORKDIR в production = /app/apps/api, поэтому относительный
+# путь не сработает — задаём абсолютным.
+ENV POSITION_COMMENT_MAIA_MODEL_PATH=/app/tools/maia3/maia3_simplified.onnx
+# KS-4070: путь к Stockfish-trace для FactorsRebuilderService.
+ENV POSITION_COMMENT_STOCKFISH_BINARY=/app/tools/stockfish-trace/src/stockfish
 
 EXPOSE 3001
 
