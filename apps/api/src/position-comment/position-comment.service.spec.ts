@@ -353,6 +353,35 @@ describe('PositionCommentService', () => {
       expect(p).toMatch(/cp=-665.*extra piece.*decisive advantage for Black.*not "White is better"/);
     });
 
+    it('KS-4068 RU: явный запрет описывать факторы финальной позиции как реальные', () => {
+      const p = svc.buildSystemPrompt('ru');
+      // Источник фактов — текущая позиция и value_*; terminal_value_* — ориентир тренда.
+      expect(p).toMatch(/источник фактов о позиции/i);
+      expect(p).toMatch(/ТОЛЬКО.*FEN.*value_mg\/value_eg/);
+      expect(p).toMatch(/terminal_value.*прогноз.*≈10 ходов/);
+      expect(p).toMatch(/ориентир тенденции.*НЕ источник фактов/);
+      // Подкомпонента без value_* — не на доске.
+      expect(p).toMatch(/НЕТ value_mg\/value_eg.*НЕТ на доске/);
+      // Пример запрета.
+      expect(p).toContain('«у белых проходная»');
+      // Допустимо как будущее.
+      expect(p).toMatch(/как будущее.*складывается проходная|появится позже/);
+      // Комментарий относится к позиции сейчас, не к терминальной.
+      expect(p).toMatch(/которая на доске сейчас.*не ту, что возникнет через несколько ходов/);
+    });
+
+    it('KS-4068 EN: explicit ban on describing terminal-position factors as real', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(/source of facts about the position/i);
+      expect(p).toMatch(/ONLY.*FEN.*value_mg\/value_eg/);
+      expect(p).toMatch(/terminal_value.*forecast.*≈10 moves/);
+      expect(p).toMatch(/TREND reference.*NOT a source of facts/);
+      expect(p).toMatch(/NO value_mg\/value_eg.*NOT on the board/);
+      expect(p).toContain('"White has a passed pawn"');
+      expect(p).toMatch(/only.*as the future.*will arise|appears later/);
+      expect(p).toMatch(/on the board NOW.*not the one that arises in a few moves/);
+    });
+
     it('обе версии — без преамбул в стиле CRITICAL RULES / few-shot / ELO', () => {
       const ru = svc.buildSystemPrompt('ru');
       const en = svc.buildSystemPrompt('en');
@@ -368,10 +397,42 @@ describe('PositionCommentService', () => {
         // сверка с pv, порядок приоритетов, пример с проходной)
         // удалены, добавлены явные запреты на манёвры/планы.
         // KS-3727: добавлена шкала cp → вердикт и явный пример
-        // расхождения материала и sf18_eval. Верхняя граница 9500
-        // символов сохранена.
-        expect(p.length).toBeLessThan(9500);
+        // расхождения материала и sf18_eval.
+        // KS-4068: добавлен блок про источник фактов (terminal_value —
+        // ориентир тренда, не источник фактов). Верхняя граница 10000.
+        expect(p.length).toBeLessThan(10000);
       }
+    });
+  });
+
+  describe('buildSystemPrompt — короткая версия (short, KS-4068)', () => {
+    const svc = new PositionCommentService(
+      makeConfigService({ AI_PROMPT_VARIANT: 'short' }),
+      makeRedisStub(),
+    );
+
+    it('RU short: запрет описывать факторы финальной позиции как реальные', () => {
+      const p = svc.buildSystemPrompt('ru');
+      expect(p).toMatch(/источник фактов о позиции/i);
+      expect(p).toMatch(/только текущая позиция.*FEN.*value_mg\/value_eg/);
+      expect(p).toMatch(/terminal_value.*прогноз.*≈10 ходов/);
+      expect(p).toMatch(/ориентир тенденции.*НЕ источник фактов/);
+      expect(p).toMatch(/НЕТ value_mg\/value_eg.*НЕТ на доске/);
+      expect(p).toContain('«у белых проходная»');
+      expect(p).toMatch(/как будущее.*складывается проходная|появится позже/);
+      expect(p).toMatch(/которая на доске сейчас.*не ту, что возникнет через несколько ходов/);
+    });
+
+    it('EN short: ban on describing terminal-position factors as real', () => {
+      const p = svc.buildSystemPrompt('en');
+      expect(p).toMatch(/source of facts about the position/i);
+      expect(p).toMatch(/only the current FEN.*value_mg\/value_eg/);
+      expect(p).toMatch(/terminal_value.*forecast.*≈10 moves/);
+      expect(p).toMatch(/TREND reference.*NOT a source of facts/);
+      expect(p).toMatch(/NO value_mg\/value_eg.*NOT on the board/);
+      expect(p).toContain('"White has a passed pawn"');
+      expect(p).toMatch(/only.*as the future.*will arise|appears later/);
+      expect(p).toMatch(/on the board NOW.*not the one that arises in a few moves/);
     });
   });
 
