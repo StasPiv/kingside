@@ -125,11 +125,14 @@ def build_voice_track(segments: list[dict], placements: list[dict],
             filters.append(f"[{i}:a]adelay={start_ms}|{start_ms},apad[a{i}]")
             amix_inputs.append(f"[a{i}]")
         n = len(wav_chunks)
-        # amix всех дорожек; нормализация громкости — выкл (inputs=n keeps level)
+        # amix всех дорожек. normalize=0 — суммируем без деления на n
+        # (сегменты не пересекаются по времени, клиппинг не возникает).
+        # loudnorm доводит до целевого уровня речи −16 LUFS.
         filters.append(
             "".join(amix_inputs)
-            + f"amix=inputs={n}:duration=longest:dropout_transition=0,"
-              f"atrim=0:{total_ms / 1000.0:.3f},asetpts=N/SR/TB[aout]"
+            + f"amix=inputs={n}:duration=longest:dropout_transition=0:normalize=0,"
+              f"atrim=0:{total_ms / 1000.0:.3f},asetpts=N/SR/TB,"
+              f"loudnorm=I=-16:TP=-1.5:LRA=11[aout]"
         )
         filter_complex = ";".join(filters)
         cmd = [
