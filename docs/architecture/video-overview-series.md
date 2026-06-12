@@ -66,32 +66,66 @@ KS-3062 (генерация пазлов) и KS-4055/4056 (окно анализ
 - HUD-полоса остаётся видна на всех сценах, кроме splash; меняется
   через `setHud(page, {feature, scenario})` в начале каждой сцены.
 
-### 1.6. Сборка аудиодорожки
-- В `narration.txt` каждая фраза — отдельный сегмент `[NN / tag]`,
-  где `tag` совпадает с именем сцены в `record.mjs`.
-- `synth-segments.py` синтезирует все клипы и пишет `segments.json`
-  с замеренными `durMs`.
-- `record.mjs` в каждой сцене ждёт минимум `durMs + 400 мс` (BUFFER)
-  и записывает реальный `startMs` в `placements`.
-- `build-track.py` собирает `voice.wav`, расставляя клипы по
+### 1.6. Сборка аудиодорожки (конвейер v2, см. ADR-123)
+
+Принцип: **аудио первично, видео подгоняется**. Действия Playwright
+привязаны к словам-якорям из текстов сегментов, а не к секундам от
+старта записи. Это даёт автоматическую ре-синхронизацию при замене
+озвучки без правки `record.mjs`.
+
+Шаги:
+- Каждый сегмент сценария — отдельный файл `segment-NN.txt` в
+  `/tmp/voiceover/KS-XXXX/`.
+- Декларация действий — `/tmp/KS-XXXX/scene-actions.json`. Поля:
+  `anchor` (подстрока из текста сегмента), `type` (`hover` / `click` /
+  `type` / `drag` / `flash`), `selector` (Playwright-локатор),
+  `leadMs` (сдвиг от слова-якоря), `side` (A или B для двух контекстов).
+- `synth-eleven.py` (в `tools/video-overview/`) синтезирует mp3 для
+  каждого сегмента через ElevenLabs API endpoint
+  `/v1/text-to-speech/{voice_id}/with-timestamps` и сохраняет
+  посимвольные тайминги в `NN.timestamps.json`. ELEVENLABS_API_KEY
+  живёт в env-переменной webhook-контейнера.
+- `measure-segments.py` пробегает mp3 через `ffprobe` и собирает
+  `segments.json` с `durMs` для каждой сцены.
+- `record.mjs` (универсальный, в `tools/video-overview/`) читает
+  `scene-actions.json` + `*.timestamps.json` и для каждой сцены:
+  планирует действия на `sceneStartMs + anchorMs + leadMs`,
+  выполняет их в порядке возрастания времени, затем удерживает
+  кадр до `durMs + 400 мс` (BUFFER). Записывает реальный `startMs`
+  в `placements`.
+- `build-track.py` собирает `voice.wav`, расставляя mp3 по
   `placements` и заполняя промежутки тишиной.
 - `ffmpeg` склеивает `videos/*.webm` (raw без звука) с `voice.wav`
   без `-shortest`. Полная длительность видео = max(audio_end, video).
 
+Единственная точка фиксации тайминга — синтез ElevenLabs (шаг 4
+конвейера). Все последующие шаги — функции от его выхода. Замена
+одного сегмента: правка `segment-NN.txt` → `make video KEY=KS-XXXX`
+→ конвейер пересинтезирует только изменённый сегмент (по хешу),
+пересчитывает `segments.json`, пере-записывает видео под новые
+длительности, делает финальный микс. Ручных шагов в типовом цикле —
+ноль.
+
+Полное описание контракта — ADR-123.
+
 ### 1.7. Артефакты каждого обзора
 В каталоге `/tmp/KS-XXXX/` (KS-XXXX — ID тикета QA):
 ```
-record.mjs                  — Playwright сценарий
-synth-segments.py           — копия общего скрипта
-build-track.py              — копия общего скрипта
-narration.txt               — повествовательный текст
-segments.json               — длительности клипов (генерируется)
-narration-timeline.json     — реальные тайминги (генерируется)
-audio/seg-NN-<tag>.wav      — отдельные piper-клипы
-voice.wav                   — итоговая голосовая дорожка
+scenario-vN.md              — сценарий (архитектор)
+scene-actions.json          — декларация действий с словами-якорями (архитектор + QA)
+segments.json               — длительности сегментов (генерируется, см. ADR-123)
+placements.json             — реальные startMs сцен (генерируется при записи)
 videos/*.webm               — сырое видео без звука
+voice.wav                   — итоговая голосовая дорожка (генерируется)
 <slug>-overview.webm        — финальное видео со звуком (целевой артефакт)
 report.html                 — кратко: что показано, тайминги, версии
+```
+
+В `/tmp/voiceover/KS-XXXX/`:
+```
+segment-NN.txt              — тексты сегментов (архитектор)
+NN.mp3                      — синтез ElevenLabs (генерируется)
+NN.timestamps.json          — посимвольные тайминги (генерируется ElevenLabs)
 ```
 
 ### 1.8. Долговременное хранение
@@ -102,13 +136,17 @@ report.html                 — кратко: что показано, тайм�
 `/project/docs/architecture/video-overview-series/videos/`). Это
 решение принимается отдельно — сейчас НЕ блокирует серию.
 
-### 1.9. Шаблонные скрипты
-`synth-segments.py` и `build-track.py` идентичны во всех обзорах
-(см. `/tmp/KS-4055/`). При нарезке очередного тикета QA их просто
-копирует. Когда серия будет наполовину готова, имеет смысл вынести
-их в `tools/video-overview/` отдельной задачей — это снимет
-дублирование и зафиксирует версии piper/ffmpeg. Пока — копия рядом
-с записью.
+### 1.9. Шаблонные скрипты (конвейер v2)
+По ADR-123 общие скрипты живут в `tools/video-overview/`:
+- `synth-eleven.py` — синтез через ElevenLabs API + сохранение
+  посимвольных таймингов;
+- `measure-segments.py` — `ffprobe` по mp3 → `segments.json`;
+- `record.mjs` — универсальный интерпретатор `scene-actions.json`,
+  применим ко всей серии без правок под конкретный тикет;
+- `build-track.py` — сборка `voice.wav` по `placements`.
+
+Под конкретный тикет копируются только: `scenario-vN.md`,
+`scene-actions.json` и тексты сегментов. Сами инструменты — общие.
 
 ---
 
