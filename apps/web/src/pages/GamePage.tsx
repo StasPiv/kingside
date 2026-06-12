@@ -755,7 +755,11 @@ export function GamePage() {
           </div>
         )}
 
-        {status === 'finished' && result && (
+        {/* KS-4078: sidebar-блок результата дублировал модальное окно
+            game-result-modal-overlay. Прячем его, пока модалка открыта;
+            после закрытия пользователем (клик по overlay) блок остаётся
+            как fallback с теми же кнопками. */}
+        {status === 'finished' && result && !showResultModal && (
           <div className="game-result">
             <h3>{t('game.finished')}</h3>
             <p>{result === 'draw' ? t('game.draw') : result === 'white' ? t('game.whiteWins') : t('game.blackWins')}</p>
