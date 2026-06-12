@@ -652,13 +652,13 @@ async function detectColor(page, gameId, token, myUserId) {
       await switchToNarrowContexts();
     }
 
+    // meta-actions выполняются ДО фиксации sceneStartMs,
+    // чтобы actions/voice стартовали в одной точке времени.
+    await runMetaActions(scene);
     const sceneStartMs = Date.now() - recordStartedAt;
     log(
       `SCENE ${scene.tag} start=${sceneStartMs}ms dur=${durMs}ms layout=${effectiveLayout}`,
     );
-
-    // meta-actions выполняются ДО основных
-    await runMetaActions(scene);
 
     // resolve anchor times и сортируем
     const timings = timingsByTag.get(scene.tag);
@@ -710,8 +710,10 @@ async function detectColor(page, gameId, token, myUserId) {
     for (const a of finalSchedule) {
       const wait = Math.max(0, a.atMs - cursorMs);
       if (wait > 0) await refPage.waitForTimeout(wait);
-      cursorMs = a.atMs;
       await dispatchAction(a);
+      // курсор должен учитывать фактическое время dispatchAction,
+      // иначе последующие actions суммарно отстают
+      cursorMs = Date.now() - recordStartedAt - sceneStartMs;
     }
 
     // удержание сцены до durMs + BUFFER
