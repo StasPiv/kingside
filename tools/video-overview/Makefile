@@ -24,6 +24,7 @@ SEGMENT ?=
 VOICE   ?=
 MODEL   ?= eleven_multilingual_v2
 FORCE   ?=
+SLUG    ?=
 
 VOICE_DIR   = /tmp/voiceover/$(KEY)
 WORK_DIR    = /tmp/$(KEY)
@@ -53,10 +54,10 @@ ifneq ($(wildcard $(SCENE_JSON)),)
 MEASURE_OPTS += --scene-actions $(SCENE_JSON)
 endif
 
-.PHONY: video synth measure record build-track ffmpeg check-key check-key-dir clean help
+.PHONY: video synth measure record build-track check-key check-key-dir clean help
 
 help:
-	@echo "Цели: video | synth | measure | record | build-track | ffmpeg"
+	@echo "Цели: video | synth | measure | record | build-track"
 	@echo "Запуск: make video KEY=KS-4062"
 
 check-key:
@@ -73,28 +74,20 @@ synth: check-key-dir
 measure: check-key-dir
 	$(PY) $(TOOLS_DIR)measure-segments.py $(MEASURE_OPTS)
 
-# Запись видео — реализация в задаче QA (tools/video-overview/record.mjs).
-# Здесь — заглушка с понятной диагностикой, пока скрипт не лежит в репозитории.
+# Запись видео — Playwright по scene-actions.json.
 record: check-key-dir
-	@if [ ! -f $(TOOLS_DIR)record.mjs ]; then \
-		echo "WARN: $(TOOLS_DIR)record.mjs ещё не реализован (QA-задача)"; \
-		echo "       пропуск шага записи видео"; \
-		exit 0; \
-	fi
 	cd $(WORK_DIR) && node $(TOOLS_DIR)record.mjs --key=$(KEY)
 
-# Сборка дорожки и финальный mux — реализация в задаче QA.
+# Сборка voice.wav + финальный mux (видео сцен + voice → <slug>.webm).
+BUILD_TRACK_OPTS = --key $(KEY)
+ifneq ($(SLUG),)
+BUILD_TRACK_OPTS += --slug $(SLUG)
+endif
+
 build-track: check-key-dir
-	@if [ ! -f $(TOOLS_DIR)build-track.py ]; then \
-		echo "WARN: $(TOOLS_DIR)build-track.py ещё не реализован (QA-задача)"; \
-		exit 0; \
-	fi
-	$(PY) $(TOOLS_DIR)build-track.py $(SEGMENTS) $(PLACEMENTS) $(VOICE_WAV)
+	$(PY) $(TOOLS_DIR)build-track.py $(BUILD_TRACK_OPTS)
 
-ffmpeg: check-key-dir
-	@echo "ffmpeg-сборка — пока не автоматизирована в Makefile; реализуется в QA-задаче"
-
-video: synth measure record build-track ffmpeg
+video: synth measure record build-track
 	@echo "video pipeline complete for $(KEY)"
 
 clean: check-key
