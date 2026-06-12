@@ -71,6 +71,17 @@ def build_voice_track(segments: list[dict], placements: list[dict],
     # сортируем placements по startMs
     pls = sorted(placements, key=lambda p: p["startMs"])
 
+    # Финальное видео получается concat'ом вырезанных кусков длительностью holdMs
+    # подряд без пауз — таймлайн финала смещён относительно placements.startMs
+    # (где между сценами лежит время metaActions + switching контекстов).
+    # Голос должен ставиться по финальному таймлайну = сумме предыдущих holdMs,
+    # иначе он отстаёт от видео на сумму этих промежутков.
+    final_start_by_tag = {}
+    cum = 0
+    for p in pls:
+        final_start_by_tag[p["tag"]] = cum
+        cum += p.get("holdMs", p.get("durMs", 0))
+
     # ffmpeg filter_complex: каждый mp3 → adelay → amix
     # для надёжности используем простой генератор: silence + concat
     # формат: 16-bit 48kHz mono
@@ -98,7 +109,11 @@ def build_voice_track(segments: list[dict], placements: list[dict],
                 "-c:a", "pcm_s16le",
                 str(wav_path),
             ])
-            wav_chunks.append((p["startMs"], wav_path, seg["durMs"]))
+            # для adelay используем финальный таймлайн (накопленные holdMs),
+            # а не placements.startMs — иначе голос отстаёт от видео на сумму
+            # времени metaActions и переключений контекстов между сценами.
+            final_start = final_start_by_tag.get(p["tag"], p["startMs"])
+            wav_chunks.append((final_start, wav_path, seg["durMs"]))
 
         # собираем filter_complex: input wav'ы + silence до total_ms,
         # каждый wav adelay'ится в свою startMs позицию, потом amix.
