@@ -248,7 +248,7 @@ def main() -> int:
                    help="имя итогового webm без расширения (по умолчанию <KEY>-overview)")
     p.add_argument("--voice-only", action="store_true")
     p.add_argument("--no-mix", action="store_true")
-    p.add_argument("--target-width", type=int, default=3840)
+    p.add_argument("--target-width", type=int, default=1920)
     p.add_argument("--target-height", type=int, default=1200)
     args = p.parse_args()
 
