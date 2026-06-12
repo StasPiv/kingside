@@ -57,7 +57,7 @@ from pathlib import Path
 from typing import Optional
 
 API_BASE = "https://api.elevenlabs.io"
-DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"   # Rachel — стандартный, работает с multilingual
+DEFAULT_VOICE_ID = "TUQNWEvVPBLzMBSVDPUA"   # серийный голос видеообзоров (KS-4062)
 DEFAULT_MODEL_ID = "eleven_multilingual_v2"
 DEFAULT_STABILITY = 0.5
 DEFAULT_SIMILARITY = 0.75
