@@ -505,6 +505,31 @@ async function detectColor(page, gameId, token, myUserId) {
             log('B clicked Играть');
             break;
           }
+          case 'contextAJoinQueue': {
+            // Симметрично contextBJoinQueue, но для pageA. Используется в queue-сцене,
+            // чтобы A встал в очередь параллельно с B — без блокировки на anchor.
+            if (m.category) {
+              await pageA
+                .locator(`button:has-text("${m.category}")`)
+                .first()
+                .click({ timeout: 1500 })
+                .catch(() => {});
+            }
+            if (m.preset) {
+              await pageA
+                .locator(`button:has-text("${m.preset}")`)
+                .first()
+                .click({ timeout: 1500 })
+                .catch(() => {});
+            }
+            await pageA
+              .locator('.play-btn--big')
+              .first()
+              .click({ timeout: 2500 })
+              .catch(() => {});
+            log('A clicked Играть');
+            break;
+          }
           case 'waitForBothNavigate': {
             const pat = new RegExp(m.urlPattern || '/game/[a-f0-9-]+');
             const timeout = m.timeoutMs || 20000;
