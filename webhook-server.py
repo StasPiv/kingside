@@ -287,6 +287,7 @@ class AgentDaemon:
             "-e", f"WEBHOOK_AUTH_TOKEN={_get_agent_token(self.name)}",
             "-e", f"AGENT_NAME={self.name}",
             "-e", f"VITE_DEV_BYPASS_SECRET={os.environ.get('VITE_DEV_BYPASS_SECRET', '')}",
+            "-e", f"ELEVENLABS_API_KEY={os.environ.get('ELEVENLABS_API_KEY', '')}",
         ]
         for v in volumes:
             cmd.extend(["-v", v])
