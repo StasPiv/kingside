@@ -512,6 +512,18 @@ export interface PickNextPrecisionRequest {
    *  - значение вне `[0, 1]` — `400`.
    */
   minMaiaWeakChoiceProb?: number;
+  /**
+   * KS-3670 / ADR-106 §2.6. Верхняя граница диапазона
+   * `maia_weak_choice_prob` — позволяет UI вырезать «слишком очевидные
+   * для Maia ошибки» при подборе следующей precision-задачи. Семантика
+   * парная к `minMaiaWeakChoiceProb`:
+   *  - `undefined` / `1` — без верхней границы;
+   *  - `0 ≤ v < 1` — `WHERE maia_weak_choice_prob <= v` (вместе с
+   *    `maia_metric_version = 1`);
+   *  - значение вне `[0, 1]` — `400`;
+   *  - `minMaiaWeakChoiceProb > maxMaiaWeakChoiceProb` — `400`.
+   */
+  maxMaiaWeakChoiceProb?: number;
 }
 
 /**
