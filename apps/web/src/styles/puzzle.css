@@ -1150,7 +1150,9 @@ body:has(.puzzle-rush-board) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 20px;
+  /* KS-4092: компактная шапка — поджали верхний отступ, чтобы освободить
+     высоту под доску и нижний блок действий («Анализ»/«Далее»/«Из партии»). */
+  padding-top: 10px;
   width: 100%;
 }
 
@@ -1163,7 +1165,8 @@ body:has(.puzzle-rush-board) {
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  margin-bottom: 12px;
+  /* KS-4092: компактная шапка. */
+  margin-bottom: 8px;
   flex-wrap: wrap;
 }
 
@@ -1194,8 +1197,14 @@ body:has(.puzzle-rush-board) {
   width: min(calc(100dvh - 320px), calc(100vw - 32px));
 }
 
-.puzzle-page h1 {
-  margin-bottom: 12px;
+/* KS-4092: компактная шапка с акцентом на доску. Большой заголовок «Задачи»
+   и ссылка «← Назад к задачам» дублируют хлебные крошки (Главная / Задачи /
+   Задача #NN), где есть и название раздела, и навигация назад. Убираем их из
+   потока, чтобы шапка не съедала высоту и нижний блок кнопок всегда был в
+   кадре. Навигация назад сохраняется через крошку-ссылку «Задачи». */
+.puzzle-page h1,
+.puzzle-page > .back-nav-link {
+  display: none;
 }
 
 .puzzle-stats {
@@ -1203,14 +1212,16 @@ body:has(.puzzle-rush-board) {
   gap: 20px;
   color: var(--c-a0a0c0);
   font-size: 14px;
-  margin-bottom: 16px;
+  /* KS-4092: компактная шапка. */
+  margin-bottom: 10px;
 }
 
 .puzzle-board-area {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  /* KS-4092: поджали вертикальные отступы блока доски. */
+  gap: 8px;
   width: 100%;
 }
 
@@ -1246,7 +1257,8 @@ body:has(.puzzle-rush-board) {
 
 /* Fixed-height slots to prevent board shift */
 .puzzle-info-slot {
-  min-height: 28px;
+  /* KS-4092: компактнее. */
+  min-height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1255,12 +1267,13 @@ body:has(.puzzle-rush-board) {
 }
 
 .puzzle-actions-slot {
-  min-height: 40px;
+  /* KS-4092: компактнее. */
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 /* Puzzle status indicator lamp — left bottom, hidden by default (KS-1008) */
@@ -5337,8 +5350,9 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 16px;
-  padding: 10px 14px;
+  /* KS-4092: поджали отступ/паддинг, чтобы блок «Из партии» влезал в кадр. */
+  margin-top: 10px;
+  padding: 8px 14px;
   background: var(--bg-surface, #1f2937);
   border: 1px solid var(--border-mid, #334155);
   border-radius: 8px;
