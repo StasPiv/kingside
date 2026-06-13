@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y git curl wget procps unzip lsof \
     python3 python3-pip python3-opencv python3-numpy python3-pil python3-fitz \
     python3-cairosvg python3-psycopg2 \
     imagemagick stockfish djvulibre-bin ffmpeg \
+    fonts-noto-core fonts-noto-color-emoji fonts-noto-cjk \
     && ln -sf /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/* \
     && curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
