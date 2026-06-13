@@ -18,6 +18,7 @@ import {
 } from '@kingside/shared';
 import type { EngineAdapter, BridgeConfig, InfoLine } from './engineAdapter';
 import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
+import { annotatePuzzlesWithMaia } from './maiaWeakChoice';
 
 export type { BridgeConfig };
 
@@ -413,13 +414,39 @@ export async function generatePuzzlesFromPgn(
     }
   }
 
-  // KS-4096 / KS-4098: здесь идёт пост-проход Maia weak-choice разметки
-  // (annotatePuzzlesWithMaia на том же движке до destroy). Временно
-  // отключён: фронтовый deploy не собирает пакет @kingside/maia-core, и
-  // его браузерный entry dist/browser.js на хосте отсутствует (dist в git
-  // не коммитится) → vite build падает. Подключим обратно, как только
-  // deploy будет собирать maia-core (согласование с devops). Код шага
-  // готов в коммите b1f9ee2.
+  // KS-4096 / KS-4098: пост-проход Maia weak-choice разметки.
+  // Переиспользуем тот же движок (SF WASM/Bridge) для MultiPV-оценки
+  // кандидатов — до engine.destroy(). Maia-инференс идёт через
+  // браузерный движок (apps/web/src/lib/maia), чистые функции метрики —
+  // из браузер-безопасного входа @kingside/maia-core/browser (KS-4098).
+  // KS-4101: deploy теперь собирает maia-core (turbo) перед vite, entry
+  // dist/browser.js доступен. Best-effort: ошибки на отдельных пазлах не
+  // валят генерацию (пазл сохранится с null, как раньше).
+  if (!abortSignal?.aborted && all.length > 0) {
+    try {
+      await annotatePuzzlesWithMaia(
+        all,
+        engine,
+        (done, total) =>
+          onProgress({
+            gameIndex: games.length - 1,
+            totalGames: games.length,
+            positionIndex: done,
+            totalPositions: total,
+            puzzlesFound: all.length,
+            phase: 'maia',
+          }),
+        { abortSignal },
+      );
+    } catch (e) {
+      // Разметка целиком упала (например, модель Maia не загрузилась) —
+      // не блокируем генерацию, пазлы сохранятся без метрики.
+      console.warn(
+        '[PuzzleGen] Maia weak-choice annotation skipped:',
+        (e as Error).message,
+      );
+    }
+  }
 
   engine.destroy();
   // KS-3153: сводка дроп-причин в финальном логе для DevTools.
