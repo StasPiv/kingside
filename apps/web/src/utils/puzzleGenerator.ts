@@ -18,7 +18,6 @@ import {
 } from '@kingside/shared';
 import type { EngineAdapter, BridgeConfig, InfoLine } from './engineAdapter';
 import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
-import { annotatePuzzlesWithMaia } from './maiaWeakChoice';
 
 export type { BridgeConfig };
 
@@ -414,38 +413,15 @@ export async function generatePuzzlesFromPgn(
     }
   }
 
-  // KS-4096: пост-проход Maia weak-choice разметки. Переиспользуем тот
-  // же движок (SF WASM/Bridge) для MultiPV-оценки кандидатов — до
-  // engine.destroy(). Maia-инференс идёт через браузерный движок
-  // (apps/web/src/lib/maia). Best-effort: ошибки на отдельных пазлах не
-  // валят генерацию (пазл сохранится с null, как раньше). Без этого шага
-  // client-generated пазлы расходились с серверными (maiaWeakChoiceProb
-  // всегда null) — см. KS-4096.
-  if (!abortSignal?.aborted && all.length > 0) {
-    try {
-      await annotatePuzzlesWithMaia(
-        all,
-        engine,
-        (done, total) =>
-          onProgress({
-            gameIndex: games.length - 1,
-            totalGames: games.length,
-            positionIndex: done,
-            totalPositions: total,
-            puzzlesFound: all.length,
-            phase: 'maia',
-          }),
-        { abortSignal },
-      );
-    } catch (e) {
-      // Разметка целиком упала (например, модель Maia не загрузилась) —
-      // не блокируем генерацию, пазлы сохранятся без метрики.
-      console.warn(
-        '[PuzzleGen] Maia weak-choice annotation skipped:',
-        (e as Error).message,
-      );
-    }
-  }
+  // KS-4096: здесь должен идти пост-проход Maia weak-choice разметки
+  // (annotatePuzzlesWithMaia на том же движке до destroy). Временно
+  // отключён: импорт @kingside/maia-core в браузерный бандл ломает
+  // production-сборку vite (пакет тянет node-only зависимости). До
+  // браузер-безопасного entry / выноса оркестратора в общий пакет
+  // (задача backend, см. комментарий KS-4096) шаг не подключаем —
+  // иначе client-generated пазлы сохраняются с maiaWeakChoiceProb=null
+  // (как было до задачи). firstMovePV1 у превентивных пазлов уже
+  // гарантирован в adaptSharedPuzzle — серверная разметка их подхватит.
 
   engine.destroy();
   // KS-3153: сводка дроп-причин в финальном логе для DevTools.

@@ -14,7 +14,6 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@kingside/maia-core": "*",
     "@kingside/shared": "*",
     "chess.js": "^1.4.0",
     "i18next": "^25.8.14",
