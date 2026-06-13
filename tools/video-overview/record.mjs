@@ -37,6 +37,9 @@ const CHROME =
 const VIEWPORT_WIDE = { width: 1920, height: 1200 };
 const VIEWPORT_NARROW = { width: 1080, height: 1350 };
 const BUFFER_MS = 400;
+// KS-4065: жёсткий потолок на одно действие сцены (hover/click/drag/puzzleSolve),
+// чтобы случайный затык во внутреннем ожидании Playwright не раздувал holdMs.
+const ACTION_CAP_MS = 8000;
 const META_DEFAULTS = { leadMs: -200, occurrence: 1, side: 'A' };
 
 // ── CLI args ───────────────────────────────────────────────────────
@@ -238,6 +241,23 @@ async function dragSquare(p, from, to) {
   await p.mouse.move(tx, ty, { steps: 18 });
   await p.waitForTimeout(80);
   await p.mouse.up();
+  return true;
+}
+// KS-4065: react-chessboard v5 в задачах регистрирует ход кликом по
+// клетке-источнику и кликом по целевой клетке (синтетический mouse-drag
+// НЕ срабатывает). Используется для ввода ходов в puzzleSolve*.
+async function clickMove(p, from, to) {
+  await p
+    .locator(`[data-square="${from}"]`)
+    .first()
+    .click({ timeout: 2000 })
+    .catch(() => {});
+  await p.waitForTimeout(350);
+  await p
+    .locator(`[data-square="${to}"]`)
+    .first()
+    .click({ timeout: 2000 })
+    .catch(() => {});
   return true;
 }
 async function flashElement(page, selector, durationMs) {
@@ -477,15 +497,48 @@ async function detectColor(page, gameId, token, myUserId) {
               break;
             }
             const data = await r.json();
-            const move = (data.moves || [])[0];
+            const moves = data.moves || [];
+            // KS-4065: в lichess-задачах moves[0] — это ход, который приложение
+            // ПРОИГРЫВАЕТ САМО (предыдущий ход, ставящий позицию), а решатель
+            // вводит moves[1]. Определяем по доске: если moves[0] уже сделан
+            // (его from пуст, to занят) — играем moves[1]; иначе moves[0]
+            // (локальные задачи без автохода).
+            let idx = 0;
+            const m0 = moves[0] || '';
+            if (m0.length >= 4) {
+              const f0 = m0.slice(0, 2);
+              const t0 = m0.slice(2, 4);
+              const alreadyPlayed = await page.evaluate(
+                ({ f0, t0 }) => {
+                  const fromEmpty = !document.querySelector(
+                    `[data-square="${f0}"] [data-piece]`,
+                  );
+                  const toFilled = !!document.querySelector(
+                    `[data-square="${t0}"] [data-piece]`,
+                  );
+                  return fromEmpty && toFilled;
+                },
+                { f0, t0 },
+              );
+              if (alreadyPlayed) idx = 1;
+            }
+            const move = moves[idx];
             if (!move || move.length < 4) {
-              log(`puzzleSolveCorrect: no moves[0] in puzzle ${pid}`);
+              log(`puzzleSolveCorrect: no moves[${idx}] in puzzle ${pid}`);
               break;
             }
-            const from = move.slice(0, 2);
-            const to = move.slice(2, 4);
-            log(`puzzleSolveCorrect ${pid}: drag ${from}→${to}`);
-            await dragSquare(page, from, to);
+            log(
+              `puzzleSolveCorrect ${pid}: solverIdx=${idx}, играю линию click-to-move`,
+            );
+            // Играем всю линию решателя (moves[idx], idx+2, ...): приложение
+            // само отвечает за соперника, задача отмечается решённой — растут
+            // «Серия»/«Решено» и рейтинг (это и показывает сегмент).
+            for (let k = idx; k < moves.length; k += 2) {
+              const mv = moves[k];
+              if (!mv || mv.length < 4) break;
+              await clickMove(page, mv.slice(0, 2), mv.slice(2, 4));
+              await page.waitForTimeout(action.replyWaitMs ?? 800);
+            }
           } catch (e) {
             log(`puzzleSolveCorrect failed: ${String(e).slice(0, 160)}`);
           }
@@ -512,13 +565,50 @@ async function detectColor(page, gameId, token, myUserId) {
               break;
             }
             const data = await r.json();
+            const moves = data.moves || [];
             const fen = data.fen || '';
-            const side = fen.split(' ')[1] || 'w';
-            const correctFrom = ((data.moves || [])[0] || '').slice(0, 2);
+            // KS-4065: как в puzzleSolveCorrect — определяем, сыгран ли уже
+            // автоход moves[0]. Если да, очередь решателя (сторона
+            // противоположна FEN-стороне), его правильный ход — moves[1].
+            let idx = 0;
+            const m0w = moves[0] || '';
+            if (m0w.length >= 4) {
+              const f0 = m0w.slice(0, 2);
+              const t0 = m0w.slice(2, 4);
+              const alreadyPlayed = await page.evaluate(
+                ({ f0, t0 }) => {
+                  const fromEmpty = !document.querySelector(
+                    `[data-square="${f0}"] [data-piece]`,
+                  );
+                  const toFilled = !!document.querySelector(
+                    `[data-square="${t0}"] [data-piece]`,
+                  );
+                  return fromEmpty && toFilled;
+                },
+                { f0, t0 },
+              );
+              if (alreadyPlayed) idx = 1;
+            }
+            const correctFrom = (moves[idx] || '').slice(0, 2);
+            // Сторона решателя = цвет фигуры на from-клетке его правильного
+            // хода (надёжнее, чем математика по FEN: учитывает реальное
+            // состояние доски после автохода). data-piece формата "wP"/"bN".
+            let side = fen.split(' ')[1] || 'w';
+            if (correctFrom) {
+              const pc = await page.evaluate((sq) => {
+                const el = document.querySelector(
+                  `[data-square="${sq}"] [data-piece]`,
+                );
+                return el ? el.getAttribute('data-piece') : null;
+              }, correctFrom);
+              if (pc && (pc[0] === 'w' || pc[0] === 'b')) side = pc[0];
+            }
             // Найти первую пешку нашей стороны (не совпадающую с правильным
             // from-полем) и сходить +1 ряд.
             const target = await page.evaluate(
               ({ side, correctFrom }) => {
+                const occ = (sq) =>
+                  !!document.querySelector(`[data-square="${sq}"] [data-piece]`);
                 const squares = document.querySelectorAll('[data-square]');
                 for (const sq of squares) {
                   const code = sq.getAttribute('data-square');
@@ -527,12 +617,15 @@ async function detectColor(page, gameId, token, myUserId) {
                   if (!piece) continue;
                   const dp = piece.getAttribute('data-piece') || '';
                   // Формат "wP" / "bP" / "wQ" и т.п.
-                  if (
+                  const isPawn =
                     (side === 'w' && dp === 'wP') ||
-                    (side === 'b' && dp === 'bP')
-                  ) {
-                    return code;
-                  }
+                    (side === 'b' && dp === 'bP');
+                  if (!isPawn) continue;
+                  const file = code[0];
+                  const rank = parseInt(code[1], 10);
+                  const fwd = `${file}${side === 'w' ? rank + 1 : rank - 1}`;
+                  // только если клетка впереди пуста → ход пешкой легален
+                  if (!occ(fwd)) return code;
                 }
                 return null;
               },
@@ -548,8 +641,8 @@ async function detectColor(page, gameId, token, myUserId) {
             const rank = parseInt(target[1], 10);
             const toRank = side === 'w' ? rank + 1 : rank - 1;
             const to = `${file}${toRank}`;
-            log(`puzzleSolveWrong ${pid}: drag ${target}→${to} (intentional bad)`);
-            await dragSquare(page, target, to);
+            log(`puzzleSolveWrong ${pid}: click ${target}→${to} (intentional bad)`);
+            await clickMove(page, target, to);
           } catch (e) {
             log(`puzzleSolveWrong failed: ${String(e).slice(0, 160)}`);
           }
@@ -682,15 +775,24 @@ async function detectColor(page, gameId, token, myUserId) {
             // на её /puzzle/<id>. Опционально пропускает skipIds (массив).
             const token = m.authToken || authA.accessToken;
             try {
-              const r = await fetch(`${API}/puzzles?limit=20`, {
+              // KS-4065: на dev каталог проксируется на прод через
+              // /puzzles/browse, и /puzzles/:id тоже идёт на прод. Непроксируемый
+              // /puzzles?limit=20 отдаёт локальные id, которых нет на проде →
+              // последующий GET /puzzles/:id даёт 503. Берём пул из browse.
+              const r = await fetch(`${API}/puzzles/browse?limit=20&source=lichess`, {
                 headers: { Authorization: `Bearer ${token}` },
               });
-              const pool = await r.json();
-              if (!Array.isArray(pool) || !pool.length) {
+              const body = await r.json();
+              const pool = Array.isArray(body) ? body : (body.data || []);
+              if (!pool.length) {
                 log(`gotoNextPuzzle: пустой пул`);
                 break;
               }
               const skip = new Set(m.skipIds || []);
+              // KS-4065: пропускаем задачу, открытую в текущем URL, чтобы
+              // solve-wrong не взял ту же позицию, что и solve-correct.
+              const curId = (page.url().match(/\/puzzle\/([^/?]+)/) || [])[1];
+              if (curId) skip.add(curId);
               const pick = pool.find((p) => !skip.has(p.id)) || pool[0];
               const url = `${WEB}/puzzle/${pick.id}`;
               await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -1162,7 +1264,16 @@ async function detectColor(page, gameId, token, myUserId) {
     for (const a of finalSchedule) {
       const wait = Math.max(0, a.atMs - cursorMs);
       if (wait > 0) await refPage.waitForTimeout(wait);
-      await dispatchAction(a);
+      // KS-4065: жёсткий потолок на действие сцены. На multi-move задачах
+      // hover после правильного хода детерминированно зависал ~30с во
+      // внутреннем ожидании Playwright и раздувал holdMs → рассинхрон
+      // видео/звука в build-track. Гонка с таймаутом держит сцену по графику;
+      // зависшее действие не блокирует таймлайн (scene.actions — это
+      // hover/click/drag/puzzleSolve, штатно укладываются в потолок).
+      await Promise.race([
+        dispatchAction(a).catch(() => {}),
+        refPage.waitForTimeout(ACTION_CAP_MS),
+      ]);
       // курсор должен учитывать фактическое время dispatchAction,
       // иначе последующие actions суммарно отстают
       cursorMs = Date.now() - recordStartedAt - sceneStartMs;
