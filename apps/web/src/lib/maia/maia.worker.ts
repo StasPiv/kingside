@@ -34,6 +34,17 @@ async function initSession(modelUrl: string): Promise<void> {
   // ~600-900 мс батчем 14 на средних ноутах, нам этого хватает).
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.proxy = false;
+  // KS-4103: явный путь к ort-wasm бинарнику, обслуживаемому с нашего
+  // origin (`apps/web/public/ort/`). Без этого onnxruntime-web ищет
+  // `ort-wasm-simd-threaded.jsep.wasm` относительно своего скрипта; в
+  // vite dev этот путь уходит на SPA-fallback и возвращает index.html
+  // (text/html) вместо бинарника → InferenceSession.create падает, и
+  // колонка MAIA% в анализе показывала «(--)» (на проде wasm
+  // эмитировался сборкой и грузился). Дефолтная сборка ort
+  // (`ort.bundle.min.mjs`) инлайнит JS-glue и FETCH-ит только `.wasm`,
+  // поэтому достаточно указать `wasm`; fetch из /public разрешён (в
+  // отличие от import .mjs-модуля). Same-origin, dev+prod, COEP ок.
+  ort.env.wasm.wasmPaths = { wasm: '/ort/ort-wasm-simd-threaded.jsep.wasm' };
 
   const response = await fetch(modelUrl);
   if (!response.ok) {

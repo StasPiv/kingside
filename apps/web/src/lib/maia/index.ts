@@ -31,6 +31,12 @@ async function getEngine(): Promise<Maia> {
   // отдельный bundle (главный chunk не раздувается на ~3 MB пока
   // никто не вызвал Maia).
   const ort = await import('onnxruntime-web');
+  // KS-4103: ort-wasm бинарник обслуживается с нашего origin
+  // (`apps/web/public/ort/`). Иначе в vite dev запрос wasm уходит на
+  // SPA-fallback (index.html вместо бинарника) и инференс падает — та же
+  // причина, что для worker'а MAIA% в анализе. Дефолтная сборка ort
+  // инлайнит JS-glue и fetch-ит только `.wasm`. Same-origin, dev+prod.
+  ort.env.wasm.wasmPaths = { wasm: '/ort/ort-wasm-simd-threaded.jsep.wasm' };
   singleton = new Maia({
     modelUrl: MODEL_URL,
     modelVersion: MODEL_VERSION,
