@@ -37,6 +37,12 @@ describe('AnalysisService', () => {
     updatedAt: new Date(),
   };
 
+  // KS-4087: archiveGameId-резолв теперь первично ходит HTTP'ом на
+  // archive-service (global.fetch). По умолчанию глушим сеть — fetch
+  // reject'ится, resolveArchiveGameViaHttp возвращает null и управление
+  // уходит в FDW-фоллбэк (как в исходных KS-3263 тестах). Тесты HTTP-пути
+  // переопределяют этот мок локально.
+  const originalFetch = global.fetch;
   beforeEach(() => {
     prisma = {
       analysis: {
@@ -50,7 +56,14 @@ describe('AnalysisService', () => {
         delete: jest.fn(),
       },
     };
+    global.fetch = jest
+      .fn()
+      .mockRejectedValue(new Error('network disabled in test')) as never;
     service = new AnalysisService(prisma as any);
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   describe('create', () => {
@@ -385,6 +398,111 @@ describe('AnalysisService', () => {
             sourceHash: 'archive:f18fbe5a-6e97-455b-a3a4-37cd13c60e6a',
           }),
         });
+      });
+
+      it('KS-4087: source-id без pgn → первично HTTP archive-service /games/:id, FDW не трогаем', async () => {
+        const archiveGameUuid = '190adc57-e285-429c-b9e9-17a99b2f1075';
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
+        // HTTP отдаёт ArchiveGameDetail с pgn + объектами white/black.
+        global.fetch = jest.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: jest.fn().mockResolvedValue({
+            id: archiveGameUuid,
+            pgn: '[White "Carlsen"]\n[Black "Caruana"]\n[Date "2026.05.18"]\n\n1. e4 e5 2. Nf3 *',
+            white: { name: 'Carlsen', elo: 2850 },
+            black: { name: 'Caruana', elo: 2820 },
+            result: '1-0',
+          }),
+        }) as never;
+        // FDW-мок присутствует, но НЕ должен быть вызван (HTTP сработал).
+        const fdwMock = jest.fn().mockResolvedValue([]);
+        (prisma as unknown as { $queryRawUnsafe: jest.Mock }).$queryRawUnsafe =
+          fdwMock;
+        prisma.analysis.create.mockResolvedValue({
+          ...mockAnalysis,
+          id: 'a-http',
+          pgn: '1. e4 e5 ...',
+        });
+
+        const result = await service.create(userId, {
+          archiveGameId: archiveGameUuid,
+        });
+
+        // HTTP вызван на /games/:id.
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        const calledUrl = String(
+          (global.fetch as jest.Mock).mock.calls[0][0],
+        );
+        expect(calledUrl).toContain(`/games/${archiveGameUuid}`);
+        // FDW не дёргали — HTTP закрыл резолв.
+        expect(fdwMock).not.toHaveBeenCalled();
+        expect(prisma.analysis.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            archiveGameId: archiveGameUuid,
+            sourceHash: `archive:${archiveGameUuid}`,
+            pgn: expect.stringContaining('1. e4'),
+            white: 'Carlsen',
+            black: 'Caruana',
+          }),
+        });
+        expect(result).toMatchObject({ id: 'a-http', existing: false });
+      });
+
+      it('KS-4087: HTTP недоступен (reject) → fallback на FDW', async () => {
+        const archiveGameUuid = 'f18fbe5a-6e97-455b-a3a4-37cd13c60e6a';
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
+        // fetch падает (по умолчанию из beforeEach), FDW отдаёт партию.
+        const fdwMock = jest.fn().mockResolvedValue([
+          {
+            pgn: '[White "A"]\n[Black "B"]\n[Date "2026.05.18"]\n\n1. d4 *',
+            white_name: 'A',
+            black_name: 'B',
+            white_elo: 2600,
+            black_elo: 2600,
+            result: '0-1',
+          },
+        ]);
+        (prisma as unknown as { $queryRawUnsafe: jest.Mock }).$queryRawUnsafe =
+          fdwMock;
+        prisma.analysis.create.mockResolvedValue({
+          ...mockAnalysis,
+          id: 'a-fdw-fallback',
+        });
+
+        await service.create(userId, { archiveGameId: archiveGameUuid });
+
+        // HTTP попробовали и упали → FDW отработал.
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(fdwMock).toHaveBeenCalledWith(
+          expect.stringContaining('archive_games_remote'),
+          archiveGameUuid,
+        );
+        expect(prisma.analysis.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            pgn: expect.stringContaining('1. d4'),
+            archiveGameId: archiveGameUuid,
+          }),
+        });
+      });
+
+      it('KS-4087: HTTP вернул пустой pgn → fallback на FDW', async () => {
+        const archiveGameUuid = 'f18fbe5a-6e97-455b-a3a4-37cd13c60e6a';
+        prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
+        global.fetch = jest.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: jest.fn().mockResolvedValue({ id: archiveGameUuid, pgn: null }),
+        }) as never;
+        const fdwMock = jest.fn().mockResolvedValue([]);
+        (prisma as unknown as { $queryRawUnsafe: jest.Mock }).$queryRawUnsafe =
+          fdwMock;
+        prisma.analysis.create.mockResolvedValue({ ...mockAnalysis, id: 'a-x' });
+
+        await service.create(userId, { archiveGameId: archiveGameUuid });
+
+        // HTTP отдал пустой pgn → пошли в FDW.
+        expect(fdwMock).toHaveBeenCalled();
       });
 
       it('KS-3262: если existing уже с lichess-hash и lichessGameId — upgrade не делается (только lastOpenedAt)', async () => {

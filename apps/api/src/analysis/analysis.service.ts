@@ -287,6 +287,69 @@ export class AnalysisService implements OnModuleInit {
    * `null` при любой инфра-проблеме (FDW down, network, broadcast-service
    * unavailable) — caller гасит graceful'но.
    */
+  /**
+   * KS-4087. База archive-service для HTTP-резолва партий. Тот же env,
+   * что у ArchivePositionProxyService (KS-3476): dev выставляет
+   * `ARCHIVE_SERVICE_URL` на прокси к prod-архиву, prod-дефолт —
+   * поддомен `https://archive.kingside.site` (сервис без `/api` префикса).
+   */
+  private get archiveServiceUrl(): string {
+    return process.env.ARCHIVE_SERVICE_URL ?? 'https://archive.kingside.site';
+  }
+
+  /**
+   * KS-4087. Резолв партии архива через HTTP `GET {base}/games/:id`
+   * (контракт `ArchiveGameDetail` из @kingside/shared: `pgn` + объекты
+   * `white`/`black` с `name`/`elo` + `result`). Возвращает `null` при
+   * любой проблеме (сервис недоступен, не-2xx, пустой pgn) — caller
+   * тогда пробует FDW-фоллбэк.
+   */
+  private async resolveArchiveGameViaHttp(
+    archiveGameId: string,
+  ): Promise<ResolvedSourceGame | null> {
+    try {
+      const url = new URL(
+        `/games/${encodeURIComponent(archiveGameId)}`,
+        this.archiveServiceUrl,
+      );
+      const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+      if (!res.ok) {
+        this.logger.warn(
+          `KS-4087: archive-service GET /games/${archiveGameId} HTTP ${res.status}`,
+        );
+        return null;
+      }
+      const data = (await res.json()) as {
+        pgn?: string | null;
+        white?: { name?: string | null; elo?: number | null } | null;
+        black?: { name?: string | null; elo?: number | null } | null;
+        result?: string | null;
+      };
+      if (!data?.pgn) {
+        this.logger.warn(
+          `KS-4087: archive-service game ${archiveGameId} has empty pgn`,
+        );
+        return null;
+      }
+      this.logger.log(
+        `KS-4087 PGN resolved via archive-service HTTP: archive:${archiveGameId} → pgnLen=${data.pgn.length}`,
+      );
+      return {
+        pgn: data.pgn,
+        white: data.white?.name ?? null,
+        black: data.black?.name ?? null,
+        whiteElo: data.white?.elo ?? null,
+        blackElo: data.black?.elo ?? null,
+        result: data.result ?? null,
+      };
+    } catch (e: unknown) {
+      this.logger.warn(
+        `KS-4087: archive-service HTTP resolve error for ${archiveGameId}: ${(e as Error).message}`,
+      );
+      return null;
+    }
+  }
+
   async resolveSourceGame(input: {
     lichessGameId?: string | null;
     archiveGameId?: string | null;
@@ -340,10 +403,22 @@ export class AnalysisService implements OnModuleInit {
       }
     }
     if (input.archiveGameId) {
-      // KS-3263. Резолвер через postgres_fdw foreign table
-      // `archive_games_remote` (KS-2760). После hotfix devops добавил в
-      // foreign table колонки `pgn, white_name, black_name, result` —
-      // SELECT теперь возвращает полную партию из archive_kingside.
+      // KS-4087. Первичный путь — HTTP archive-service `GET /games/:id`.
+      // postgres_fdw (`archive_games_remote`, ниже) зависит от foreign
+      // table, которую devops настраивает вручную и которой НЕТ на
+      // локальном dev — там SELECT падал, pgn=null, в мастерской «No
+      // moves». HTTP-источник использует тот же `ARCHIVE_SERVICE_URL`,
+      // что и ArchivePositionProxyService (dev → прокси на
+      // https://archive.kingside.site, prod → реальный archive-service),
+      // и работает в обоих окружениях.
+      const viaHttp = await this.resolveArchiveGameViaHttp(input.archiveGameId);
+      if (viaHttp) return viaHttp;
+
+      // KS-3263. Запасной путь — postgres_fdw foreign table
+      // `archive_games_remote` (KS-2760). Срабатывает на проде, если
+      // archive-service временно недоступен по HTTP. После hotfix devops
+      // добавил в foreign table колонки `pgn, white_name, black_name,
+      // result` — SELECT возвращает полную партию из archive_kingside.
       // Try/catch: graceful degrade на любой инфра-проблеме (FDW down /
       // user-mapping / network) — return null, AnalysisPage создаст
       // запись без pgn (пользователь увидит пусто, но не 500).
