@@ -310,8 +310,12 @@ async function detectColor(page, gameId, token, myUserId) {
 
   // авторизация двух юзеров
   const ts = Date.now();
-  const userA = `${KEY.toLowerCase()}a-${ts}`;
-  const userB = `${KEY.toLowerCase()}b-${ts}`;
+  // KS-4094/KS-4066: фиксированный dev-bypass пользователь для записи через
+  // env KS_RECORD_USER — нужен, когда данные засеяны заранее (seed-precision-
+  // history) под конкретный аккаунт. Без override — прежнее поведение
+  // (уникальный пользователь на прогон).
+  const userA = process.env.KS_RECORD_USER || `${KEY.toLowerCase()}a-${ts}`;
+  const userB = process.env.KS_RECORD_USER_B || `${KEY.toLowerCase()}b-${ts}`;
   log('dev-bypass…');
   const [authA, authB] = await Promise.all([bypass(userA), bypass(userB)]);
   const uidA = uidFromJwt(authA.accessToken);
