@@ -655,6 +655,15 @@ export class PuzzleController {
       // значение от клиента игнорируем — это закрывает источник
       // `forced-line`-записей в БД для generated.
       solutionMode: 'play-vs-engine',
+      // KS-4098 / KS-4096. Maia weak-choice метрика от клиентского
+      // генератора (та же формула, что у серверных T1/T2). До этого
+      // batch её не сохранял → клиентские пазлы оставались с `null` и
+      // отсекались maia-фильтром `/precision/next`. `firstMovePV1`
+      // (нужен серверной аннотации) клиент кладёт в `sourceMetadata`,
+      // которая сохраняется выше как есть.
+      maiaWeakChoiceProb: p.maiaWeakChoiceProb ?? null,
+      maiaMetricVersion: p.maiaMetricVersion ?? null,
+      maiaTop1Elo: p.maiaTop1Elo ?? null,
     }));
 
     const result = await this.prisma.puzzle.createMany({

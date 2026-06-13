@@ -282,6 +282,19 @@ export interface BatchPuzzleItem {
   acceptedMoves?: string;
   isPublic?: boolean;
   solutionMode?: PuzzleSolutionMode;
+  /**
+   * KS-4098 / KS-4096. Метрика Maia weak-choice (ADR-106 §2.1),
+   * посчитанная КЛИЕНТСКИМ генератором (onnxruntime-web + Stockfish
+   * WASM, та же формула `computeWeakChoiceProb` из `@kingside/maia-core`,
+   * что у серверных T1/T2). До KS-4098 клиент её не слал → пазлы
+   * сохранялись с `null` и отсекались maia-фильтром `/precision/next`.
+   * `POST /puzzles/batch` теперь сохраняет эти поля как есть.
+   */
+  maiaWeakChoiceProb?: number | null;
+  /** Версия формулы (`MAIA_WEAK_CHOICE_METRIC_VERSION`). */
+  maiaMetricVersion?: number | null;
+  /** ELO, под которым прогнали Maia на клиенте. */
+  maiaTop1Elo?: number | null;
 }
 
 /**

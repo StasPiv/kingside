@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Min,
@@ -98,6 +99,24 @@ export class BatchPuzzleItemDto implements BatchPuzzleItem {
   @IsOptional()
   @IsIn(['forced-line', 'play-vs-engine'])
   solutionMode?: PuzzleSolutionMode;
+
+  /**
+   * KS-4098 / KS-4096. Maia weak-choice метрика, посчитанная клиентским
+   * генератором (та же формула `computeWeakChoiceProb`, что у сервера).
+   * Сохраняется в `puzzles.maia_weak_choice_prob` — иначе клиентские
+   * пазлы остаются с `null` и отсекаются maia-фильтром `/precision/next`.
+   */
+  @IsOptional()
+  @IsNumber()
+  maiaWeakChoiceProb?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  maiaMetricVersion?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  maiaTop1Elo?: number | null;
 }
 
 export class BatchPuzzlesDto {

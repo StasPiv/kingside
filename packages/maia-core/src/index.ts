@@ -6,8 +6,16 @@
  *  - `tools/maia-puzzle-annotation/` (T1, admin-CLI offline-разметка);
  *  - `apps/tactic-worker` (T2, continuous-annotation новых пазлов).
  *
- * Apps/web/src/lib/maia/ пока живёт со своей копией (с IndexedDB-кэшем
- * браузера); миграция на этот пакет — отдельная задача frontend.
+ * Главный entry `.` (этот файл) реэкспортит и node-провайдер — он для
+ * Node-потребителей (их `moduleResolution: node` не читает exports-
+ * subpath'ы, поэтому всё через `.`).
+ *
+ * KS-4098: для браузера (apps/web, vite) есть отдельный БРАУЗЕР-
+ * БЕЗОПАСНЫЙ вход `@kingside/maia-core/browser` (`src/browser.ts`) —
+ * он НЕ тянет node-провайдер (`onnxruntime-web` + `node:fs`), поэтому
+ * production-бандл фронта не падает. Фронт импортирует чистые функции
+ * (`computeWeakChoiceProb` и т.д.) и `Maia` (со своим провайдером)
+ * именно оттуда.
  */
 export {
   Maia,
@@ -31,16 +39,10 @@ export {
 } from './tensor.js';
 
 /**
- * Node-провайдер (onnxruntime-web через WASM). Реэкспортируется из
- * основного entry — caller, которому нужен Node-inference, должен иметь
- * `onnxruntime-web` в своих deps. Optional peer-dependency: caller
- * выбирает версию ORT (и устанавливает соответствующий wasm-binary).
- *
- * Для caller'ов без ORT (например, apps/web использующая собственный
- * IndexedDB-вариант) — этот модуль резолвится через статический import
- * только при первом обращении к функциям; tree-shaker оставит код
- * в bundle, но execution не произойдёт. В Node-окружении (admin-CLI,
- * tactic-worker) — нужно явно ставить onnxruntime-web в deps.
+ * Node-провайдер (`onnxruntime-web` через WASM + `node:fs`). В главном
+ * entry — для Node-потребителей (admin-CLI, tactic-worker, apps/api
+ * position-comment). Браузер сюда НЕ ходит: у него отдельный вход
+ * `@kingside/maia-core/browser` без node-зависимостей (KS-4098).
  */
 export {
   createNodeProvider,
