@@ -68,6 +68,20 @@ type Token =
 const RESULT_TOKENS = new Set(['1-0', '0-1', '1/2-1/2', '*']);
 const RESULT_TOKENS_RE = /(1-0|0-1|1\/2-1\/2|\*)/g;
 
+/**
+ * KS-4105. Null-move токены (пропуск хода, смена стороны без хода):
+ *   - `--`   — стандартная PGN-нотация null-move;
+ *   - `Z0`   — ChessBase-нотация того же;
+ *   - `0000` / `@@@@` — UCI-формы (на всякий случай).
+ * chess.js их не поддерживает и бросает Invalid move. В репертуаре
+ * null-move не тренируется, поэтому ветку с ним пропускаем (см.
+ * `parseTokens`), НЕ обрывая импорт всего PGN.
+ */
+const NULL_MOVE_RE = /^(?:--|Z0|0000|@@@@)$/i;
+function isNullMoveSan(san: string): boolean {
+  return NULL_MOVE_RE.test(san.trim());
+}
+
 function stripHeaders(pgn: string): string {
   // Удаляем [Header "value"] построчно (PGN-стандарт §8).
   return pgn.replace(/^\[[^\]]*\][ \t]*\r?\n?/gm, '');
@@ -276,6 +290,29 @@ function ensureNode(ctx: BuildContext, fen: string): RepertoireNode {
  * развилки − 1 (т. к. первый ход variation лендится на ту же глубину,
  * что и main-ход в развилке).
  */
+/**
+ * KS-4105. Пропускает остаток ТЕКУЩЕГО scope'а, начиная с `i`: считает
+ * вложенность `(`/`)` и возвращает индекс ПОСЛЕ закрывающей скобки
+ * этого scope'а (или `tokens.length`, если scope — основная линия и
+ * закрывающей скобки нет). Используется, когда в ветке встретился
+ * null-move: дальше по этой линии очередь ходов сдвинута (следующий ход
+ * был бы за неверную сторону), поэтому остаток ветки отбрасываем, но
+ * родительский scope и соседние варианты продолжаются.
+ */
+function skipToScopeEnd(tokens: Token[], i: number): number {
+  let depth = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+    if (t.type === 'open') depth++;
+    else if (t.type === 'close') {
+      if (depth === 0) return i + 1;
+      depth--;
+    }
+    i++;
+  }
+  return tokens.length;
+}
+
 function parseTokens(
   tokens: Token[],
   startIdx: number,
@@ -343,6 +380,21 @@ function parseTokens(
 
     // tok.type === 'move'
     const fromFen = ctx.chess.fen();
+
+    // KS-4105. Null-move (`Z0` / `--`): chess.js его не парсит и бросает
+    // Invalid move, обрывая весь импорт. В репертуаре null-move не
+    // тренируется. Пропускаем остаток текущей ветки (после null-move
+    // очередь ходов сдвинута — играть их за неверную сторону нельзя),
+    // фиксируем предупреждение и продолжаем с родительского scope'а /
+    // соседних вариантов. Уже разобранные ходы этой ветки сохраняются.
+    if (isNullMoveSan(tok.san)) {
+      const meta = ctx.root.meta;
+      (meta.warnings ??= []).push(
+        `Null-move "${tok.san}" at ${fromFen} — ветка пропущена (null-move не тренируется)`,
+      );
+      return skipToScopeEnd(tokens, i + 1);
+    }
+
     const sanClean = stripSanAnnotations(tok.san);
     let move: ReturnType<Chess['move']>;
     try {

@@ -187,6 +187,29 @@ describe('RepertoireBuilderService — buildTree (6 фикстур из ADR §5.
     expect(() => builder.buildTree(pgn)).toThrow(RepertoirePgnError);
   });
 
+  // KS-4105: null-move Z0 / -- (ChessBase) не должен обрывать импорт.
+  it('KS-4105. Null-move "Z0" в основной линии — импорт не падает, ходы до Z0 сохранены, варнинг записан', () => {
+    const pgn = '1. d4 d5 2. Bf4 Nf6 3. e3 e6 4. Nf3 Z0 5. c4 c5';
+    const tree = builder.buildTree(pgn);
+    expect(tree).toHaveProperty('rootFen');
+    // 7 полуходов до Z0 (d4 d5 Bf4 Nf6 e3 e6 Nf3) импортированы.
+    expect(tree.meta.edgeCount).toBe(7);
+    expect(tree.meta.warnings?.length).toBeGreaterThanOrEqual(1);
+    expect(tree.meta.warnings?.[0]).toMatch(/null-move/i);
+  });
+
+  it('KS-4105. Null-move "--" в варианте — вариант пропущен, основная линия цела', () => {
+    const pgn = '1. e4 e5 (1... -- 2. Nf3) 2. Nf3 Nc6';
+    const tree = builder.buildTree(pgn);
+    // Основная линия: e4 e5 Nf3 Nc6 = 4 рёбра; null-move вариант отброшен.
+    expect(tree.meta.edgeCount).toBe(4);
+    expect(tree.meta.warnings?.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('KS-4105. Настоящий illegal move по-прежнему бросает (null-move обработка не маскирует реальные ошибки)', () => {
+    expect(() => builder.buildTree('1. d4 e9')).toThrow(RepertoirePgnError);
+  });
+
   it('6b. Битый PGN — несбалансированные скобки', () => {
     const pgn = '1. e4 e5 (1... c5';
     // chess.js обычно не валит на этом — мой токенайзер не специально
