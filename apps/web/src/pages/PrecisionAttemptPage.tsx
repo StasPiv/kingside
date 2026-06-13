@@ -187,8 +187,16 @@ export function PrecisionAttemptPage() {
     void fetchAll();
   }, [fetchAll]);
 
-  const initialFen = puzzle?.fen ?? '';
-  const userSide: 'w' | 'b' = puzzle ? sideFromFen(puzzle.fen) : 'w';
+  // KS-4095: стартовый FEN попытки. Раньше зависел ТОЛЬКО от
+  // `puzzleApi.getById(puzzleId)` — но этот эндпоинт (`/puzzles/:id`) на
+  // части окружений отдаёт 404 (см. KS-4090), тогда `puzzle === null`,
+  // `initialFen === ''` и кнопка «Открыть в мастерской» + блок разбора
+  // не рендерились (условие `initialFen && …`). Стартовая позиция попытки
+  // = `fenBefore` первого user-хода (позиция после бландера соперника),
+  // поэтому используем её как fallback — страница больше не зависит от
+  // getById.
+  const initialFen = puzzle?.fen ?? data?.moves[0]?.fenBefore ?? '';
+  const userSide: 'w' | 'b' = initialFen ? sideFromFen(initialFen) : 'w';
 
   // Доска: при выбранном reviewFen — он, иначе финальная позиция
   // (играем user-ход с последнего fenBefore — promежуточный engine-ход
