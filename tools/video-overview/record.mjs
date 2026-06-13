@@ -814,6 +814,73 @@ async function detectColor(page, gameId, token, myUserId) {
           }
           break;
         }
+        case 'generatePuzzles': {
+          // KS-4066: запускает клиентскую генерацию (Stockfish WASM из PGN) и
+          // ждёт результата «Сгенерировано задач: N». Долгое действие (свой
+          // потолок в цикле диспатча). PGN вставляется заранее (type-action).
+          try {
+            await page
+              .locator("button:has-text('Сгенерировать задачи')")
+              .first()
+              .click({ timeout: 3000 })
+              .catch(() => {});
+            const maxMs = action.maxMs ?? 150000;
+            const deadline = Date.now() + maxMs;
+            let n = null;
+            while (Date.now() < deadline) {
+              await page.waitForTimeout(1500);
+              n = await page.evaluate(
+                () =>
+                  (document.body.innerText.match(
+                    /Сгенерировано задач:\s*(\d+)/,
+                  ) || [])[1] || null,
+              );
+              if (n != null) break;
+            }
+            log(`generatePuzzles: сгенерировано ${n ?? '—'}`);
+            // KS-4066: после результата — «Сохранить на сервер» и задержка на
+            // подтверждении «N сохранено как черновики» (синхронно с диктором
+            // «сохраняются как черновики»). На «Мои черновики» НЕ переходим:
+            // страница черновиков ломается при включённом прокси каталога
+            // (черновики локальные, /puzzles/browse идёт на прод → «Не удалось
+            // загрузить»). Подтверждающая модалка покрывает текст сегмента.
+            if (n != null) {
+              await page.waitForTimeout(action.beforeSaveMs ?? 1200);
+              await page
+                .locator("button:has-text('Сохранить на сервер')")
+                .first()
+                .click({ timeout: 3000 })
+                .catch(() => {});
+              const saveDeadline = Date.now() + (action.saveTimeoutMs ?? 15000);
+              while (Date.now() < saveDeadline) {
+                await page.waitForTimeout(1000);
+                const saved = await page.evaluate(() =>
+                  /сохранено как черновики/i.test(document.body.innerText),
+                );
+                if (saved) break;
+              }
+              log('generatePuzzles: сохранено как черновики');
+              await page.waitForTimeout(action.afterSaveMs ?? 1500);
+              // KS-4066: переход в «Мои черновики» — показать сохранённые
+              // черновики (прокси-фикс backend 471b7262: user-scoped browse
+              // обслуживается локально). Кнопка модалки = точный текст без
+              // счётчика (вкладка каталога — «Мои черновики (N)»).
+              await page
+                .locator('button:text-is("Мои черновики")')
+                .first()
+                .click({ timeout: 3000 })
+                .catch(() => {});
+              await page.waitForSelector('text=/Мои черновики \\(/', {
+                timeout: 6000,
+              }).catch(() => {});
+              await page.waitForTimeout(action.dwellMs ?? 5000);
+              log('generatePuzzles: открыты Мои черновики');
+            }
+          } catch (e) {
+            log(`generatePuzzles failed: ${String(e).slice(0, 160)}`);
+          }
+          break;
+        }
         case 'setInputFiles': {
           // Для скрытого <input type=file>. action.file (строка) или
           // action.files (массив строк) — пути к локальным файлам.
@@ -1473,7 +1540,12 @@ async function detectColor(page, gameId, token, myUserId) {
       // KS-4066: playVsEngine — намеренно длинное интерактивное действие
       // (серия ходов против движка), ему нужен свой увеличенный потолок.
       const capMs =
-        a.capMs ?? (a.type === 'playVsEngine' ? 45000 : ACTION_CAP_MS);
+        a.capMs ??
+        (a.type === 'playVsEngine'
+          ? 45000
+          : a.type === 'generatePuzzles'
+            ? 170000
+            : ACTION_CAP_MS);
       await Promise.race([
         dispatchAction(a).catch(() => {}),
         refPage.waitForTimeout(capMs),
@@ -1496,6 +1568,9 @@ async function detectColor(page, gameId, token, myUserId) {
       durMs,
       holdMs,
       layout: effectiveLayout,
+      // KS-4066: опц. склейка сцены в финале — голова (старт) + хвост (конец),
+      // середина вырезается. Для длинных действий типа генерации пазлов.
+      ...(scene.splice ? { splice: scene.splice } : {}),
     });
     log(`  scene "${scene.tag}" done: hold=${holdMs}ms (need ${need}ms)`);
     prevAtMs = sceneStartMs + holdMs;

@@ -80,7 +80,10 @@ def build_voice_track(segments: list[dict], placements: list[dict],
     cum = 0
     for p in pls:
         final_start_by_tag[p["tag"]] = cum
-        cum += p.get("holdMs", p.get("durMs", 0))
+        sp = p.get("splice")
+        # KS-4066: склейка сцены — эффективная длина = голова + хвост.
+        eff = (sp["headMs"] + sp["tailMs"]) if sp else p.get("holdMs", p.get("durMs", 0))
+        cum += eff
 
     # ffmpeg filter_complex: каждый mp3 → adelay → amix
     # для надёжности используем простой генератор: silence + concat
@@ -186,6 +189,25 @@ def cut_scene_video(src: Path, offset_ms: int, start_ms: int,
         "-pix_fmt", "yuv420p",
         str(out),
     ])
+
+
+def cut_scene_spliced(src: Path, offset_ms: int, start_ms: int, hold_ms: int,
+                      head_ms: int, tail_ms: int, out: Path,
+                      scale_w: int, scale_h: int) -> None:
+    """KS-4066: сцена = голова (старт, head_ms) + хвост (конец, tail_ms),
+    середина вырезается. Для длинных действий (генерация пазлов): показываем
+    старт и финальный результат, не растягивая на всё время прогона."""
+    tmp_head = out.parent / (out.stem + "-head.mp4")
+    tmp_tail = out.parent / (out.stem + "-tail.mp4")
+    cut_scene_video(src, offset_ms, start_ms, head_ms, tmp_head, scale_w, scale_h)
+    cut_scene_video(src, offset_ms, start_ms + hold_ms - tail_ms, tail_ms,
+                    tmp_tail, scale_w, scale_h)
+    concat_scenes([tmp_head, tmp_tail], out)
+    for f in (tmp_head, tmp_tail):
+        try:
+            f.unlink()
+        except OSError:
+            pass
 
 
 def hstack_split_scene(src_a: Path, off_a: int, src_b: Path, off_b: int,
@@ -348,11 +370,20 @@ def main() -> int:
             else:
                 if not (src_a1 and src_a1.exists()):
                     die("single scene, но нет видео A1")
-                cut_scene_video(
-                    src_a1, offsets.get("A1", 0),
-                    pl["startMs"], pl["holdMs"], out,
-                    target_w, target_h,
-                )
+                sp = pl.get("splice")
+                if sp:
+                    cut_scene_spliced(
+                        src_a1, offsets.get("A1", 0),
+                        pl["startMs"], pl["holdMs"],
+                        sp["headMs"], sp["tailMs"], out,
+                        target_w, target_h,
+                    )
+                else:
+                    cut_scene_video(
+                        src_a1, offsets.get("A1", 0),
+                        pl["startMs"], pl["holdMs"], out,
+                        target_w, target_h,
+                    )
         except subprocess.CalledProcessError as e:
             die(f"ffmpeg failed на сцене {pl['tag']}: {e}")
         scene_files.append(out)
