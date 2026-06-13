@@ -100,6 +100,8 @@ async function loadInputs() {
   // допускаем два формата: { scenes: [...] } или просто [...]
   const scenes = Array.isArray(scenesRaw) ? scenesRaw : scenesRaw.scenes;
   const defaults = (!Array.isArray(scenesRaw) && scenesRaw.defaults) || {};
+  const initialAuth =
+    (!Array.isArray(scenesRaw) && scenesRaw.initialAuth) || 'user';
   if (!Array.isArray(scenes) || scenes.length === 0) {
     throw new Error(`scene-actions.json: пустой / неверный формат`);
   }
@@ -130,7 +132,7 @@ async function loadInputs() {
       timingsByTag.set(sc.tag, null);
     }
   }
-  return { scenes, defaults, segments, segByIdx, timingsByTag };
+  return { scenes, defaults, segments, segByIdx, timingsByTag, initialAuth };
 }
 
 // ── auth dev-bypass ─────────────────────────────────────────────────
@@ -281,8 +283,10 @@ async function detectColor(page, gameId, token, myUserId) {
 (async () => {
   log(`KEY=${KEY} DIR=${DIR}`);
   const { chromium } = await loadPlaywright();
-  const { scenes, defaults, segByIdx, timingsByTag } = await loadInputs();
+  const { scenes, defaults, segByIdx, timingsByTag, initialAuth } =
+    await loadInputs();
   const mergedDefaults = { ...META_DEFAULTS, ...defaults };
+  log(`initialAuth=${initialAuth}`);
 
   // авторизация двух юзеров
   const ts = Date.now();
@@ -308,7 +312,7 @@ async function detectColor(page, gameId, token, myUserId) {
     await fs.mkdir(d, { recursive: true });
 
   const ctxCreateTimes = {};
-  async function mkContext(auth, dir, viewport, name) {
+  async function mkContext(auth, dir, viewport, name, withAuth = true) {
     const before = Date.now();
     const ctx = await browser.newContext({
       viewport,
@@ -316,22 +320,34 @@ async function detectColor(page, gameId, token, myUserId) {
     });
     const after = Date.now();
     ctxCreateTimes[name] = { before, after };
-    await ctx.addInitScript(
-      ([t, r]) => {
-        localStorage.setItem('token', t);
-        localStorage.setItem('refreshToken', r);
+    if (withAuth) {
+      await ctx.addInitScript(
+        ([t, r]) => {
+          localStorage.setItem('token', t);
+          localStorage.setItem('refreshToken', r);
+          localStorage.setItem('locale', 'ru');
+          localStorage.setItem('theme', 'dark');
+          localStorage.setItem('ks2814NavOnboardingSeen', 'true');
+        },
+        [auth.accessToken, auth.refreshToken],
+      );
+    } else {
+      // guest-режим: токены не кладём, только UI-настройки.
+      await ctx.addInitScript(() => {
         localStorage.setItem('locale', 'ru');
         localStorage.setItem('theme', 'dark');
         localStorage.setItem('ks2814NavOnboardingSeen', 'true');
-      },
-      [auth.accessToken, auth.refreshToken],
-    );
+      });
+    }
     return ctx;
   }
 
+  // initialAuth='guest' влияет ТОЛЬКО на A1 (broad single-сцены). B1/A2/B2
+  // нужны для split-сцен с шахматной партией — там всегда требуется auth.
+  const a1WithAuth = initialAuth !== 'guest';
   log('creating 4 contexts in parallel…');
   const [ctxA1, ctxB1, ctxA2, ctxB2] = await Promise.all([
-    mkContext(authA, dirA1, VIEWPORT_WIDE, 'A1'),
+    mkContext(authA, dirA1, VIEWPORT_WIDE, 'A1', a1WithAuth),
     mkContext(authB, dirB1, VIEWPORT_NARROW, 'B1'),
     mkContext(authA, dirA2, VIEWPORT_NARROW, 'A2'),
     mkContext(authB, dirB2, VIEWPORT_NARROW, 'B2'),
@@ -432,6 +448,31 @@ async function detectColor(page, gameId, token, myUserId) {
           if (sel)
             await flashElement(page, sel, action.durationMs || 1200);
           break;
+        case 'scroll': {
+          // selector → element.scrollIntoView; top → window.scrollTo
+          await page
+            .evaluate(
+              ({ s, top, block }) => {
+                if (s) {
+                  const el = document.querySelector(s);
+                  if (el)
+                    el.scrollIntoView({
+                      behavior: 'smooth',
+                      block: block || 'start',
+                    });
+                } else if (top != null) {
+                  window.scrollTo({ top, behavior: 'smooth' });
+                }
+              },
+              {
+                s: action.selector || null,
+                top: action.top ?? null,
+                block: action.block || null,
+              },
+            )
+            .catch(() => {});
+          break;
+        }
         default:
           log(`WARN: unknown action type "${action.type}" — skip`);
       }
@@ -455,7 +496,14 @@ async function detectColor(page, gameId, token, myUserId) {
               break;
             }
             await page.goto(url, { waitUntil: 'domcontentloaded' });
-            await page.waitForTimeout(800);
+            if (m.waitForUrl) {
+              await page
+                .waitForURL(new RegExp(m.waitForUrl), {
+                  timeout: m.waitForUrlTimeoutMs || 12000,
+                })
+                .catch(() => {});
+            }
+            await page.waitForTimeout(m.waitMsAfter ?? 800);
             break;
           }
           case 'waitForSelector': {
@@ -503,6 +551,27 @@ async function detectColor(page, gameId, token, myUserId) {
               .click({ timeout: 2500 })
               .catch(() => {});
             log('B clicked Играть');
+            break;
+          }
+          case 'contextBSelectPresets': {
+            // Подготовка контекста B без нажатия «Играть».
+            // Используется, когда B должен «дождаться» голос и нажать
+            // «Играть» уже в actions сцены, синхронно с A.
+            if (m.category) {
+              await pageB
+                .locator(`button:has-text("${m.category}")`)
+                .first()
+                .click({ timeout: 1500 })
+                .catch(() => {});
+            }
+            if (m.preset) {
+              await pageB
+                .locator(`button:has-text("${m.preset}")`)
+                .first()
+                .click({ timeout: 1500 })
+                .catch(() => {});
+            }
+            log(`B selected presets ${m.category || ''}/${m.preset || ''}`);
             break;
           }
           case 'contextAJoinQueue': {
@@ -581,6 +650,20 @@ async function detectColor(page, gameId, token, myUserId) {
   // ── переход на узкие контексты (перед первой split-сценой) ────
   async function switchToNarrowContexts() {
     if (gameState.switchedToNarrow) return;
+    // если gameId ещё не зафиксирован (waitForBothNavigate не использовался),
+    // подождём навигации на /game/:uuid в pageA до 8 секунд.
+    if (!gameState.gameId) {
+      try {
+        await pageA.waitForURL(/\/game\/[a-f0-9-]+/, { timeout: 8000 });
+        const m = pageA.url().match(/\/game\/([a-f0-9-]+)/);
+        if (m) {
+          gameState.gameId = m[1];
+          log(`gameId captured before switch: ${gameState.gameId}`);
+        }
+      } catch {
+        log('WARN: pageA не дошёл до /game/:uuid за 8с');
+      }
+    }
     log('switching to narrow A2/B2…');
     try {
       await Promise.all([ctxA1.close(), ctxB1.close()]);

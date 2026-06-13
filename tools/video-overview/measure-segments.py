@@ -86,8 +86,17 @@ def load_anchors_from_scene_actions(scene_actions_path: Path, tag: str) -> list[
     except Exception as e:
         info(f"WARN: cannot read {scene_actions_path}: {e}")
         return []
+    # допускаем оба формата: список сцен или {"scenes": [...]}
+    if isinstance(data, dict):
+        scenes = data.get("scenes", [])
+    elif isinstance(data, list):
+        scenes = data
+    else:
+        return []
     out: list[str] = []
-    for scene in data:
+    for scene in scenes:
+        if not isinstance(scene, dict):
+            continue
         if scene.get("tag") != tag:
             continue
         for a in scene.get("actions", []):
