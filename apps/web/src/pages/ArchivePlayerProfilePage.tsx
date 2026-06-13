@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next';
 import type {
   ArchiveGameResult,
+  ArchiveGameSummary,
   ArchivePlayerGameItem,
   ArchivePlayerGamesRequest,
   ArchivePlayerGamesResponse,
@@ -11,6 +12,7 @@ import type {
 } from '@kingside/shared';
 
 import { archiveApi } from '../api/archive';
+import { openAnalysis } from '../utils/openAnalysis';
 import { ArchiveGameRow } from '../components/archive/ArchiveGameRow';
 import {
   ArchiveMetadataFilters,
@@ -357,9 +359,33 @@ export function ArchivePlayerProfilePage() {
     });
   }, [state.pageSize, writeState]);
 
+  // KS-4083: прямой переход в анализ без промежуточного экрана
+  // `/archive/games/:id` — поведение унифицировано с `/archive`
+  // (ArchiveGamesPage.handleRowClick). Через общий helper openAnalysis:
+  // POST /analyses с archiveGameId (backend сам резолвит PGN и делает
+  // dedup), затем navigate(`/analysis/<created.id>`).
   const handleRowClick = useCallback(
-    (item: { id: string }) => navigate(`/archive/games/${item.id}`),
-    [navigate],
+    (item: Pick<ArchiveGameSummary, 'id' | 'white' | 'black' | 'event'>) => {
+      const whiteLabel = item.white?.name ?? '—';
+      const blackLabel = item.black?.name ?? '—';
+      const title = `${whiteLabel} vs ${blackLabel}`;
+      const currentSearch = searchParams.toString();
+      const backUrl = currentSearch
+        ? `/archive/players/${slug}?${currentSearch}`
+        : `/archive/players/${slug}`;
+      void openAnalysis(navigate, {
+        archiveGameId: item.id,
+        title,
+        state: {
+          breadcrumbRootTitle: t('games.title', 'Archive games'),
+          breadcrumbRootUrl: '/archive',
+          breadcrumbSection: item.event ?? undefined,
+          breadcrumbBackUrl: backUrl,
+        },
+        t,
+      });
+    },
+    [navigate, searchParams, slug, t],
   );
 
   // ─── 404 ─────────────────────────────────────────────────────────

@@ -36,6 +36,21 @@ vi.mock('../api/archive', () => ({
   },
 }));
 
+// KS-4083: клик по партии теперь идёт через общий helper openAnalysis →
+// POST /analyses {archiveGameId} → navigate(`/analysis/<created.id>`).
+// Мокаем api.post, чтобы проверить прямой переход в анализ.
+const mockApiPost = vi.fn();
+vi.mock('../api', async () => {
+  const actual = await vi.importActual<typeof import('../api')>('../api');
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      post: (...args: unknown[]) => mockApiPost(...args),
+    },
+  };
+});
+
 const mockNavigate = vi.fn();
 const mockUseParams = vi.fn(() => ({ slug: 'magnus-carlsen' }));
 
@@ -97,6 +112,7 @@ beforeEach(() => {
   mockApi.getArchivePlayerProfile.mockReset();
   mockApi.getArchivePlayerGames.mockReset();
   mockNavigate.mockReset();
+  mockApiPost.mockReset();
   mockUseParams.mockReset();
   mockUseParams.mockReturnValue({ slug: 'magnus-carlsen' });
 });
@@ -336,9 +352,10 @@ describe('ArchivePlayerProfilePage — 404', () => {
 });
 
 describe('ArchivePlayerProfilePage — список и фильтры', () => {
-  it('рендерит партии + клик → navigate(/archive/games/:id)', async () => {
+  it('KS-4083: рендерит партии + клик → прямой переход navigate(/analysis/<id>)', async () => {
     mockApi.getArchivePlayerProfile.mockResolvedValueOnce(baseProfile);
     mockApi.getArchivePlayerGames.mockResolvedValueOnce(baseGames);
+    mockApiPost.mockResolvedValueOnce({ id: 'analysis-1' });
     const user = (await import('@testing-library/user-event')).default.setup();
 
     renderWithProviders(<ArchivePlayerProfilePage />);
@@ -346,7 +363,21 @@ describe('ArchivePlayerProfilePage — список и фильтры', () => {
       expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('archive-game-row-g1'));
-    expect(mockNavigate).toHaveBeenCalledWith('/archive/games/g1');
+    // POST /analyses с archiveGameId партии (dedup на стороне backend).
+    await waitFor(() =>
+      expect(mockApiPost).toHaveBeenCalledWith(
+        '/analyses',
+        expect.objectContaining({ archiveGameId: 'g1', category: 'analysis' }),
+      ),
+    );
+    // Прямой переход в анализ, без промежуточного /archive/games/:id.
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/analysis/analysis-1',
+        expect.anything(),
+      ),
+    );
+    expect(mockNavigate).not.toHaveBeenCalledWith('/archive/games/g1');
   });
 
   it('пустой список + активный color-фильтр → empty + Reset filters', async () => {
