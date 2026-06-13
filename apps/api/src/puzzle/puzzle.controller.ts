@@ -8,6 +8,7 @@ import {
   ForbiddenException,
   Get,
   NotFoundException,
+  Optional,
   Param,
   ParseIntPipe,
   Patch,
@@ -19,6 +20,8 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { PuzzleService } from './puzzle.service';
+// KS-4088: dev-прокси каталога задач на прод-API (блокер KS-4065).
+import { PuzzleProxyService } from './puzzle-proxy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
@@ -77,6 +80,11 @@ export class PuzzleController {
     private readonly puzzleService: PuzzleService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    // KS-4088 (блокер KS-4065): dev-прокси каталога на прод-API.
+    // @Optional — юнит-тесты конструируют контроллер напрямую без DI
+    // (3 аргумента). В рантайме Nest всегда внедряет сервис из модуля;
+    // в тестах он undefined и все proxy-ветки уходят в локальный путь.
+    @Optional() private readonly puzzleProxy?: PuzzleProxyService,
   ) {}
 
   /**
@@ -281,7 +289,22 @@ export class PuzzleController {
     //   вне [0, 1] либо не число → BadRequestException 400.
     // При наличии и min, и max получаем `BETWEEN $min AND $max`.
     @Query('maxMaiaWeakChoiceProb') maxMaiaWeakChoiceProbStr?: string,
-  ) {
+  ): Promise<{
+    data: Record<string, unknown>[];
+    nextCursor: string | null;
+    total: number | null;
+  }> {
+    // KS-4088 (блокер KS-4065): на dev локальная puzzle-БД содержит лишь
+    // 3 задачи lichess. При заданном PUZZLE_SERVICE_URL отдаём прод-каталог
+    // целиком (богатый список + рабочий nextCursor для бесконечной прокрутки).
+    if (this.puzzleProxy?.enabled) {
+      return this.puzzleProxy.forward((req as { url: string }).url) as Promise<{
+        data: Record<string, unknown>[];
+        nextCursor: string | null;
+        total: number | null;
+      }>;
+    }
+
     const userId = req.user?.id ?? null;
     const take = Math.min(50, Math.max(1, limit));
 
@@ -524,6 +547,13 @@ export class PuzzleController {
     @Query('minMaiaWeakChoiceProb') minMaiaWeakChoiceProbStr?: string,
     @Query('maxMaiaWeakChoiceProb') maxMaiaWeakChoiceProbStr?: string,
   ): Promise<{ total: number; approximate: true }> {
+    // KS-4088: согласованно с browse — счётчик «Найдено: N» берём с прода.
+    if (this.puzzleProxy?.enabled) {
+      return this.puzzleProxy.forward(
+        (req as { url: string }).url,
+      ) as Promise<{ total: number; approximate: true }>;
+    }
+
     const userId = req.user?.id ?? null;
     const filter = buildBrowseFilterSql({
       userId,
@@ -702,16 +732,27 @@ export class PuzzleController {
 
   @Get(':id')
   getPuzzle(@Param('id') id: string) {
+    // KS-4088: на dev задача может жить только на проде — отдаём её оттуда.
+    if (this.puzzleProxy?.enabled) {
+      return this.puzzleProxy.getPuzzle(id);
+    }
     return this.puzzleService.getPuzzle(id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/attempt')
-  submitAttemptSingular(
+  async submitAttemptSingular(
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: SubmitAttemptDto,
   ) {
+    // KS-4088: задача каталога может прийти с прода и отсутствовать в
+    // локальной БД — материализуем её перед грейдингом (FK + проверка
+    // хода по fen/moves). Попытка пишется ЛОКАЛЬНО → статистика и дневник
+    // ошибок наполняются на наших таблицах.
+    if (this.puzzleProxy?.enabled) {
+      await this.puzzleProxy.ensureLocalPuzzle(id);
+    }
     return this.puzzleService.submitAttempt(
       req.user.id,
       id,
@@ -731,11 +772,15 @@ export class PuzzleController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/attempts')
-  submitAttempt(
+  async submitAttempt(
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: SubmitAttemptDto,
   ) {
+    // KS-4088: см. submitAttemptSingular — материализуем прод-задачу локально.
+    if (this.puzzleProxy?.enabled) {
+      await this.puzzleProxy.ensureLocalPuzzle(id);
+    }
     return this.puzzleService.submitAttempt(
       req.user.id,
       id,
