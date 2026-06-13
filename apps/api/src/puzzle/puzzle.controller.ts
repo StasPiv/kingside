@@ -330,8 +330,15 @@ export class PuzzleController {
       blundererEloMax: blundererEloMaxStr,
       themesAnd: themesAndParam,
       themesOr: themesOrParam,
-      minMaiaWeakChoiceProb: minMaiaWeakChoiceProbStr,
-      maxMaiaWeakChoiceProb: maxMaiaWeakChoiceProbStr,
+      // KS-4099: для личного каталога (mine=true — черновики/мои
+      // опубликованные) НЕ применяем фильтр сложности Maia. Свежие
+      // клиентские черновики имеют maiaWeakChoiceProb=null и иначе
+      // отсекались бы → грид «Мои черновики» пуст. Фильтр сложности
+      // относится только к общему каталогу подбора.
+      minMaiaWeakChoiceProb:
+        mine === 'true' ? undefined : minMaiaWeakChoiceProbStr,
+      maxMaiaWeakChoiceProb:
+        mine === 'true' ? undefined : maxMaiaWeakChoiceProbStr,
     });
     const conditions = [...filter.conditions];
     const params: (string | number)[] = [...filter.params];
@@ -578,8 +585,13 @@ export class PuzzleController {
       blundererEloMax: blundererEloMaxStr,
       themesAnd: themesAndParam,
       themesOr: themesOrParam,
-      minMaiaWeakChoiceProb: minMaiaWeakChoiceProbStr,
-      maxMaiaWeakChoiceProb: maxMaiaWeakChoiceProbStr,
+      // KS-4099: согласованно с browse — для mine=true фильтр сложности
+      // Maia не применяем (бейдж scope-counts уже считается без него,
+      // иначе грид и счётчик расходятся).
+      minMaiaWeakChoiceProb:
+        mine === 'true' ? undefined : minMaiaWeakChoiceProbStr,
+      maxMaiaWeakChoiceProb:
+        mine === 'true' ? undefined : maxMaiaWeakChoiceProbStr,
     });
 
     // KS-3919: всегда `EXPLAIN (FORMAT JSON)` без fallback'а на точный
