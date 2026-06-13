@@ -18,6 +18,7 @@ import {
 } from '@kingside/shared';
 import type { EngineAdapter, BridgeConfig, InfoLine } from './engineAdapter';
 import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
+import { annotatePuzzlesWithMaia } from './maiaWeakChoice';
 
 export type { BridgeConfig };
 
@@ -160,6 +161,21 @@ export type GeneratedPuzzleData = {
   objective?: PuzzleObjective;
   /** KS-3160: сторона solver'а на стартовом FEN. */
   solverSide?: 'w' | 'b';
+  /**
+   * KS-4096: Maia weak-choice метрика, посчитанная на клиенте (Maia-policy
+   * + Stockfish MultiPV WDL → computeWeakChoiceProb). До этой задачи
+   * клиентский генератор шаг Maia пропускал, и все client-generated
+   * PVE-пазлы сохранялись с `maiaWeakChoiceProb=null` → расхождение с
+   * серверной генерацией, `/precision/next?minMaiaWeakChoiceProb=…` их не
+   * отдавал. Заполняется в `annotatePuzzlesWithMaia` перед POST
+   * /puzzles/batch. `undefined`, если аннотация не запускалась / упала —
+   * тогда поведение как раньше (backend оставит null).
+   */
+  maiaWeakChoiceProb?: number;
+  /** KS-4096: версия алгоритма метрики (MAIA_WEAK_CHOICE_METRIC_VERSION). */
+  maiaMetricVersion?: number;
+  /** KS-4096: ELO разметки Maia (audit-поле, серверный дефолт 1500). */
+  maiaTop1Elo?: number;
 };
 
 export type GenerationProgress = {
@@ -168,6 +184,14 @@ export type GenerationProgress = {
   positionIndex: number;
   totalPositions: number;
   puzzlesFound: number;
+  /**
+   * KS-4096: фаза прогресса. `analyzing` — основной проход SF по позициям
+   * (по умолчанию, обратная совместимость с UI). `maia` — пост-проход
+   * Maia weak-choice разметки найденных пазлов. UI может игнорировать
+   * поле; для фазы `maia` `positionIndex/totalPositions` отражают
+   * прогресс разметки.
+   */
+  phase?: 'analyzing' | 'maia';
 };
 
 /**
@@ -390,6 +414,39 @@ export async function generatePuzzlesFromPgn(
     }
   }
 
+  // KS-4096: пост-проход Maia weak-choice разметки. Переиспользуем тот
+  // же движок (SF WASM/Bridge) для MultiPV-оценки кандидатов — до
+  // engine.destroy(). Maia-инференс идёт через браузерный движок
+  // (apps/web/src/lib/maia). Best-effort: ошибки на отдельных пазлах не
+  // валят генерацию (пазл сохранится с null, как раньше). Без этого шага
+  // client-generated пазлы расходились с серверными (maiaWeakChoiceProb
+  // всегда null) — см. KS-4096.
+  if (!abortSignal?.aborted && all.length > 0) {
+    try {
+      await annotatePuzzlesWithMaia(
+        all,
+        engine,
+        (done, total) =>
+          onProgress({
+            gameIndex: games.length - 1,
+            totalGames: games.length,
+            positionIndex: done,
+            totalPositions: total,
+            puzzlesFound: all.length,
+            phase: 'maia',
+          }),
+        { abortSignal },
+      );
+    } catch (e) {
+      // Разметка целиком упала (например, модель Maia не загрузилась) —
+      // не блокируем генерацию, пазлы сохранятся без метрики.
+      console.warn(
+        '[PuzzleGen] Maia weak-choice annotation skipped:',
+        (e as Error).message,
+      );
+    }
+  }
+
   engine.destroy();
   // KS-3153: сводка дроп-причин в финальном логе для DevTools.
   console.log(
@@ -431,6 +488,19 @@ function adaptSharedPuzzle(
     result: headers.Result,
     depth,
   };
+
+  // KS-4096: гарантируем `firstMovePV1` у каждого пазла. Серверный
+  // shared-пайплайн (`buildPuzzlesFromCandidate`) задаёт его ТОЛЬКО для
+  // реактивного пазла (candidate.firstMoveAfterUci); у превентивного в
+  // sourceMetadata лежит `preventiveCorrectMoveUci` (PV1 движка на
+  // fenBefore — правильный ход «зевнувшего»), но не `firstMovePV1`.
+  // Без него Maia-аннотация падает на `no-solution-uci` (это и были
+  // «2 из 13» пазлов без метрики). Для превентивного пазла стартовый
+  // FEN = fenBefore, и его решение = preventiveCorrectMoveUci, поэтому
+  // оно и есть firstMovePV1.
+  if (!flat.firstMovePV1 && flat.preventiveCorrectMoveUci) {
+    flat.firstMovePV1 = flat.preventiveCorrectMoveUci;
+  }
 
   let rating = sp.rating;
   if (sp.puzzlePhase === 'reactive') {
