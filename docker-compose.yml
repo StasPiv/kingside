@@ -91,6 +91,13 @@ services:
       # KS-2199: dev-bypass аутентификация. Значение по умолчанию совпадает с тем,
       # что фронтенд передаёт в ?dev_bypass=secret. В prod переопределить или убрать.
       DEV_BYPASS_SECRET: ${DEV_BYPASS_SECRET:-secret}
+      # KS-4088: dev-прокси каталога задач на прод-API (блокер видеообзора KS-4065).
+      # При заданном PUZZLE_SERVICE_URL api форвардит читающие маршруты /puzzles/browse,
+      # /puzzles/browse/count, /puzzles/:id на прод, чтобы на dev был полный каталог
+      # (10 000+ задач) вместо 3 локальных lichess-задач. Попытки пишутся локально.
+      # ТОЛЬКО dev: на проде НЕ выставлять (api сам владеет каталогом, иначе проксил
+      # бы сам на себя). В api-green (профиль deploy, зеркало прода) переменной нет.
+      PUZZLE_SERVICE_URL: ${PUZZLE_SERVICE_URL:-https://api.kingside.site}
     depends_on:
       - postgres
       - redis
