@@ -457,6 +457,104 @@ async function detectColor(page, gameId, token, myUserId) {
           if (sel)
             await flashElement(page, sel, action.durationMs || 1200);
           break;
+        case 'puzzleSolveCorrect': {
+          // На странице /puzzle/:id — берёт moves[0] и делает первый
+          // правильный ход. Side берётся из FEN.
+          const u = page.url();
+          const mm = u.match(/\/puzzle\/([^/?]+)/);
+          if (!mm) {
+            log(`puzzleSolveCorrect: not on /puzzle URL=${u}`);
+            break;
+          }
+          const pid = mm[1];
+          const token = action.authToken || authA.accessToken;
+          try {
+            const r = await fetch(`${API}/puzzles/${pid}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!r.ok) {
+              log(`puzzleSolveCorrect: GET /puzzles/${pid} → ${r.status}`);
+              break;
+            }
+            const data = await r.json();
+            const move = (data.moves || [])[0];
+            if (!move || move.length < 4) {
+              log(`puzzleSolveCorrect: no moves[0] in puzzle ${pid}`);
+              break;
+            }
+            const from = move.slice(0, 2);
+            const to = move.slice(2, 4);
+            log(`puzzleSolveCorrect ${pid}: drag ${from}→${to}`);
+            await dragSquare(page, from, to);
+          } catch (e) {
+            log(`puzzleSolveCorrect failed: ${String(e).slice(0, 160)}`);
+          }
+          break;
+        }
+        case 'puzzleSolveWrong': {
+          // На /puzzle/:id — делает заведомо неверный ход. Через DOM
+          // ищет первую пешку своей стороны (по FEN side), которая НЕ
+          // участвует в корректном ходе, и двигает её на одну клетку вперёд.
+          const u = page.url();
+          const mm = u.match(/\/puzzle\/([^/?]+)/);
+          if (!mm) {
+            log(`puzzleSolveWrong: not on /puzzle URL=${u}`);
+            break;
+          }
+          const pid = mm[1];
+          const token = action.authToken || authA.accessToken;
+          try {
+            const r = await fetch(`${API}/puzzles/${pid}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!r.ok) {
+              log(`puzzleSolveWrong: GET /puzzles/${pid} → ${r.status}`);
+              break;
+            }
+            const data = await r.json();
+            const fen = data.fen || '';
+            const side = fen.split(' ')[1] || 'w';
+            const correctFrom = ((data.moves || [])[0] || '').slice(0, 2);
+            // Найти первую пешку нашей стороны (не совпадающую с правильным
+            // from-полем) и сходить +1 ряд.
+            const target = await page.evaluate(
+              ({ side, correctFrom }) => {
+                const squares = document.querySelectorAll('[data-square]');
+                for (const sq of squares) {
+                  const code = sq.getAttribute('data-square');
+                  if (code === correctFrom) continue;
+                  const piece = sq.querySelector('[data-piece]');
+                  if (!piece) continue;
+                  const dp = piece.getAttribute('data-piece') || '';
+                  // Формат "wP" / "bP" / "wQ" и т.п.
+                  if (
+                    (side === 'w' && dp === 'wP') ||
+                    (side === 'b' && dp === 'bP')
+                  ) {
+                    return code;
+                  }
+                }
+                return null;
+              },
+              { side, correctFrom },
+            );
+            if (!target) {
+              log(
+                `puzzleSolveWrong: не нашёл пешку (side=${side}) на доске`,
+              );
+              break;
+            }
+            const file = target[0];
+            const rank = parseInt(target[1], 10);
+            const toRank = side === 'w' ? rank + 1 : rank - 1;
+            const to = `${file}${toRank}`;
+            log(`puzzleSolveWrong ${pid}: drag ${target}→${to} (intentional bad)`);
+            await dragSquare(page, target, to);
+          } catch (e) {
+            log(`puzzleSolveWrong failed: ${String(e).slice(0, 160)}`);
+          }
+          break;
+        }
         case 'setInputFiles': {
           // Для скрытого <input type=file>. action.file (строка) или
           // action.files (массив строк) — пути к локальным файлам.
@@ -559,6 +657,108 @@ async function detectColor(page, gameId, token, myUserId) {
                   .catch(() => {});
               }),
             );
+            break;
+          }
+          case 'pageClick': {
+            // Простой клик по селектору на нужной стороне в metaActions
+            // фазе (т.е. до фиксации sceneStartMs). Нужен, чтобы тихо
+            // подготовить state UI до того, как зритель увидит сцену.
+            const sides = m.sides || [side];
+            for (const sd of sides) {
+              const p = sd === 'B' ? pageB : pageA;
+              try {
+                await p
+                  .locator(m.selector)
+                  .first()
+                  .click({ timeout: m.timeoutMs || 2000 });
+              } catch (e) {
+                log(`pageClick ${m.selector} (${sd}) failed: ${String(e).slice(0, 100)}`);
+              }
+            }
+            break;
+          }
+          case 'gotoNextPuzzle': {
+            // Берёт случайную задачу из /puzzles?limit=20 и переходит
+            // на её /puzzle/<id>. Опционально пропускает skipIds (массив).
+            const token = m.authToken || authA.accessToken;
+            try {
+              const r = await fetch(`${API}/puzzles?limit=20`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              const pool = await r.json();
+              if (!Array.isArray(pool) || !pool.length) {
+                log(`gotoNextPuzzle: пустой пул`);
+                break;
+              }
+              const skip = new Set(m.skipIds || []);
+              const pick = pool.find((p) => !skip.has(p.id)) || pool[0];
+              const url = `${WEB}/puzzle/${pick.id}`;
+              await page.goto(url, { waitUntil: 'domcontentloaded' });
+              await page.waitForTimeout(m.waitMsAfter ?? 1500);
+              log(`gotoNextPuzzle → ${pick.id}`);
+            } catch (e) {
+              log(`gotoNextPuzzle failed: ${String(e).slice(0, 200)}`);
+            }
+            break;
+          }
+          case 'seedPuzzleAttempts': {
+            // Сидирует историю решённых/неверных попыток у пользователя A.
+            // m.solved (по умолчанию 3) и m.failed (по умолчанию 1) —
+            // сколько успешных и провальных попыток создать (на разных
+            // случайных задачах из базы).
+            const token = m.authToken || authA.accessToken;
+            const solvedCount = m.solved ?? 3;
+            const failedCount = m.failed ?? 1;
+            let okSolved = 0,
+              okFailed = 0;
+            try {
+              // Берём пул задач с разнообразием
+              const pool = await fetch(`${API}/puzzles?limit=20`, {
+                headers: { Authorization: `Bearer ${token}` },
+              }).then((r) => r.json());
+              if (!Array.isArray(pool) || !pool.length) {
+                log(`seedPuzzleAttempts: пул задач пуст`);
+                break;
+              }
+              let i = 0;
+              for (let n = 0; n < solvedCount && i < pool.length; n++, i++) {
+                const pid = pool[i].id;
+                const r = await fetch(`${API}/puzzles/${pid}/attempt`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    result: 'solved',
+                    timeMs: 12000 + Math.floor(Math.random() * 8000),
+                    moveCount: 2,
+                  }),
+                });
+                if (r.ok) okSolved += 1;
+              }
+              for (let n = 0; n < failedCount && i < pool.length; n++, i++) {
+                const pid = pool[i].id;
+                const r = await fetch(`${API}/puzzles/${pid}/attempt`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    result: 'failed',
+                    timeMs: 30000 + Math.floor(Math.random() * 15000),
+                    moveCount: 1,
+                  }),
+                });
+                if (r.ok) okFailed += 1;
+              }
+              log(
+                `seedPuzzleAttempts → solved=${okSolved}/${solvedCount} failed=${okFailed}/${failedCount}`,
+              );
+            } catch (e) {
+              log(`seedPuzzleAttempts failed: ${String(e).slice(0, 200)}`);
+            }
             break;
           }
           case 'setExternalAccounts': {
