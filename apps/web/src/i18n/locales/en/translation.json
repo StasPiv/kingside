@@ -2677,7 +2677,8 @@
     },
     "cta": {
       "title": "Ready to play?",
-      "button": "Create free account"
+      "button": "Create free account",
+      "youtube": "Video reviews on YouTube"
     },
     "rating": {
       "title": "Rating System",
