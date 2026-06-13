@@ -3,7 +3,16 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "composite": true
+    "composite": true,
+    // KS-4102: держим incremental-кэш ВНУТРИ dist. Иначе (default —
+    // tsconfig.tsbuildinfo в корне пакета) `rm -rf dist` его не удаляет,
+    // и инкрементальный tsc, доверяя кэшу, НЕ переэмитит файлы при
+    // отсутствующем output (классический баг «tsc не замечает удалённый
+    // dist»). На чистой сборке turbo/CI это давало dist БЕЗ browser.js →
+    // `@kingside/maia-core/browser` не резолвился (Rollup «failed to
+    // resolve»). С кэшем в dist он удаляется/кешируется вместе с output
+    // (turbo outputs = dist/**) — всегда консистентно.
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo"
   },
   "include": ["src/**/*.ts", "src/**/*.json"],
   "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"]
