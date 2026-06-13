@@ -404,7 +404,16 @@ async function detectColor(page, gameId, token, myUserId) {
     colorA: null,
     colorB: null,
     switchedToNarrow: false,
+    analysisId: null,
   };
+
+  // Подстановка плейсхолдеров в URL (например, `${ANALYSIS_ID}`).
+  function expandUrl(url) {
+    if (!url) return url;
+    return url
+      .replace('${WEB}', WEB)
+      .replace('${ANALYSIS_ID}', gameState.analysisId || '');
+  }
 
   // ── action dispatcher ─────────────────────────────────────────
   async function dispatchAction(action, ctx) {
@@ -509,7 +518,7 @@ async function detectColor(page, gameId, token, myUserId) {
       try {
         switch (m.type) {
           case 'goto': {
-            const url = (m.url || '').replace('${WEB}', WEB);
+            const url = expandUrl(m.url || '');
             if (!url) {
               log(`WARN: goto без url, skip`);
               break;
@@ -536,6 +545,52 @@ async function detectColor(page, gameId, token, myUserId) {
                   .catch(() => {});
               }),
             );
+            break;
+          }
+          case 'createAnalysisFromPgn': {
+            // Создаёт запись анализа на API из PGN-файла или строки PGN.
+            // Сохраняет id в gameState.analysisId; дальше можно использовать
+            // ${ANALYSIS_ID} в URL последующих metaAction.goto.
+            // Поля: pgnFile (путь к .pgn) или pgn (строка); title (опц.);
+            //       authToken — по умолчанию accessToken пользователя A.
+            let pgnText = m.pgn || '';
+            if (!pgnText && m.pgnFile) {
+              try {
+                pgnText = await fs.readFile(m.pgnFile, 'utf-8');
+              } catch (e) {
+                log(`WARN: cannot read pgnFile ${m.pgnFile}: ${e.message}`);
+                break;
+              }
+            }
+            if (!pgnText) {
+              log(`WARN: createAnalysisFromPgn без pgn/pgnFile, skip`);
+              break;
+            }
+            const token = m.authToken || authA.accessToken;
+            try {
+              const r = await fetch(`${API}/analyses`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  pgn: pgnText,
+                  title: m.title || 'Auto analysis',
+                }),
+              });
+              if (!r.ok) {
+                const t = await r.text().catch(() => '');
+                throw new Error(
+                  `HTTP ${r.status} ${t.slice(0, 200)}`,
+                );
+              }
+              const data = await r.json();
+              gameState.analysisId = data.id;
+              log(`createAnalysisFromPgn → id=${data.id}`);
+            } catch (e) {
+              log(`createAnalysisFromPgn failed: ${String(e).slice(0, 200)}`);
+            }
             break;
           }
           case 'dismissOnboarding': {
