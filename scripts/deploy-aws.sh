@@ -1249,6 +1249,17 @@ if $DEPLOY_FRONTEND; then
            "$REPO_DIR/node_modules/.vite" \
            "$REPO_DIR/apps/web/node_modules/.vite" 2>/dev/null || true
 
+    # KS-4101: фронтовый deploy раньше собирал ТОЛЬКО apps/web (vite) и не
+    # билдил workspace-зависимости. После KS-4096 apps/web импортирует
+    # '@kingside/maia-core/browser', а dist пакетов в git не коммитится
+    # (Rule 7) → без сборки пакета vite не резолвит entry. Собираем ВСЕ
+    # зависимости apps/web через turbo (build: dependsOn ^build, outputs
+    # dist/**) ПЕРЕД vite. Фильтр '@kingside/web^...' = только зависимости
+    # web (maia-core, shared, …), сам apps/web собирает vite ниже.
+    echo "[frontend] Building workspace deps (turbo: maia-core, shared, …) before vite..."
+    ( cd "$REPO_DIR" && npx --no-install turbo run build --filter='@kingside/web^...' ) \
+        || { echo "[frontend] ERROR: workspace deps build (turbo) failed"; exit 1; }
+
     echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_BROADCAST_URL=$PROD_VITE_BROADCAST_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID, VITE_FEATURE_LESSONS=$PROD_VITE_FEATURE_LESSONS, VITE_AI_SUBTERM_PREFILTER=$PROD_VITE_AI_SUBTERM_PREFILTER)..."
     VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_BROADCAST_URL="$PROD_VITE_BROADCAST_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" VITE_FEATURE_LESSONS="$PROD_VITE_FEATURE_LESSONS" VITE_AI_SUBTERM_PREFILTER="$PROD_VITE_AI_SUBTERM_PREFILTER" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
