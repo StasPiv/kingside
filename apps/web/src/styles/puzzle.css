@@ -1184,9 +1184,17 @@ body:has(.puzzle-rush-board) {
   color: var(--c-4a4a6e);
 }
 
-/* KS-1008: increased vh offset from 310 to 345 to account for turn indicator (~35px) */
+/* KS-1008: increased vh offset from 310 to 345 to account for turn indicator (~35px)
+   KS-4092: offset 310 → 460. Прежний бюджет резервировал высоту только под
+   шапку (breadcrumbs + h1 + stats + info-slot ≈ 268px) и слот действий, но НЕ
+   под нижний блок «Из партии» (PuzzleSourceGame, ~113px). Из-за этого на
+   невысоких окнах (≈700px) доска вырастала почти на всю высоту, а кнопки
+   «Анализ»/«Далее» оказывались у кромки, «Из партии» обрезалась нижним краем.
+   460 = шапка(268) + слот действий(60) + «Из партии»(113) + запас(~19). Доска
+   остаётся квадратной (width=height в JS), на широких экранах ограничение по
+   высоте бинокулярно с 100vw. */
 .puzzle-page .board-container {
-  width: min(calc(100vh - 310px), calc(100vw - 32px));
+  width: min(calc(100vh - 460px), calc(100vw - 32px));
 }
 
 .puzzle-rush-page .board-container {
