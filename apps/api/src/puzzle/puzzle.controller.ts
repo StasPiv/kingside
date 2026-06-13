@@ -297,7 +297,13 @@ export class PuzzleController {
     // KS-4088 (блокер KS-4065): на dev локальная puzzle-БД содержит лишь
     // 3 задачи lichess. При заданном PUZZLE_SERVICE_URL отдаём прод-каталог
     // целиком (богатый список + рабочий nextCursor для бесконечной прокрутки).
-    if (this.puzzleProxy?.enabled) {
+    //
+    // KS-4066 fix: НЕ форвардим user-scoped запросы. `mine=true` —
+    // личный каталог пользователя (черновики + опубликованные); эти
+    // пазлы локальные и на проде их нет → форвард ломал «Мои черновики»/
+    // «Мои опубликованные» («Не удалось загрузить пазлы»). Такие запросы
+    // обслуживаем ЛОКАЛЬНО; на прод уходит только общий серверный каталог.
+    if (this.puzzleProxy?.enabled && mine !== 'true') {
       return this.puzzleProxy.forward((req as { url: string }).url) as Promise<{
         data: Record<string, unknown>[];
         nextCursor: string | null;
@@ -548,7 +554,10 @@ export class PuzzleController {
     @Query('maxMaiaWeakChoiceProb') maxMaiaWeakChoiceProbStr?: string,
   ): Promise<{ total: number; approximate: true }> {
     // KS-4088: согласованно с browse — счётчик «Найдено: N» берём с прода.
-    if (this.puzzleProxy?.enabled) {
+    // KS-4066 fix: user-scoped счётчики (mine=true — черновики/мои/
+    // опубликованные) считаем ЛОКАЛЬНО, на прод уходит только общий
+    // серверный каталог (иначе chips-bar «Мои черновики: N» брал бы с прода).
+    if (this.puzzleProxy?.enabled && mine !== 'true') {
       return this.puzzleProxy.forward(
         (req as { url: string }).url,
       ) as Promise<{ total: number; approximate: true }>;
