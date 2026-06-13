@@ -18,7 +18,6 @@ import {
 } from '@kingside/shared';
 import type { EngineAdapter, BridgeConfig, InfoLine } from './engineAdapter';
 import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
-import { annotatePuzzlesWithMaia } from './maiaWeakChoice';
 
 export type { BridgeConfig };
 
@@ -414,39 +413,14 @@ export async function generatePuzzlesFromPgn(
     }
   }
 
-  // KS-4096 / KS-4098 / KS-4102: пост-проход Maia weak-choice разметки.
-  // Переиспользуем тот же движок (SF WASM/Bridge) для MultiPV-оценки
-  // кандидатов — до engine.destroy(). Maia-инференс идёт через
-  // браузерный движок (apps/web/src/lib/maia), чистые функции метрики —
-  // из браузер-безопасного входа @kingside/maia-core/browser. deploy
-  // собирает maia-core (KS-4101), эмит dist/browser.js консистентен
-  // (KS-4102). Best-effort: ошибки на отдельных пазлах не валят
-  // генерацию (пазл сохранится с null, как раньше).
-  if (!abortSignal?.aborted && all.length > 0) {
-    try {
-      await annotatePuzzlesWithMaia(
-        all,
-        engine,
-        (done, total) =>
-          onProgress({
-            gameIndex: games.length - 1,
-            totalGames: games.length,
-            positionIndex: done,
-            totalPositions: total,
-            puzzlesFound: all.length,
-            phase: 'maia',
-          }),
-        { abortSignal },
-      );
-    } catch (e) {
-      // Разметка целиком упала (например, модель Maia не загрузилась) —
-      // не блокируем генерацию, пазлы сохранятся без метрики.
-      console.warn(
-        '[PuzzleGen] Maia weak-choice annotation skipped:',
-        (e as Error).message,
-      );
-    }
-  }
+  // KS-4096: пост-проход Maia weak-choice (annotatePuzzlesWithMaia)
+  // ВРЕМЕННО ОТКЛЮЧЁН. Даже после фикса эмита maia-core (KS-4102) и
+  // turbo-сборки пакета (KS-4101) vite не резолвит подпуть
+  // '@kingside/maia-core/browser' (число модулей не меняется → entry не
+  // в графе). Ждём фикса резолва subpath ./browser в maia-core (backend)
+  // + литеральный текст ошибки от devops. Код шага готов в maiaWeakChoice.ts
+  // (не подключён, в бандл не входит) — подключение = вернуть импорт и
+  // этот блок (см. коммит 04bdbd5).
 
   engine.destroy();
   // KS-3153: сводка дроп-причин в финальном логе для DevTools.
