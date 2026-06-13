@@ -1259,6 +1259,7 @@
   },
   "position": {
     "title": "Установить позицию",
+    "boardEditorTab": "Редактор доски",
     "fenLabel": "FEN-нотация:",
     "startPos": "Начальная позиция",
     "emptyBoard": "Пустая доска",

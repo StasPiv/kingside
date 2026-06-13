@@ -1068,6 +1068,7 @@
   },
   "position": {
     "title": "Set Position",
+    "boardEditorTab": "Board Editor",
     "fenLabel": "FEN notation:",
     "startPos": "Starting Position",
     "emptyBoard": "Empty Board",

@@ -289,7 +289,7 @@ export function SetPositionModal({ initialFen, onApply, onClose, initialTab = 'f
 
         <div className="set-position-tabs">
           <button type="button" className={`set-position-tab${tab === 'fen' ? ' active' : ''}`} onClick={() => setTab('fen')}>FEN</button>
-          <button type="button" className={`set-position-tab${tab === 'editor' ? ' active' : ''}`} onClick={() => setTab('editor')}>Board Editor</button>
+          <button type="button" className={`set-position-tab${tab === 'editor' ? ' active' : ''}`} onClick={() => setTab('editor')}>{t('position.boardEditorTab', 'Board Editor')}</button>
           {/* KS-2365: третья вкладка — drag&drop скриншота позиции. */}
           <button
             type="button"
