@@ -457,6 +457,20 @@ async function detectColor(page, gameId, token, myUserId) {
           if (sel)
             await flashElement(page, sel, action.durationMs || 1200);
           break;
+        case 'setInputFiles': {
+          // Для скрытого <input type=file>. action.file (строка) или
+          // action.files (массив строк) — пути к локальным файлам.
+          if (!target) break;
+          const files = action.files || (action.file ? [action.file] : []);
+          if (!files.length) {
+            log(`WARN: setInputFiles без file/files — skip`);
+            break;
+          }
+          await target
+            .setInputFiles(files, { timeout: 2000 })
+            .catch((e) => log(`setInputFiles err: ${String(e).slice(0, 120)}`));
+          break;
+        }
         case 'selectOption': {
           // Для нативных <select>. action.value — значение опции,
           // action.label — текст. Достаточно одного.
@@ -545,6 +559,87 @@ async function detectColor(page, gameId, token, myUserId) {
                   .catch(() => {});
               }),
             );
+            break;
+          }
+          case 'setExternalAccounts': {
+            // PATCH /users/me/external-accounts — выставляет username'ы
+            // chess.com / lichess у текущего пользователя A. Нужен для
+            // показа кнопок «Импорт chess.com» / «Импорт lichess» в UI.
+            const token = m.authToken || authA.accessToken;
+            const body = {
+              chesscomUsername: m.chesscomUsername ?? null,
+              lichessUsername: m.lichessUsername ?? null,
+            };
+            try {
+              const r = await fetch(`${API}/users/me/external-accounts`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(body),
+              });
+              log(
+                `setExternalAccounts → ${r.status} (chess=${body.chesscomUsername} lichess=${body.lichessUsername})`,
+              );
+            } catch (e) {
+              log(`setExternalAccounts failed: ${String(e).slice(0, 200)}`);
+            }
+            break;
+          }
+          case 'seedAnalyses': {
+            // Массово создаёт анализы у пользователя A.
+            // m.items: [{pgnFile, title, category, tags: string[]}].
+            // После POST /analyses (id), если заданы tags, делает
+            // PATCH /analyses/:id {tags: [...]}.
+            const token = m.authToken || authA.accessToken;
+            const items = Array.isArray(m.items) ? m.items : [];
+            let okCount = 0;
+            for (const it of items) {
+              try {
+                let pgn = it.pgn || '';
+                if (!pgn && it.pgnFile) {
+                  pgn = await fs.readFile(it.pgnFile, 'utf-8');
+                }
+                if (!pgn) {
+                  log(`seedAnalyses: skip (no pgn) — ${it.title || '?'}`);
+                  continue;
+                }
+                const postBody = {
+                  title: it.title || 'Auto analysis',
+                  pgn,
+                  ...(it.category ? { category: it.category } : {}),
+                };
+                const rPost = await fetch(`${API}/analyses`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify(postBody),
+                });
+                if (!rPost.ok) {
+                  const t = await rPost.text().catch(() => '');
+                  throw new Error(`POST HTTP ${rPost.status} ${t.slice(0, 160)}`);
+                }
+                const created = await rPost.json();
+                if (Array.isArray(it.tags) && it.tags.length) {
+                  await fetch(`${API}/analyses/${created.id}`, {
+                    method: 'PATCH',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ tags: it.tags }),
+                  }).catch(() => {});
+                }
+                okCount += 1;
+                log(`seedAnalyses ${okCount}/${items.length}: ${it.title}`);
+              } catch (e) {
+                log(`seedAnalyses item failed: ${String(e).slice(0, 200)}`);
+              }
+            }
+            log(`seedAnalyses → создано ${okCount}/${items.length}`);
             break;
           }
           case 'createAnalysisFromPgn': {
