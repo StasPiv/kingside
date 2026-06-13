@@ -448,6 +448,25 @@ async function detectColor(page, gameId, token, myUserId) {
           if (sel)
             await flashElement(page, sel, action.durationMs || 1200);
           break;
+        case 'selectOption': {
+          // Для нативных <select>. action.value — значение опции,
+          // action.label — текст. Достаточно одного.
+          if (!target) break;
+          const arg =
+            action.value != null
+              ? { value: String(action.value) }
+              : action.label
+              ? { label: String(action.label) }
+              : null;
+          if (!arg) {
+            log(`WARN: selectOption без value/label — skip`);
+            break;
+          }
+          await target
+            .selectOption(arg, { timeout: 2000 })
+            .catch(() => {});
+          break;
+        }
         case 'scroll': {
           // selector → element.scrollIntoView; top → window.scrollTo
           await page
