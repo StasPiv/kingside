@@ -26,6 +26,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
 
 // ── константы окружения ────────────────────────────────────────────
 const API = process.env.KS_API || 'http://localhost:3001';
@@ -36,6 +37,8 @@ const CHROME =
   '/home/agent/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome';
 const VIEWPORT_WIDE = { width: 1920, height: 1200 };
 const VIEWPORT_NARROW = { width: 1080, height: 1350 };
+// KS-4066: локальный Stockfish для ведения play-vs-engine попытки точной игрой.
+const STOCKFISH_BIN = process.env.KS_STOCKFISH || '/usr/games/stockfish';
 const BUFFER_MS = 400;
 // KS-4065: жёсткий потолок на одно действие сцены (hover/click/drag/puzzleSolve),
 // чтобы случайный затык во внутреннем ожидании Playwright не раздувал holdMs.
@@ -260,6 +263,84 @@ async function clickMove(p, from, to) {
     .catch(() => {});
   return true;
 }
+
+// ── Stockfish helpers (KS-4066, play-vs-engine) ─────────────────────
+// Локальный Stockfish: bestmove или FEN после серии ходов. Точная игра
+// (трекинг позиции через `position fen … moves …`) исключает ошибки
+// реконструкции доски из DOM.
+function stockfish(cmds, { wantFen = false, depth = 16, timeoutMs = 9000 } = {}) {
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      proc = spawn(STOCKFISH_BIN);
+    } catch {
+      resolve(null);
+      return;
+    }
+    let out = '';
+    const done = (v) => {
+      resolve(v);
+      try {
+        proc.kill();
+      } catch {}
+    };
+    proc.stdout.on('data', (d) => {
+      out += d.toString();
+      if (wantFen) {
+        const m = out.match(/Fen:\s*(\S.+)/);
+        if (m) done(m[1].trim());
+      } else {
+        const m = out.match(/bestmove\s+(\S+)/);
+        if (m) done(m[1]);
+      }
+    });
+    proc.on('error', () => done(null));
+    proc.stdin.write(`uci\n${cmds}\n${wantFen ? 'd' : `go depth ${depth}`}\n`);
+    setTimeout(() => done(null), timeoutMs);
+  });
+}
+// placement-FEN → карта клетка→data-piece ("wN" и т.п.)
+function fenToOcc(fen) {
+  const o = {};
+  const rows = (fen || '').split(' ')[0].split('/');
+  const inv = {
+    P: 'wP', N: 'wN', B: 'wB', R: 'wR', Q: 'wQ', K: 'wK',
+    p: 'bP', n: 'bN', b: 'bB', r: 'bR', q: 'bQ', k: 'bK',
+  };
+  for (let r = 0; r < 8 && r < rows.length; r++) {
+    let f = 0;
+    for (const ch of rows[r]) {
+      if (/\d/.test(ch)) f += +ch;
+      else {
+        o[`${'abcdefgh'[f]}${8 - r}`] = inv[ch];
+        f++;
+      }
+    }
+  }
+  return o;
+}
+// UCI-ход по разнице двух раскладов (from — фигура ушла, to — появилась/сменилась)
+function diffMove(before, after) {
+  let from = null;
+  let to = null;
+  for (const sq of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const b = before[sq];
+    const a = after[sq];
+    if (b && !a) from = sq;
+    else if (a && a !== b) to = sq;
+  }
+  return from && to ? from + to : null;
+}
+// текущий расклад доски из DOM
+const boardOcc = (page) =>
+  page.evaluate(() => {
+    const o = {};
+    document.querySelectorAll('[data-square]').forEach((s) => {
+      const pc = s.querySelector('[data-piece]');
+      if (pc) o[s.getAttribute('data-square')] = pc.getAttribute('data-piece');
+    });
+    return o;
+  });
 async function flashElement(page, selector, durationMs) {
   await page
     .evaluate(
@@ -652,6 +733,87 @@ async function detectColor(page, gameId, token, myUserId) {
           }
           break;
         }
+        case 'playVsEngine': {
+          // KS-4066: ведёт play-vs-engine попытку точной игрой Stockfish.
+          // Стартовый FEN задачи берём из /puzzles/:id; играем лучшие ходы,
+          // ответ движка распознаём диффом доски против FEN от Stockfish.
+          // Для наглядного успеха (5★/100%) сцена должна открывать задачу с
+          // явным перевесом решающего (convertAdvantage) — на острых позициях
+          // локальный SF может расходиться с движком раннера.
+          const u = page.url();
+          const mm = u.match(/\/puzzle\/([^/?]+)/);
+          if (!mm) {
+            log(`playVsEngine: not on /puzzle URL=${u}`);
+            break;
+          }
+          const pid = mm[1];
+          const token = action.authToken || authA.accessToken;
+          const depth = action.depth ?? 14;
+          const maxMy = action.maxMyMoves ?? 6;
+          const replyWaitMs = action.replyWaitMs ?? 2200;
+          const stepPauseMs = action.stepPauseMs ?? 700;
+          try {
+            const r = await fetch(`${API}/puzzles/${pid}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!r.ok) {
+              log(`playVsEngine: GET /puzzles/${pid} → ${r.status}`);
+              break;
+            }
+            const data = await r.json();
+            const startFen = data.fen;
+            if (!startFen) {
+              log(`playVsEngine: нет fen в задаче ${pid}`);
+              break;
+            }
+            const moves = [];
+            for (let i = 0; i < maxMy; i++) {
+              await page.waitForTimeout(stepPauseMs);
+              const myMove = await stockfish(
+                `position fen ${startFen} moves ${moves.join(' ')}`,
+                { depth },
+              );
+              if (!myMove || myMove === '(none)' || myMove.length < 4) break;
+              log(`playVsEngine ${pid}: ход ${i + 1} ${myMove}`);
+              await clickMove(page, myMove.slice(0, 2), myMove.slice(2, 4));
+              moves.push(myMove);
+              const expFen = await stockfish(
+                `position fen ${startFen} moves ${moves.join(' ')}`,
+                { wantFen: true },
+              );
+              const expOcc = fenToOcc(expFen);
+              // Опрашиваем доску до ФАКТИЧЕСКОГО ответа движка вместо
+              // фиксированной паузы: время раздумий движка варьируется, и
+              // фиксированный wait то срабатывал до ответа, то после —
+              // ходы расходились, точность скакала (97% против 58%).
+              await page.waitForTimeout(action.myMoveSettleMs ?? 500);
+              let eng = null;
+              let finished = false;
+              const deadline = Date.now() + (action.replyTimeoutMs ?? 6000);
+              while (Date.now() < deadline) {
+                finished = await page.evaluate(() =>
+                  /Точность:\s*\d+%/.test(document.body.innerText),
+                );
+                if (finished) break;
+                eng = diffMove(expOcc, await boardOcc(page));
+                if (eng) break;
+                await page.waitForTimeout(300);
+              }
+              if (finished) {
+                log(`playVsEngine ${pid}: попытка завершена (ход ${i + 1})`);
+                break;
+              }
+              if (eng) moves.push(eng);
+              else
+                log(
+                  `playVsEngine ${pid}: ответ движка не распознан (ход ${i + 1})`,
+                );
+            }
+          } catch (e) {
+            log(`playVsEngine failed: ${String(e).slice(0, 160)}`);
+          }
+          break;
+        }
         case 'setInputFiles': {
           // Для скрытого <input type=file>. action.file (строка) или
           // action.files (массив строк) — пути к локальным файлам.
@@ -771,6 +933,40 @@ async function detectColor(page, gameId, token, myUserId) {
               } catch (e) {
                 log(`pageClick ${m.selector} (${sd}) failed: ${String(e).slice(0, 100)}`);
               }
+            }
+            break;
+          }
+          case 'gotoPrecisionAttempt': {
+            // KS-4066: переход на разбор ВАЛИДНОЙ попытки precision
+            // (halfMovesPlayed>0). Клик по первой строке истории может
+            // попасть на пустую legacy-запись, чья detail-страница «не найдена».
+            const token = m.authToken || authA.accessToken;
+            try {
+              const r = await fetch(
+                `${API}/precision/attempts/me?limit=20&offset=0`,
+                { headers: { Authorization: `Bearer ${token}` } },
+              );
+              const body = await r.json();
+              const items = Array.isArray(body)
+                ? body
+                : body.items || body.data || [];
+              const valid = items.find(
+                (a) => (a.halfMovesPlayed || 0) > 0 && (a.attemptId || a.id),
+              );
+              if (!valid) {
+                log(`gotoPrecisionAttempt: нет валидной попытки`);
+                break;
+              }
+              const aid = valid.attemptId || valid.id;
+              await pageA.goto(`${WEB}/precision/attempts/${aid}`, {
+                waitUntil: 'domcontentloaded',
+              });
+              await pageA.waitForTimeout(m.waitMsAfter ?? 1800);
+              log(
+                `gotoPrecisionAttempt → ${aid} (acc ${valid.accuracyPercent}%)`,
+              );
+            } catch (e) {
+              log(`gotoPrecisionAttempt failed: ${String(e).slice(0, 160)}`);
             }
             break;
           }
@@ -1274,9 +1470,13 @@ async function detectColor(page, gameId, token, myUserId) {
       // видео/звука в build-track. Гонка с таймаутом держит сцену по графику;
       // зависшее действие не блокирует таймлайн (scene.actions — это
       // hover/click/drag/puzzleSolve, штатно укладываются в потолок).
+      // KS-4066: playVsEngine — намеренно длинное интерактивное действие
+      // (серия ходов против движка), ему нужен свой увеличенный потолок.
+      const capMs =
+        a.capMs ?? (a.type === 'playVsEngine' ? 45000 : ACTION_CAP_MS);
       await Promise.race([
         dispatchAction(a).catch(() => {}),
-        refPage.waitForTimeout(ACTION_CAP_MS),
+        refPage.waitForTimeout(capMs),
       ]);
       // курсор должен учитывать фактическое время dispatchAction,
       // иначе последующие actions суммарно отстают
