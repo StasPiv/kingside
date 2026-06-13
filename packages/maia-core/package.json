@@ -7,14 +7,22 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./browser": {
       "types": "./dist/browser.d.ts",
+      "browser": "./dist/browser.js",
+      "import": "./dist/browser.js",
+      "require": "./dist/browser.js",
       "default": "./dist/browser.js"
     },
     "./node-provider": {
       "types": "./dist/node-provider.d.ts",
+      "import": "./dist/node-provider.js",
+      "require": "./dist/node-provider.js",
       "default": "./dist/node-provider.js"
     }
   },
