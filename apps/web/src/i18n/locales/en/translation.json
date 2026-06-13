@@ -2197,6 +2197,17 @@
     }
   },
   "puzzleStats": {
+    "tab": "Statistics",
+    "title": "Puzzle Statistics",
+    "backToPuzzles": "Back to Puzzles",
+    "rating": "Rating",
+    "solveRate": "Solve Rate",
+    "streak": "Streak",
+    "avgTime": "Avg Time",
+    "today": "Today",
+    "solved": "Solved",
+    "bestStreak": "Best Streak",
+    "ratingGraph": "Rating History",
     "recentAttempts": "Recent Attempts",
     "analyze": "Analyze",
     "modes": {

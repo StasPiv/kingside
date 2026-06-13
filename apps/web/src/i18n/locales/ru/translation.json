@@ -2400,6 +2400,17 @@
     }
   },
   "puzzleStats": {
+    "tab": "Статистика",
+    "title": "Статистика задач",
+    "backToPuzzles": "Назад к задачам",
+    "rating": "Рейтинг",
+    "solveRate": "Доля решённых",
+    "streak": "Серия",
+    "avgTime": "Среднее время",
+    "today": "Сегодня",
+    "solved": "Решено",
+    "bestStreak": "Лучшая серия",
+    "ratingGraph": "История рейтинга",
     "recentAttempts": "Недавние попытки",
     "analyze": "Анализ",
     "modes": {

@@ -281,7 +281,7 @@ export function PuzzleBrowserPage() {
         </span>
         {user && (
           <Link to="/puzzles/stats" className="puzzle-browser-tab">
-            {t('puzzleStats.title', 'Statistics')}
+            {t('puzzleStats.tab', 'Statistics')}
           </Link>
         )}
       </div>
