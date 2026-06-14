@@ -146,6 +146,7 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_WRITE_PACKAGES":             [f"{_P}/packages:/project/packages"],
     "ROLE_READ_PACKAGES":              [f"{_P}/packages:/project/packages:ro"],
     "ROLE_READ_PACKAGES_SHARED":       [f"{_P}/packages/shared:/project/packages/shared:ro"],
+    "ROLE_READ_PACKAGES_MAIA_CORE":    [f"{_P}/packages/maia-core:/project/packages/maia-core:ro"],
     # Root-файлы
     "ROLE_WRITE_PACKAGE_JSON":         [f"{_P}/package.json:/project/package.json"],
     "ROLE_READ_PACKAGE_JSON":          [f"{_P}/package.json:/project/package.json:ro"],
@@ -935,7 +936,7 @@ AGENT_ROLES: dict[str, list[str]] = {
     ],
     "frontend": [
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
-        "ROLE_WRITE_APPS_WEB", "ROLE_READ_PACKAGES_SHARED",
+        "ROLE_WRITE_APPS_WEB", "ROLE_READ_PACKAGES_SHARED", "ROLE_READ_PACKAGES_MAIA_CORE",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
         "ROLE_READ_SCRIPTS",
