@@ -1,32 +1,16 @@
 FROM node:20-slim AS base
 
-# KS-4111 / KS-4107: пакет `stockfish` из debian-bookworm даёт SF15.x,
-# а клиент (apps/web) и tactic-worker уже на SF18. Расхождение версий
-# движка между bot-game (этот сервис) и puzzle-генератором/клиентом
-# приводит к рассинхронизации оценки позиций. Ставим Stockfish 18
-# native прямо из официальных GitHub-releases (`curl` и
-# `ca-certificates` — для скачивания и TLS). `stockfish` из apt
-# больше не ставим, иначе apt-копия SF15 перезаписывалась бы новым
-# бинарём и оставляла лишний слой.
+# KS-4111 (follow-up): Stockfish из game-service-образа УБРАН вовсе.
+# Бот-игра в game-service использует client-side Stockfish WASM
+# (`botClientSide=true`, фронт играет локально, см.
+# matchmaking.service.ts и bot-move.service.ts), серверного spawn'а
+# движка в `apps/game-service/src` нет. Прежние `apt-get install
+# stockfish` (SF15.x) и одно-итерационный SF18 native — артефакты
+# отменённого embedded-варианта; держать в образе ~50–110 МБ
+# движка без потребителей смысла нет.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl openssl ca-certificates \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
-
-# KS-4111: Stockfish 18 native. AVX2 — оптимально для AMD EPYC Rome
-# на Fargate (BMI2 на этой архитектуре тормозит — PEXT slow). sha256
-# архива зафиксирован — защита от подмены release-asset'а на GitHub.
-# `stockfish bench` в конце — sanity-check; если бинарь нерабочий,
-# build падает до push, в проде crash-loop'а не будет.
-ARG SF_VERSION=18
-ARG SF_TARBALL=stockfish-ubuntu-x86-64-avx2.tar
-ARG SF_SHA256=536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964
-RUN curl -fsSL -o /tmp/sf.tar \
-        "https://github.com/official-stockfish/Stockfish/releases/download/sf_${SF_VERSION}/${SF_TARBALL}" \
-    && echo "${SF_SHA256}  /tmp/sf.tar" | sha256sum -c - \
-    && tar -xf /tmp/sf.tar -C /tmp \
-    && install -D -m 0755 /tmp/stockfish/stockfish-ubuntu-x86-64-avx2 /usr/games/stockfish \
-    && rm -rf /tmp/sf.tar /tmp/stockfish \
-    && stockfish bench 2>&1 | tail -3
 
 WORKDIR /app
 
@@ -69,12 +53,9 @@ COPY apps/game-service/package.json ./apps/game-service/
 RUN rm -rf node_modules/@kingside/shared && ln -s ../../packages/shared node_modules/@kingside/shared
 RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@kingside/db
 
-# KS-4111 / KS-4107: Stockfish 18 native (pinned binary с GitHub
-# releases, AVX2-сборка под Fargate AMD EPYC Rome, sha256 проверяется
-# в RUN-блоке выше). Путь /usr/games/stockfish сохранён ради
-# совместимости с runtime-конфигом.
-ENV STOCKFISH_PATH=/usr/games/stockfish
-ENV STOCKFISH_MAX_INSTANCES=4
+# KS-4111 (follow-up): мёртвые ENV `STOCKFISH_PATH` и
+# `STOCKFISH_MAX_INSTANCES=4` удалены вместе с Stockfish-бинарём.
+# Server-side движок здесь не используется (см. блок в base-stage).
 ENV NODE_ENV=production
 ENV GAME_SERVICE_PORT=3002
 
