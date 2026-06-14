@@ -16,12 +16,17 @@
  * через ось batch у всех трёх входов — один прогон сети считает все 14
  * рейтингов одновременно (~1 с). `predictMovesBatch` это и эксплуатирует.
  */
+// KS-4100 (ADR-124 фаза 3): препроцессинг/постпроцессинг и константы —
+// из общего `@kingside/maia-core/browser` (клиентские engine.ts/tensor.ts
+// удалены). Главный поток делает preprocess/postprocess, worker —
+// только ONNX-инференс.
 import {
   type MovePrediction,
   type PredictResult,
   postprocessMaia3,
-} from './engine';
-import { preprocessMaia3, MAIA3_MOVE_VOCAB_SIZE } from './tensor';
+  preprocessMaia3,
+  MAIA3_MOVE_VOCAB_SIZE,
+} from '@kingside/maia-core/browser';
 
 const DEFAULT_MODEL_URL = '/maia3/maia3_simplified.onnx';
 

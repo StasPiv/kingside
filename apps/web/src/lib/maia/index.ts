@@ -15,13 +15,40 @@
  * см. `apps/web/public/maia3/`) — не зависим от maiachess.com. Источник —
  * CSSLab/maia-platform-frontend, MIT-licensed.
  */
-import { Maia, type PredictResult } from './engine';
+// KS-4100 (ADR-124 фаза 3): движок Maia теперь общий — из
+// `@kingside/maia-core/browser` (browser-safe entry, без node-провайдера).
+// Клиентская копия engine.ts/tensor.ts удалена; здесь остаётся только
+// браузерный хост-слой: onnxruntime-web-провайдер + IndexedDB-кэш модели
+// (через `fetchBuffer`).
+import { Maia, type PredictResult } from '@kingside/maia-core/browser';
 
 const MODEL_URL = '/maia3/maia3_simplified.onnx';
 /** Bumpнуть при замене файла модели — IndexedDB-кэш сбросится. */
 const MODEL_VERSION = '3-simplified-2026-05';
 
 let singleton: Maia | null = null;
+
+/**
+ * Источник буфера модели для maia-core (`MaiaConfig.fetchBuffer`).
+ * maia-core больше не знает про modelUrl/IndexedDB (интенционально
+ * удалено в ADR-124) — кэш и загрузка живут здесь, в хост-слое:
+ * IndexedDB-кэш → fetch с нашего origin → запись в кэш.
+ */
+async function fetchModelBuffer(): Promise<ArrayBuffer> {
+  const { getCachedModel, storeModel } = await import('./storage');
+  const cached = await getCachedModel(MODEL_URL, MODEL_VERSION);
+  if (cached) return cached;
+
+  const response = await fetch(MODEL_URL);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch Maia model (HTTP ${response.status}): ${MODEL_URL}`,
+    );
+  }
+  const buffer = await response.arrayBuffer();
+  await storeModel(MODEL_URL, MODEL_VERSION, buffer).catch(() => undefined);
+  return buffer;
+}
 
 /** Возвращает (создавая при первом вызове) singleton browser-engine. */
 async function getEngine(): Promise<Maia> {
@@ -37,19 +64,22 @@ async function getEngine(): Promise<Maia> {
   // причина, что для worker'а MAIA% в анализе. Дефолтная сборка ort
   // инлайнит JS-glue и fetch-ит только `.wasm`. Same-origin, dev+prod.
   ort.env.wasm.wasmPaths = { wasm: '/ort/ort-wasm-simd-threaded.jsep.wasm' };
+  // ADR-124: MaiaConfig = { provider, fetchBuffer }. modelUrl/IndexedDB
+  // ушли в fetchBuffer (хост-слой).
   singleton = new Maia({
-    modelUrl: MODEL_URL,
-    modelVersion: MODEL_VERSION,
-    useIndexedDbCache: true,
+    fetchBuffer: fetchModelBuffer,
     provider: {
-      Tensor: ort.Tensor as unknown as import('./engine').TensorCtor,
+      Tensor: ort.Tensor as unknown as import('@kingside/maia-core/browser').TensorCtor,
       createSession: async (buffer) => {
         const session = await ort.InferenceSession.create(buffer);
         return {
           run: async (feeds) =>
             (await session.run(
               feeds as Record<string, import('onnxruntime-web').Tensor>,
-            )) as unknown as Record<string, import('./engine').TensorLike>,
+            )) as unknown as Record<
+              string,
+              import('@kingside/maia-core/browser').TensorLike
+            >,
         };
       },
     },
@@ -90,5 +120,5 @@ export function __resetMaiaEngine(): void {
   singleton = null;
 }
 
-export type { PredictResult, MovePrediction } from './engine';
-export { Maia } from './engine';
+export type { PredictResult, MovePrediction } from '@kingside/maia-core/browser';
+export { Maia } from '@kingside/maia-core/browser';
