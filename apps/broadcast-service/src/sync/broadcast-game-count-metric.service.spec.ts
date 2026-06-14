@@ -1079,6 +1079,183 @@ describe('KS-3231 runGameCountCheckTick', () => {
     });
     expect(sleepFn).toHaveBeenCalledWith(30_000);
   });
+
+  // ─── KS-3257: round-robin slow-scan хвоста ─────────────────────
+
+  /**
+   * Spied Prisma — каждый вызов `$queryRawUnsafe` возвращает отдельный
+   * результат из очереди `responses`. Используется для slow-scan, где
+   * один tick делает ДВА SELECT'а: hot + cold. Аргументы SQL
+   * сохраняются в `calls` для проверки OFFSET/LIMIT.
+   */
+  function makePrismaQueue(responses: FakeRow[][]) {
+    let i = 0;
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const mock = jest.fn(async (sql: string, ...params: unknown[]) => {
+      calls.push({ sql, params });
+      const r = responses[Math.min(i, responses.length - 1)] ?? [];
+      i++;
+      return r;
+    });
+    return {
+      _calls: calls,
+      $queryRawUnsafe: mock,
+    } as unknown as MetricCheckPrisma & {
+      _calls: Array<{ sql: string; params: unknown[] }>;
+    };
+  }
+
+  it('KS-3257: slow-scan выключен (default) → cold-SELECT не выполняется', async () => {
+    const prisma = makePrismaQueue([
+      [makeRow({ roundId: 'r1', lichessRoundId: 'R1', ourCount: 5 })],
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn: async () => {},
+    });
+    // Один SELECT (hot only). slowScanBatchSize не задан → default 0.
+    expect(prisma._calls).toHaveLength(1);
+    expect(r.coldOffset).toBeNull();
+    expect(r.coldRounds).toBe(0);
+  });
+
+  it('KS-3257: slow-scan включён, Redis пуст → начало с offset=0, advance после tick', async () => {
+    const hotRow = makeRow({
+      roundId: 'r-hot',
+      lichessRoundId: 'HOT',
+      ourCount: 5,
+    });
+    const coldRow = makeRow({
+      roundId: 'r-cold',
+      lichessRoundId: 'COLD',
+      ourCount: 5,
+      broadcast_id: 'b-cold',
+    });
+    const prisma = makePrismaQueue([[hotRow], [coldRow]]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn: async () => {},
+      maxBroadcasts: 50,
+      slowScanBatchSize: 25,
+      slowScanWrapAt: 100,
+    });
+    // Два SELECT'а: hot + cold.
+    expect(prisma._calls).toHaveLength(2);
+    expect(r.coldOffset).toBe(0); // первый запуск
+    expect(r.coldRounds).toBe(1);
+    expect(r.scannedRounds).toBe(2);
+    // Cold-SELECT параметры: OFFSET = (maxBroadcasts + offset) * 15 = 750,
+    // LIMIT = batch * 15 = 375.
+    expect(prisma._calls[1].params).toEqual([750, 375]);
+    // Redis-offset обновлён: было 0, advance на batch=25 → 25.
+    expect(redis._store.get('broadcast:metric:slow-scan:offset')).toBe('25');
+    // Cold row тоже прошёл fetch — проверяем что mismatch-loop его видел.
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('KS-3257: slow-scan, Redis уже содержит offset → продвижение по нему', async () => {
+    const prisma = makePrismaQueue([[], []]);
+    const redis = makeRedis();
+    redis._store.set('broadcast:metric:slow-scan:offset', '40');
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn: async () => {},
+      maxBroadcasts: 50,
+      slowScanBatchSize: 25,
+      slowScanWrapAt: 100,
+    });
+    expect(r.coldOffset).toBe(40);
+    expect(r.coldRounds).toBe(0);
+    // OFFSET = (50 + 40) * 15 = 1350.
+    expect(prisma._calls[1].params).toEqual([1350, 375]);
+    // 0 cold-строк → reachedEnd, wrap на 0.
+    expect(redis._store.get('broadcast:metric:slow-scan:offset')).toBe('0');
+  });
+
+  it('KS-3257: advanced >= wrapAt → wrap на 0', async () => {
+    const coldRow = makeRow({
+      roundId: 'r-tail',
+      lichessRoundId: 'TAIL',
+      ourCount: 5,
+    });
+    const prisma = makePrismaQueue([[], [coldRow]]);
+    const redis = makeRedis();
+    redis._store.set('broadcast:metric:slow-scan:offset', '80');
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn: async () => {},
+      maxBroadcasts: 50,
+      slowScanBatchSize: 25,
+      slowScanWrapAt: 100, // 80 + 25 = 105 >= 100 → wrap
+    });
+    expect(redis._store.get('broadcast:metric:slow-scan:offset')).toBe('0');
+  });
+
+  it('KS-3257: cold-строка пересекается с hot → дедупится перед fetch', async () => {
+    const shared = makeRow({
+      roundId: 'r-shared',
+      lichessRoundId: 'SHARED',
+      ourCount: 5,
+    });
+    const hotOnly = makeRow({
+      roundId: 'r-hot-only',
+      lichessRoundId: 'HOT-ONLY',
+      ourCount: 5,
+    });
+    const prisma = makePrismaQueue([[shared, hotOnly], [shared]]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn: async () => {},
+      slowScanBatchSize: 10,
+      slowScanWrapAt: 100,
+    });
+    // shared в cold отфильтрован — fetch вызывается ровно 2 раза
+    // (по 1 на каждую hot-строку, cold пуст после дедупа).
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(r.coldRounds).toBe(0);
+  });
+
+  it('KS-3257: некорректный offset в Redis (NaN / отрицательный / выше wrapAt) → reset на 0', async () => {
+    const prisma = makePrismaQueue([[], []]);
+    const redis = makeRedis();
+    redis._store.set('broadcast:metric:slow-scan:offset', 'garbage');
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const r = await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn: async () => {},
+      maxBroadcasts: 50,
+      slowScanBatchSize: 25,
+      slowScanWrapAt: 100,
+    });
+    expect(r.coldOffset).toBe(0); // reset
+    expect(prisma._calls[1].params).toEqual([750, 375]); // OFFSET = (50+0)*15
+  });
 });
 
 describe('KS-3231 formatTelegramMessage', () => {

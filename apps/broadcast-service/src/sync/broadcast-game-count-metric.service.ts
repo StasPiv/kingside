@@ -89,6 +89,31 @@ const DEFAULT_FAILURE_COOLDOWN_LADDER_SEC = [3600, 10800, 43200, 86400];
 // займёт ~25 мин и упрётся в TICK_LOCK_KEY (50с TTL) только если
 // разделить tick на под-задачи (KS-3257, если понадобится).
 const DEFAULT_MAX_BROADCASTS = 50;
+/**
+ * KS-3257. Round-robin slow-scan для покрытия broadcast'ов вне top-50.
+ * Текущее поведение (без ENV): отключено, tick сканирует только top-50
+ * по `updated_at DESC` (backward-compat). При включении (ENV
+ * `BROADCAST_GAME_COUNT_SLOW_SCAN_BATCH > 0`) каждый tick дополнительно
+ * читает `batch` broadcast'ов из хвоста (OFFSET = hot + saved-offset),
+ * объединяет с hot и проходит общий fetch/mismatch/auto-resync путь.
+ *
+ * Saved-offset хранится в Redis (`broadcast:metric:slow-scan:offset`)
+ * как число broadcast'ов с начала «холодного» хвоста (т.е. без учёта
+ * top-50). После tick'а offset += batchSize; если >= wrapAt — wrap на 0.
+ *
+ * Acceptance KS-3257:
+ *   - 282 активных broadcast'а покрыты (wrapAt = 250 c batch=50 даёт
+ *     6 tick'ов = 1 час на полный обход хвоста; hot всегда покрыт).
+ *   - Live (свежие) broadcast'ы продолжают мониториться ≤10 мин.
+ *   - Старые broadcast'ы из хвоста — каждые ≤ wrapAt/batch * tickInterval.
+ *
+ * Эти параметры безопасны после KS-3253: при concurrency=3 / chunk-gap
+ * 500мс tick укладывается в ~1.5 мин на 200+ раундов, добавление
+ * cold-сегмента сохраняет durationMs < половины tickInterval.
+ */
+const DEFAULT_SLOW_SCAN_BATCH_SIZE = 0; // 0 = выключено
+const DEFAULT_SLOW_SCAN_WRAP_AT = 250;
+const SLOW_SCAN_OFFSET_KEY = 'broadcast:metric:slow-scan:offset';
 const LICHESS_TIMEOUT_MS = 15_000;
 /**
  * KS-3253. Размер чанка параллельных запросов к Lichess внутри одного
@@ -215,6 +240,20 @@ export interface MetricCheckDeps {
   alertTtlSec?: number;
   maxBroadcasts?: number;
   /**
+   * KS-3257. Размер «холодного» батча — сколько broadcast'ов из хвоста
+   * (вне top-50 по `updated_at`) дополнительно сканировать на одном
+   * tick'е. `0` — отключено (текущее поведение). Включение через ENV
+   * `BROADCAST_GAME_COUNT_SLOW_SCAN_BATCH > 0`.
+   */
+  slowScanBatchSize?: number;
+  /**
+   * KS-3257. После какого офсета (в broadcast'ах) round-robin wraps на 0.
+   * Должен покрывать всё число активных broadcast'ов (по факту ~282 →
+   * default 250 хорошо подходит). При offset >= wrapAt → wrap на 0.
+   * Игнорируется при `slowScanBatchSize === 0`.
+   */
+  slowScanWrapAt?: number;
+  /**
    * KS-3264. Cooldown между авто-resync'ами одного раунда — используется
    * только для FIRST attempt'а (failures=1). Дальше — KS-3265 ladder.
    */
@@ -249,6 +288,18 @@ export interface MetricCheckSummary {
   mismatches: RoundMismatch[];
   newAlerts: RoundMismatch[];
   telegramSent: boolean;
+  /**
+   * KS-3257. Сколько ДОПОЛНИТЕЛЬНЫХ строк взято из «холодного» хвоста
+   * на этом tick'е (после top-50 по updated_at). `0` — slow-scan
+   * выключен или хвост пустой. Используется в логе tick'а.
+   */
+  coldRounds: number;
+  /**
+   * KS-3257. Offset (в broadcast'ах), c которого был прочитан холодный
+   * сегмент на этом tick'е. `null` — slow-scan выключен. Используется
+   * для логирования и отладки.
+   */
+  coldOffset: number | null;
   /** KS-3264 / KS-3265: статистика авто-resync. */
   autoResyncStats: {
     attempted: number;
@@ -288,6 +339,10 @@ export async function runGameCountCheckTick(
     deps.sleepFn ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const alertTtl = deps.alertTtlSec ?? DEFAULT_ALERT_TTL_SEC;
   const maxBroadcasts = deps.maxBroadcasts ?? DEFAULT_MAX_BROADCASTS;
+  const slowScanBatch =
+    deps.slowScanBatchSize ?? DEFAULT_SLOW_SCAN_BATCH_SIZE;
+  const slowScanWrapAt =
+    deps.slowScanWrapAt ?? DEFAULT_SLOW_SCAN_WRAP_AT;
 
   // Активные broadcast'ы с их раундами (только не-pending — у pending
   // партий быть не должно). roundId = наш UUID, lichessRoundId — id для
@@ -337,7 +392,64 @@ export async function runGameCountCheckTick(
     maxBroadcasts * 15, // примерно по 15 раундов на broadcast
   );
 
-  const scannedBroadcasts = new Set(rows.map((r) => r.broadcast_id)).size;
+  // KS-3257. Slow-scan по «холодному» хвосту: round-robin OFFSET через
+  // Redis-counter. Включается ENV `BROADCAST_GAME_COUNT_SLOW_SCAN_BATCH`.
+  // Поведение по умолчанию (без ENV): coldRows=[], offset=null —
+  // backward-compat, tick остаётся top-50 only.
+  let coldRows: typeof rows = [];
+  let coldOffsetBroadcasts: number | null = null;
+  let coldOffsetNext: number | null = null;
+  if (slowScanBatch > 0) {
+    const raw = await deps.redis.get(SLOW_SCAN_OFFSET_KEY);
+    const parsed = raw == null ? NaN : parseInt(raw, 10);
+    const offset =
+      Number.isFinite(parsed) && parsed >= 0 && parsed < slowScanWrapAt
+        ? parsed
+        : 0;
+    coldOffsetBroadcasts = offset;
+    // SQL-OFFSET считается в строках (раундах). Hot занял первые
+    // maxBroadcasts*15 строк по ORDER BY; cold идёт после них от
+    // позиции `offset * 15`. ORDER BY совпадает с hot — это важно,
+    // иначе сегментация по offset перепутает строки.
+    coldRows = await deps.prisma.$queryRawUnsafe<typeof rows>(
+      `SELECT b.id::text          AS broadcast_id,
+              b.title             AS broadcast_title,
+              b.lichess_id        AS lichess_broadcast_id,
+              r.id::text          AS round_id,
+              r.lichess_round_id  AS lichess_round_id,
+              r.name              AS round_name,
+              COALESCE(
+                (SELECT COUNT(*) FROM broadcast_games g WHERE g.round_id = r.id),
+                0
+              )                   AS our_count
+         FROM broadcasts b
+         JOIN broadcast_rounds r ON r.broadcast_id = b.id
+        WHERE b.is_active = TRUE
+          AND r.status IN ('ongoing', 'finished')
+          AND (b.variant IS NULL OR b.variant = 'standard')
+        ORDER BY b.updated_at DESC, r.starts_at ASC
+        OFFSET $1::int LIMIT $2::int`,
+      (maxBroadcasts + offset) * 15,
+      slowScanBatch * 15,
+    );
+    // Дедуп: если хвост пересекается с hot (например, offset=0 и
+    // hot+cold выходит за число активных broadcast'ов) — отбрасываем
+    // уже виденные round_id. Это страховка от двойного сканирования
+    // (которое съест rate-limit зря).
+    if (coldRows.length > 0) {
+      const seen = new Set(rows.map((r) => r.round_id));
+      coldRows = coldRows.filter((r) => !seen.has(r.round_id));
+    }
+    // Если SQL вернул меньше batch'а — мы достигли конца хвоста,
+    // следующий tick wrap'нется на 0. Иначе advance на batch.
+    const advanced = offset + slowScanBatch;
+    const reachedEnd = coldRows.length === 0 || advanced >= slowScanWrapAt;
+    coldOffsetNext = reachedEnd ? 0 : advanced;
+  }
+
+  const allRows = rows.concat(coldRows);
+  const coldRoundsCount = coldRows.length;
+  const scannedBroadcasts = new Set(allRows.map((r) => r.broadcast_id)).size;
   const mismatches: RoundMismatch[] = [];
   // KS-3479: ранний выход при подряд идущих null'ах. Защита от
   // продолжения tick'а когда egress / Lichess глобально лежит — не
@@ -355,11 +467,11 @@ export async function runGameCountCheckTick(
   // как было раньше). На 206 раундов tick укладывается в ~1.5 минуты
   // вместо ~7.5 — запас до tickInterval растёт с ~2.5 мин до ~8 мин.
   let firstChunk = true;
-  outer: for (let i = 0; i < rows.length; i += LICHESS_FETCH_CONCURRENCY) {
+  outer: for (let i = 0; i < allRows.length; i += LICHESS_FETCH_CONCURRENCY) {
     if (!firstChunk) await sleepFn(LICHESS_INTER_CHUNK_DELAY_MS);
     firstChunk = false;
 
-    const chunk = rows.slice(i, i + LICHESS_FETCH_CONCURRENCY);
+    const chunk = allRows.slice(i, i + LICHESS_FETCH_CONCURRENCY);
     // Promise.all держит внутри каждый собственный retry-loop
     // (fetchLichessRoundGameCount → KS-3479). На фейл — null
     // возвращается из функции, не throw → Promise.all не reject'нется
@@ -604,13 +716,40 @@ export async function runGameCountCheckTick(
     }
   }
 
+  // KS-3257. Сохраняем slow-scan offset для следующего tick'а.
+  // Делается после fetch-цикла, чтобы при сбое в fetch'е сохранять
+  // продвижение (мы потратили rate-limit, не зря). Wrap-on-empty
+  // обработан выше в `coldOffsetNext`.
+  if (slowScanBatch > 0 && coldOffsetNext !== null) {
+    try {
+      // У `MetricCheckRedis.set` сигнатура с обязательным EX-mode'ом
+      // (KS-3265 cooldown'ы) — переиспользуем её. TTL слабо привязан к
+      // tickIntervalMs, но 24ч даёт запас на любые рестарты сервиса;
+      // если воркер не работает сутки — wrap на 0 самый безопасный
+      // fallback. Это согласуется с тем, что offset «протухает» при
+      // длительных простоях.
+      await deps.redis.set(
+        SLOW_SCAN_OFFSET_KEY,
+        String(coldOffsetNext),
+        'EX',
+        86400,
+      );
+    } catch (err) {
+      deps.logger.warn(
+        `[broadcast-metric] slow-scan offset save failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
   return {
     scannedBroadcasts,
-    scannedRounds: rows.length,
+    scannedRounds: allRows.length,
     mismatches,
     newAlerts,
     telegramSent,
     autoResyncStats: stats,
+    coldRounds: coldRoundsCount,
+    coldOffset: coldOffsetBroadcasts,
   };
 }
 
@@ -940,11 +1079,29 @@ export class BroadcastGameCountMetricService
           'BROADCAST_GAME_COUNT_MAX_BROADCASTS',
           DEFAULT_MAX_BROADCASTS,
         ),
+        // KS-3257. Round-robin slow-scan хвоста (вне top-50). Включается
+        // ENV `BROADCAST_GAME_COUNT_SLOW_SCAN_BATCH > 0`, по умолчанию
+        // 0 (backward-compat). При batchSize=50 и wrapAt=250 полное
+        // покрытие 250 broadcast'ов за 5 tick'ов ≈ 50 минут (плюс top-50
+        // покрыт всегда).
+        slowScanBatchSize: parseEnvInt(
+          'BROADCAST_GAME_COUNT_SLOW_SCAN_BATCH',
+          DEFAULT_SLOW_SCAN_BATCH_SIZE,
+        ),
+        slowScanWrapAt: parseEnvInt(
+          'BROADCAST_GAME_COUNT_SLOW_SCAN_WRAP_AT',
+          DEFAULT_SLOW_SCAN_WRAP_AT,
+        ),
       });
       const ar = r.autoResyncStats;
+      // KS-3257. coldOffset / coldRounds — slow-scan диагностика.
+      const coldLog =
+        r.coldOffset === null
+          ? ''
+          : ` cold=${r.coldRounds}(@offset=${r.coldOffset})`;
       this.logger.log(
         `[broadcast-metric] tick scanned=${r.scannedRounds} rounds in ` +
-          `${r.scannedBroadcasts} broadcasts; mismatches=${r.mismatches.length} ` +
+          `${r.scannedBroadcasts} broadcasts;${coldLog} mismatches=${r.mismatches.length} ` +
           `autoResync attempted=${ar.attempted} succeeded=${ar.succeeded} ` +
           `persistent=${ar.persistentMismatches} errors=${ar.errors} ` +
           `silencedByRetryLimit=${ar.silencedByRetryLimit} ` +
