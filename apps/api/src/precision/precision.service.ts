@@ -1097,6 +1097,20 @@ export class PrecisionService {
         ratingDelta:
           r.rating_delta == null ? null : Math.round(r.rating_delta),
       })),
+      // KS-3034 / ADR-066 §7.3 (F3). Дата применения backfill'а
+      // классификации cp-loss → WDL-loss из ENV `CLASSIFY_WDL_MIGRATION_AT`.
+      // Фронт рендерит vertical marker'а на trend-графике (KS-3024) от
+      // этой даты. На dev/local ENV не выставлена — возвращаем `null`,
+      // и клиент откатывается на свою fallback-константу. На проде
+      // devops выставляет ENV ISO-date'ом непосредственно после
+      // прогона backfill'а; до тех пор маркер тоже rendered по
+      // клиентскому fallback'у, новые клиенты переключатся «бесшовно»
+      // после деплоя задачи KS-3034 на бэке + проставки ENV.
+      //
+      // Trim — на случай, если ENV пришла с trailing whitespace из
+      // task-def. Пустая строка после trim → `null` (не отдаём кривое
+      // значение клиенту, пусть лучше fallback'нётся).
+      classifyMigrationAt: readClassifyMigrationAtFromEnv(),
     };
   }
 
@@ -1392,6 +1406,39 @@ export function classifyPhaseByFen(
   if (count >= 28) return 'opening';
   if (count >= 14) return 'middlegame';
   return 'endgame';
+}
+
+/**
+ * KS-3034 / ADR-066 §7.3 (F3). Чтение ENV `CLASSIFY_WDL_MIGRATION_AT`
+ * — даты прогона backfill'а классификации cp-loss → WDL-loss. Прокидывается
+ * в `PrecisionTrendsResponse.classifyMigrationAt`, чтобы фронт
+ * (`PrecisionTrendsChart`) ставил vertical marker на trend-графике
+ * (F1, KS-3024) от фактической даты, а не от клиентского hardcode.
+ *
+ * Источник истины — ENV (а не БД-метаданные), потому что:
+ *   - backfill'ит devops в task-def / `docker-compose api.environment`;
+ *   - значение фиксируется до первого запроса `/precision/trends/me`;
+ *   - переезд между средами (dev/staging/prod) тривиален — у каждой
+ *     своя задача backfill'а и своя дата.
+ *
+ * Поведение:
+ *   - ENV отсутствует / пустая строка → `null`. Клиент откатывается
+ *     на свой fallback-hardcode (KS-3024, '2026-05-15') — backward-compat
+ *     с уже задеплоенным фронтом.
+ *   - ENV задана, после `trim()` непустая → возвращаем как есть
+ *     (бит-в-бит, без нормализации). Клиенту достаточно, чтобы
+ *     `Date.parse` его принял — формат лежит на ответственности devops'а.
+ *
+ * Экспортирована для юнит-тестов `precision.service.spec.ts`. Прод-код
+ * вызывает только из `getTrendsForUser` выше.
+ */
+export function readClassifyMigrationAtFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const raw = env.CLASSIFY_WDL_MIGRATION_AT;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  return trimmed.length === 0 ? null : trimmed;
 }
 
 /**

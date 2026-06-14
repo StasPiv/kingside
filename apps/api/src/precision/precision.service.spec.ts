@@ -845,7 +845,12 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
 
       const r = await service.getTrendsForUser('user-1', { bucket: 'day' });
-      expect(r).toEqual({ bucket: 'day', points: [] });
+      // KS-3034: добавлено поле classifyMigrationAt — без ENV `null`.
+      expect(r).toEqual({
+        bucket: 'day',
+        points: [],
+        classifyMigrationAt: null,
+      });
     });
 
     it('bucket прокидывается в SQL date_trunc параметром', async () => {
@@ -857,6 +862,59 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       // args[0] — SQL, args[1] — userId, args[2] — bucket
       expect(args[1]).toBe('user-1');
       expect(args[2]).toBe('month');
+    });
+
+    // KS-3034 / ADR-066 §7.3 (F3). classifyMigrationAt прокидывается из
+    // ENV `CLASSIFY_WDL_MIGRATION_AT`. Без ENV — `null` (клиент
+    // откатывается на свой fallback-hardcode из KS-3024). Тесты гоняют
+    // через `process.env` напрямую — getTrendsForUser читает её.
+    describe('classifyMigrationAt (KS-3034)', () => {
+      const ENV_KEY = 'CLASSIFY_WDL_MIGRATION_AT';
+      let originalEnv: string | undefined;
+
+      beforeEach(() => {
+        originalEnv = process.env[ENV_KEY];
+        delete process.env[ENV_KEY];
+      });
+
+      afterEach(() => {
+        if (originalEnv === undefined) delete process.env[ENV_KEY];
+        else process.env[ENV_KEY] = originalEnv;
+      });
+
+      it('ENV не задана → classifyMigrationAt === null', async () => {
+        prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+        const r = await service.getTrendsForUser('user-1', { bucket: 'week' });
+        expect(r.classifyMigrationAt).toBeNull();
+      });
+
+      it('ENV задана ISO-date → отдаётся как есть', async () => {
+        process.env[ENV_KEY] = '2026-05-14';
+        prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+        const r = await service.getTrendsForUser('user-1', { bucket: 'week' });
+        expect(r.classifyMigrationAt).toBe('2026-05-14');
+      });
+
+      it('ENV задана ISO-datetime → отдаётся как есть (без нормализации)', async () => {
+        process.env[ENV_KEY] = '2026-05-15T12:34:56Z';
+        prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+        const r = await service.getTrendsForUser('user-1', { bucket: 'week' });
+        expect(r.classifyMigrationAt).toBe('2026-05-15T12:34:56Z');
+      });
+
+      it('ENV пустая строка / пробелы → null (не отдаём кривое значение)', async () => {
+        process.env[ENV_KEY] = '   ';
+        prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+        const r = await service.getTrendsForUser('user-1', { bucket: 'week' });
+        expect(r.classifyMigrationAt).toBeNull();
+      });
+
+      it('ENV с trailing whitespace → trim перед отдачей', async () => {
+        process.env[ENV_KEY] = '  2026-05-15  ';
+        prisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+        const r = await service.getTrendsForUser('user-1', { bucket: 'week' });
+        expect(r.classifyMigrationAt).toBe('2026-05-15');
+      });
     });
   });
 

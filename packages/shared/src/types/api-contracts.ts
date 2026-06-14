@@ -688,6 +688,23 @@ export interface PrecisionTrendsResponse {
      */
     ratingDelta?: number | null;
   }>;
+  /**
+   * KS-3034 / ADR-066 §7.3. Дата применения backfill'а классификации
+   * cp-loss → WDL-loss. Используется фронтом для отрисовки vertical
+   * marker'а на trend-графике (см. F1, KS-3024). Источник на сервере —
+   * ENV `CLASSIFY_WDL_MIGRATION_AT` (ISO-date или ISO-datetime); при
+   * отсутствии ENV возвращается `null`, и клиент откатывается на
+   * собственную fallback-константу.
+   *
+   * Поле опциональное: старые клиенты, которые его не читают,
+   * продолжают работать через клиентский hardcode (backward-compat).
+   * Новые — приоритизируют сервер.
+   *
+   * Формат значения — то же, что лежит в ENV (мы не парсим/нормализуем,
+   * чтобы маркер совпадал бит-в-бит с тем, как девопс выставил после
+   * backfill'а). Клиенту достаточно, чтобы `Date.parse` его принял.
+   */
+  classifyMigrationAt?: string | null;
 }
 
 /**
