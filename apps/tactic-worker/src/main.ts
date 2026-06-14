@@ -33,6 +33,7 @@ import { runBackfillPuzzleObjective } from './cli/backfill-puzzle-objective.cli'
 import { runBackfillPhase } from './cli/backfill-phase.cli';
 import { runBackfillEndgameSubtype } from './cli/backfill-endgame-subtype.cli';
 import { runGeneratePuzzlesFromTwic } from './cli/generate-puzzles-from-twic.cli';
+import { runParityCheck } from './cli/parity-check.cli';
 
 const SUBCOMMANDS = [
   'index-tactic-drills',
@@ -44,6 +45,7 @@ const SUBCOMMANDS = [
   'backfill-phase',
   'backfill-endgame-subtype',
   'generate-puzzles-from-twic',
+  'parity-check',
 ] as const;
 
 function printHelp(): void {
@@ -108,6 +110,9 @@ async function main(): Promise<void> {
         break;
       case 'generate-puzzles-from-twic':
         await runGeneratePuzzlesFromTwic(app, rest);
+        break;
+      case 'parity-check':
+        await runParityCheck(app, rest);
         break;
       default:
         // exhaustiveness — TypeScript уже проверил выше.

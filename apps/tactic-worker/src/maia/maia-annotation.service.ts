@@ -42,12 +42,20 @@
  */
 import { Logger } from '@nestjs/common';
 import {
+  MAIA_WEAK_CHOICE_METRIC_VERSION,
   Maia,
   annotateWeakChoice,
+  buildMaiaSearchMoves,
+  computeWeakChoiceProb,
   createNodeProvider,
   loadModelFromFs,
   type WeakChoiceAnalysisEngine,
 } from '@kingside/maia-core';
+import {
+  expectedScoreFromWdl,
+  wdlOrMateFallback,
+  type Wdl,
+} from '@kingside/shared';
 
 import type { StockfishService } from '../stockfish/stockfish.service';
 
@@ -68,6 +76,43 @@ export interface MaiaAnnotation {
   elo: number;
   /** Суммарное время аннотации (Maia + SF), мс. Для логов/метрик. */
   latencyMs: number;
+}
+
+/**
+ * KS-4107 паритет-тест: полный трейс одной позиции для CLI
+ * `parity-check`. Содержит входы (FEN/firstMovePV1/elo/sfDepth),
+ * промежуточные данные (policy, searchMoves, expectedScores+WDL,
+ * weakSet с lossE/weight) и финальный prob. Не записывается в БД —
+ * только в stdout CLI.
+ */
+export interface MaiaInspectResult {
+  puzzleId: string;
+  fen: string;
+  firstMovePV1: string;
+  elo: number;
+  sfDepth: number;
+  metricVersion: number;
+  /** Maia policy, top-12 по убыванию вероятности. */
+  maiaPolicyTop: Array<{ move: string; probability: number }>;
+  /** Кандидаты после policy-фильтра > 0.10 и cap top-8. */
+  maiaTopK: string[];
+  /** Что реально передаётся SF в searchmoves. */
+  searchMoves: string[];
+  /** WDL и expected-score по каждому ходу из searchMoves. */
+  expectedScores: Array<{
+    move: string;
+    expectedScore: number | null;
+    wdl: { w: number; d: number; l: number } | null;
+  }>;
+  bestExpectedScore: number;
+  /** Слабые ходы (weight > 0) с метаданными. */
+  weakSet: Array<{
+    move: string;
+    policy: number;
+    lossE: number;
+    weight: number;
+  }>;
+  weakChoiceProb: number;
 }
 
 export interface MaiaAnnotationServiceConfig {
@@ -224,6 +269,111 @@ export class MaiaAnnotationService {
       metricVersion: result.metricVersion,
       elo: result.elo,
       latencyMs,
+    };
+  }
+
+  /**
+   * KS-4107 / KS-4108. Дебаг-аннотация для паритет-теста client↔server.
+   * Возвращает ПОЛНЫЙ трейс одного пазла без записи в БД: policy
+   * (top-N по убыванию), список searchMoves, expectedScores (E +
+   * исходный WDL) по каждому, weakSet (loss_E + weight по soft-
+   * threshold KS-4107), bestExpectedScore, weakChoiceProb,
+   * metric_version и ELO. Используется одноразовым CLI
+   * `parity-check` (см. apps/tactic-worker/src/cli/parity-check.cli.ts)
+   * для подачи QA эталонных серверных значений.
+   *
+   * Любая ошибка инициализации / inference пробрасывается наверх —
+   * CLI обязан их видеть, в отличие от production-`annotate()`,
+   * который их глушит в WARN+null.
+   */
+  async inspect(
+    puzzleId: string,
+    fen: string,
+    firstMovePV1: string,
+  ): Promise<MaiaInspectResult> {
+    const engine = await this.getEngine();
+
+    const maiaResult = await engine.predictMoves(
+      fen,
+      this.config.elo,
+      this.config.elo,
+    );
+    const policySorted = [...maiaResult.policy].sort(
+      (a, b) => b.probability - a.probability,
+    );
+
+    const { maiaTopK, searchMoves } = buildMaiaSearchMoves(
+      maiaResult.policy,
+      firstMovePV1,
+    );
+
+    let lines: Array<{ bestMove: string; wdl: Wdl | null; score: unknown }> = [];
+    if (searchMoves.length > 0) {
+      const sfLines = await this.stockfish.analyzePositionWdl(
+        fen,
+        { depth: this.config.sfDepth },
+        searchMoves.length,
+        `parity-check p=${puzzleId}`,
+        undefined,
+        searchMoves,
+      );
+      lines = sfLines.map((l) => ({
+        bestMove: l.bestMove,
+        wdl: l.wdl ?? null,
+        score: l.score,
+      }));
+    }
+
+    const expectedScoresMap = new Map<
+      string,
+      { e: number; wdl: Wdl | null }
+    >();
+    for (const line of lines) {
+      const wdl = wdlOrMateFallback(line.wdl, line.score as never);
+      if (!wdl) continue;
+      expectedScoresMap.set(line.bestMove, {
+        e: expectedScoreFromWdl(wdl),
+        wdl: line.wdl,
+      });
+    }
+
+    const pureExpectedScores = new Map<string, number>();
+    for (const [move, v] of expectedScoresMap) pureExpectedScores.set(move, v.e);
+    const computed = computeWeakChoiceProb({
+      policy: maiaResult.policy,
+      firstMovePV1,
+      expectedScores: pureExpectedScores,
+    });
+
+    return {
+      puzzleId,
+      fen,
+      firstMovePV1,
+      elo: this.config.elo,
+      sfDepth: this.config.sfDepth,
+      metricVersion: MAIA_WEAK_CHOICE_METRIC_VERSION,
+      maiaPolicyTop: policySorted.slice(0, 12).map((p) => ({
+        move: p.move,
+        probability: p.probability,
+      })),
+      maiaTopK,
+      searchMoves,
+      expectedScores: searchMoves.map((move) => {
+        const v = expectedScoresMap.get(move);
+        return {
+          move,
+          expectedScore: v?.e ?? null,
+          wdl: v?.wdl ?? null,
+        };
+      }),
+      bestExpectedScore: computed.bestExpectedScore,
+      weakSet: computed.weakSet.map((w) => ({
+        move: w.move,
+        policy: w.policy,
+        lossE: w.lossE,
+        weight: w.weight,
+      })),
+      weakChoiceProb: computed.weakChoiceProb,
     };
   }
 
