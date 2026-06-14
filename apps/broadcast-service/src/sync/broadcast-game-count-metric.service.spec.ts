@@ -750,7 +750,37 @@ describe('KS-3231 runGameCountCheckTick', () => {
     expect(msg).toContain('FDb3eO7v');
   });
 
-  it('rate-limit gap между Lichess-запросами вызывает sleepFn', async () => {
+  it('KS-3253: rate-limit gap теперь между ЧАНКАМИ параллельных fetch (500мс)', async () => {
+    // 7 раундов при concurrency=3 → 3 чанка (3+3+1), между чанками
+    // 2 sleep'а по LICHESS_INTER_CHUNK_DELAY_MS = 500мс. Внутри
+    // чанка fetch'и параллельны — sleep между ними не вызывается.
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'R1', ourCount: 5 }),
+      makeRow({ roundId: 'r2', lichessRoundId: 'R2', ourCount: 5 }),
+      makeRow({ roundId: 'r3', lichessRoundId: 'R3', ourCount: 5 }),
+      makeRow({ roundId: 'r4', lichessRoundId: 'R4', ourCount: 5 }),
+      makeRow({ roundId: 'r5', lichessRoundId: 'R5', ourCount: 5 }),
+      makeRow({ roundId: 'r6', lichessRoundId: 'R6', ourCount: 5 }),
+      makeRow({ roundId: 'r7', lichessRoundId: 'R7', ourCount: 5 }),
+    ]);
+    const redis = makeRedis();
+    const fetchFn = jest.fn(async () => makePgnResponse(5));
+    const sleepFn = jest.fn(async () => {});
+    await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    // 3 чанка → 2 паузы между чанками; других sleep'ов нет (все
+    // запросы успешны, retry/backoff не задействован).
+    expect(sleepFn).toHaveBeenCalledTimes(2);
+    expect(sleepFn).toHaveBeenCalledWith(500);
+  });
+
+  it('KS-3253: чанк ≤ concurrency — sleep между чанками не вызывается', async () => {
+    // 3 раунда умещаются в один чанк (concurrency=3) → 0 пауз.
     const prisma = makePrisma([
       makeRow({ roundId: 'r1', lichessRoundId: 'R1', ourCount: 5 }),
       makeRow({ roundId: 'r2', lichessRoundId: 'R2', ourCount: 5 }),
@@ -766,9 +796,43 @@ describe('KS-3231 runGameCountCheckTick', () => {
       fetchFn: fetchFn as unknown as typeof fetch,
       sleepFn,
     });
-    // 3 раунда, sleep между ними — 2 раза.
-    expect(sleepFn).toHaveBeenCalledTimes(2);
-    expect(sleepFn).toHaveBeenCalledWith(1500);
+    expect(sleepFn).not.toHaveBeenCalled();
+  });
+
+  it('KS-3253: fetch-вызовы внутри чанка реально стартуют параллельно', async () => {
+    // Засекаем concurrent in-flight через counter: при concurrency=3
+    // максимальное наблюдаемое значение должно быть 3 (на 6 раундах).
+    const prisma = makePrisma([
+      makeRow({ roundId: 'r1', lichessRoundId: 'P1', ourCount: 5 }),
+      makeRow({ roundId: 'r2', lichessRoundId: 'P2', ourCount: 5 }),
+      makeRow({ roundId: 'r3', lichessRoundId: 'P3', ourCount: 5 }),
+      makeRow({ roundId: 'r4', lichessRoundId: 'P4', ourCount: 5 }),
+      makeRow({ roundId: 'r5', lichessRoundId: 'P5', ourCount: 5 }),
+      makeRow({ roundId: 'r6', lichessRoundId: 'P6', ourCount: 5 }),
+    ]);
+    const redis = makeRedis();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchFn = jest.fn(async () => {
+      inFlight++;
+      if (inFlight > maxInFlight) maxInFlight = inFlight;
+      // микро-await чтобы дать planner'у время на параллельный запуск.
+      await new Promise<void>((r) => setImmediate(r));
+      inFlight--;
+      return makePgnResponse(5);
+    });
+    const sleepFn = jest.fn(async () => {});
+    await runGameCountCheckTick({
+      prisma,
+      redis,
+      logger: makeLogger(),
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleepFn,
+    });
+    // Concurrency=3 → внутри чанка 3 fetch'а должны быть in-flight
+    // одновременно.
+    expect(maxInFlight).toBe(3);
+    expect(fetchFn).toHaveBeenCalledTimes(6);
   });
 
   // ─── KS-3479: retry + early-exit при caсkade'е fail'ов ─────────────
@@ -892,18 +956,22 @@ describe('KS-3231 runGameCountCheckTick', () => {
     expect(r1Calls).toBe(2);
   });
 
-  it('KS-3479: 5 подряд null → ранний break tick, остальные раунды не дёргаются', async () => {
-    // 8 раундов: первые 5 валятся в 503 (после retry → null), 6-й
-    // НЕ должен быть запрошен (break после 5 nulls).
+  it('KS-3479/KS-3253: подряд null-результаты → ранний break (на границе чанка)', async () => {
+    // 9 раундов, все 503. С concurrency=3 break срабатывает в конце
+    // второго чанка (consecutiveNulls=6 >= 5). 3-й чанк не стартует.
+    // Внутри чанка все 3 fetch'а + retry уходят параллельно, поэтому
+    // 503-retry даёт по 2 fetch на каждый раунд → 6 раундов × 2 = 12
+    // fetch-вызовов. 7-й..9-й раунды не вызываются.
     const prisma = makePrisma([
       makeRow({ roundId: 'r1', lichessRoundId: 'F1', ourCount: 1 }),
       makeRow({ roundId: 'r2', lichessRoundId: 'F2', ourCount: 1 }),
       makeRow({ roundId: 'r3', lichessRoundId: 'F3', ourCount: 1 }),
       makeRow({ roundId: 'r4', lichessRoundId: 'F4', ourCount: 1 }),
       makeRow({ roundId: 'r5', lichessRoundId: 'F5', ourCount: 1 }),
-      makeRow({ roundId: 'r6', lichessRoundId: 'X6', ourCount: 1 }),
+      makeRow({ roundId: 'r6', lichessRoundId: 'F6', ourCount: 1 }),
       makeRow({ roundId: 'r7', lichessRoundId: 'X7', ourCount: 1 }),
       makeRow({ roundId: 'r8', lichessRoundId: 'X8', ourCount: 1 }),
+      makeRow({ roundId: 'r9', lichessRoundId: 'X9', ourCount: 1 }),
     ]);
     const redis = makeRedis();
     const fetchFn = jest.fn(async () => {
@@ -917,10 +985,12 @@ describe('KS-3231 runGameCountCheckTick', () => {
       fetchFn: fetchFn as unknown as typeof fetch,
       sleepFn,
     });
-    // Только первые 5 раундов запрошены. 503 + retry = по 2 fetch на
-    // каждый: 5 × 2 = 10 fetch-вызовов. 6-й раунд не вызывается.
-    expect(fetchFn).toHaveBeenCalledTimes(10);
+    expect(fetchFn).toHaveBeenCalledTimes(12);
     expect(r.mismatches).toEqual([]);
+    // 7-й..9-й раунды не были запрошены.
+    expect(
+      fetchFn.mock.calls.some((c) => /X[789]/.test(String(c[0]))),
+    ).toBe(false);
   });
 
   it('KS-3479: 4xx (не 429) → НЕ ретраим, идём дальше', async () => {

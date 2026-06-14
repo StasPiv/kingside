@@ -90,7 +90,33 @@ const DEFAULT_FAILURE_COOLDOWN_LADDER_SEC = [3600, 10800, 43200, 86400];
 // разделить tick на под-задачи (KS-3257, если понадобится).
 const DEFAULT_MAX_BROADCASTS = 50;
 const LICHESS_TIMEOUT_MS = 15_000;
-const LICHESS_RATE_LIMIT_DELAY_MS = 1500;
+/**
+ * KS-3253. Размер чанка параллельных запросов к Lichess внутри одного
+ * tick'а. Был последовательный цикл с rate-limit gap 1.5с между
+ * запросами (LICHESS_RATE_LIMIT_DELAY_MS) — при 206 раундов tick
+ * занимал ~7 мин 27 сек, опасно близко к `tickIntervalMs=10 мин`.
+ *
+ * Concurrency 3 даёт ≈3× ускорения wall-clock без существенного
+ * давления на rate-limit Lichess:
+ *  - Глобальный лимит API — 20 req/s (мы делим с основным sync-loop'ом).
+ *  - Effective RPS при concurrency=3, avg latency 0.3-1с,
+ *    inter-chunk gap LICHESS_INTER_CHUNK_DELAY_MS=500мс ≈ 4-6 req/s.
+ *  - Endpoint `/broadcast/round/:id.pgn` имеет более жёсткий лимит
+ *    ~60 req/min — 6 req/s ниже потолка с большим запасом.
+ *
+ * Retry/429-обработка не затронута — fetchLichessRoundGameCount
+ * сохраняет один retry с backoff (KS-3479) и Retry-After (clamp 1..30с).
+ * Каждый fetch внутри Promise.all держит свой собственный retry-loop.
+ */
+const LICHESS_FETCH_CONCURRENCY = 3;
+/**
+ * KS-3253. Пауза между чанками параллельных fetch'ей. Раньше пауза
+ * стояла между КАЖДЫМ запросом (1.5с) — теперь только между чанками.
+ * Эффективный RPS при concurrency=3 и chunk-gap 500мс — 4-6 req/s,
+ * что заметно ниже Lichess /broadcast rate-limit.
+ */
+const LICHESS_INTER_CHUNK_DELAY_MS = 500;
+const LICHESS_RATE_LIMIT_DELAY_MS = LICHESS_INTER_CHUNK_DELAY_MS; // alias для теста KS-3253
 const ALERT_KEY_PREFIX = 'broadcast:metric:alerted:';
 const TICK_LOCK_KEY = 'broadcast:metric-check:lock';
 const TICK_LOCK_TTL_SEC = 50;
@@ -313,51 +339,74 @@ export async function runGameCountCheckTick(
 
   const scannedBroadcasts = new Set(rows.map((r) => r.broadcast_id)).size;
   const mismatches: RoundMismatch[] = [];
-  let firstFetchInTick = true;
   // KS-3479: ранний выход при подряд идущих null'ах. Защита от
   // продолжения tick'а когда egress / Lichess глобально лежит — не
   // ускоряем восстановление, только тратим slot'ы в rate-limit'е.
+  // KS-3253: счётчик глобальный (между чанками), но триггер проверяется
+  // только после завершения текущего чанка. Это даёт небольшой
+  // оверран — при пороге 5 и чанке 3 break срабатывает на 6-м null'е
+  // вместо ровно 5-го, но философия (не уходим в долгий fail-tick)
+  // сохраняется.
   let consecutiveNulls = 0;
 
-  for (const row of rows) {
-    // rate-limit gap между Lichess-запросами (общий лимит 20 req/s,
-    // у нас ≪, но всё же — мы делим quota с основным sync-loop'ом).
-    if (!firstFetchInTick) await sleepFn(LICHESS_RATE_LIMIT_DELAY_MS);
-    firstFetchInTick = false;
+  // KS-3253. Параллелизация запросов к Lichess: чанки по
+  // `LICHESS_FETCH_CONCURRENCY`, между чанками — единая пауза
+  // `LICHESS_INTER_CHUNK_DELAY_MS` (вместо паузы между КАЖДЫМ запросом
+  // как было раньше). На 206 раундов tick укладывается в ~1.5 минуты
+  // вместо ~7.5 — запас до tickInterval растёт с ~2.5 мин до ~8 мин.
+  let firstChunk = true;
+  outer: for (let i = 0; i < rows.length; i += LICHESS_FETCH_CONCURRENCY) {
+    if (!firstChunk) await sleepFn(LICHESS_INTER_CHUNK_DELAY_MS);
+    firstChunk = false;
 
-    const lichessCount = await fetchLichessRoundGameCount(
-      row.lichess_round_id,
-      fetchFn,
-      deps.logger,
-      sleepFn,
+    const chunk = rows.slice(i, i + LICHESS_FETCH_CONCURRENCY);
+    // Promise.all держит внутри каждый собственный retry-loop
+    // (fetchLichessRoundGameCount → KS-3479). На фейл — null
+    // возвращается из функции, не throw → Promise.all не reject'нется
+    // на первой ошибке.
+    const chunkResults = await Promise.all(
+      chunk.map((row) =>
+        fetchLichessRoundGameCount(
+          row.lichess_round_id,
+          fetchFn,
+          deps.logger,
+          sleepFn,
+        ).then((lichessCount) => ({ row, lichessCount })),
+      ),
     );
-    if (lichessCount === null) {
-      // не достучались, тихо скип; проверяем лимит подряд идущих фейлов.
-      consecutiveNulls++;
-      if (consecutiveNulls >= CONSECUTIVE_NULLS_BREAK_THRESHOLD) {
-        deps.logger.warn(
-          `[broadcast-metric] aborting tick after ${consecutiveNulls} ` +
-            `consecutive lichess null'ов — likely egress/Lichess outage`,
-        );
-        break;
+
+    // Обрабатываем результаты в порядке поступления (как раньше делал
+    // последовательный цикл) — чтобы consecutiveNulls / mismatches
+    // имели те же гарантии порядка.
+    for (const { row, lichessCount } of chunkResults) {
+      if (lichessCount === null) {
+        consecutiveNulls++;
+        continue;
       }
-      continue;
+      consecutiveNulls = 0;
+
+      const ourCount = Number(row.our_count);
+      if (ourCount >= lichessCount) continue; // всё ок, у нас не меньше
+
+      mismatches.push({
+        broadcastId: row.broadcast_id,
+        broadcastTitle: row.broadcast_title,
+        lichessBroadcastId: row.lichess_broadcast_id,
+        roundId: row.round_id,
+        lichessRoundId: row.lichess_round_id,
+        roundName: row.round_name,
+        ourCount,
+        lichessCount,
+      });
     }
-    consecutiveNulls = 0;
 
-    const ourCount = Number(row.our_count);
-    if (ourCount >= lichessCount) continue; // всё ок, у нас не меньше
-
-    mismatches.push({
-      broadcastId: row.broadcast_id,
-      broadcastTitle: row.broadcast_title,
-      lichessBroadcastId: row.lichess_broadcast_id,
-      roundId: row.round_id,
-      lichessRoundId: row.lichess_round_id,
-      roundName: row.round_name,
-      ourCount,
-      lichessCount,
-    });
+    if (consecutiveNulls >= CONSECUTIVE_NULLS_BREAK_THRESHOLD) {
+      deps.logger.warn(
+        `[broadcast-metric] aborting tick after ${consecutiveNulls} ` +
+          `consecutive lichess null'ов — likely egress/Lichess outage`,
+      );
+      break outer;
+    }
   }
 
   // Лог всех mismatch'ей (включая cooldowned, для долгосрочной аналитики).
