@@ -3304,12 +3304,22 @@ class WebhookHandler(BaseHTTPRequestHandler):
             cmd = ["bash", os.path.join(PROJECT_DIR, "scripts/deploy-aws.sh")]
             if scope:
                 cmd.append(scope)
-            log(f"Deploy запущен: {' '.join(cmd)}")
+            # Динамический таймаут: deploy all сжирает 30-45 мин (frontend +
+            # api + game + broadcast + archive + tactic-worker подряд),
+            # workers ~15 мин (broadcast + archive), per-scope ~5-10 мин.
+            # Прежний жёсткий 600с обрывал deploy all → агент получал 504,
+            # не знал реального статуса и запускал заново, пока первый
+            # ещё крутился в docker build / aws cli.
+            deploy_timeout = {
+                "all": 3600,
+                "workers": 1800,
+            }.get(scope, 900)
+            log(f"Deploy запущен: {' '.join(cmd)} (timeout {deploy_timeout}s)")
             try:
                 env = os.environ.copy()
                 result = subprocess.run(
                     cmd, cwd=PROJECT_DIR, env=env,
-                    capture_output=True, text=True, timeout=600,
+                    capture_output=True, text=True, timeout=deploy_timeout,
                 )
                 log(f"Deploy завершён: rc={result.returncode}")
                 ok = result.returncode == 0
@@ -3323,7 +3333,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                     "stderr": result.stderr[-2000:],
                 }).encode())
             except subprocess.TimeoutExpired:
-                log("Deploy таймаут (600s)")
+                log(f"Deploy таймаут ({deploy_timeout}s)")
                 self.send_response(504)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
