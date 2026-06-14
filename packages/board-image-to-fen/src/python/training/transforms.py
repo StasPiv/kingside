@@ -42,6 +42,10 @@ def build_train_transform(cell_size: int = 64):
             border_mode=cv2.BORDER_CONSTANT,
             value=0,
         ),
+        # KS-3091 v3 follow-up: переводим в grayscale ВСЕГДА — модель учится
+        # форме фигуры, не цвету фона. ToGray даёт grayscale в 3-канальном
+        # представлении (R=G=B), что совместимо с MobileNetV3 на 3 входа.
+        A.ToGray(p=1.0),
         # ── Геометрия ──────────────────────────────────────────────────
         A.Affine(
             translate_percent={"x": (-0.06, 0.06), "y": (-0.06, 0.06)},
@@ -49,18 +53,10 @@ def build_train_transform(cell_size: int = 64):
             rotate=(-4, 4),
             p=0.7,
         ),
-        # ADR-040-v2 §1.1: Perspective — основа против сдвига рамки на проде.
         A.Perspective(scale=(0.04, 0.08), keep_size=True, p=0.4),
-        # ── Цвет ───────────────────────────────────────────────────────
+        # ── Яркость/контраст (цветовая аугментация убрана — grayscale) ─
         A.RandomBrightnessContrast(
             brightness_limit=0.20, contrast_limit=0.20, p=0.5,
-        ),
-        # ADR-040-v2 §1.1: расширенный сдвиг ±20/±30/±20.
-        A.HueSaturationValue(
-            hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5,
-        ),
-        A.RGBShift(
-            r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.4,
         ),
         # ── Имитация рендер-артефактов прода ───────────────────────────
         A.Downscale(scale_min=0.5, scale_max=0.9, p=0.3),
@@ -121,7 +117,11 @@ def build_preview_pipeline(cell_size: int = 64):
 
 
 def build_eval_transform(cell_size: int = 64):
-    """No augmentation, just resize + normalize."""
+    """No augmentation, just grayscale + resize + normalize.
+
+    KS-3091 v3 follow-up: ToGray на eval/inference — модель ожидает
+    grayscale-вход, как на train.
+    """
     import albumentations as A
     import cv2
     from albumentations.pytorch import ToTensorV2
@@ -134,6 +134,7 @@ def build_eval_transform(cell_size: int = 64):
             border_mode=cv2.BORDER_CONSTANT,
             value=0,
         ),
+        A.ToGray(p=1.0),
         A.Normalize(
             mean=(0.485, 0.456, 0.406),
             std=(0.229, 0.224, 0.225),

@@ -173,6 +173,12 @@ export interface AcquiredLock {
  *   Долгосрочный фикс — yield event loop в parseBatch (KS-2158
  *   follow-up: setImmediate каждые N партий) или worker_thread.
  *
+ * KS-3150 (20.05.2026): twic1645 18-19.05 падал по lock-expire через
+ * ~12 мин — выходим за окно 10-мин дефолта. Поднимаем не в коде, а
+ * через ENV: devops добавляет `ARCHIVE_IMPORTER_LOCK_TTL_MS=3600000`
+ * (1 час) в task-def `kingside-archive-importer`. Дефолт в коде
+ * остаётся 600s — env-override это позволяет.
+ *
  * Экспортируется для тестов.
  */
 export function resolveLockTimings(

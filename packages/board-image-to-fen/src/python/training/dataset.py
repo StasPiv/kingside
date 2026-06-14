@@ -154,6 +154,115 @@ class CellDataset(Dataset):
 
 
 # ---------------------------------------------------------------------------
+# v2 Dataset (KS-3091, ADR-040-v2). Все метки + стили + индексы лежат внутри
+# `cells_<split>.h5` рядом с PNG-байтами — нет отдельного jsonl, не нужно
+# хранить миллион rows в RAM. Структура h5:
+#   - cells   : vlen uint8 (PNG bytes)
+#   - labels  : uint8 (LABEL_TO_IDX)
+#   - styles  : ascii string (для per-style оценки на val)
+#   - (val)   : fen_idx uint16, square uint8, val_fens (attribute)
+# ---------------------------------------------------------------------------
+
+
+class CellDatasetV2(Dataset):
+    """v2 Dataset, читает напрямую из `cells_<split>.h5` без JSONL-индекса.
+
+    Parameters
+    ----------
+    data_dir
+        Папка, содержащая `cells_<split>.h5`. Обычно
+        `packages/board-image-to-fen/data/v2`.
+    split
+        ``"train"`` или ``"val"``. (test'а в v2 нет — held-out val
+        совмещает обе роли по ADR-040-v2.)
+    transform
+        Albumentations-трансформ (HxWx3 uint8 → dict с key ``"image"``).
+    style_filter
+        Опционально: оставить только клетки указанных стилей. Полезно
+        для per-style оценки на val.
+    """
+
+    def __init__(
+        self,
+        data_dir: str | Path,
+        split: str,
+        transform: Optional[Callable[..., Dict[str, Any]]] = None,
+        style_filter: Optional[List[str]] = None,
+    ) -> None:
+        self.data_dir = Path(data_dir).resolve()
+        self.split = split
+        self.transform = transform
+        self.h5_path = self.data_dir / f"cells_{split}.h5"
+        if not self.h5_path.is_file():
+            raise FileNotFoundError(
+                f"v2 cells file not found: {self.h5_path}. "
+                f"Run dataset_gen.py --style-set both."
+            )
+
+        # h5py НЕ fork-safe. Здесь открываем один раз для построения индекса
+        # фильтрации, потом закрываем, и каждый worker откроет файл лениво
+        # в __getitem__.
+        import h5py
+        with h5py.File(self.h5_path, "r") as fh:
+            n_total = int(fh["cells"].shape[0])
+            if style_filter is not None:
+                allowed = set(style_filter)
+                styles = fh["styles"][:]
+                # styles — это array of bytes. Декодируем.
+                mask = np.array(
+                    [s.decode("ascii") in allowed for s in styles], dtype=bool,
+                )
+                self.indices = np.flatnonzero(mask)
+                if self.indices.size == 0:
+                    raise RuntimeError(
+                        f"Empty after style_filter={sorted(allowed)} "
+                        f"in {self.h5_path}"
+                    )
+            else:
+                self.indices = np.arange(n_total, dtype=np.int64)
+        self._h5: Any = None
+
+    def __len__(self) -> int:
+        return int(self.indices.size)
+
+    def __getitem__(self, index: int) -> Dict[str, Any]:
+        if self._h5 is None:
+            import h5py
+            self._h5 = h5py.File(self.h5_path, "r")
+
+        h5_idx = int(self.indices[index])
+        png_bytes = bytes(self._h5["cells"][h5_idx])
+        with Image.open(io.BytesIO(png_bytes)) as im:
+            im = im.convert("RGB")
+            arr = np.asarray(im, dtype=np.uint8)
+
+        label_idx = int(self._h5["labels"][h5_idx])
+        style = self._h5["styles"][h5_idx]
+        if isinstance(style, bytes):
+            style = style.decode("ascii")
+
+        if self.transform is not None:
+            image_tensor = self.transform(image=arr)["image"]
+        else:
+            import torch
+            image_tensor = (
+                torch.from_numpy(arr).permute(2, 0, 1).float() / 255.0
+            )
+
+        out = {
+            "image": image_tensor,
+            "label": label_idx,
+            "style": style,
+            "h5_idx": h5_idx,
+        }
+        # Val содержит дополнительные поля для end-to-end FEN-match метрики.
+        if "fen_idx" in self._h5:
+            out["fen_idx"] = int(self._h5["fen_idx"][h5_idx])
+            out["square"] = int(self._h5["square"][h5_idx])
+        return out
+
+
+# ---------------------------------------------------------------------------
 # Default Albumentations transforms.
 # ---------------------------------------------------------------------------
 

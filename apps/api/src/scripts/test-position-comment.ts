@@ -341,7 +341,8 @@ async function main() {
       usedIds.add((f as any).id);
     }
   }
-  const systemPrompt = service.buildSystemPrompt('ru', usedIds, false);
+  const lang = (process.env.LANG_TEST === 'en' ? 'en' : 'ru') as 'ru' | 'en';
+  const systemPrompt = service.buildSystemPrompt(lang, usedIds, false);
 
   console.log('═══ FEN ════════════════════════════════════════════════════');
   console.log(fen);
@@ -374,7 +375,7 @@ async function main() {
     eval: evalSummary,
     metrics: metrics as any,
     phase,
-    language: 'ru',
+    language: lang,
   } as any);
   console.log('═══ MODEL RESPONSE (parsed) ════════════════════════════════');
   console.log(JSON.stringify(result, null, 2));

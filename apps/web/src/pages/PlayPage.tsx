@@ -11,6 +11,7 @@ import { useLazySocket } from '../hooks/useLazySocket';
 import { messagesSocket } from '../socket';
 import { ChallengeModal } from '../components/ChallengeModal';
 import { ServerBusyBanner } from '../components/ServerBusyBanner';
+import { NoOpponentsBlock } from '../components/NoOpponentsBlock';
 import type { TimeControlCategory } from '../hooks/useTimeControl';
 import { TC_LABEL_KEYS } from '../hooks/useTimeControl';
 import '../styles/play.css';
@@ -50,7 +51,7 @@ export function PlayPage() {
     searching, ratingFilterMode, setRatingFilterMode,
     ratingMin, setRatingMin, ratingMax, setRatingMax,
     ratingMinus, setRatingMinus, ratingPlus, setRatingPlus,
-    handleSearch,
+    handleSearch, noOpponents, retryAfterNoOpponents, dismissNoOpponents,
   } = matchmaking;
 
   const {
@@ -224,11 +225,18 @@ export function PlayPage() {
           <button
             className={`play-btn play-btn--big${searching ? ' searching' : ''}`}
             onClick={() => handleSearch({ timeInitial: selectedMinutes * 60, increment: selectedIncrement, activeTab })}
+            disabled={!!noOpponents}
           >
             {searching ? t('lobby.cancelSearch') : t('lobby.play')}
           </button>
-          {searching && <p className="searching">{t('lobby.searching')}</p>}
+          {searching && !noOpponents && <p className="searching">{t('lobby.searching')}</p>}
           {searching && matchmaking.serverBusy && <ServerBusyBanner />}
+          {noOpponents && (
+            <NoOpponentsBlock
+              onRetry={retryAfterNoOpponents}
+              onChangeTc={dismissNoOpponents}
+            />
+          )}
         </div>
 
         {/* Right column */}

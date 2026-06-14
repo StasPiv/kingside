@@ -297,6 +297,10 @@ class AgentDaemon:
         cmd.append("kingside-agent")
         cmd.extend([
             "-p",
+            # Пин на opus-4-7: opus-4-8 (default с 2026-06-14) эмитит
+            # tool-call как <invoke>-XML в текстовом блоке вместо structured
+            # tool_use — Bash физически не вызывается, текст уходит в чат.
+            "--model", "claude-opus-4-7",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
@@ -1161,7 +1165,7 @@ class ChatDaemon:
         cmd.extend([
             "kingside-agent",
             "-p",
-            "--model", "default",
+            "--model", "claude-opus-4-7",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",

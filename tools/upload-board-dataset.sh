@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# KS-3091 (ADR-040-v2 §6 этап B). Публикация board-recog датасета v2 в S3
-# `kingside-ml/datasets/board-recog/v2/`.
+# KS-3091 (ADR-040-v2 §6 этап B). Публикация board-recog датасета в S3
+# `kingside-ml/datasets/board-recog/<dataset_ver>/`.
 #
 # Использование:
-#   tools/upload-board-dataset.sh [path/to/data/v2]
+#   tools/upload-board-dataset.sh [path/to/data/v2] [dataset_ver]
 #
 # Если путь не передан — берётся стандартное расположение
 # packages/board-image-to-fen/data/v2.
+# Если dataset_ver не передан — публикуем под префиксом `v2` (обратная
+# совместимость). Для итераций v2 с теми же manifest_v2.json
+# (например ребиланс train с augmentation) — передавай v2.1, v2.2 и т.д.
 #
 # Файлы, которые льются (если присутствуют):
 #   cells_train.h5      — packed train cells (PNG bytes + labels + styles)
@@ -23,9 +26,16 @@ set -euo pipefail
 
 BUCKET="kingside-ml"
 REGION="eu-central-1"
-PREFIX="datasets/board-recog/v2"
 
 DATA_DIR="${1:-packages/board-image-to-fen/data/v2}"
+DATASET_VER="${2:-v2}"
+
+if [[ ! "$DATASET_VER" =~ ^v[0-9]+(\.[0-9]+)?$ ]]; then
+  echo "error: dataset_ver должен матчить ^v[0-9]+(\.[0-9]+)?$ (например v2, v2.1), got: $DATASET_VER" >&2
+  exit 2
+fi
+
+PREFIX="datasets/board-recog/${DATASET_VER}"
 
 if [[ ! -d "$DATA_DIR" ]]; then
   echo "error: $DATA_DIR не существует. Запусти dataset_gen.py сначала." >&2

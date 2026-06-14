@@ -117,7 +117,8 @@ ifeq ($(ARCH), $(filter $(ARCH), \
                  x86-64-vnni512 x86-64-vnni256 x86-64-avx512 x86-64-avxvnni x86-64-bmi2 \
                  x86-64-avx2 x86-64-sse41-popcnt x86-64-modern x86-64-ssse3 x86-64-sse3-popcnt \
                  x86-64 x86-32-sse41-popcnt x86-32-sse2 x86-32 ppc-64 ppc-32 e2k \
-                 armv7 armv7-neon armv8 armv8-dotprod apple-silicon general-64 general-32 riscv64))
+                 armv7 armv7-neon armv8 armv8-dotprod apple-silicon general-64 general-32 riscv64 \
+                 wasm))
    SUPPORTED_ARCH=true
 else
    SUPPORTED_ARCH=false
@@ -353,6 +354,22 @@ endif
 ifeq ($(ARCH),riscv64)
 	arch = riscv64
 endif
+
+# KS-3653 / ADR-107 rev 2: WebAssembly target для stockfish-16-trace.
+ifeq ($(ARCH),wasm)
+	arch = any
+	bits = 32
+	prefetch = no
+	popcnt = no
+	sse = no
+	mmx = no
+	sse2 = no
+	ssse3 = no
+	sse41 = no
+	avx2 = no
+	COMP = emscripten
+	EXE = stockfish-16-trace.js
+endif
 endif
 
 
@@ -474,6 +491,28 @@ ifeq ($(KERNEL),Darwin)
 	XCRUN = xcrun
 endif
 
+# KS-3653 / ADR-107 rev 2: emscripten (em++) для WASM-сборки.
+ifeq ($(COMP),emscripten)
+	comp=clang
+	CXX=em++
+	CXXFLAGS += -Wno-deprecated-declarations -DNNUE_EMBEDDING_OFF -UMADV_HUGEPAGE -UMADV_RANDOM
+	EMFLAGS  = -s MODULARIZE=1 -s EXPORT_NAME=StockfishTrace
+	EMFLAGS += -s ENVIRONMENT=web,worker,node
+	EMFLAGS += -s EXIT_RUNTIME=0
+	EMFLAGS += -s ALLOW_MEMORY_GROWTH=1
+	EMFLAGS += -s INITIAL_MEMORY=268435456
+	EMFLAGS += -s MAXIMUM_MEMORY=536870912
+	EMFLAGS += -s STACK_SIZE=8388608
+	EMFLAGS += -s FILESYSTEM=0
+	EMFLAGS += -s INCOMING_MODULE_JS_API=['print','printErr']
+	EMFLAGS += -s ASSERTIONS=0
+	EMFLAGS += -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','stringToUTF8']
+	EMFLAGS += -s EXPORTED_FUNCTIONS=['_main','_uci_command']
+	EMFLAGS += -s ERROR_ON_UNDEFINED_SYMBOLS=0
+	CXXFLAGS += $(EMFLAGS)
+	LDFLAGS  += $(EMFLAGS) --closure 1
+endif
+
 # To cross-compile for Android, NDK version r21 or later is recommended.
 # In earlier NDK versions, you'll need to pass -fno-addrsig if using GNU binutils.
 # Currently we don't know how to make PGO builds with the NDK yet.
@@ -535,7 +574,9 @@ ifeq ($(COMP),gcc)
 endif
 
 ### On mingw use Windows threads, otherwise POSIX
+# KS-3653: emscripten single-thread → исключаем pthread полностью.
 ifneq ($(comp),mingw)
+ifneq ($(COMP),emscripten)
 	CXXFLAGS += -DUSE_PTHREADS
 	# On Android Bionic's C library comes with its own pthread implementation bundled in
 	ifneq ($(OS),Android)
@@ -546,6 +587,7 @@ ifneq ($(comp),mingw)
 			endif
 		endif
 	endif
+endif
 endif
 
 ### 3.2.1 Debugging
@@ -585,9 +627,13 @@ ifeq ($(optimize),yes)
 	endif
 
 	ifeq ($(comp),clang)
-		clangmajorversion = $(shell $(CXX) -dumpversion 2>/dev/null | cut -f1 -d.)
-		ifeq ($(shell expr $(clangmajorversion) \< 16),1)
-			CXXFLAGS += -fexperimental-new-pass-manager
+		# KS-3653: для em++ underlying clang новее 16, флаг
+		# -fexperimental-new-pass-manager неизвестен. Отключаем для emscripten.
+		ifneq ($(COMP),emscripten)
+			clangmajorversion = $(shell $(CXX) -dumpversion 2>/dev/null | cut -f1 -d.)
+			ifeq ($(shell expr $(clangmajorversion) \< 16),1)
+				CXXFLAGS += -fexperimental-new-pass-manager
+			endif
 		endif
 	endif
 endif
@@ -718,7 +764,12 @@ endif
 ### needs access to the optimization flags.
 ifeq ($(optimize),yes)
 ifeq ($(debug), no)
-	ifeq ($(comp),$(filter $(comp),clang icx))
+	# KS-3653: для COMP=emscripten LTO выключаем — даёт ложные подтягивания
+	# из libc.a (madvise.o → undefined __syscall_madvise) и не уменьшает
+	# .wasm так же сильно как -Oz/--closure. Размер контролируется отдельно.
+	ifeq ($(COMP),emscripten)
+		LDFLAGS += $(CXXFLAGS)
+	else ifeq ($(comp),$(filter $(comp),clang icx))
 		CXXFLAGS += -flto=full
 		ifeq ($(comp),icx)
 			CXXFLAGS += -fwhole-program-vtables

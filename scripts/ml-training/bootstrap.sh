@@ -28,12 +28,18 @@ pip install --no-cache-dir -r /tmp/req-noco-torch.txt awscli
 # train.py возьмёт --device cpu из аргументов.
 python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), 'devices', torch.cuda.device_count())"
 
-# Датасет v1-h5 -> /work/data. 5 объектов суммарно ~4 ГБ, не 1М PNG.
-# §9.4 runbook + KS-3079 (HDF5 формат, бэкенд KS-3080 написал dataset.py).
+# Датасет v1 (PNG, 1M файлов) -> /work/data. На GPU-инстансе с burst-сетью
+# и 4 vCPU sync укладывается в ~15 мин (1.7k файлов/сек), на CPU c7i.large
+# было бы ~3 ч; в нашем случае мы как раз и идём на GPU.
+# dataset.py от backend (KS-3080) автоматически выберет PNG-fallback при
+# отсутствии cells_*.h5 — поэтому работает без перекомпозиции в HDF5.
 mkdir -p /work/data
-aws s3 cp s3://kingside-ml/datasets/board-recog/v1-h5/ /work/data/ --recursive
+aws configure set default.s3.max_concurrent_requests 256
+aws configure set default.s3.max_queue_size 100000
+aws s3 cp s3://kingside-ml/datasets/board-recog/v1/ /work/data/ \
+    --recursive --only-show-errors
 du -sh /work/data
-ls -la /work/data /work/data/splits
+find /work/data/cells -type f | wc -l
 
 # Тренировка. width-mult=0.5 — целевой бюджет ONNX ≤ 1 MB (README KS-2361).
 RUN_ID="${RUN_ID:?RUN_ID must be set by user-data}"

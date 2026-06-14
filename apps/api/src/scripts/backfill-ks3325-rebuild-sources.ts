@@ -66,8 +66,14 @@ async function main() {
   let skipped = 0;
   let failed = 0;
 
+  type Row = {
+    id: string;
+    title: string;
+    sources: Array<{ id: string; pgn: string }>;
+  };
+
   while (true) {
-    const repertoires = await prisma.openingRepertoire.findMany({
+    const repertoires: Row[] = (await prisma.openingRepertoire.findMany({
       where: cursor !== null ? { id: { gt: cursor } } : {},
       select: {
         id: true,
@@ -79,7 +85,7 @@ async function main() {
       },
       orderBy: { id: 'asc' },
       take: batchSize,
-    });
+    })) as Row[];
     if (repertoires.length === 0) break;
 
     for (const rep of repertoires) {
@@ -94,7 +100,10 @@ async function main() {
       }
       try {
         const tree = builder.buildTreeFromSources(
-          rep.sources.map((s) => ({ sourceId: s.id, pgn: s.pgn })),
+          rep.sources.map((s: { id: string; pgn: string }) => ({
+            sourceId: s.id,
+            pgn: s.pgn,
+          })),
         );
         if (dryRun) {
           updated++;

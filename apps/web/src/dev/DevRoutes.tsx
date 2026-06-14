@@ -26,6 +26,8 @@ import { DevAnalysisRepertoireMenuPage } from '../pages/DevAnalysisRepertoireMen
 import { DevEngineUnlimitedPage } from '../pages/DevEngineUnlimitedPage';
 import DevMaiaInlinePage from '../pages/DevMaiaInlinePage';
 import DevGameReviewPage from '../pages/DevGameReviewPage';
+// KS-3684: тестовая страница SF-trace для локальной отладки.
+import { DevSfTraceTestPage } from '../pages/DevSfTraceTestPage';
 
 /**
  * Suspense-child: контейнер dev-страниц `/dev/*` (KS-1820 / KS-1821).
@@ -103,6 +105,8 @@ export default function DevRoutes() {
       <Route path="maia-inline" element={<DevMaiaInlinePage />} />
       {/* KS-3604: progress-модалка NAG auto-annotation + source-link. */}
       <Route path="game-review" element={<DevGameReviewPage />} />
+      {/* KS-3684: локальная отладка stockfish-16-trace. */}
+      <Route path="sf-trace-test" element={<DevSfTraceTestPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

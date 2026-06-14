@@ -14,9 +14,9 @@ import { RedisIoAdapter } from './redis/redis-io.adapter';
  *   Служебные — под `/_` (health, metrics).
  * - WS default namespace `/` (KS-1702, без `/broadcast`) через `RedisIoAdapter` —
  *   на ECS за ALB с sticky sessions всё равно возможно переключение инстансов
- *   между HTTP и WS, и broadcast-worker публикует `broadcast:move` /
- *   `broadcast:sync` в Redis, а socket.io-rooms должны быть синхронизированы
- *   между всеми инстансами.
+ *   между HTTP и WS, и sync-loop (`BroadcastSyncService`) публикует
+ *   `broadcast:move` / `broadcast:sync` в Redis, а socket.io-rooms должны
+ *   быть синхронизированы между всеми инстансами.
  * - Аутентификации нет — данные public read-only (ADR-021 §2.1).
  * - CORS: GET/HEAD, credentials=false. Origin-ы из `CORS_ORIGIN`.
  */
@@ -58,7 +58,7 @@ async function bootstrap() {
   // Redis pub/sub adapter — нужен для sync ws-rooms между ECS-инстансами
   // и для получения событий broadcast:move / broadcast:sync от sync-loop
   // (ADR-022: sync-loop живёт в том же процессе под флагом
-  // BROADCAST_SYNC_ENABLED, а до cutover'а — в apps/broadcast-worker).
+  // BROADCAST_SYNC_ENABLED).
   const redisAdapter = new RedisIoAdapter(app);
   await redisAdapter.connectToRedis();
   app.useWebSocketAdapter(redisAdapter);

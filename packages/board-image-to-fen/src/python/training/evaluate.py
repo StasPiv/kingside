@@ -187,10 +187,14 @@ def evaluate(
     import torch
     from torch.utils.data import DataLoader
 
-    from .dataset import CellDataset, build_eval_transform, list_styles
+    from .dataset import CellDataset, CellDatasetV2, build_eval_transform, list_styles
 
     eval_tf = build_eval_transform(cell_size)
-    ds = CellDataset(data_dir, split, transform=eval_tf)
+    # KS-3091: auto-detect v2 dataset (manifest_v2.json + cells_<split>.h5).
+    if (Path(data_dir) / "manifest_v2.json").is_file() and (Path(data_dir) / f"cells_{split}.h5").is_file():
+        ds = CellDatasetV2(data_dir, split, transform=eval_tf)
+    else:
+        ds = CellDataset(data_dir, split, transform=eval_tf)
     dl = DataLoader(
         ds,
         batch_size=batch_size,

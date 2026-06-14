@@ -32,7 +32,7 @@ import random
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple  # noqa: F401
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -86,6 +86,48 @@ BG_PALETTES: List[Tuple[int, int, int]] = [
     (40, 44, 52),       # тёмный 2
     (10, 49, 26),       # зелёный фон lichess
 ]
+
+# Вероятность нарисовать подписи координат (a-h, 1-8) ВОКРУГ доски.
+# bbox-разметка при этом остаётся строго по кромке доски — модель учится
+# отделять подпись от доски и не включать её в bbox.
+#
+# Снижено с 0.55 → 0.30 после v2-итерации: при 0.55 модель «перестраховалась»
+# и стала сжимать bbox на чистых скриншотах (regression на 3 файлах из 15).
+# При 0.30 поведение по умолчанию остаётся «bbox строго по кромке» (70%
+# сцен без подписей), а ~30% с подписями достаточно чтобы научить
+# отделять их от доски.
+COORD_DRAW_PROB = 0.30
+
+# Возможные конфигурации сторон, где рисовать подписи (a-h по горизонтали,
+# 1-8 по вертикали).
+#
+# В v2 распределение было перекошено в bottom (90% случаев — нижняя
+# сторона), из-за чего модель сильнее сжимала bbox снизу. v3: каждая
+# сторона представлена равномерно через одно-сторонние и все-четыре
+# конфигурации.
+COORD_SIDE_CONFIGS: List[Tuple[Tuple[str, ...], float]] = [
+    (("bottom",), 0.15),                            # только a-h снизу
+    (("top",), 0.10),                               # только a-h сверху
+    (("left",), 0.10),                              # только 1-8 слева
+    (("right",), 0.10),                             # только 1-8 справа
+    (("bottom", "left"), 0.15),                     # классика учебника
+    (("top", "right"), 0.10),                       # перевёрнутая
+    (("bottom", "right"), 0.05),
+    (("top", "left"), 0.05),
+    (("bottom", "left", "top", "right"), 0.20),    # lichess full
+]
+
+# С какой вероятностью подпись прижимается ВПЛОТНУЮ к кромке доски (zero-gap).
+# Учит модель разделять «доска» и «подпись» по семантике, а не по «зазору».
+# Без этой аугментации модель в v2 трактовала зазор как «безопасная зона»
+# и сжимала bbox внутрь, оставляя его в любом случае.
+COORD_ZERO_GAP_PROB = 0.25
+
+# С какой вероятностью к одной сцене сразу пишется парная сцена — та же
+# геометрия и FEN, но **без подписей координат**. Модель видит обе как
+# два примера с одинаковым bbox и учится: bbox от наличия подписей не
+# зависит. (Реализовано в _render_one_scene как parity_pair flag.)
+COORD_PARITY_PAIR_PROB = 0.20
 
 
 # ─── Контекст-рисователи ──────────────────────────────────────────────
@@ -173,6 +215,151 @@ def _draw_ui_buttons(
         cur_y += row_h + 4
 
 
+def _pick_coord_sides(rng: random.Random) -> Tuple[str, ...]:
+    """Случайно выбрать комбинацию сторон, где рисовать подписи."""
+    pick = rng.random()
+    cum = 0.0
+    for sides, w in COORD_SIDE_CONFIGS:
+        cum += w
+        if pick < cum:
+            return sides
+    return COORD_SIDE_CONFIGS[-1][0]
+
+
+def _draw_board_coordinates(
+    canvas: Image.Image,
+    board_x: int, board_y: int, board_size: int,
+    rng: random.Random,
+    bg_dark: bool,
+    free_space: Dict[str, int],
+) -> None:
+    """Нарисовать подписи координат (a-h, 1-8) ВОКРУГ доски (board_x, board_y,
+    board_x+board_size, board_y+board_size) — в свободном пространстве
+    canvas, **за пределами** bbox-разметки.
+
+    `free_space` — словарь {"top":px, "bottom":px, "left":px, "right":px}
+    с количеством пикселей до края canvas или соседней доски. Если для
+    выбранной стороны места не хватает (≤ text_h + margin), эта сторона
+    пропускается.
+
+    КРИТИЧНО: эта функция НЕ меняет bbox в YOLO-разметке. Подпись остаётся
+    out-of-bbox, и модель учится включать в bbox только саму доску.
+    """
+    sides = _pick_coord_sides(rng)
+
+    # Размер шрифта пропорционален размеру доски, минимум 8 px.
+    cell_size = board_size // 8
+    font_sz = max(8, min(28, int(cell_size * rng.uniform(0.25, 0.45))))
+    font = _font_or_default(font_sz)
+
+    # Цвет — контрастный к фону canvas.
+    if bg_dark:
+        v = rng.randint(190, 235)
+        color = (v, v, v)
+    else:
+        v = rng.randint(20, 80)
+        color = (v, v, v)
+
+    # Отступ от кромки доски (зазор, чтобы подпись не «лепилась» к самой доске).
+    # С COORD_ZERO_GAP_PROB подпись прижимается к самой кромке — учит модель
+    # разделять «доска» и «подпись» по семантике, а не по зазору.
+    if rng.random() < COORD_ZERO_GAP_PROB:
+        gap = 0
+    else:
+        gap_min = max(2, font_sz // 6)
+        gap_max = max(gap_min + 1, font_sz // 2)
+        gap = rng.randint(gap_min, gap_max)
+
+    draw = ImageDraw.Draw(canvas)
+
+    # Иногда подпись italic-наклонная или uppercase — для разнообразия.
+    coord_files = list("ABCDEFGH" if rng.random() < 0.2 else "abcdefgh")
+    coord_ranks = list("12345678")
+    # Перевёрнутая доска (с точки зрения чёрных) — 30%: 'h..a' и '8..1' зеркально.
+    if rng.random() < 0.30:
+        coord_files = list(reversed(coord_files))
+        coord_ranks = list(reversed(coord_ranks))
+
+    # Bbox текста — для контроля помещаемости.
+    sample_h_bbox = font.getbbox("h")
+    text_h = sample_h_bbox[3] - sample_h_bbox[1]
+    sample_8_bbox = font.getbbox("8")
+    digit_w = sample_8_bbox[2] - sample_8_bbox[0]
+
+    cell_pix = board_size / 8.0
+
+    def can_fit(side: str) -> bool:
+        need = text_h + gap + 2
+        return free_space.get(side, 0) >= need
+
+    # Расположения подписей: по 8 «букв» снизу/сверху центрированно над клеткой,
+    # по 8 «цифр» слева/справа центрированно по высоте клетки.
+    if "bottom" in sides and can_fit("bottom"):
+        y = board_y + board_size + gap
+        for i, ch in enumerate(coord_files):
+            cell_cx = board_x + cell_pix * (i + 0.5)
+            ch_bbox = font.getbbox(ch)
+            ch_w = ch_bbox[2] - ch_bbox[0]
+            draw.text((cell_cx - ch_w / 2, y), ch, fill=color, font=font)
+
+    if "top" in sides and can_fit("top"):
+        y = board_y - gap - text_h
+        for i, ch in enumerate(coord_files):
+            cell_cx = board_x + cell_pix * (i + 0.5)
+            ch_bbox = font.getbbox(ch)
+            ch_w = ch_bbox[2] - ch_bbox[0]
+            draw.text((cell_cx - ch_w / 2, y), ch, fill=color, font=font)
+
+    if "left" in sides and can_fit("left"):
+        x = board_x - gap - digit_w
+        for i, ch in enumerate(coord_ranks):
+            # Цифры сверху вниз: 8..1 (верх — 8-й ранг для белых снизу).
+            cell_cy = board_y + cell_pix * (7 - i + 0.5)
+            draw.text((x, cell_cy - text_h / 2), ch, fill=color, font=font)
+
+    if "right" in sides and can_fit("right"):
+        x = board_x + board_size + gap
+        for i, ch in enumerate(coord_ranks):
+            cell_cy = board_y + cell_pix * (7 - i + 0.5)
+            draw.text((x, cell_cy - text_h / 2), ch, fill=color, font=font)
+
+
+def _compute_free_space(
+    positions: Sequence[Tuple[int, int, int]],
+    idx: int,
+    canvas_w: int, canvas_h: int,
+) -> Dict[str, int]:
+    """Сколько пикселей свободно вокруг доски positions[idx] до края canvas
+    или до ближайшей соседней доски с этой стороны."""
+    x, y, s = positions[idx]
+    top_lim = y
+    bottom_lim = canvas_h - (y + s)
+    left_lim = x
+    right_lim = canvas_w - (x + s)
+
+    for j, (px, py, ps) in enumerate(positions):
+        if j == idx:
+            continue
+        # Сосед сверху: y+s соседа ≤ y нашего, по горизонтали пересекается.
+        if not (px + ps <= x or x + s <= px):
+            if py + ps <= y:
+                top_lim = min(top_lim, y - (py + ps))
+            if py >= y + s:
+                bottom_lim = min(bottom_lim, py - (y + s))
+        # Сосед сбоку.
+        if not (py + ps <= y or y + s <= py):
+            if px + ps <= x:
+                left_lim = min(left_lim, x - (px + ps))
+            if px >= x + s:
+                right_lim = min(right_lim, px - (x + s))
+    return {
+        "top": max(0, top_lim),
+        "bottom": max(0, bottom_lim),
+        "left": max(0, left_lim),
+        "right": max(0, right_lim),
+    }
+
+
 def _draw_chess_silhouette_distractor(
     canvas: Image.Image, x: int, y: int, w: int, h: int,
     rng: random.Random,
@@ -240,8 +427,16 @@ def _render_one_scene(
     rng: random.Random,
     procedural_bg: bool = True,
     add_distractor_prob: float = 0.15,
+    force_coords: Optional[bool] = None,
 ) -> Tuple[Image.Image, List[Tuple[float, float, float, float]]]:
-    """Сгенерировать одну сцену + список bbox досок (xyxy, в пикселях canvas)."""
+    """Сгенерировать одну сцену + список bbox досок (xyxy, в пикселях canvas).
+
+    `force_coords`:
+        None → решение «рисовать координаты» принимается per-board через
+          COORD_DRAW_PROB (обычное поведение);
+        True → рисовать координаты у всех досок (parity pair, «with coords»);
+        False → не рисовать координаты ни у одной (parity pair, «without»).
+    """
     canvas_size = rng.choice(CANVAS_SIZES)
     canvas_w, canvas_h = canvas_size
     bg = rng.choice(BG_PALETTES)
@@ -273,6 +468,24 @@ def _render_one_scene(
         board_resized = board_img.resize((size, size), Image.LANCZOS)
         canvas.paste(board_resized, (x, y))
         bboxes.append((float(x), float(y), float(x + size), float(y + size)))
+
+    # Подписи координат a-h / 1-8 вокруг досок. КРИТИЧНО: рисуются ПОСЛЕ
+    # формирования bboxes, в свободное место canvas — bbox остаётся строго
+    # по кромке доски и не расширяется. Так модель учится исключать подписи
+    # из bbox при детекции (KS-3110 follow-up: фикс «координаты ловятся как
+    # фигуры», см. /tmp/examples-board-recog/photo_2026-05-19_14-26-24.jpg).
+    #
+    # force_coords управляет parity-pair (см. docstring _render_one_scene):
+    #   None  → per-board решение через COORD_DRAW_PROB (по умолчанию)
+    #   True  → рисовать у всех досок
+    #   False → не рисовать ни у одной
+    for i, (x, y, size) in enumerate(positions):
+        if force_coords is False:
+            continue
+        if force_coords is None and rng.random() >= COORD_DRAW_PROB:
+            continue
+        free = _compute_free_space(positions, i, canvas_w, canvas_h)
+        _draw_board_coordinates(canvas, x, y, size, rng, bg_dark, free)
 
     # Distractor — крупная одиночная фигура в свободном углу (negative
     # sample для проверки что детектор не путает гигантский silhouette
@@ -321,25 +534,61 @@ def generate_split(
           file=sys.stderr)
     t0 = time.time()
     total_boards = 0
+    total_emitted = 0
+    n_parity_pairs = 0
+    parity_master_rng = random.Random(seed + 7)
     for i in range(n_scenes):
+        # Базовая сцена. Чтобы parity-pair имел идентичную геометрию, сцена
+        # должна быть детерминированной по своему seed — кладём seed_i ниже.
+        seed_i = seed + 1_000_000 + i
+        rng_i = random.Random(seed_i)
         canvas, bboxes = _render_one_scene(
-            fens_pool, styles, rng, procedural_bg=procedural_bg,
+            fens_pool, styles, rng_i, procedural_bg=procedural_bg,
         )
-        img_path = out_images_dir / f"{prefix}_{i:06d}.png"
-        lbl_path = out_labels_dir / f"{prefix}_{i:06d}.txt"
+        img_path = out_images_dir / f"{prefix}_{total_emitted:06d}.png"
+        lbl_path = out_labels_dir / f"{prefix}_{total_emitted:06d}.txt"
         canvas.save(img_path, format="PNG")
         with lbl_path.open("w") as fh:
             for bb in bboxes:
                 fh.write(encode_yolo_line(bb, canvas.size[0], canvas.size[1]) + "\n")
         total_boards += len(bboxes)
+        total_emitted += 1
+
+        # Parity pair: повтор той же геометрии с force_coords=False.
+        # Гарантия идентичности bbox у пары — используется тот же seed_i,
+        # отличается только финальный шаг рисования подписей.
+        if parity_master_rng.random() < COORD_PARITY_PAIR_PROB:
+            rng_pair = random.Random(seed_i)
+            canvas_p, bboxes_p = _render_one_scene(
+                fens_pool, styles, rng_pair, procedural_bg=procedural_bg,
+                force_coords=False,
+            )
+            # bboxes_p должен совпадать с bboxes (идентичная геометрия) —
+            # но на всякий случай сохраняем именно его.
+            img_path_p = out_images_dir / f"{prefix}_{total_emitted:06d}.png"
+            lbl_path_p = out_labels_dir / f"{prefix}_{total_emitted:06d}.txt"
+            canvas_p.save(img_path_p, format="PNG")
+            with lbl_path_p.open("w") as fh:
+                for bb in bboxes_p:
+                    fh.write(encode_yolo_line(bb, canvas_p.size[0], canvas_p.size[1]) + "\n")
+            total_boards += len(bboxes_p)
+            total_emitted += 1
+            n_parity_pairs += 1
+
         if (i + 1) % 50 == 0 or i + 1 == n_scenes:
             el = time.time() - t0
             rate = (i + 1) / max(el, 0.01)
             eta = (n_scenes - i - 1) / max(rate, 0.01)
             print(f"[{prefix}] {i+1}/{n_scenes} ({rate:.1f}/s, ETA {eta:.0f}s, "
-                  f"boards={total_boards})",
+                  f"boards={total_boards}, emitted={total_emitted}, "
+                  f"parity_pairs={n_parity_pairs})",
                   file=sys.stderr)
-    return {"n_scenes": n_scenes, "n_boards_total": total_boards}
+    return {
+        "n_scenes": n_scenes,
+        "n_boards_total": total_boards,
+        "n_emitted": total_emitted,
+        "n_parity_pairs": n_parity_pairs,
+    }
 
 
 def write_dataset_yaml(out_dir: Path) -> None:
@@ -411,6 +660,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "n_boards_per_scene_distribution": N_BOARDS_DIST,
         "train_styles": train_styles,
         "val_styles": val_styles,
+        "coord_labels_around_board": {
+            "enabled": True,
+            "probability_per_board": COORD_DRAW_PROB,
+            "side_configs": [
+                {"sides": list(sides), "weight": w}
+                for sides, w in COORD_SIDE_CONFIGS
+            ],
+            "note": (
+                "Подписи a-h / 1-8 рисуются ВНЕ bbox доски. "
+                "Цель: научить find-boards не включать координаты в bbox "
+                "(KS-3110 follow-up, см. /tmp/examples-board-recog/"
+                "photo_2026-05-19_14-26-24.jpg)."
+            ),
+        },
         "train": train_stats,
         "val": val_stats,
     }

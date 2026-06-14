@@ -39,6 +39,9 @@ model Broadcast {
   /// chess-results.com tournament-id (KS-1725, ADR-023 §2.2.2). Извлекается
   /// из `standingsUrl` regex'ом `/tnr(\d+)\.aspx/` при upsert'е broadcast'а.
   /// String?, не Int — внешняя система, формат может меняться.
+  /// KS-3266: при «Record not found» на upstream — fallback через
+  /// `SearchTournament.aspx?Search=<title>` подменяет на найденный id,
+  /// перезаписывая `standings_url` и `chess_results_tournament_id`.
   chessResultsTournamentId String? @map("chess_results_tournament_id")
   /// `tour.teamTable` от Lichess (KS-1735, ADR-023 §2.3). Нужен `detectTournamentType`
   /// (apps/broadcast-service/src/crosstable/) для надёжной классификации

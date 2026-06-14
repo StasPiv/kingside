@@ -31,29 +31,77 @@ from pathlib import Path
 from typing import Any, Dict
 
 
+def _detect_dataset_version(data_dir):
+    """KS-3091: автоопределение v1 vs v2 по содержимому data_dir.
+
+    v2 — есть `manifest_v2.json` + `cells_train.h5`/`cells_val.h5` рядом.
+    v1 — есть `splits/{train,val}.jsonl`.
+    """
+    from pathlib import Path
+    p = Path(data_dir)
+    if (p / "manifest_v2.json").is_file() and (p / "cells_train.h5").is_file():
+        return "v2"
+    return "v1"
+
+
+def _h5_worker_init(worker_id):
+    """KS-3091 follow-up. DataLoader workers must re-open their h5py.File
+    AFTER fork/spawn — иначе кэш HDF5 шарится между процессами и
+    наступает deadlock (видели в GPU прогоне 18.05). Сбрасываем `_h5 = None`
+    на каждом worker'е, lazy-open в __getitem__ откроет файл заново.
+    """
+    import torch
+    info = torch.utils.data.get_worker_info()
+    ds = info.dataset
+    if hasattr(ds, "_h5"):
+        ds._h5 = None
+
+
 def _build_dataloaders(args, train_tf, eval_tf):
     """Lazy import torch + project Dataset so `--help` works without torch."""
+    import multiprocessing
     import torch
     from torch.utils.data import DataLoader
 
-    from .dataset import CellDataset
+    version = _detect_dataset_version(args.data_dir)
+    if version == "v2":
+        from .dataset import CellDatasetV2 as DS
+    else:
+        from .dataset import CellDataset as DS
 
-    train_ds = CellDataset(args.data_dir, "train", transform=train_tf)
-    val_ds = CellDataset(args.data_dir, "val", transform=eval_tf)
+    train_ds = DS(args.data_dir, "train", transform=train_tf)
+    val_ds = DS(args.data_dir, "val", transform=eval_tf)
+
+    # KS-3091 follow-up. `spawn` вместо `fork` — h5py НЕ fork-safe, при
+    # обычном multiprocessing fork+h5py worker'ы зависают на первой
+    # итерации (видели в GPU pilot 18.05). `spawn` создаёт чистый процесс,
+    # каждый worker открывает свой собственный h5py.File через _h5_worker_init.
+    if args.num_workers > 0:
+        mp_ctx = multiprocessing.get_context("spawn")
+        worker_init = _h5_worker_init
+    else:
+        mp_ctx = None
+        worker_init = None
 
     common = dict(
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=torch.cuda.is_available(),
         persistent_workers=args.num_workers > 0,
+        multiprocessing_context=mp_ctx,
+        worker_init_fn=worker_init,
     )
     train_dl = DataLoader(train_ds, shuffle=True, drop_last=True, **common)
     val_dl = DataLoader(val_ds, shuffle=False, drop_last=False, **common)
     return train_ds, val_ds, train_dl, val_dl
 
 
-def _run_epoch(model, loader, criterion, optimizer, device, train: bool):
-    """One epoch of train or eval. Returns (mean_loss, top1_accuracy)."""
+def _run_epoch(model, loader, criterion, optimizer, device, train: bool, max_batches: int = 0):
+    """One epoch of train or eval. Returns (mean_loss, top1_accuracy).
+
+    KS-3091: ``max_batches`` > 0 — раннее завершение цикла после N батчей.
+    Полезно для smoke-теста CPU-обучения без полного прохода 1.5M клеток.
+    """
     import torch
 
     model.train(train)
@@ -61,9 +109,13 @@ def _run_epoch(model, loader, criterion, optimizer, device, train: bool):
     total_correct = 0
     total_samples = 0
     ctx = torch.enable_grad() if train else torch.no_grad()
+    batches_done = 0
 
     with ctx:
         for batch in loader:
+            if max_batches and batches_done >= max_batches:
+                break
+            batches_done += 1
             images = batch["image"].to(device, non_blocking=True)
             labels = batch["label"].to(device, non_blocking=True)
 
@@ -138,6 +190,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument(
         "--device", default=None,
         help="Override device. Default: cuda if available else cpu.",
+    )
+    p.add_argument(
+        "--max-train-batches", type=int, default=0,
+        help="KS-3091: для smoke-теста ограничить число batch'ей за эпоху. "
+             "0 = без лимита (полная эпоха).",
+    )
+    p.add_argument(
+        "--max-val-batches", type=int, default=0,
+        help="Аналогично max-train-batches, но для val-цикла.",
     )
     return p.parse_args(argv)
 
@@ -228,9 +289,11 @@ def main(argv=None) -> int:
             t0 = time.time()
             train_loss, train_acc = _run_epoch(
                 model, train_dl, criterion, optimizer, device, train=True,
+                max_batches=args.max_train_batches,
             )
             val_loss, val_acc = _run_epoch(
                 model, val_dl, criterion, optimizer, device, train=False,
+                max_batches=args.max_val_batches,
             )
 
             current_lr = optimizer.param_groups[0]["lr"]

@@ -10,9 +10,9 @@ import Redis from 'ioredis';
  * Причина: broadcast-service запускается в ECS несколькими инстансами за ALB
  * с sticky sessions. Sticky session гарантирует, что один клиент приходит к
  * одному инстансу, но:
- *   1. Когда `broadcast-worker` публикует `broadcast:move` в Redis, событие
- *      нужно доставить всем инстансам — иначе клиенты, привязанные к другому
- *      инстансу, не получат обновлений.
+ *   1. Когда sync-loop (`BroadcastSyncService`) публикует `broadcast:move`
+ *      в Redis, событие нужно доставить всем инстансам — иначе клиенты,
+ *      привязанные к другому инстансу, не получат обновлений.
  *   2. Если нужно отправить сообщение всем клиентам конкретной комнаты
  *      (`broadcast:{roundId}`), это должно работать cross-instance.
  *
@@ -22,8 +22,8 @@ import Redis from 'ioredis';
  *
  * Для gateway.subscribe() из `RedisService` мы по-прежнему подписываемся на
  * собственные каналы `broadcast:move` / `broadcast:sync` — это отдельный
- * контракт с `broadcast-worker`, не путать с внутренними каналами
- * `socket.io-#/#` redis-adapter'а.
+ * контракт с sync-loop (`BroadcastSyncService`), не путать с внутренними
+ * каналами `socket.io-#/#` redis-adapter'а.
  */
 export class RedisIoAdapter extends IoAdapter {
   private readonly logger = new Logger(RedisIoAdapter.name);

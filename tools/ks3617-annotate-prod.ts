@@ -360,10 +360,47 @@ for (const inp of moveInputs) {
   }
 }
 
+// === KS-3619: position-eval NAG на финальной позиции каждой variation
+//      (тот же алгоритм, что в useGameReview.ts). ===
+const annotations: Annotation[] = moveInputs.map(buildAnnotation);
+const { pickFinalEvalNag } = await import(
+  '../apps/web/src/lib/review/buildAnnotations'
+);
+async function annotateFinalEval(
+  variation: import('../apps/web/src/lib/review/buildAnnotations').AnnotationVariation,
+  startFen: string,
+): Promise<void> {
+  const ucis = [variation.uci, ...(variation.subline ?? [])];
+  let cur: string | null = startFen;
+  for (const u of ucis) {
+    if (!cur) break;
+    cur = applyMove(cur, u);
+  }
+  if (!cur) return;
+  try {
+    const subEv = await sf.analyze(cur, 1);
+    const wdl = subEv[0]?.wdl;
+    if (!wdl) return;
+    const stmIsWhite = cur.split(' ')[1] === 'w';
+    variation.finalEvalNag = pickFinalEvalNag(wdl, stmIsWhite);
+  } catch {
+    /* skip */
+  }
+  for (const perNode of variation.nestedVariations ?? []) {
+    for (const child of perNode) await annotateFinalEval(child, startFen);
+  }
+}
+for (let i = 0; i < annotations.length; i++) {
+  const ann = annotations[i];
+  if (ann.variations.length === 0) continue;
+  const fenAtMainMove = moveInputs[i].fen;
+  for (const variation of ann.variations) {
+    await annotateFinalEval(variation, fenAtMainMove);
+  }
+}
+
 sf.close();
 
-// === Вот тут — реальный прод-код ===
-const annotations: Annotation[] = moveInputs.map(buildAnnotation);
 const annotatedPgn = applyAnnotationsToPgn(pgnText, annotations);
 process.stdout.write(annotatedPgn);
 

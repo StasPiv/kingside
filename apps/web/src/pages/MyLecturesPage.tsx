@@ -86,11 +86,6 @@ function formatDate(iso: string | null): string {
   });
 }
 
-interface StartLectureResponse {
-  lecture: LectureSummary;
-  liveAnalysis: { id: string; slug: string; url: string } | null;
-}
-
 /**
  * Универсальный segment-control. Кнопка с `aria-pressed` —
  * наиболее прозрачная семантика для группы взаимоисключающих
@@ -203,37 +198,9 @@ export function MyLecturesPage() {
     [t],
   );
 
-  const handleStart = useCallback(
-    async (lecture: LectureSummary) => {
-      if (busyLectureId) return;
-      setBusyLectureId(lecture.id);
-      try {
-        const resp = await api.post<StartLectureResponse>(
-          `/lectures/${encodeURIComponent(lecture.id)}/start`,
-          {},
-        );
-        if (resp.liveAnalysis?.slug) {
-          navigate(`/live/${encodeURIComponent(resp.liveAnalysis.slug)}`);
-          return;
-        }
-        refetch();
-        showToast(
-          t('myLectures.actions.startedToast', 'Lecture started'),
-        );
-      } catch (e) {
-        showToast(
-          explainError(
-            e,
-            'myLectures.actions.startFailed',
-            'Failed to start the lecture',
-          ),
-        );
-      } finally {
-        setBusyLectureId(null);
-      }
-    },
-    [busyLectureId, navigate, refetch, t, showToast, explainError],
-  );
+  // KS-4000: handleStart удалён. Запуск эфира с пустым анализом
+  // больше не поддерживается. Тренер запускает лекцию из окна
+  // анализа, привязывая существующий разбор.
 
   const handleForceEnd = useCallback(
     async (lecture: LectureSummary) => {
@@ -550,20 +517,11 @@ export function MyLecturesPage() {
                       >
                         {t('myLectures.actions.open', 'Open')}
                       </button>
-                      {lecture.status === 'scheduled' && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          data-testid={`my-lectures-action-start-${lecture.id}`}
-                          onClick={() => {
-                            setOpenMenuId(null);
-                            void handleStart(lecture);
-                          }}
-                          className="my-lectures-page__menu-item"
-                        >
-                          {t('myLectures.actions.start', 'Start')}
-                        </button>
-                      )}
+                      {/* KS-4000: пункт «Начать» из меню scheduled-
+                          лекции убран. Запуск эфира идёт только из
+                          окна анализа — тренер сам выбирает разбор
+                          и привязывает его к запланированной
+                          лекции через CreateLectureModal. */}
                       {lecture.status === 'live' && (
                         <button
                           type="button"

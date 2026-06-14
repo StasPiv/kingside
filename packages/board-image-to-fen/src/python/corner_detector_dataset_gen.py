@@ -33,6 +33,43 @@ from typing import List, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+# Шрифты для генератора текстов внутри UI-сцен.
+_FONTS_CACHE = {}
+
+
+def _font(size: int, bold: bool = False) -> "ImageFont.ImageFont":
+    key = (size, bold)
+    if key in _FONTS_CACHE:
+        return _FONTS_CACHE[key]
+    path = "/usr/share/fonts/truetype/dejavu/DejaVuSans"
+    path += "-Bold.ttf" if bold else ".ttf"
+    try:
+        f = ImageFont.truetype(path, size=size)
+    except OSError:
+        f = ImageFont.load_default()
+    _FONTS_CACHE[key] = f
+    return f
+
+
+# Шахматные ходы / типичные строки UI для имитации mobile chess.com / lichess.
+_MOVES_VOCAB = [
+    "1.e4 e5", "2.Nf3 Nc6", "3.Bb5 a6", "4.Ba4 Nf6", "5.O-O Be7",
+    "Nxc4", "Nd2+", "Rxc1", "Qxc3", "Qxc3", "Bxc6 bxc6",
+    "1...c5", "2...d6", "20...Nc4!", "21.Ne3", "22.Ka2", "Best move",
+    "blitz", "rapid", "bullet", "puzzle rating 1842", "+5",
+    "Anatoly Karpov", "Magnus Carlsen", "GM_Player vs GM_Other",
+    "Chess Tactics", "See What You Missed!", "Next", "Previous",
+    "Read Mode", "Flip Board", "Analysis", "[-5.23]", "Continue",
+    "Solve puzzle", "0:45", "12:30", "Your move", "White to move",
+    "Black to move", "Move 24 of 47", "Last move: Nf3",
+]
+
+
+def _draw_text(d: ImageDraw.ImageDraw, x: int, y: int, text: str,
+               size: int, fill: tuple, bold: bool = False) -> None:
+    """Безопасный draw.text с обработкой случаев когда шрифт не нашёлся."""
+    d.text((x, y), text, fill=fill, font=_font(size, bold))
+
 # Локальные импорты.
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -83,40 +120,125 @@ def _make_background(W: int, H: int, rng: random.Random) -> Image.Image:
             t = y / max(1, H - 1)
             mix = tuple(int(c1[i] * (1 - t) + c2[i] * t) for i in range(3))
             d.line([(0, y), (W, y)], fill=mix)
-    else:  # ui — имитация мобильного UI
+    elif mode == "ui":
         bg = Image.new("RGB", (W, H), (245, 245, 245))
         d = ImageDraw.Draw(bg)
-        # Статус-бар сверху
-        bar_h = rng.randint(15, 35)
+        bar_h = rng.randint(12, 20)
         d.rectangle((0, 0, W, bar_h), fill=tuple(rng.randint(220, 255) for _ in range(3)))
+        # Иконки статус-бара текстом (батарея, время и т.п. — символами)
+        _draw_text(d, W - 60, 2, "100%", 10, (40, 40, 40), bold=True)
+        _draw_text(d, 6, 2, "22:19", 10, (40, 40, 40), bold=True)
         # Заголовок
-        title_h = rng.randint(30, 50)
+        title_h = rng.randint(28, 40)
         d.rectangle((0, bar_h, W, bar_h + title_h),
                     fill=tuple(rng.randint(240, 255) for _ in range(3)))
-        # Случайные «текстовые блоки»
-        for _ in range(rng.randint(3, 8)):
-            tx = rng.randint(0, W - 40)
-            ty = rng.randint(bar_h + title_h, H - 20)
-            tw = rng.randint(30, min(W - tx, 200))
-            th = rng.randint(3, 10)
-            d.rectangle((tx, ty, tx + tw, ty + th),
-                        fill=tuple(rng.randint(80, 180) for _ in range(3)))
-        # «Кнопки» снизу
-        btn_y = H - rng.randint(40, 70)
+        title = rng.choice(_MOVES_VOCAB)
+        _draw_text(d, 14, bar_h + 8, title, rng.randint(13, 17), (20, 20, 20), bold=True)
+        # Случайные строки текста (имитация заметок, ходов).
+        for _ in range(rng.randint(2, 5)):
+            ty = rng.randint(bar_h + title_h + 10, max(bar_h + title_h + 11, H - 40))
+            tx = rng.randint(10, max(11, W - 100))
+            txt = rng.choice(_MOVES_VOCAB)
+            _draw_text(d, tx, ty, txt, rng.randint(10, 14),
+                       tuple(rng.randint(40, 100) for _ in range(3)))
+        # Кнопки снизу с подписями.
+        btn_y = H - rng.randint(40, 60)
         n_btn = rng.randint(3, 5)
         for i in range(n_btn):
-            bx = (W // n_btn) * i + rng.randint(5, 15)
-            d.rectangle((bx, btn_y, bx + 40, btn_y + 30),
-                        outline=tuple(rng.randint(100, 180) for _ in range(3)), width=2)
+            bx = (W // n_btn) * i + 5
+            d.rectangle((bx, btn_y, bx + 38, btn_y + 25),
+                        outline=tuple(rng.randint(100, 180) for _ in range(3)), width=1)
+            label = rng.choice(["Next", "Prev", "Flip", "Hint", "Solve", "≡"])
+            _draw_text(d, bx + 4, btn_y + 5, label, 9, (60, 60, 60))
+    else:  # mobile_app — реалистичная имитация chess.com / lichess мобильного UI
+        bg = Image.new("RGB", (W, H), (250, 250, 250))
+        d = ImageDraw.Draw(bg)
+        # Статус-бар c часами/иконками текстом.
+        sb_h = rng.randint(12, 18)
+        d.rectangle((0, 0, W, sb_h), fill=(255, 255, 255))
+        _draw_text(d, 8, 2, f"{rng.randint(8,23):02d}:{rng.randint(0,59):02d}", 10, (20,20,20), bold=True)
+        _draw_text(d, W - 40, 2, f"{rng.randint(20,100)}%", 10, (20,20,20), bold=True)
+        # Заголовок страницы — реальный текст
+        hdr_h = rng.randint(22, 32)
+        d.rectangle((0, sb_h, W, sb_h + hdr_h), fill=(248, 248, 248))
+        title = rng.choice(["Chess Tactics", "Daily Puzzle", "See What You Missed!",
+                            "Game Review", "Find the best move",
+                            "RobertoJairzinho vs. GMplayer", "Analysis"])
+        _draw_text(d, 16, sb_h + 6, title, rng.randint(13, 16), (30, 30, 30), bold=True)
+        # Кнопки сверху справа (×, settings)
+        _draw_text(d, W - 32, sb_h + 8, "×", 14, (60, 60, 60), bold=True)
+
+        # Большой блок снизу под доской — текст ходов / описание / кнопка
+        bottom_h = rng.randint(int(H * 0.20), int(H * 0.45))
+        bot_y = H - bottom_h
+        # Имя игрока (одна-две строки).
+        _draw_text(d, 14, bot_y + 8, rng.choice(_MOVES_VOCAB),
+                   rng.randint(12, 16), (20, 20, 20), bold=True)
+        # Строка под именем (рейтинг / счёт).
+        _draw_text(d, 14, bot_y + 28, f"({rng.randint(800,2700)})  vs.  ({rng.randint(800,2700)})",
+                   11, (90, 90, 90))
+        # Кнопка-капсула справа («Next», «Continue»).
+        btn_x = max(20, W - 90); btn_y_top = bot_y + rng.randint(8, 24)
+        btn_col = rng.choice([(120, 180, 95), (95, 160, 200), (200, 130, 80)])
+        d.rounded_rectangle((btn_x, btn_y_top, btn_x + 80, btn_y_top + 32),
+                            radius=16, fill=btn_col)
+        _draw_text(d, btn_x + 18, btn_y_top + 8, rng.choice(["Next ›", "Continue", "Solve"]),
+                   13, (255, 255, 255), bold=True)
+        # Текст «лучший ход» / описание
+        descr_y = bot_y + 60
+        if descr_y < H - 80:
+            _draw_text(d, 14, descr_y,
+                       rng.choice(["In a game played on 2023-12-29 22:21:48, the best move was:",
+                                   "Find the winning move for white.",
+                                   "Black to move and win material.",
+                                   f"After {rng.randint(1,40)}.{rng.choice(_MOVES_VOCAB)}, what is best?"]),
+                       11, (40, 40, 40))
+            _draw_text(d, 14, descr_y + 18, rng.choice(_MOVES_VOCAB),
+                       12, (60, 60, 60), bold=True)
+            # Линия ходов с акцентом (как в chess.com tactics).
+            mv_y = descr_y + 36
+            if mv_y < H - 50:
+                _draw_text(d, 14, mv_y, f"[{rng.randint(-9,9)}.{rng.randint(10,99)}]",
+                           11, (180, 50, 130), bold=True)
+                # ходы рядом
+                mx = 60
+                for _ in range(rng.randint(3, 6)):
+                    if mx > W - 80: break
+                    txt = rng.choice(_MOVES_VOCAB)
+                    _draw_text(d, mx, mv_y, txt, 11, (180, 50, 130), bold=True)
+                    mx += rng.randint(50, 90)
+        # Нижняя панель навигации с подписями
+        nav_y = H - 30
+        if nav_y > bot_y + 80:
+            n_btn = rng.randint(4, 6)
+            labels = ["Previous", "Next", "Read Mode", "Flip Board", "Analysis", "Hint"]
+            rng.shuffle(labels)
+            for i in range(n_btn):
+                bx = (W // n_btn) * i + 5
+                _draw_text(d, bx + 4, nav_y + 4, labels[i % len(labels)],
+                           9, (70, 70, 70))
     return bg
 
 
 # ─── Сборка одной пары (изображение, углы) ────────────────────────────────
 
 def _sample_one(rng: random.Random, fen: str, style: str) -> Tuple[Image.Image, np.ndarray]:
-    """Возвращает (картинка target_size, нормализованные координаты 4 углов)."""
+    """Возвращает (картинка target_size, нормализованные координаты 4 углов).
+
+    KS-3091 v3 follow-up: 3 размер-распределения:
+      - 40% сценариев — почти весь кадр (200-252 px), как chess.com web.
+      - 30% — среднеразмерная доска (140-200 px), как mobile с UI.
+      - 30% — маленькая (80-140 px), как книжная диаграмма или
+        миниатюра в большом UI.
+    """
     board = _render_board(fen, style, rng)
-    target_board = rng.randint(BOARD_MIN_PX, BOARD_MAX_PX)
+    size_bucket = rng.random()
+    if size_bucket < 0.4:
+        target_board = rng.randint(200, BOARD_MAX_PX)
+    elif size_bucket < 0.7:
+        target_board = rng.randint(140, 200)
+    else:
+        target_board = rng.randint(BOARD_MIN_PX, 140)
     board = board.resize((target_board, target_board), Image.LANCZOS)
 
     # Лёгкий поворот доски ±5° перед вставкой.
