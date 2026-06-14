@@ -22,19 +22,23 @@ RUN cd packages/broadcasts-db && BROADCASTS_DATABASE_URL="postgresql://dummy:dum
 RUN cd apps/broadcast-service && npx nest build
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies.
 # KS-3924 (deploy-perf): `prisma` CLI перенесена в `devDependencies`
-# пакета `packages/broadcasts-db`, в runtime broadcast-service не нужна
-# (миграции на pre-rollout идут отдельным образом). После prune из
-# production-tree уходят `prisma` + `@prisma/engines` + транзитивы.
+# пакета `packages/broadcasts-db`, в runtime broadcast-service не нужна.
 #
-# ВАЖНО: НЕ добавлять `--omit=optional` здесь, пока devops не вынесет
-# `prisma migrate deploy` для broadcasts-db в отдельный миграционный
-# образ (как сделано для api в KS-3924 — `kingside-api-migrations`).
-# `scripts/deploy-aws.sh` после `[migrate-check broadcast]` запускает
-# `aws ecs run-task` на этом же образе с командой `npx prisma migrate
-# deploy`, и без CLI это падает с exit 1. См. неудачную выкладку
-# 3898788f. Когда у broadcasts-db появится свой миграционный образ —
-# можно вернуть `--omit=optional`.
-RUN npm prune --omit=dev --ignore-scripts
+# KS-3925: devops вынес `prisma migrate deploy` для broadcasts-db в
+# отдельный миграционный образ `kingside-broadcast-service-migrations`
+# (по образцу `kingside-api-migrations` из KS-3924). Поэтому в runtime
+# `prisma` CLI больше не нужна и `--omit=optional` теперь безопасен —
+# раньше он ломал `[migrate-check broadcast]` шаг `scripts/deploy-aws.sh`
+# (см. откат 8f0d0732 от 2026-06-08), сейчас миграции идут до runtime
+# из отдельного образа.
+#
+# `--omit=optional` снимает prisma + @prisma/engines + транзитивы
+# (`@prisma/config`, `effect`, `fast-check`, `jiti`, `c12` и т.п.) +
+# платформ-специфичные нативные модули, не нужные в linux/x64-
+# контейнере (`@esbuild/darwin-*`, `@rollup/rollup-win32-*`, `fsevents`,
+# `pg-cloudflare`). На api-образе (KS-3924, коммит 89f389fb) аналогичная
+# правка дала −66 МБ сжатых.
+RUN npm prune --omit=dev --omit=optional --ignore-scripts
 
 FROM base AS production
 WORKDIR /app

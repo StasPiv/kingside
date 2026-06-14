@@ -24,18 +24,23 @@ RUN cd apps/archive-service && npx nest build
 # archive-service не запускает миграции через ECS run-task (deploy-perf
 # baseline это подтверждает — отсутствует archive_migrate_done).
 # KS-3924: `prisma` CLI вынесена в `devDependencies` пакета
-# `packages/archive-db` — после prune из production-tree уходят
-# `prisma` + `@prisma/engines` + транзитивы.
+# `packages/archive-db`.
 #
-# ВАЖНО: НЕ добавлять `--omit=optional` здесь, пока devops не вынесет
-# `prisma migrate deploy` для archive-db в отдельный миграционный образ
-# (как сделано для api в KS-3924 — `kingside-api-migrations`).
-# `scripts/deploy-aws.sh` после `[migrate-check archive]` запускает
-# `aws ecs run-task` на этом же образе с командой `npx prisma migrate
-# deploy`, и без CLI это падает с exit 1. См. неудачную выкладку
-# 3898788f. Когда у archive-db появится свой миграционный образ —
-# можно вернуть `--omit=optional`.
-RUN npm prune --omit=dev --ignore-scripts
+# KS-3925: devops вынес `prisma migrate deploy` для archive-db в
+# отдельный миграционный образ `kingside-archive-service-migrations`
+# (по образцу `kingside-api-migrations` из KS-3924). Поэтому в runtime
+# `prisma` CLI больше не нужна и `--omit=optional` теперь безопасен —
+# раньше он ломал `[migrate-check archive]` шаг `scripts/deploy-aws.sh`
+# (см. откат 8f0d0732 от 2026-06-08), сейчас миграции идут до runtime
+# из отдельного образа.
+#
+# `--omit=optional` снимает prisma + @prisma/engines + транзитивы
+# (`@prisma/config`, `effect`, `fast-check`, `jiti`, `c12` и т.п.) +
+# платформ-специфичные нативные модули, не нужные в linux/x64-
+# контейнере (`@esbuild/darwin-*`, `@rollup/rollup-win32-*`, `fsevents`,
+# `pg-cloudflare`). На api-образе (KS-3924, коммит 89f389fb) аналогичная
+# правка дала −66 МБ сжатых.
+RUN npm prune --omit=dev --omit=optional --ignore-scripts
 
 FROM base AS production
 WORKDIR /app
