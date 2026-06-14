@@ -1,7 +1,9 @@
-# ADR-128 — Политика публичных маршрутов и модель «гость читает / логин для действия»
+# ADR-128 — Политика публичных маршрутов и модель «гость пользуется функционалом / логин для записи в БД»
 
-- Статус: **Proposed** (2026-06-14, ревизия §7+§10+§11 в тот же день по KS-4121)
-- Задача: KS-4120 (исходный), KS-4121 (ревизия §7)
+- Статус: **Proposed** (2026-06-14, ревизия §7+§10+§11 в тот же день по
+  KS-4121, ревизия §4+§4.1+§5+§6+§8+§10+§11+§12 в тот же день по KS-4125)
+- Задача: KS-4120 (исходный), KS-4121 (§7), KS-4125 (отказ от
+  PM-лендингов, кодификация inline guest-CTA)
 - Связанные ADR / задачи:
   - KS-4116 — внедрение prerender (frontend, `apps/web/scripts/prerender.mjs`),
     реестр `apps/web/src/config/publicRoutes.ts`.
@@ -158,89 +160,143 @@ Throttler глобально не подключён по умолчанию. П
 
 ## 4. Классификация маршрутов
 
-Категории:
+> **Ревизия 2026-06-14 (KS-4125).** Предыдущая редакция выделяла
+> отдельную категорию **Public-marketing (PM)** для тренажёров
+> (`/play`, `/puzzle-rush`, `/precision`, `/workshop`, `/drills`,
+> `/opening-trainer`, `/blind-board`) с показом гостю
+> `<MarketingLanding>`-обёртки и CTA «войди чтобы попробовать».
+>
+> Решение пользователя: **PM-лендинги для тренажёров отменяются**.
+> Гость использует функционал полноценно. Логин нужен только при
+> записи в БД (прогресс, статистика, регистрация в турнире, отправка
+> сообщения, добавление в друзья). Где запись идёт автоматически по
+> факту прохождения — inline guest-CTA на странице («войди, чтобы
+> сохранять прогресс»). Где запись — discrete-action с явной кнопкой
+> (отправить, зарегистрироваться, сохранить) — модалка
+> `<LoginRequiredModal>` через `useRequireAuth` (KS-4124, см. §6).
+>
+> Образец паттерна, уже сложившийся в коде на момент ревизии:
+> - `apps/web/src/pages/PuzzlePage.tsx:900-903, 969-972` — inline
+>   баннер `<Link to="/login">{auth.loginToSaveProgress}</Link>` под
+>   шапкой.
+> - `apps/web/src/pages/PrecisionStatsPage.tsx:53-91`,
+>   `PrecisionHistoryPage.tsx` — `isGuest = !user`, секция CTA для
+>   гостя, full content для авторизованного, всё с
+>   `data-auth={isGuest ? 'guest' : 'user'}`.
+> - `apps/web/src/pages/BlindBoardStatsPage.tsx:16, 32`,
+>   `BlindBoardHistoryPage.tsx`, `GuessStatsPage.tsx` — тот же шаблон
+>   `isGuest && <CTA>` / `!isGuest && <Content>`.
+> - `apps/web/src/components/workshop/WorkshopAnalysisList.tsx:662-664`
+>   — `{!user ? <p>{workshop.myAnalyses.loginRequired}</p> : <List/>}`.
+> - `apps/web/src/pages/AnalysisPage.tsx:689, 792-797` — `isGuest`
+>   проставляется в disabled-state кнопок «Сохранить в репертуар» и
+>   подобных, с `disabledHint` для тултипа.
+>
+> Эта ревизия кодифицирует паттерн и распространяет его на тренажёры,
+> которые сейчас под `ProtectedRoute`.
 
-- **Public-read** (PR) — гость видит контент; данные тянутся
-  публичным API; действия в UI требуют auth, тригерят модалку логина.
-- **Public-marketing** (PM) — гость видит лендинг раздела (h1, описание,
-  CTA «войти/зарегистрироваться»); полный функционал требует логина.
-  Контент prerender = маркетинговый, не данные.
-- **Public-mixed** (PX) — гость видит read-копию (`publicMode`), action
-  открывает протекцию (типовой кейс — анализ).
-- **Private** (PV) — гость не видит, редирект на `/login` (текущее
-  поведение).
-- **Public-auth** (PA) — публичен по определению (`/login`,
-  `/register`, `/oauth/callback`); сюда же системные `/terms`,
-  `/credits`, `/help/external-engine`.
+### 4.1. Категории
+
+- **Public-full** (PF) — гость пользуется функционалом полноценно
+  (читает + интерактив + локальная статистика в браузере / WASM).
+  Записи в БД (прогресс, рейтинг, история попыток, лидерборд)
+  требуют логина — закрываются inline guest-CTA + (при попытке
+  явного write-action) `<LoginRequiredModal>`. Бот видит реальный
+  скриншот тренажёра.
+- **Public-read** (PR) — гость смотрит контент (список, профиль,
+  трансляция, статья). Discrete write-action (написать в чат,
+  зарегистрироваться, добавить в друзья, сохранить) — `<LoginRequiredModal>`.
+- **Public-mixed** (PX) — публичный read-режим через `publicMode` /
+  shared-ссылку (анализы, replay), действие требует ownership →
+  модалка.
+- **Public-auth** (PA) — открыто по природе (`/login`, `/register`,
+  `/oauth/callback`, `/terms`, `/credits`, `/help/external-engine`).
+- **Private** (PV) — личные данные (`/settings`, `/messages`,
+  `/friends`, `/profile`, `/game/:id`, `/lessons/my/*`,
+  `/admin/*`). `ProtectedRoute` редиректит на `/login` — этот контракт
+  сохраняется для прямых ссылок (§6.5).
 - **Dev** (DV) — `import.meta.env.DEV`-only / dev-bypass; в проде нет.
 
-Таблица (фактические маршруты `App.tsx`, сгруппированы):
+Категория **Public-marketing (PM)** удалена. Маркетинговая страница
+`/features` (одна на сайт) — обычная статическая страница, не шаблон.
+`<MarketingLanding>`-компонент не вводится (см. §4.3).
 
-| Маршрут | Категория | Обоснование |
-|---------|-----------|-------------|
-| `/` | PR/PM (двойной режим) | Гость — `<FeaturesPage>` (маркетинг + CTA), залогинен — редирект на `/play`. Это поведение менять не нужно, оно правильное. |
-| `/features` | PM | Лендинг разделов. Сейчас баг (§3.4) — рендерит то же, что `/`. Должна быть отдельная страница с h1 «Возможности Kingside» и обзором фич. |
-| `/login`, `/register`, `/oauth/callback` | PA | Открыто по природе; авторизованный редиректится через `GuestRoute`. |
-| `/terms`, `/terms-of-service`, `/credits`, `/help/external-engine`, `/docs/user-courses` | PA | Юридика, документация. Полностью статический контент. |
-| `/play` | PM | Сейчас `ProtectedRoute`. Гостю нужен **лендинг** «играй онлайн» с CTA на регистрацию (не SPA-лобби — оно требует профиль и WebSocket-сессию). После логина — редирект на нынешний `<PlayPage>`. |
-| `/lobby` | PR (downgrade на PM) | Старое лобби. Гостю показывать список открытых вызовов + CTA «принять — войти». MVP: сделать PM как `/play`. Полный PR — после KS-4118 +1 эндпоинт open challenges. |
-| `/tournaments`, `/tournaments/:id`, `/arena/:id` | PR | Гость видит список турниров, расписание, бракет, кросс-таблицу одной арены. Регистрация в арене / попадание в инвайт `/t/:code` — action, модалка логина. |
-| `/puzzles`, `/puzzle/:id`, `/puzzles/stats` | PR | **Уже работает** для каталога. Гость листает позиции, видит превью доски, фильтры, статистику публичную. Решение задачи — action (ставит прогресс пользователю, нужен JWT). |
-| `/daily` | алиас → `/puzzles` | Историческое — `<Navigate to="/puzzles">`. Не классифицируется, оставить как редирект. |
-| `/puzzle-rush`, `/puzzle-rush/leaderboard` | PR (только leaderboard) + PM (лендинг режима) | Лидерборд гостю показываем (это публичная страница `PuzzleRushLeaderboardPage` уже без `ProtectedRoute`). Сам режим (`/puzzle-rush`) — PM-лендинг для гостя; play — action. |
-| `/puzzle-rush/review/:scoreId` | PV | Личный review своей попытки, требует ownership. |
-| `/precision`, `/precision/stats`, `/precision/history`, `/precision/attempts/:id` | PR (лобби) + PV (личные стат/история/попытка) | Лобби `/precision` сейчас открыто гостю — это PR-каталог позиций. История/статистика — личное. |
-| `/analysis`, `/analysis/:id`, `/analysis/public/:id` | PX | `publicMode=true` через `GET /analyses/public/:id` уже работает (ADR-110). Любой `/analysis/:id` гостя без owner-доступа должен переключаться в `publicMode` если анализ помечен shared, иначе модалка. |
-| `/analyses/:analysisId/metrics` | PR (если анализ публичный) | Расширение того же контракта (ADR-122). |
-| `/game/:id`, `/game/:id/review` | PV | Личная партия. Только просмотр. |
-| `/games/live`, `/games/:id/watch` | PR | Уже без `ProtectedRoute` — это наблюдение за чужими live-партиями. Подтверждаем PR. |
-| `/workshop`, `/workshop/pgn-files`, `/workshop/pgn-files/:fileId` | PV | Личные PGN-файлы пользователя. Тут открывать гостю нечего; для SEO нужен отдельный PM-лендинг — см. §4.1. |
-| `/broadcasts`, `/broadcasts/:tournamentId`, `/broadcasts/:tournamentId/:roundId`, `/broadcasts/:tournamentId/:roundId/:gameId`, `/broadcasts/:tournamentId/:roundId/:gameId/live` | PR | Гость видит список, заходит на трансляцию, смотрит партии в live. Action: чат / лайки / комменты — модалка. |
-| `/players` | PR | Рейтинг и поиск игроков. Действия на чужом профиле (вызов, написать) — action. |
-| `/player/:username` | PR | Публичный профиль игрока (рейтинги, история, статистика). Вызов/чат — action. Скрыть для гостя: email (если был), приватные настройки, list of friends если они private. |
-| `/coach/:username` | PR | Витрина тренера (ADR-113). Action — запись на лекцию. |
-| `/lectures`, `/lectures/:id` | PR | Лендинг лекции (free preview) — гостю open. Покупка / запись на live / просмотр приватной записи — action, модалка. Текущие `LecturesListPage` и `LectureLandingPage` уже без `ProtectedRoute` — подтверждаем. |
-| `/lectures/:id/live` | PX | Live-эфир. Гостю — превью первых N минут (если ADR-119 позволяет) или сразу модалка. По умолчанию модалка, free-preview — отдельный тикет. |
-| `/lectures/:id/replay`, `/lectures/:id/unavailable` | PV → PX | Replay требует ownership. Unavailable — public-info страница. |
-| `/archive`, `/archive/games/:id`, `/archive/players/:slug` | PR | Архив партий уже не под `ProtectedRoute`. Подтверждаем. |
-| `/lessons` (если `lessonsEnabled`) | PV → частично PR | Сейчас `ProtectedRoute`. Решение: `/lessons` лендинг (PR-каталог системных курсов) + `/lessons/discover` уже PR. Запись на курс / просмотр уроков — action. **Менять с осторожностью** — это завязано на ADR-026 / ADR-054. См. §11.2. |
-| `/lessons/discover` | PR | Уже работает. |
-| `/lessons/my`, `/lessons/my-active`, `/lessons/editor`, `/lessons/:courseSlug`, `/lessons/:courseSlug/:lessonSlug` | PV | Привязано к пользователю. |
-| `/feedback`, `/feedback/:id` | PR | Доска идей — гость читает, голосовать / писать — action. |
-| `/drills`, `/drills/about`, `/drills/sprint*`, `/drills/:type` | PR (`/drills/about`) + PM (лобби) + PV (sprint setup/play/results) | `/drills/about` уже public (ADR-035 §7). Лобби `/drills` сейчас под `drillsEnabled`-флагом без auth-guard, но без открытого API — пустой layout. Минимально нужен PM-лендинг. |
-| `/opening-trainer`, `/opening-trainer/*` | PV | Личные репертуары. Лендинг — отдельный PM-кандидат (§4.1), не обязательный. |
-| `/guess`, `/guess/stats`, `/guess/history`, `/guess/sessions/:id` | PV | Гейтятся `GUESS_ENTRY_ENABLED` в проде. Когда выйдет — лендинг можно сделать PR/PM. |
-| `/blind-board`, `/blind-board/*` | PV | Скоро лендинг (PM). |
-| `/live/:slug` | PR | Зритель live-анализа (ADR-110). Уже public. `noindex` страница ставит сама. |
-| `/messages`, `/messages/:userId`, `/friends`, `/profile`, `/settings` | PV | Личные. |
-| `/admin/feature-flags`, `/admin/*` | PV (admin) | `AdminRoute`. |
-| `/dev-bypass`, `/__dev/*`, `/dev/*` | DV | Только dev/staging. |
+### 4.2. Таблица per-route
 
-### 4.1. Кандидаты на отдельный PM-лендинг (даже если намерения не лезть в действия)
+| Маршрут | Категория | Что гость делает / видит | Что пишется в БД (требует логина) | Паттерн point-of-auth |
+|---------|-----------|--------------------------|-----------------------------------|-----------------------|
+| `/` | PR (гость) / редирект (юзер) | Лендинг главной (`<FeaturesPage>`); юзер → `/play` | — | — |
+| `/features` | PR | Описание разделов сайта (статическая) | — | — |
+| `/login`, `/register`, `/oauth/callback` | PA | Формы аутентификации | — | — |
+| `/terms`, `/terms-of-service`, `/credits`, `/help/external-engine`, `/docs/user-courses` | PA | Юридика, документация | — | — |
+| `/play` | **PF** | Лобби игры: выбор time-control, игра против бота (без рейтинга), просмотр открытых вызовов | Запуск онлайн-матча, обновление личного рейтинга, история партий | inline-CTA на лобби + модалка при попытке «играть онлайн» |
+| `/lobby` | **PF** | Список открытых вызовов и быстрых игр | Создание вызова, приём, запуск матча | inline-CTA + модалка |
+| `/tournaments`, `/tournaments/:id`, `/arena/:id` | PR | Список, расписание, бракет, кросс-таблица | Регистрация, инвайты | модалка по кнопке «Зарегистрироваться» |
+| `/t/:code` | PR | Превью турнира по invite | Принятие invite | модалка |
+| `/puzzles`, `/puzzle/:id`, `/puzzles/stats` | **PF** (уже работает) | Каталог задач, решение задачи через `chess.js` локально (UCI-ходы, проверка решения) | Submit attempt, прогресс, личный рейтинг, streak | inline-CTA (образец PuzzlePage:900) |
+| `/puzzle-rush` | **PF** | Запуск раунда, решение задач на скорость, локальный score | Сохранение score в лидерборд, профильный рейтинг | inline-CTA на странице «вы играете как гость, score не сохранится» |
+| `/puzzle-rush/leaderboard` | PR | Лидерборд (уже public) | — | — |
+| `/puzzle-rush/review/:scoreId` | PV | Личный review (требует ownership) | — | `ProtectedRoute` |
+| `/precision` | **PF** | Каталог позиций, тренировка | Сохранение attempts, рейтинг | inline-CTA |
+| `/precision/stats`, `/precision/history`, `/precision/attempts/:id` | **PF (stats/history)** + PV (attempts/:id) | Stats/history гостю — guest-CTA («залогинься чтобы увидеть свои тренды»); чужой attempts/:id не нужен | Личная статистика | inline-CTA (PrecisionStatsPage уже работает) |
+| `/analysis`, `/analysis/:id` | PX/**PF** | Анализ позиции от FEN, импорт PGN, Stockfish-WASM локально | Сохранение анализа в свои, добавление в репертуар | inline disabled-hint + модалка по кнопке «Сохранить» (AnalysisPage уже работает) |
+| `/analysis/public/:id` | PX | Read-only shared-анализ | — | — |
+| `/analyses/:analysisId/metrics` | PX | Метрики публичного анализа (ADR-122) | — | — |
+| `/game/:id`, `/game/:id/review` | PV | Личная партия | — | `ProtectedRoute` |
+| `/games/live`, `/games/:id/watch` | PR | Лента live-партий | Поставить лайк, написать в чат | модалка |
+| `/workshop`, `/workshop/pgn-files`, `/workshop/pgn-files/:fileId` | **PF** | Анализ позиции в Мастерской, ввод FEN, импорт PGN в браузер, движок Stockfish-WASM локально, оценки, варианты | Сохранение анализа, прикрепление PGN-файла | inline-CTA «войди, чтобы сохранить анализ» (WorkshopAnalysisList уже работает) |
+| `/broadcasts/*` | PR | Список трансляций, конкретный турнир, раунд, партия | Чат, лайки, комментарии | модалка по кнопке |
+| `/players` | PR | Лидерборд игроков, поиск | — | — |
+| `/player/:username` | PR | Публичный профиль, рейтинги, история | Вызов на партию, написать сообщение, добавить в друзья | модалка (PlayerProfilePage уже использует `useRequireAuth`) |
+| `/coach/:username` | PR | Витрина тренера, услуги, цены | Запись на лекцию, написать | модалка |
+| `/lectures`, `/lectures/:id` | PR | Каталог, лендинг лекции (free preview) | Покупка, запись на live, просмотр replay | модалка |
+| `/lectures/:id/live` | PX/PV | Free-preview первых N минут (если ADR-119 позволит), иначе модалка | Платный доступ | модалка |
+| `/lectures/:id/replay`, `/lectures/:id/unavailable` | PV / PR | Replay требует ownership; unavailable — public-info | — | `ProtectedRoute` для replay |
+| `/archive`, `/archive/games/:id`, `/archive/players/:slug` | PR | Архив партий (уже без `ProtectedRoute`) | — | — |
+| `/lessons` (если `lessonsEnabled`) | PR/PF (зависит от §11.2) | Каталог системных курсов | Прогресс прохождения, отметка «изучено» | inline-CTA + модалка по «начать курс» — см. §11.2 |
+| `/lessons/discover` | PR (уже работает) | Каталог открытых курсов | — | — |
+| `/lessons/my`, `/lessons/my-active`, `/lessons/editor`, `/lessons/:courseSlug`, `/lessons/:courseSlug/:lessonSlug` | PV | Личные курсы, прогресс | — | `ProtectedRoute` |
+| `/feedback`, `/feedback/:id` | PR | Доска идей | Голосовать, комментировать, создать | модалка по кнопке |
+| `/drills`, `/drills/about`, `/drills/sprint*`, `/drills/:type` | **PF** | Тематические тренажёры. `/drills/about` (статика) уже public | Sprint setup/play/results — сохранение прогресса, leaderboard | inline-CTA на странице тренажёра |
+| `/opening-trainer` | **PF/PV** | Без репертуара тренажёр пуст. Открыть гостю «системный демо-репертуар» (если есть готовый — KS-3273), иначе оставить за логином **без лендинга** — см. §11.12 | Личный репертуар, прогресс, SRS-очередь | inline-CTA на главной + модалка по «создать репертуар» |
+| `/opening-trainer/new`, `/opening-trainer/:id`, `/opening-trainer/:id/session/*`, `/opening-trainer/reviews`, `/opening-trainer/:id/stats` | PV | Личные репертуары | — | `ProtectedRoute` (пока §11.12 не решён) |
+| `/guess`, `/guess/sessions/:id` | **PF** | Угадай ход — тренажёр без личных данных, работает локально | Score, история | inline-CTA |
+| `/guess/stats`, `/guess/history` | **PF (stats)** + PV | Stats/history гостю — guest-CTA по образцу `PrecisionStatsPage` (GuessStatsPage уже использует шаблон) | Личные тренды | inline-CTA |
+| `/blind-board`, `/blind-board/sessions/:id` | **PF** | Тренажёр слепой игры — локально | Score, история | inline-CTA |
+| `/blind-board/stats`, `/blind-board/history` | **PF** | Гостю — guest-CTA (BlindBoardStatsPage уже работает) | Личные тренды | inline-CTA |
+| `/live/:slug` | PR | Зритель live-анализа (ADR-110), `noindex` ставит сама страница | — | — |
+| `/messages`, `/messages/:userId`, `/friends`, `/profile`, `/settings` | PV | Личные данные | — | `ProtectedRoute` |
+| `/admin/feature-flags`, `/admin/*` | PV (admin) | Админка | — | `AdminRoute` |
+| `/dev-bypass`, `/__dev/*`, `/dev/*` | DV | Только dev/staging | — | — |
 
-Маршруты, которые сейчас классифицированы PV или PM-неполный, но
-имели бы реальную SEO-ценность при минимальном лендинге:
+### 4.3. Отказ от `<MarketingLanding>`
 
-- `/play` — «Играй в шахматы онлайн».
-- `/workshop` — «Анализ своих партий, PGN-импорт».
-- `/precision` — «Тренировка точного расчёта» (ADR-048).
-- `/puzzle-rush` — «Решай задачи на скорость».
-- `/drills` — «Тематические тренажёры» (ADR-035).
-- `/opening-trainer` — «Тренируй свои дебюты».
-- `/blind-board` — «Тренируй слепую игру».
-- `/guess` — «Угадай ход чемпиона» (после выхода `GUESS_ENTRY_ENABLED`).
+`<MarketingLanding>` как унифицированный шаблон **не вводится**.
+Решение: гость попадает на сам тренажёр, не на лендинг. Это правильнее
+по UX (нет двойного клика «прочитал лендинг → войти → начать») и
+правильнее по SEO (бот видит реальный продукт, а не маркетинговое
+описание).
 
-Каждый — отдельный лендинг через **унифицированный шаблон**
-`<MarketingLanding>` (см. §7.2). Контент-копирайт — отдельная задача
-(content + marketing), не в scope этого ADR.
+Единственный маркетинговый раздел — `/features` (одна страница на сайт,
+описание возможностей с CTA «зарегистрироваться»). Это **обычная
+react-компонента**, не шаблон. Тексты — отдельная задача content +
+marketing.
+
+`<MarketingLanding>` упоминается ниже в §7.7 (старый текст, оставлен
+для исторической непрерывности — но **не реализуется**). При
+финальной зачистке ADR (volna 5, KS-21) §7.7 переписывается на
+«отдельный компонент `<FeaturesPage>`, без шаблона».
 
 ---
 
-## 5. Модель «read vs action» по public-read маршрутам
+## 5. Модель «функционал vs запись в БД» по PF/PR-маршрутам
 
-Для каждого PR-маршрута: что видит гость, что требует auth, какие
-GET-эндпоинты должен открыть backend, какие поля DTO скрывать
-для анонимов, какой rate-limit.
+> **Ревизия 2026-06-14 (KS-4125).** Раздел изначально описывал только
+> PR («read vs action»). После отказа от PM в §4 добавляется PF
+> («полный функционал vs запись в БД»). Содержание §5.1–§5.10 ниже
+> остаётся валидным для PR-маршрутов; для PF-тренажёров §5.11–§5.14
+> описывают что гость делает локально (без backend-вызовов) и где
+> ставится inline guest-CTA.
 
 ### 5.1. `/puzzles`, `/puzzle/:id`, `/puzzles/stats`
 
@@ -378,85 +434,255 @@ public-режима.
 поддерживает, фронт работает. Доступ к live/replay — за оплатой
 (ADR-118), это action.
 
+### 5.11. `/puzzles`, `/puzzle/:id` (PF, уже работает)
+
+Гость:
+- Каталог задач, фильтры (theme/rating/openings), пагинация.
+- Открыть задачу, решать ходами (`chess.js` локально валидирует UCI).
+- Видит правильный ход после ошибки.
+- streak/totalSolved в текущей сессии (in-memory) — обнуляются при
+  перезагрузке.
+
+В БД пишется (требует логина):
+- `POST /puzzles/:id/attempt` — записывает попытку и обновляет
+  `userRating`, `userProgress`, `lastAttemptAt`.
+- `POST /puzzles/:id/skip` — отметка о пропуске.
+
+inline guest-CTA: `<Link to="/login">{auth.loginToSaveProgress}</Link>`
+под шапкой страницы (`PuzzlePage.tsx:900-903, 969-972`). Не модалка —
+гость продолжает решать задачи, баннер просто висит как напоминание.
+
+### 5.12. `/precision`, `/precision/stats`, `/precision/history` (PF + PR/PF stats)
+
+Гость:
+- Каталог позиций play-vs-engine.
+- Запуск позиции — `<PlayVsEngineRunner>` работает с локальным
+  Stockfish-WASM.
+- Локальный feedback (точность хода, оценка).
+
+В БД пишется (требует логина):
+- `POST /precision/:id/attempt` — попытка с рейтинг-дельтой Glicko-1
+  (ADR-079).
+- `POST /precision/next` — переход на следующую задачу по
+  рейтинг-окну.
+
+`/precision/stats`, `/precision/history`:
+- Для гостя — секция CTA «Sign in to track your accuracy, trends and
+  weak themes» + кнопка «Sign in and start training»
+  (`PrecisionStatsPage.tsx:69-90` — уже работает).
+- Для авторизованного — `<PrecisionStatsCards>`, `<PrecisionTrendsChart>`,
+  `<PrecisionBreakdowns>`.
+
+`/precision/attempts/:id` — PV (личный attempt, ownership).
+
+### 5.13. `/puzzle-rush`, `/drills`, `/blind-board`, `/guess` (PF тренажёры)
+
+Общий шаблон для всех тренажёров без личных данных:
+- Гость полностью использует функционал, локальный score/время.
+- Лидерборд гостю показываем (PR-эндпоинт без логина).
+- В БД пишутся: запись score в лидерборд, профильные тренды.
+- inline guest-CTA на странице тренажёра в области «score»:
+  «Ваш результат: {score}. Войдите, чтобы попасть в лидерборд.»
+- Stats/history гостю — guest-CTA по образцу `PrecisionStatsPage`.
+
+Реальное состояние на момент ревизии (для опоры frontend-задач):
+- `/blind-board/stats`, `/blind-board/history` — `isGuest && <CTA>` уже
+  реализовано (`BlindBoardStatsPage.tsx:32`, `BlindBoardHistoryPage.tsx:37`).
+- `/guess/stats` — то же (`GuessStatsPage.tsx:33`).
+- `/puzzle-rush` — `ProtectedRoute` снять, страницу запустить гостю,
+  отключить отправку score'а в БД для `user==null`.
+- `/drills`, `/drills/sprint*` — `ProtectedRoute` снять, sprint-results
+  не пишутся для гостя.
+
+### 5.14. `/workshop`, `/analysis` (PF анализ)
+
+Гость:
+- `/workshop` — ввести FEN, импортировать PGN в браузер, играть
+  варианты, запустить Stockfish-WASM (`EngineLoader`), смотреть
+  оценки/линии, добавлять аннотации/NAG'и/комменты к ходам — всё
+  локально, без backend.
+- `/analysis`, `/analysis/:id` — то же.
+- `/analysis/public/:id` — read-only shared (без изменений).
+
+В БД пишется (требует логина):
+- «Сохранить в Мои анализы» — кнопка disabled с hint'ом для гостя
+  (AnalysisPage.tsx:792-797 уже работает), на click — модалка
+  (`useRequireAuth`).
+- «Добавить позицию в репертуар» — то же.
+- `WorkshopAnalysisList` — гостю «Sign in to save your analyses»
+  (уже работает, `WorkshopAnalysisList.tsx:662-664`).
+
+`/workshop/pgn-files`, `/workshop/pgn-files/:fileId` — личные файлы,
+для гостя список заменяется guest-CTA, верхняя половина (анализ) —
+полнофункциональна.
+
 ---
 
-## 6. UX-паттерн модалки логина
+## 6. UX-паттерны point-of-auth
 
-Единый компонент `<LoginRequiredModal>` (новый), используется во всех
-PR-маршрутах для action-кнопок. До его внедрения — fallback на
-`<Navigate to="/login?returnUrl=...">` через тот же
-`setAuthReturnUrl`-механизм.
+> **Ревизия 2026-06-14 (KS-4125).** Изначально §6 описывал только
+> модалку. После отказа от PM-лендингов (§4) гостю открывается весь
+> функционал, и **главный** паттерн стал inline guest-CTA (для записи
+> прогресса в БД, происходящей автоматически по факту использования).
+> Модалка остаётся для discrete-actions с явной кнопкой. Ниже —
+> формулировка обоих паттернов и decision rule.
 
-### 6.1. Контракт компонента
+### 6.1. Паттерн A — inline guest-CTA (по умолчанию для PF)
+
+Где применяется:
+- Тренажёры, где запись в БД происходит **автоматически по факту
+  прохождения** (puzzle attempt, precision attempt, puzzle-rush score,
+  drill sprint result, blind-board score, guess score, opening-trainer
+  session).
+- Статистика и история этих тренажёров (PF stats/history): гостю
+  показываем CTA «войди, чтобы видеть свои тренды», авторизованному —
+  реальный контент.
+- Stand-alone списки личных артефактов (workshop analyses,
+  archive of own games): гостю — `<p>{loginToSave}</p>`,
+  авторизованному — список.
+
+Контракт компонента-страницы:
 
 ```tsx
-// apps/web/src/components/auth/LoginRequiredModal.tsx
-interface LoginRequiredModalProps {
-  isOpen: boolean;
-  onClose(): void;
-  /** Что хотел сделать гость — для текста заголовка модалки. */
-  actionLabel: string;          // 'Решить задачу', 'Зарегистрироваться в турнире', ...
-  /** Куда вернуть после успешного логина. По умолчанию current URL. */
-  returnUrl?: string;
-  /** Если действие подразумевает регистрацию — заранее открыть таб register. */
-  defaultTab?: 'login' | 'register';
-}
+const { user } = useAuth();
+const isGuest = !user;
+return (
+  <div className="<page>" data-auth={isGuest ? 'guest' : 'user'}>
+    <Header />
+    {isGuest && <GuestCTA i18nKey="<page>.guest.message" cta="<page>.guest.cta" />}
+    <CoreFunctionality />  {/* всегда: тренажёр работает локально */}
+    {!isGuest && <PersonalContent />}
+  </div>
+);
+```
+
+Образец готового кода — `apps/web/src/pages/PrecisionStatsPage.tsx:55-101`
+(используется как шаблон для остальных PF-стат-страниц).
+
+Для двух мест на странице (header + footer статистики) разрешено
+дублирование баннера — без обёртки в Context. Образец:
+`PuzzlePage.tsx:900-903, 969-972`.
+
+### 6.2. Паттерн B — `<LoginRequiredModal>` + `useRequireAuth` (для discrete actions)
+
+Где применяется:
+- Discrete write-action с явной кнопкой: «Отправить сообщение»,
+  «Зарегистрироваться в турнире», «Добавить в друзья», «Сохранить
+  анализ», «Принять вызов», «Купить лекцию», «Создать репертуар».
+- Действия в шапке/сайдбаре витрин (`/player/:u`, `/coach/:u`,
+  `/tournaments/:id`, `/broadcasts/:id`).
+
+Уже реализовано (KS-4124):
+- `apps/web/src/context/RequireAuthContext.tsx` — провайдер +
+  `useRequireAuth` (см. строки 57–129).
+- `apps/web/src/components/LoginRequiredModal.tsx` — компонент.
+- `apps/web/src/main.tsx:163-165` — провайдер обёрнут вокруг
+  приложения.
+- Используется в `PlayerProfilePage.tsx:83`,
+  `TournamentLobbyPage.tsx:90`.
+
+Контракт хука:
+
+```tsx
+const requireAuth = useRequireAuth();
+<button onClick={() => requireAuth(() => sendMessage(payload), {
+  description: t('player.loginToMessage', 'Sign in to message {{name}}', { name }),
+})}>
+  {t('player.message')}
+</button>
 ```
 
 Поведение:
-1. Открывается inline (без редиректа), затемнение фона, esc/клик-вне
-   закрывают.
-2. Текст: «Чтобы {actionLabel}, войдите или зарегистрируйтесь».
-3. Две вкладки: «Войти» и «Создать аккаунт». Внутри — формы из
-   `LoginPage` / `RegisterPage` (переиспользовать компоненты-формы,
-   а не страницы целиком).
-4. OAuth-кнопки (Google / Facebook) — те же, что на `/login`.
-5. Перед редиректом на OAuth — `setAuthReturnUrl(returnUrl)`. После
-   возврата `OAuthCallbackPage` обычным путём заберёт returnUrl через
-   `consumeAuthReturnUrl()`.
-6. Кнопка «Подробнее на странице входа» → `/login?returnUrl=…` как
-   fallback.
+- Если `user!=null` — `action()` выполняется сразу.
+- Если гость — открывается `<LoginRequiredModal>` с переданным
+  `description`. Кнопки «Войти» / «Создать аккаунт» сохраняют
+  `returnUrl` через `setAuthReturnUrl(...)` и навигируют на
+  `/login` / `/register`. После логина `OAuthCallbackPage` /
+  `LoginPage` читают returnUrl и возвращают пользователя.
 
-### 6.2. Хук `useRequireAuth`
+Хук **не** повторяет действие после логина автоматически — это
+осознанное решение из docstring'а `RequireAuthContext.tsx:13-16`,
+чтобы не плодить глобальную очередь намерений. Если для конкретной
+страницы нужен deep-link на повторение (например, продолжить решение
+задачи) — страница сама читает `returnUrl` / URL-state и вызывает
+action.
 
-```tsx
-// apps/web/src/hooks/useRequireAuth.ts
-const requireAuth = useRequireAuth();
-// в обработчике:
-onClick={(e) => {
-  if (!requireAuth({ actionLabel: 'Решить задачу' })) return;
-  // ... action logic
-}}
-```
+### 6.3. Decision rule — какой паттерн использовать
 
-`useRequireAuth` отдаёт функцию: если `user==null` — открывает модалку и
-возвращает `false`; если есть — `true`. Модалка хранится в Context
-(`<LoginRequiredModalProvider>` оборачивает `<MainLayout>`), один
-инстанс на приложение.
+| Условие | Паттерн |
+|---|---|
+| Запись в БД происходит **по факту** прохождения (attempt, score, session result) | **A — inline guest-CTA** |
+| Действие — отдельная **кнопка** (Send, Save, Register, Add, Buy) | **B — модалка через `useRequireAuth`** |
+| Read-only страница без действий (трансляция, профиль на просмотр) | — (никакого CTA, баннер не нужен) |
+| Личная страница, гостю показывать нечего (`/settings`, `/messages`) | `ProtectedRoute` редиректит на `/login` |
 
-### 6.3. Deep-link после логина
+Граничные случаи:
+- `/play` (лобби игры): первичный фокус — выбор игры. Открываем гостю
+  с inline-CTA «вы играете как гость, без рейтинга». Кнопка «Играть
+  онлайн» — модалка (для матчмейкинга нужен профиль и WS-сессия с
+  JWT). Кнопка «Играть с ботом» — открывает игру без логина.
+- `/lobby`: список открытых вызовов открыт гостю; кнопка «Принять»
+  / «Создать вызов» — модалка.
+- `/workshop`: верхняя половина (анализ позиции) — A; список «Мои
+  анализы» — A (guest замещается баннером); кнопка «Сохранить» — B.
+
+### 6.4. Deep-link после логина (общее для A и B)
 
 Реюз существующего `authReturnUrl`:
-- При открытии модалки сохраняем
-  `setAuthReturnUrl(location.pathname + location.search + '#' + intentHash)`.
-  `intentHash` — короткий идентификатор намерения (`#act=solve-puzzle:abc`),
-  страница после логина может его прочитать и сразу повторить
-  action (например, открыть задачу и запустить таймер).
-- После регистрации — то же поведение, плюс onboarding-сценарий
-  (отдельно, не в этом ADR).
+- A (inline-CTA): `<Link to="/login">` использует обычный flow —
+  `LoginPage` после успеха читает `state.returnUrl` (или
+  `consumeAuthReturnUrl()`) и редиректит обратно.
+- B (модалка): `useRequireAuth` сам пишет `setAuthReturnUrl(returnUrl)`
+  перед навигацией, см. `RequireAuthContext.tsx:90, 97`.
 
-### 6.4. Что НЕ делает модалка
+Повторение конкретного action после логина — на усмотрение страницы
+(см. §6.2). Глобальной «очереди намерений» нет — это намеренно.
 
-- Не делает passwordless / magic-link (отдельная фича).
-- Не делает «продолжить как гость» — намеренно: гость уже на странице,
-  модалка появилась именно потому, что нажал action.
+### 6.5. Что НЕ делают паттерны
 
-### 6.5. Edge case: ProtectedRoute остаётся для прямой ссылки
+- Не делают passwordless / magic-link.
+- Не делают «продолжить как гость» — гость уже на странице, паттерн
+  появляется именно для записи / discrete action.
+- Не делают inline-форму логина прямо на странице (только модалка или
+  навигация на `/login`).
+
+### 6.6. Edge case: ProtectedRoute остаётся для прямых ссылок
 
 Если гость пришёл по прямой ссылке на чисто-private маршрут
-(`/settings`, `/messages`, `/profile`) — `ProtectedRoute` продолжает
-редиректить на `/login`. Модалка нужна только на PR-маршрутах для
-action-кнопок. Это сохраняет существующий контракт `returnUrl`.
+(`/settings`, `/messages`, `/profile`, `/game/:id`, `/lessons/my/*`) —
+`ProtectedRoute` продолжает редиректить на `/login` с
+`setAuthReturnUrl`. Это сохраняет существующий контракт returnUrl и
+не требует A/B-паттернов на странице, которая для гостя бессмысленна.
+
+PF/PR-маршруты `ProtectedRoute` **не** оборачивает; гость попадает на
+сам тренажёр.
+
+### 6.7. Унификация — рекомендуемый компонент `<GuestCTA>`
+
+Сейчас inline-CTA в коде каждой страницы своя:
+- `PuzzlePage` — `<div className="guest-banner">{<Link/>}</div>`.
+- `PrecisionStatsPage` — `<section
+  className="precision-stats-page__guest">…<Link/></section>`.
+- `BlindBoardStatsPage` — то же, но с другими classNames.
+- `WorkshopAnalysisList` — `<p
+  className="workshop-section-block__empty">{login}</p>`.
+
+Для консистентности (и чтобы новые PF-страницы не плодили четвёртый
+вариант) — ввести один компонент `<GuestCTA>` в
+`apps/web/src/components/auth/GuestCTA.tsx`:
+
+```tsx
+interface GuestCTAProps {
+  variant?: 'banner' | 'section' | 'inline';   // banner — узкий в шапке, section — крупный с h2 и кнопкой, inline — короткая ссылка
+  messageKey: string;                          // i18n key для текста
+  ctaKey?: string;                             // i18n key для кнопки/ссылки (default — 'auth.signIn')
+  testid?: string;
+}
+```
+
+Использовать на всех новых PF-страницах. Существующие — мигрировать
+постепенно (KS-23 декомпозиции). Это снимает риск визуального
+расхождения CTA по разделам.
 
 ---
 
@@ -881,67 +1107,88 @@ cron+mutation), разные исходники (dist/ vs S3-staging frontend +
 Принцип: первым делать то, где (наибольший SEO-объём) × (минимум
 работы) × (нет зависимости от других тикетов).
 
+> **Ревизия 2026-06-14 (KS-4125).** Волны 3 (PM-лендинги) и 5 (часть
+> про лендинги) удалены. Вместо них — волна «открыть PF-тренажёры
+> гостю» (паттерн A, §6.1). Backend-работа сосредоточена на
+> допущении `user==null` в путях записи (graceful no-op + 401 на
+> mutation), не на новых GET-эндпоинтах для лендингов.
+
 ### Волна 1 — открыть PR-витрины + поднять prerender-сервис
 
 Параллельные потоки:
 
 1. **`/broadcasts`, `/tournaments`, `/players`, `/feedback`, `/lectures`**
    — снять `ProtectedRoute` (frontend, KS-4119), открыть GET-эндпоинты
-   с `OptionalJwtGuard` (backend, KS-4118). Витрина списка работает
-   через build-time prerender (skeleton + sitemap).
+   с `OptionalJwtGuard` (backend, KS-4118).
 2. **Исправить `/features`** (KS-4119 п.2). Отдельный компонент от `/`.
-3. **`apps/prerender-service`** — поднять заготовку сервиса (§7.3): SQS,
-   ECS task с Playwright, S3 bucket, CloudFront маппинг §7.3.4. Без
-   реальных триггеров — только инфраструктура и smoke-test на одной
-   ручной задаче.
+3. **`apps/prerender-service`** — заготовка (§7.3): SQS, ECS task с
+   Playwright, S3 bucket, CloudFront маппинг §7.3.4.
+4. **Компонент `<GuestCTA>`** (§6.7) — единый шаблон inline-CTA для
+   всех PF-страниц последующих волн.
 
 ### Волна 2 — динамический prerender по приоритету сущностей
 
-4. **Lectures + Coaches** (низкий объём, on-demand-only) — backend
-   mutation hooks (§7.3.7) на `LectureService.publish` /
-   `CoachService.updateProfile`. Sitemap-генератор для двух сущностей.
-   Per-route метатеги + JSON-LD. Это даёт первое индексируемое тело
-   карточек с минимальным риском.
-5. **Tournaments** (десятки, cron 30 мин + on-demand) — то же самое для
-   `ArenaService.finish` + cron-фид.
-6. **Broadcasts** (тяжелее — live-обновления, on-demand при
-   `finishRound`, cron 15 мин для активных) — broadcast-worker
-   (ADR-021) шлёт enqueue, prerender-service слушает.
+5. **Lectures + Coaches** (низкий объём, on-demand-only) — mutation
+   hooks (§7.3.7), sitemap, метатеги + JSON-LD.
+6. **Tournaments** (cron 30 мин + on-demand `ArenaService.finish`).
+7. **Broadcasts** (cron 15 мин для активных + on-demand при
+   `finishRound`).
 
-### Волна 3 — PM-лендинги по шаблону
+### Волна 3 — открыть PF-тренажёры гостю (вместо старой «PM-лендинги»)
 
-7. **`/play`** — лендинг «играй онлайн».
-8. **`/puzzle-rush`** — лендинг режима.
-9. **`/precision`** — лендинг «тренируй точный расчёт».
-10. **`/workshop`** — лендинг «анализ партий».
+Каждый — отдельный тикет (frontend + backend, §10):
+- снять `ProtectedRoute` с роута;
+- backend: в путях записи (`POST /<entity>/attempt`, `POST
+  /scores`, `POST /<entity>/session/finish`) добавить ветку
+  `user==null → no-op` (тренажёр продолжает работать, ничего не
+  пишем); 401 остаётся ТОЛЬКО для запросов, которые подразумевают
+  ownership (`PATCH /attempts/:id`);
+- frontend: на странице добавить `<GuestCTA variant="banner">`;
+- проверить, что score/сессия в памяти работают корректно (key=
+  refresh обнуляет — это нормальное поведение для гостя).
+
+8. **`/puzzle-rush`** — снять `ProtectedRoute`, гость играет, score
+   локальный, лидерборд не пишется, лидерборд показывается.
+9. **`/drills`, `/drills/sprint*`, `/drills/:type`** — снять
+   `ProtectedRoute`. Sprint-results для гостя — локальные.
+10. **`/blind-board`, `/blind-board/sessions/:id`** — снять
+    `ProtectedRoute`. Stats/history гостю уже работают (§5.13) —
+    проверить тестами.
+11. **`/guess`, `/guess/sessions/:id`, `/guess/stats`, `/guess/history`**
+    — снять `ProtectedRoute` для лендинга и stats; sessions/:id может
+    остаться PV (ownership).
+12. **`/play` + `/lobby`** — снять `ProtectedRoute`. Гостю: «играть с
+    ботом» открыто, «играть онлайн» / «принять вызов» через
+    `useRequireAuth` (паттерн B). UI решение лобби — frontend.
 
 ### Волна 4 — top-N policy для players и archive
 
-11. **Players top-1000** — cron + sitemap. Sitemap включает только
-    top-1000; остальные `/player/:u` отдают skeleton без `noindex`
-    (Google WRS их обработает, Яндекс — нет, это намеренно).
-12. **Archive games policy** (avgElo ≥ 2400 или TWIC top-1000) —
-    `ArchiveImporterService.afterImport` hook. **Перед началом —
-    сверка policy с chess-expert и marketing** на тему SEO-объёма.
-13. **Archive players top-1000** — аналогично.
+13. **Players top-1000** — cron + sitemap (§7.4.2).
+14. **Archive games policy** (avgElo ≥ 2400 или TWIC top-1000) —
+    `afterImport` hook (§7.4.3). Сверка с chess-expert и marketing.
+15. **Archive players top-1000** — аналогично.
 
-### Волна 5 — расширение PR и остальные PM
+### Волна 5 — открытие caталога курсов гостю
 
-14. **`/lobby`** — публичный список открытых вызовов (требует backend
-    эндпоинта `GET /lobby/open-challenges` + публичного DTO).
-15. **`/lessons`, `/lessons/discover`** — открыть каталог курсов для
-    гостя (зависит от ADR-026 / ADR-054, сверка с chess-expert и
-    content).
-16. **`/drills`**, **`/opening-trainer`**, **`/blind-board`**,
-    **`/guess`** (когда выйдет под флагом). По одному лендингу через
-    `<MarketingLanding>`.
+16. **`/lessons`, `/lessons/discover`** — открыть каталог системных
+    курсов гостю (зависит от ADR-026 / ADR-054, сверка с chess-expert
+    и content). PF: гость пробует первый урок без сохранения
+    прогресса, inline-CTA «войди чтобы продолжить». §11.2.
 
 ### Волна 6 — динамический og:image и top-N broadcast games
 
-17. **`apps/og-image-service`** (§7.5 (c)) — Lambda, генерация PNG
-    превью для broadcast / player / lecture / tournament.
-18. **Top-N broadcast games** — по rule (avgElo, GM-вес) per-game
-    карточки `/broadcasts/:tid/:rid/:gid` с превью текущей позиции.
+17. **og:image** (§7.5) — генерация PNG внутри prerender-service.
+18. **Top-N broadcast games** — partial card prerender по rule
+    (avgElo, GM-вес).
+
+### Волна 7 — спорные тренажёры
+
+19. **`/workshop`** (PF) — открыть верх (анализ позиции) гостю,
+    sidebar «Мои анализы» через guest-CTA. Может потребовать
+    рефакторинга текущего layout — отдельный тикет, не блокирует
+    остальное.
+20. **`/opening-trainer`** — решение по §11.12 (гостю показывать
+    системный демо-репертуар или оставить за логином без лендинга).
 
 ---
 
@@ -980,41 +1227,55 @@ flowchart TD
 под решения отсюда и создаёт новые тикеты по нумерации ниже. Все
 размеры — оценка архитектора, может пересмотреть исполнитель.
 
+> **Ревизия 2026-06-14 (KS-4125).** Удалены тикеты KS-4 (шаблон
+> `<MarketingLanding>`) и KS-5 (контент лендингов). Добавлен KS-22
+> (компонент `<GuestCTA>`), KS-23 (миграция существующих inline-CTA
+> на `<GuestCTA>`), KS-24..KS-29 (открытие PF-тренажёров гостю).
+> Нумерация старых тикетов сохранена.
+
 | # | Тикет | Что | Исполнитель | Размер | Зависит от |
 |---|-------|-----|-------------|--------|------------|
-| 1 | KS-4118 (rewrite) | Backend: открыть `GET /broadcasts*`, `GET /arena*`, `GET /players*`, `GET /coaches/*`, `GET /feedback*`, `GET /lectures*` через `OptionalJwtGuard`; `@nestjs/throttler` 60 req/min на IP для гостя; скрыть приватные поля DTO | backend | M | этот ADR |
+| 1 | KS-4118 (rewrite) | Backend: открыть `GET /broadcasts*`, `GET /arena*`, `GET /players*`, `GET /coaches/*`, `GET /feedback*`, `GET /lectures*` через `OptionalJwtGuard`; throttler 60 req/min на IP; скрыть приватные поля DTO | backend | M | этот ADR |
 | 2 | KS-4119 (rewrite) | Frontend: снять `ProtectedRoute` с витрин; рендер для гостя; починить `/features` | frontend | M | 1 |
-| 3 | KS-новый | Frontend: `<LoginRequiredModal>` + `useRequireAuth` + `<LoginRequiredModalProvider>` | frontend | M | этот ADR |
-| 4 | KS-новый | Frontend: шаблон `<MarketingLanding>` + переводы каркаса | frontend + content | M | этот ADR |
-| 5 | KS-новый | Контент: тексты `/features`, `/play`, `/puzzle-rush`, `/precision`, `/workshop` (h1, description, sections, og:image) | content + marketing | L | 4 |
-| 6 | KS-новый | Frontend: внедрить `useRequireAuth` в action-кнопки витрин (`/puzzles`, `/broadcasts/:id`, `/tournaments/:id`, `/players/:u`, `/feedback`) | frontend | M | 3 |
-| 7 | KS-новый | Frontend: SEO-метатеги per-route + JSON-LD через `react-helmet-async`; по странице на PR/PM маршрут | frontend + content | L | 1, 2 |
-| **DYNAMIC PRERENDER (новый блок, KS-4121)** | | | | | |
-| 8 | KS-новый | DevOps: SQS `kingside-prerender-tasks`, S3 bucket `kingside-prerender-store`, IAM-роли, CloudFront Function маппинга путей §7.3.4 | devops | M | 1 |
-| 9 | KS-новый | Backend: новый воркспейс `apps/prerender-service` (ECS Fargate task, Playwright headless Chromium), слушает SQS, рендерит маршруты, кладёт HTML в S3 (§7.3.3, §7.3.6) | backend + devops | L | 8 |
-| 10 | KS-новый | Shared: `packages/shared/prerender-client.ts` (§7.3.7) — обёртка `SQS.sendMessage` с типизацией `PrerenderTask` | backend | S | 8 |
-| 11 | KS-новый | Backend: интеграция mutation-hooks для on-demand prerender — `CoachService.updateProfile`, `LectureService.publish`/`update`, `ArenaService.finish`, `ArchiveImporterService.afterImport`; broadcast-worker enqueue на `finishRound` | backend | M | 9, 10 |
-| 12 | KS-новый | DevOps: EventBridge schedule'ы — `prerender-broadcasts-active` (15 мин), `prerender-tournaments-active` (30 мин), `prerender-lectures-list` (30 мин), `prerender-players-top1000` (24 ч), `prerender-archive-list` (24 ч), per-entity safety-net (24 ч) | devops | M | 9 |
-| 13 | KS-новый | Backend: policy-фильтры (§7.4) для players (top-1000 по сумме рейтингов) и archive (avgElo ≥ 2400 / TWIC top-1000) — сверка с chess-expert и marketing | backend + chess-expert + marketing | M | 9 |
-| 14 | KS-новый | Backend: расширение `react-helmet-async` метатегами + JSON-LD (`SportsEvent`, `Person`, `Course`, `Article`) на каждой PR-карточке (§7.6) | frontend + content | L | 7, 9 |
-| 15 | KS-новый | Backend: per-entity sitemap'ы (`sitemap-broadcasts.xml`, `sitemap-coaches.xml`, …) + sitemap-index (§7.10) | backend | M | 11 |
-| 16 | KS-новый | Frontend: SEO-content для PR-карточек (broadcast title format «{tournament} — {round}», player «{u} — {rating}», coach «{name} — chess coach», lecture «{title} — by {coach}», archive game «{white} vs {black} ({result})») | content + chess-expert | L | 14 |
-| 17 | KS-новый | DevOps: `apps/og-image-service` (Lambda + node-canvas) — динамические og:image превью для broadcast/player/lecture/tournament (§7.5 (c)). Можно отложить до волны 6 — статические per-section og:image на старте | devops + backend | L | 9 |
-| **СТАРЫЙ БЛОК (продолжение)** | | | | | |
-| 18 | KS-новый | Backend: открыть `GET /lobby/open-challenges` (волна 5) | backend | S | 1 |
-| 19 | KS-новый | Backend + frontend: открыть `/lessons`, `/lessons/discover` каталоги гостю (волна 5, требует сверки с chess-expert) | backend + frontend | M | 1 |
-| 20 | KS-новый | Frontend: обновить `PUBLIC_ROUTES` реестр (флаг `dynamic: true` для шаблонных путей) | frontend | XS | 4 |
-| 21 | KS-новый | Поднять статус ADR-128 Proposed → Accepted после волны 2, обновить ADR фактами замеров SEO (Yandex Webmaster, GSC) | architect | S | 1–14 |
+| 3 | KS-4124 (done) | Frontend: `<LoginRequiredModal>` + `useRequireAuth` + `RequireAuthProvider` | frontend | M | этот ADR |
+| ~~4~~ | ~~MarketingLanding~~ | **Отменён (KS-4125).** Шаблон не вводится. | — | — | — |
+| ~~5~~ | ~~Контент лендингов~~ | **Отменён (KS-4125).** Гость попадает на сам тренажёр. Контент `/features` остаётся в KS-4119 п.2 | — | — | — |
+| 6 | KS-новый | Frontend: внедрить `useRequireAuth` в action-кнопки витрин (`/broadcasts/:id` чат, `/tournaments/:id` register, `/players/:u` вызов/сообщение, `/feedback` голос/коммент). Образец готов — `PlayerProfilePage`, `TournamentLobbyPage` | frontend | M | 3 |
+| 7 | KS-новый | Frontend: SEO-метатеги per-route + JSON-LD через `react-helmet-async`; по странице на PR/PF/PX маршрут | frontend + content | L | 1, 2 |
+| **DYNAMIC PRERENDER (KS-4121)** | | | | | |
+| 8 | KS-новый | DevOps: SQS `kingside-prerender-tasks`, S3 `kingside-prerender-store`, IAM, CloudFront Function маппинг путей §7.3.4 | devops | M | 1 |
+| 9 | KS-новый | Backend: `apps/prerender-service` (ECS Fargate + Playwright), слушает SQS, рендерит, кладёт в S3 | backend + devops | L | 8 |
+| 10 | KS-новый | Shared: `packages/shared/prerender-client.ts` (SQS sendMessage с типизацией) | backend | S | 8 |
+| 11 | KS-новый | Backend: mutation hooks для on-demand prerender (`CoachService.updateProfile`, `LectureService.publish`/`update`, `ArenaService.finish`, `ArchiveImporterService.afterImport`; broadcast-worker `finishRound`) | backend | M | 9, 10 |
+| 12 | KS-новый | DevOps: EventBridge schedule'ы (broadcasts-active 15 мин, tournaments-active 30 мин, lectures-list 30 мин, players-top1000 24 ч, archive-list 24 ч, safety-net 24 ч) | devops | M | 9 |
+| 13 | KS-новый | Backend: policy-фильтры (§7.4) для players (top-1000) и archive (avgElo ≥ 2400 / TWIC top-1000) — сверка с chess-expert + marketing | backend + chess-expert + marketing | M | 9 |
+| 14 | KS-новый | Frontend+content: расширение `react-helmet-async` метатегами + JSON-LD (`SportsEvent`, `Person`, `Course`, `Article`) на каждой PR/PF-карточке | frontend + content | L | 7, 9 |
+| 15 | KS-новый | Backend: per-entity sitemap'ы (`sitemap-broadcasts.xml`, …) + sitemap-index | backend | M | 11 |
+| 16 | KS-новый | Content: SEO-форматы заголовков карточек (broadcast «{tournament} — {round}», player, coach, lecture, archive game) | content + chess-expert | L | 14 |
+| 17 | KS-новый | DevOps+backend: og:image (внутри prerender-service или отдельная Lambda — §11.9) | devops + backend | L | 9 |
+| **ОТКРЫТИЕ КАТАЛОГОВ И PF-ТРЕНАЖЁРОВ (KS-4125)** | | | | | |
+| 18 | KS-новый | Backend: `GET /lobby/open-challenges` (волна 3, для `/lobby` PF) | backend | S | 1 |
+| 19 | KS-новый | Backend+frontend: открыть `/lessons`, `/lessons/discover` каталог гостю (волна 5, §11.2) | backend + frontend | M | 1 |
+| 20 | KS-новый | Frontend: обновить `PUBLIC_ROUTES` реестр (флаг `dynamic: true` для шаблонных путей) | frontend | XS | 2 |
+| 21 | KS-новый | Architect: поднять ADR-128 Proposed → Accepted после волны 2, обновить фактами SEO-замеров | architect | S | 1–14 |
+| 22 | KS-новый | Frontend: компонент `<GuestCTA>` (§6.7) — единый шаблон inline-CTA с вариантами `banner` / `section` / `inline`, data-testid, data-auth | frontend | S | этот ADR |
+| 23 | KS-новый | Frontend: миграция существующих inline-CTA на `<GuestCTA>` — `PuzzlePage`, `PrecisionStatsPage`, `PrecisionHistoryPage`, `BlindBoardStatsPage`, `BlindBoardHistoryPage`, `GuessStatsPage`, `WorkshopAnalysisList`. Только консистентность, без поведенческих изменений | frontend | M | 22 |
+| 24 | KS-новый | Frontend+backend: открыть `/puzzle-rush` гостю (паттерн A). Backend: `POST /puzzle-rush/scores` при `user==null` → no-op (без 401), лидерборд для гостя read-only | frontend + backend | M | 1, 22 |
+| 25 | KS-новый | Frontend+backend: открыть `/drills`, `/drills/sprint*`, `/drills/:type` гостю (паттерн A). Backend: `POST /drills/sprint/result` → no-op для гостя | frontend + backend | M | 1, 22 |
+| 26 | KS-новый | Frontend+backend: открыть `/blind-board` гостю (паттерн A). Stats/history уже шаблонны (§5.13), проверить тестами | frontend + backend | S | 1, 22 |
+| 27 | KS-новый | Frontend+backend: открыть `/guess` лендинг + stats гостю (паттерн A). `GUESS_ENTRY_ENABLED`-флаг — отдельно. `/guess/sessions/:id` ownership — оставить PV | frontend + backend | S | 1, 22 |
+| 28 | KS-новый | Frontend+backend: открыть `/play` + `/lobby` гостю (PF). Гостю: «играть с ботом» open, «играть онлайн» / «принять вызов» через `useRequireAuth`. Backend: матчмейкинг и ws-handshake без JWT не обслуживаются (401 на subscribe) | frontend + backend | L | 1, 3, 18, 22 |
+| 29 | KS-новый | Frontend+backend: открыть верх `/workshop` (анализ позиции) гостю (паттерн A). Sidebar «Мои анализы» — `WorkshopAnalysisList` уже шаблонен. Решение по PGN-импорту: храним в memory, при сохранении — модалка | frontend + backend | M | 1, 22 |
+| 30 | KS-новый | Architect+frontend: research/решение по `/opening-trainer` (PF/PV) — §11.12 | architect + frontend | S | 22 |
 
 ---
 
 ## 11. Открытые вопросы
 
-> **Закрыто ревизией 2026-06-14 (KS-4121)**: бывшие §11.1 (где брать
-> данные для prerender) и §11.4 (SSR для динамических сегментов)
-> закрыты §7.2–§7.4 новой редакции (per-entity cron + on-demand +
-> CloudFront mapping без User-Agent sniffing). Нумерация сохранена для
-> ссылочной целостности — пункты 11.1/11.4 ниже помечены как resolved.
+> **Ревизии**: §11.1, §11.4 закрыты KS-4121 (см. помету «resolved»
+> ниже). KS-4125 добавил §11.12–§11.14. Прежний §11.12 (S3 layout)
+> переименован в §11.15, чтобы порядок появления пунктов
+> соответствовал номерам.
 
 ### 11.1. ~~Где брать данные для prerender PR-маршрутов~~ — **resolved**
 
@@ -1139,7 +1400,60 @@ Playwright load + screenshot) — 1 инстанс выдаёт ~120/час. З�
 
 Окончательно — devops в KS-12 (cron-расписания).
 
-### 11.12. Где лежит HTML-снапшот: одна S3-папка vs per-domain (новый, KS-4121)
+### 11.12. `/opening-trainer` для гостя — что показать? (новый, KS-4125)
+
+Тренажёр построен вокруг personal репертуара. Без него на странице
+показывать нечего. Варианты:
+
+- (a) **Закрыть для гостя** без лендинга — `ProtectedRoute` + редирект
+  на `/login`. Минимум работы, согласовано с правилом «лендинги не
+  делаем».
+- (b) **Показать «системный демо-репертуар»** (например, белый
+  итальянский +1, чёрный сицилианка +1 — статика в JSON). Гость
+  пробует SRS-flow на demo-репертуаре, прогресс in-memory.
+- (c) **Открыть конструктор**: гость собирает временный репертуар в
+  памяти, при попытке сохранить — модалка.
+
+Архитектор предлагает: (a) на волну 3 (минимум работы, соответствует
+правилу), (b)/(c) — отдельный продуктовый разговор, если нужно
+индексировать раздел в поиске. Решение — за пользователем.
+
+### 11.13. No-op POST vs 401 для гостя на write-эндпоинтах PF (новый, KS-4125)
+
+§5.13 + §10 KS-24/25 предлагают: при `user==null` бэкенд возвращает
+no-op (200/204), не 401. Это оборотная сторона UX-решения «гость
+играет, score не пишется» — фронт не должен получать ошибку и
+прерывать сессию.
+
+Альтернатива: 401, фронт ловит и просто игнорирует. Хуже —
+конзоль/Sentry зашумится 401-ками от гостей.
+
+Архитектор предлагает: **no-op на write-эндпоинтах PF**
+(`POST /puzzle-rush/scores`, `POST /drills/sprint/result`,
+`POST /blind-board/scores`, `POST /guess/scores`, `POST /precision/attempt`
+— уже, см. KS-3349/ADR-079). Для PR write-эндпоинтов (`POST /messages`,
+`POST /friends/request`, etc.) — **401 остаётся**, гость не должен
+туда попадать, модалка отлавливает раньше. Если попал — это уже
+client-side баг.
+
+KS-13 декомпозиции должен явно зафиксировать this contract per-endpoint.
+
+### 11.14. Workshop: layout для гостя (новый, KS-4125)
+
+`/workshop` сейчас — два-колоночная страница: слева анализ, справа
+сайдбар «Мои анализы / Мои PGN-файлы». Для гостя сайдбар бесполезен.
+Варианты:
+
+- (a) **Сайдбар → guest-CTA**, верхняя часть (анализ) полнофункциональна.
+  Минимум работы, не ломает layout.
+- (b) **Скрыть сайдбар для гостя**, анализ занимает full-width.
+  Чище, но требует условного flexbox-layout.
+- (c) **Переделать на лендинг + анализ как отдельная страница
+  `/workshop/quick`** — мажорный рефакторинг, не оправдан.
+
+Архитектор предлагает (a). Решение — frontend в KS-29.
+
+### 11.15. Где лежит HTML-снапшот: одна S3-папка vs per-domain (новый, KS-4121)
 
 §7.3 предлагает `s3://kingside-prerender-store/<entity>/<id>.html`.
 Альтернатива — мерж в основной frontend-bucket
@@ -1160,9 +1474,13 @@ ADR-127.
 ## 12. Что НЕ делает этот ADR
 
 - Не пишет код (frontend / backend / devops). Реализация — KS-4118
-  (rewrite), KS-4119 (rewrite), KS-новые по §10 (включая 14 тикетов
-  динамического prerender от KS-4121).
-- Не пишет тексты лендингов и метатегов (KS-5, KS-16).
+  (rewrite), KS-4119 (rewrite), KS-новые по §10 (14 тикетов
+  динамического prerender от KS-4121 + 9 тикетов открытия
+  PF-тренажёров и `<GuestCTA>` от KS-4125).
+- Не вводит шаблон `<MarketingLanding>` и тексты PM-лендингов —
+  отменено KS-4125 (см. §4.3). Единственная маркетинговая страница
+  `/features` — обычная компонента без шаблона.
+- Не пишет тексты метатегов карточек (KS-16).
 - Не дизайнит модалку логина / лендинги в Figma.
 - Не выбирает финальные значения policy top-N для players и archive —
   это §11.8, требует сверки с marketing/chess-expert.
@@ -1170,7 +1488,7 @@ ADR-127.
 - Не вводит passwordless / magic-link / SSO с третьими сторонами.
 - Не пересматривает `noindex` для `/analysis/public/:id`, `/live/:slug`,
   `/lectures/:id/replay`.
-- Не пересматривает деплой-pipeline (ADR-127). Если §11.12 решится в
+- Не пересматривает деплой-pipeline (ADR-127). Если §11.15 решится в
   пользу мержа в основной frontend-bucket — это будет отдельный
   follow-up к ADR-127.
 - Не описывает SSR-приложение (vite-ssg / Next.js); ревизия §7 берёт
