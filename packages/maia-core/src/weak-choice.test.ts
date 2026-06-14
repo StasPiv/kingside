@@ -1,6 +1,6 @@
 /**
- * KS-3640 / ADR-106 §2.1. Unit-тесты pure-вычисления
- * `maiaWeakChoiceProb`. Без реальных SF/Maia — синтетика.
+ * KS-3640 / ADR-106 §2.1 + KS-4107 (soft-threshold v2). Unit-тесты
+ * pure-вычисления `maiaWeakChoiceProb`. Без реальных SF/Maia — синтетика.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -8,14 +8,77 @@ import {
   MAIA_TOP_K_MAX,
   MAIA_TOP_K_POLICY_THRESHOLD,
   MAIA_WEAK_CHOICE_METRIC_VERSION,
+  WEAK_LOSS_E_CENTER,
+  WEAK_LOSS_E_SOFT_WIDTH,
   WEAK_LOSS_E_THRESHOLD,
   buildMaiaSearchMoves,
   computeWeakChoiceProb,
+  weakWeight,
 } from './weak-choice.js';
 
 describe('MAIA_WEAK_CHOICE_METRIC_VERSION', () => {
-  it('экспортирована = 1 (ADR-106 §2.5 версия 1 формулы)', () => {
-    expect(MAIA_WEAK_CHOICE_METRIC_VERSION).toBe(1);
+  it('экспортирована = 2 (KS-4107: soft-threshold версия 2 формулы)', () => {
+    expect(MAIA_WEAK_CHOICE_METRIC_VERSION).toBe(2);
+  });
+});
+
+describe('weakWeight (KS-4107 soft-threshold)', () => {
+  it('константы центра и ширины соответствуют ADR-106 §2.1 + KS-4107', () => {
+    expect(WEAK_LOSS_E_CENTER).toBe(0.02);
+    expect(WEAK_LOSS_E_SOFT_WIDTH).toBe(0.01);
+    // Deprecated алиас сохранён для совместимости.
+    expect(WEAK_LOSS_E_THRESHOLD).toBe(WEAK_LOSS_E_CENTER);
+  });
+
+  it('loss_E на левой границе и ниже → weight = 0 (точно сильный)', () => {
+    expect(weakWeight(0.015)).toBe(0);
+    expect(weakWeight(0.01)).toBe(0);
+    expect(weakWeight(0)).toBe(0);
+    expect(weakWeight(-0.5)).toBe(0);
+  });
+
+  it('loss_E на правой границе и выше → weight = 1 (точно слабый)', () => {
+    expect(weakWeight(0.025)).toBe(1);
+    expect(weakWeight(0.05)).toBe(1);
+    expect(weakWeight(0.5)).toBe(1);
+  });
+
+  it('loss_E = center (0.02) → weight = 0.5', () => {
+    expect(weakWeight(0.02)).toBeCloseTo(0.5, 9);
+  });
+
+  it('линейный переход внутри [center-w/2, center+w/2]', () => {
+    expect(weakWeight(0.016)).toBeCloseTo(0.1, 9);
+    expect(weakWeight(0.018)).toBeCloseTo(0.3, 9);
+    expect(weakWeight(0.022)).toBeCloseTo(0.7, 9);
+    expect(weakWeight(0.024)).toBeCloseTo(0.9, 9);
+  });
+
+  it('настраиваемые center/width переопределяют дефолты', () => {
+    // Центр 0.05, ширина 0.02 → переход [0.04 .. 0.06].
+    expect(weakWeight(0.04, 0.05, 0.02)).toBe(0);
+    expect(weakWeight(0.05, 0.05, 0.02)).toBeCloseTo(0.5, 9);
+    // Чуть выше правой границы → точно 1 (IEEE-754 на самой границе
+    // даёт 0.999...; реальные WDL дискретны per-mille, попадание
+    // ровно в граничную точку невероятно).
+    expect(weakWeight(0.0601, 0.05, 0.02)).toBe(1);
+    expect(weakWeight(0.06, 0.05, 0.02)).toBeCloseTo(1, 9);
+  });
+
+  it('width = 0 деградирует в ступеньку (legacy v1 совместимость)', () => {
+    expect(weakWeight(0.019, 0.02, 0)).toBe(0);
+    expect(weakWeight(0.02, 0.02, 0)).toBe(0); // strict >
+    expect(weakWeight(0.021, 0.02, 0)).toBe(1);
+  });
+
+  it('устойчивость к тысячным WDL у границы — мотивация KS-4107', () => {
+    // Главная цель soft-threshold: расхождение SF18 vs SF15.1 в
+    // тысячные WDL → разница weight в сотые, не флип 0↔1.
+    const w1 = weakWeight(0.0199); // SF15.1 даёт чуть ниже центра
+    const w2 = weakWeight(0.0201); // SF18 даёт чуть выше центра
+    // У старой ступеньки это давало 0 vs 1 (Δ = 1.0).
+    // У soft-threshold: |Δw| ≈ 0.02, на порядки меньше.
+    expect(Math.abs(w1 - w2)).toBeLessThan(0.05);
   });
 });
 
@@ -103,12 +166,13 @@ describe('computeWeakChoiceProb', () => {
     expect(r.bestExpectedScore).toBe(0.9);
   });
 
-  it('два равно-сильных хода (loss ≤ 0.02) → weak_set пуст, prob=0', () => {
+  it('два равно-сильных хода (loss ≤ 0.015) → weak_set пуст, prob=0', () => {
     const policy = [
       { move: 'a', probability: 0.55 },
       { move: 'b', probability: 0.4 },
     ];
-    // a: E=0.80, b: E=0.79 → loss(b) = 0.01 ≤ 0.02 → не слабый.
+    // a: E=0.80, b: E=0.79 → loss(b) = 0.01 ≤ 0.015 (нижняя граница
+    // soft-threshold) → weight = 0 → не слабый.
     const expectedScores = new Map([
       ['a', 0.8],
       ['b', 0.79],
@@ -123,7 +187,10 @@ describe('computeWeakChoiceProb', () => {
   });
 
   it('одна сильная + одна слабая в MaiaTopK → weak_set с одним, prob = policy(weak)', () => {
-    // a — сильный (E=0.85), b — слабый (E=0.30, loss=0.55 > 0.02).
+    // a — сильный (E=0.85), b — слабый (E=0.30, loss=0.55 ≫ 0.025).
+    // У такого loss weight = 1, поэтому prob = policy[b] · 1 = 0.35
+    // (то же что и в v1; soft-threshold расходится с v1 только в
+    // переходной зоне loss ∈ [0.015..0.025]).
     const policy = [
       { move: 'a', probability: 0.6 },
       { move: 'b', probability: 0.35 },
@@ -141,12 +208,16 @@ describe('computeWeakChoiceProb', () => {
     expect(r.weakSet[0].move).toBe('b');
     expect(r.weakSet[0].policy).toBeCloseTo(0.35, 6);
     expect(r.weakSet[0].lossE).toBeCloseTo(0.55, 6);
+    expect(r.weakSet[0].weight).toBe(1);
     expect(r.weakChoiceProb).toBeCloseTo(0.35, 6);
     expect(r.bestExpectedScore).toBe(0.85);
   });
 
-  it('несколько слабых → prob = Σ policy слабых', () => {
-    // a — сильный (0.95), b/c/d — слабые с разной policy.
+  it('несколько слабых вне переходной зоны → prob = Σ policy слабых', () => {
+    // a — сильный (0.95), b/c — слабые (loss ≫ 0.025) с weight=1.
+    // d убран: loss=0.03 в v1 был слабым (>0.02), а у soft v2 —
+    // переходная зона, weight = (0.03-0.015)/0.01 → насыщение = 1
+    // (только если loss ≥ 0.025; 0.03 = 1.0). Оставляем все три.
     const policy = [
       { move: 'a', probability: 0.4 },
       { move: 'b', probability: 0.25 },
@@ -157,16 +228,45 @@ describe('computeWeakChoiceProb', () => {
       ['a', 0.95],
       ['b', 0.5],
       ['c', 0.3],
-      ['d', 0.92], // loss = 0.03 > 0.02 — слабый по чуть-чуть
+      ['d', 0.92], // loss = 0.03 ≥ 0.025 → weight = 1
     ]);
     const r = computeWeakChoiceProb({
       policy,
       firstMovePV1: 'a',
       expectedScores,
     });
-    // Все три (b, c, d) — слабые. prob = 0.25 + 0.2 + 0.15 = 0.6.
     expect(r.weakSet.map((w) => w.move).sort()).toEqual(['b', 'c', 'd']);
+    // Все три полностью слабые (weight=1): prob = 0.25 + 0.2 + 0.15 = 0.6.
     expect(r.weakChoiceProb).toBeCloseTo(0.6, 6);
+  });
+
+  it('ход в переходной зоне → дробный weight, вклад = policy·weight', () => {
+    // KS-4107: главный кейс soft-threshold. Один сильный (loss=0) +
+    // один в переходной зоне (loss=0.020 → weight=0.5) + один полностью
+    // слабый (loss=0.05 → weight=1).
+    const policy = [
+      { move: 'a', probability: 0.5 },
+      { move: 'b', probability: 0.3 }, // в переходной зоне
+      { move: 'c', probability: 0.2 }, // полностью слабый
+    ];
+    const expectedScores = new Map([
+      ['a', 0.8],
+      ['b', 0.78], // loss = 0.02 → weight = 0.5
+      ['c', 0.75], // loss = 0.05 → weight = 1
+    ]);
+    const r = computeWeakChoiceProb({
+      policy,
+      firstMovePV1: 'a',
+      expectedScores,
+    });
+    // weakSet — только b и c (a имеет weight=0).
+    expect(r.weakSet.map((w) => w.move).sort()).toEqual(['b', 'c']);
+    const entryB = r.weakSet.find((w) => w.move === 'b')!;
+    const entryC = r.weakSet.find((w) => w.move === 'c')!;
+    expect(entryB.weight).toBeCloseTo(0.5, 9);
+    expect(entryC.weight).toBe(1);
+    // prob = 0.3·0.5 + 0.2·1 = 0.15 + 0.20 = 0.35.
+    expect(r.weakChoiceProb).toBeCloseTo(0.35, 6);
   });
 
   it('firstMovePV1 не в MaiaTopK, но определяет bestE через SF-eval', () => {
@@ -186,11 +286,40 @@ describe('computeWeakChoiceProb', () => {
       firstMovePV1: 'correct',
       expectedScores,
     });
-    // bestE = 0.9 (от correct). x и y — слабые (loss 0.6 и 0.58).
+    // bestE = 0.9. x и y — полностью слабые (loss 0.6 и 0.58 ≫ 0.025),
+    // weight = 1 у обоих → prob = 0.5 + 0.4 = 0.9.
     expect(r.bestExpectedScore).toBe(0.9);
     expect(r.weakSet.map((w) => w.move).sort()).toEqual(['x', 'y']);
-    // prob = 0.5 + 0.4 = 0.9.
+    expect(r.weakSet.every((w) => w.weight === 1)).toBe(true);
     expect(r.weakChoiceProb).toBeCloseTo(0.9, 6);
+  });
+
+  it('настраиваемые weakLossCenter/weakLossSoftWidth через input', () => {
+    // KS-4107: A/B-калибровка — caller может переопределить параметры.
+    const policy = [
+      { move: 'a', probability: 0.6 },
+      { move: 'b', probability: 0.35 },
+    ];
+    const expectedScores = new Map([
+      ['a', 0.5],
+      ['b', 0.45], // loss = 0.05
+    ]);
+    // Дефолт: 0.05 ≥ 0.025 → weight=1, prob = 0.35.
+    const rDefault = computeWeakChoiceProb({
+      policy,
+      firstMovePV1: 'a',
+      expectedScores,
+    });
+    expect(rDefault.weakChoiceProb).toBeCloseTo(0.35, 6);
+    // Сдвинули центр на 0.1 (loss 0.05 < center-w/2=0.09): weight=0.
+    const rShifted = computeWeakChoiceProb({
+      policy,
+      firstMovePV1: 'a',
+      expectedScores,
+      weakLossCenter: 0.1,
+      weakLossSoftWidth: 0.02,
+    });
+    expect(rShifted.weakChoiceProb).toBe(0);
   });
 
   it('expectedScores не содержит часть searchmoves → используется доступная', () => {
@@ -226,18 +355,18 @@ describe('computeWeakChoiceProb', () => {
     expect(r.weakSet).toEqual([]);
   });
 
-  // Граница порога — `loss_E > 0.02` (строгое). На реальных WDL
-  // per-mille дискретность шага 0.001, граничные случаи маловероятны;
-  // тесты на ниже/выше порога с запасом, чтобы не зависеть от
-  // IEEE-754 неточности на 0.5 − 0.48 (выходит 0.0200000000000000018).
-  it('loss_E = 0.019 (ниже порога 0.02) — НЕ слабый', () => {
+  // KS-4107: soft-threshold вместо ступеньки. Граничные тесты —
+  // непрерывный переход, не строгий флип. На дефолтных параметрах
+  // (center=0.02, width=0.01) loss=0.015 даёт weight=0, loss=0.025
+  // даёт weight=1, между ними — линейная интерполяция.
+  it('loss_E = 0.010 (вне зоны слева) — НЕ слабый (prob=0)', () => {
     const policy = [
       { move: 'best', probability: 0.5 },
       { move: 'b', probability: 0.4 },
     ];
     const expectedScores = new Map([
       ['best', 0.5],
-      ['b', 0.481],
+      ['b', 0.49], // loss = 0.01 ≤ 0.015
     ]);
     const r = computeWeakChoiceProb({
       policy,
@@ -246,17 +375,18 @@ describe('computeWeakChoiceProb', () => {
     });
     expect(r.weakSet).toEqual([]);
     expect(r.weakChoiceProb).toBe(0);
-    expect(WEAK_LOSS_E_THRESHOLD).toBe(0.02);
   });
 
-  it('loss_E = 0.021 (выше порога 0.02) — слабый', () => {
+  it('loss_E в переходной зоне (~0.02) — дробный weight, не флип', () => {
+    // Главная цель KS-4107: тысячные у границы не флипают prob.
+    // loss = 0.020 → weight = 0.5, prob = 0.4 · 0.5 = 0.2.
     const policy = [
       { move: 'best', probability: 0.5 },
       { move: 'b', probability: 0.4 },
     ];
     const expectedScores = new Map([
       ['best', 0.5],
-      ['b', 0.479],
+      ['b', 0.48], // loss = 0.02 точно
     ]);
     const r = computeWeakChoiceProb({
       policy,
@@ -264,7 +394,26 @@ describe('computeWeakChoiceProb', () => {
       expectedScores,
     });
     expect(r.weakSet).toHaveLength(1);
-    expect(r.weakSet[0].move).toBe('b');
+    expect(r.weakSet[0].weight).toBeCloseTo(0.5, 6);
+    expect(r.weakChoiceProb).toBeCloseTo(0.2, 6);
+  });
+
+  it('loss_E ≥ 0.025 (вне зоны справа) — полностью слабый (weight=1)', () => {
+    const policy = [
+      { move: 'best', probability: 0.5 },
+      { move: 'b', probability: 0.4 },
+    ];
+    const expectedScores = new Map([
+      ['best', 0.5],
+      ['b', 0.475], // loss = 0.025 ровно
+    ]);
+    const r = computeWeakChoiceProb({
+      policy,
+      firstMovePV1: 'best',
+      expectedScores,
+    });
+    expect(r.weakSet).toHaveLength(1);
+    expect(r.weakSet[0].weight).toBe(1);
     expect(r.weakChoiceProb).toBeCloseTo(0.4, 6);
   });
 });

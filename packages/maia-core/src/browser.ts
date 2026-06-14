@@ -30,9 +30,12 @@ import {
   MAIA_TOP_K_MAX as MAIA_TOP_K_MAX_,
   MAIA_TOP_K_POLICY_THRESHOLD as MAIA_TOP_K_POLICY_THRESHOLD_,
   MAIA_WEAK_CHOICE_METRIC_VERSION as MAIA_WEAK_CHOICE_METRIC_VERSION_,
+  WEAK_LOSS_E_CENTER as WEAK_LOSS_E_CENTER_,
+  WEAK_LOSS_E_SOFT_WIDTH as WEAK_LOSS_E_SOFT_WIDTH_,
   WEAK_LOSS_E_THRESHOLD as WEAK_LOSS_E_THRESHOLD_,
   buildMaiaSearchMoves as buildMaiaSearchMoves_,
   computeWeakChoiceProb as computeWeakChoiceProb_,
+  weakWeight as weakWeight_,
 } from './weak-choice.js';
 // KS-4100 / ADR-124: консолидированная оркестрация weak-choice (browser-safe).
 import { annotateWeakChoice as annotateWeakChoice_ } from './annotate.js';
@@ -50,9 +53,12 @@ export const preprocessMaia3 = preprocessMaia3_;
 export const MAIA_TOP_K_MAX = MAIA_TOP_K_MAX_;
 export const MAIA_TOP_K_POLICY_THRESHOLD = MAIA_TOP_K_POLICY_THRESHOLD_;
 export const MAIA_WEAK_CHOICE_METRIC_VERSION = MAIA_WEAK_CHOICE_METRIC_VERSION_;
+export const WEAK_LOSS_E_CENTER = WEAK_LOSS_E_CENTER_;
+export const WEAK_LOSS_E_SOFT_WIDTH = WEAK_LOSS_E_SOFT_WIDTH_;
 export const WEAK_LOSS_E_THRESHOLD = WEAK_LOSS_E_THRESHOLD_;
 export const buildMaiaSearchMoves = buildMaiaSearchMoves_;
 export const computeWeakChoiceProb = computeWeakChoiceProb_;
+export const weakWeight = weakWeight_;
 export const annotateWeakChoice = annotateWeakChoice_;
 
 // ── Типы: рантайма нет, форма не важна. `Maia` как тип = instance-тип

@@ -1,8 +1,11 @@
 /**
- * KS-3640 / ADR-106 §2.1 (Precision-Maia v2). Pure-вычисление новой
- * метрики `maiaWeakChoiceProb` — суммарная вероятность Maia сыграть
- * один из «слабых» ходов (по `loss_E > 0.02` относительно лучшего
- * хода из множества `{firstMovePV1} ∪ MaiaTopK`).
+ * KS-3640 / ADR-106 §2.1 (Precision-Maia v2) + KS-4107 (soft-threshold v2).
+ * Pure-вычисление метрики `maiaWeakChoiceProb` — суммарная «взвешенная»
+ * вероятность Maia сыграть «слабый» ход. Версия 2 формулы (KS-4107):
+ * вместо ступенчатой границы `loss_E > 0.02` используется непрерывная
+ * функция веса `weakWeight(loss_E)`, чтобы тысячные WDL не флипали
+ * классификацию хода (расхождение SF18 WASM ↔ SF15.1 native на
+ * пограничных позициях, см. KS-4100/QA).
  *
  * Заменяет отменённую top-1 метрику (ADR-104). Алгоритм:
  *
@@ -15,12 +18,20 @@
  *      от того, попал ли solver-best в Maia top-K (часто не попадает
  *      на нетипичных тактиках).
  *   3. `bestE = max(expectedScoreFromWdl(wdl_i))` среди searchmoves.
- *   4. `weak_set = { m ∈ maiaTopK | bestE − expectedScoreFromWdl(wdl_m)
- *                                   > 0.02 }`.
- *   5. `maiaWeakChoiceProb = Σ policy[m]` для m ∈ weak_set.
+ *   4. Для каждого `m ∈ maiaTopK`: `loss_E = bestE − E(m)`,
+ *      `w(m) = clamp((loss_E − (center − width/2)) / width, 0, 1)`.
+ *      Центр `WEAK_LOSS_E_CENTER = 0.02`, ширина переходной зоны
+ *      `WEAK_LOSS_E_SOFT_WIDTH = 0.01`. На границах:
+ *        - `loss_E ≤ 0.015` → w = 0 (точно сильный);
+ *        - `loss_E ≥ 0.025` → w = 1 (точно слабый);
+ *        - `loss_E = 0.020` → w = 0.5 (граница).
+ *   5. `maiaWeakChoiceProb = Σ policy[m] · w(m)` для m ∈ maiaTopK.
  *
- * Порог `loss_E > 0.02` совпадает с границей `best` по ADR-066:
- * ход с loss_E ≤ 0.02 считается равно-сильным и не входит в weak_set.
+ * Центр 0.02 совпадает с границей `best` по ADR-066. Линейный переход
+ * на интервале 0.01 (≈±5 cp в WDL-эквиваленте) делает метрику
+ * устойчивой к расхождению версий движков и недетерминизму SF на тихих
+ * позициях. Параметры центра/ширины — настраиваемые через
+ * `WeakChoiceInput` (полезно для A/B-тестов калибровки).
  *
  * Pure-функция: ни SF, ни Maia engine не дёргает. Caller обязан:
  *  - получить `policy` через `Maia.predictMoves(fen, elo, elo)` и
@@ -38,14 +49,20 @@
 /**
  * Версия алгоритма для записи в `Puzzle.maiaMetricVersion`.
  * Инкрементировать при любой смене формулы: `MAIA_TOP_K_MAX`,
- * `MAIA_TOP_K_POLICY_THRESHOLD`, `WEAK_LOSS_E_THRESHOLD`, либо
- * структурной (другой источник searchmoves, другая агрегация).
+ * `MAIA_TOP_K_POLICY_THRESHOLD`, `WEAK_LOSS_E_CENTER`,
+ * `WEAK_LOSS_E_SOFT_WIDTH`, либо структурной (другой источник
+ * searchmoves, другая агрегация).
  *
  * При смене значения старые записи остаются с предыдущей версией;
  * фронт сравнивает с актуальной константой и фильтрует только
  * «свежие» строки (см. ADR-106 §5).
+ *
+ * Версии:
+ *  - 1 — ADR-106 §2.1. Ступенчатая граница `loss_E > 0.02`.
+ *  - 2 — KS-4107. Soft-threshold (непрерывный линейный переход на
+ *        интервале `[center − width/2, center + width/2]`).
  */
-export const MAIA_WEAK_CHOICE_METRIC_VERSION = 1;
+export const MAIA_WEAK_CHOICE_METRIC_VERSION = 2;
 
 /** Maia policy-порог для попадания хода в MaiaTopK. ADR-106 §2.1 пункт 2. */
 export const MAIA_TOP_K_POLICY_THRESHOLD = 0.1;
@@ -53,8 +70,51 @@ export const MAIA_TOP_K_POLICY_THRESHOLD = 0.1;
 /** Верхняя граница размера MaiaTopK (после policy-фильтра). ADR-106 §2.1. */
 export const MAIA_TOP_K_MAX = 8;
 
-/** Граница «слабого» хода по loss_E. ADR-106 §2.1 + ADR-066 §best. */
-export const WEAK_LOSS_E_THRESHOLD = 0.02;
+/**
+ * Центр переходной зоны «слабого» хода по loss_E. ADR-106 §2.1 +
+ * ADR-066 §best. На loss_E = `WEAK_LOSS_E_CENTER` вес = 0.5.
+ */
+export const WEAK_LOSS_E_CENTER = 0.02;
+
+/**
+ * Полная ширина переходной зоны soft-threshold (KS-4107). На интервале
+ * `[center − width/2, center + width/2]` вес меняется линейно от 0 до
+ * 1. За пределами интервала — насыщение (0 слева, 1 справа). Ширина
+ * 0.01 ≈ ±5 cp в WDL-эквиваленте — поглощает тысячные WDL расхождения
+ * между версиями Stockfish и недетерминизм многопоточного поиска.
+ */
+export const WEAK_LOSS_E_SOFT_WIDTH = 0.01;
+
+/**
+ * @deprecated Алиас `WEAK_LOSS_E_CENTER` для совместимости с metric_version=1.
+ * Использовать `WEAK_LOSS_E_CENTER` и `WEAK_LOSS_E_SOFT_WIDTH`.
+ */
+export const WEAK_LOSS_E_THRESHOLD = WEAK_LOSS_E_CENTER;
+
+/**
+ * Линейный soft-threshold веса «слабого» хода (KS-4107). Возвращает
+ * 0..1: 0 — точно сильный (`loss_E ≤ center − width/2`), 1 — точно
+ * слабый (`loss_E ≥ center + width/2`), линейно между.
+ *
+ * Pure-функция, без побочных эффектов. Параметры по умолчанию —
+ * `WEAK_LOSS_E_CENTER` / `WEAK_LOSS_E_SOFT_WIDTH`; caller может
+ * переопределить (A/B калибровка, тесты).
+ */
+export function weakWeight(
+  lossE: number,
+  center: number = WEAK_LOSS_E_CENTER,
+  width: number = WEAK_LOSS_E_SOFT_WIDTH,
+): number {
+  if (width <= 0) {
+    // Деградация в ступеньку (на случай явного отключения soft-threshold).
+    return lossE > center ? 1 : 0;
+  }
+  const lower = center - width / 2;
+  const t = (lossE - lower) / width;
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t;
+}
 
 /**
  * Минимальный shape MovePrediction из `engine.ts` — переобъявлен здесь
@@ -93,6 +153,20 @@ export interface WeakChoiceInput {
    * технически функция возвращает корректный «пустой» результат).
    */
   expectedScores: ReadonlyMap<string, number>;
+  /**
+   * (KS-4107) Опциональное переопределение центра soft-threshold
+   * (по умолчанию `WEAK_LOSS_E_CENTER = 0.02`). Полезно для A/B
+   * калибровки или юнит-тестов. Должно быть согласовано с
+   * `weakLossSoftWidth`.
+   */
+  weakLossCenter?: number;
+  /**
+   * (KS-4107) Опциональное переопределение полной ширины переходной
+   * зоны soft-threshold (по умолчанию `WEAK_LOSS_E_SOFT_WIDTH = 0.01`).
+   * Значение `0` деградирует метрику в ступеньку (legacy v1
+   * совместимость для отладки).
+   */
+  weakLossSoftWidth?: number;
 }
 
 export interface WeakSetEntry {
@@ -101,12 +175,23 @@ export interface WeakSetEntry {
   policy: number;
   /** Потеря в expected-score относительно best: `bestE − E(move)`. */
   lossE: number;
+  /**
+   * (KS-4107, metric_version=2) Вес «слабости» хода на интервале 0..1.
+   * Вклад хода в `weakChoiceProb` равен `policy * weight`. Для
+   * совместимости с дебагом v1: weight = 1 эквивалентно «полностью
+   * слабый» (loss_E ≥ center + width/2), weight = 0 — «полностью
+   * сильный» (loss_E ≤ center − width/2).
+   */
+  weight: number;
 }
 
 export interface WeakChoiceResult {
   /**
-   * `Σ policy[m]` для слабых m. 0..1. Это значение и идёт в БД
-   * как `puzzles.maia_weak_choice_prob`. Если weak_set пустой — 0.
+   * `Σ policy[m] · weight(m)` для всех m ∈ MaiaTopK (где weight = 0
+   * для «точно сильных», 1 для «точно слабых», 0..1 в переходной
+   * зоне). 0..1. Это значение и идёт в БД как
+   * `puzzles.maia_weak_choice_prob`. Если weak_set пустой
+   * (все weight = 0) — 0.
    */
   weakChoiceProb: number;
   /**
@@ -123,7 +208,12 @@ export interface WeakChoiceResult {
   searchMoves: string[];
   /** Best expected-score среди searchmoves (0..1). */
   bestExpectedScore: number;
-  /** Слабые ходы из MaiaTopK с метаданными (для лога/report). */
+  /**
+   * Ходы из MaiaTopK с ненулевым весом «слабости» (для лога/report).
+   * Не включает ходы с `weight = 0` (полностью сильные). Включает
+   * все ходы с `weight > 0` — как в переходной зоне, так и полностью
+   * слабые (`weight = 1`).
+   */
   weakSet: WeakSetEntry[];
 }
 
@@ -153,7 +243,8 @@ export function buildMaiaSearchMoves(
 }
 
 /**
- * Полный вычислитель `maiaWeakChoiceProb` по ADR-106 §2.1.
+ * Полный вычислитель `maiaWeakChoiceProb` по ADR-106 §2.1 +
+ * soft-threshold KS-4107 (metric_version=2).
  *
  * Граничные случаи:
  *  - `policy` пустая → MaiaTopK пустой, searchMoves = [firstMovePV1]
@@ -165,8 +256,11 @@ export function buildMaiaSearchMoves(
  *    залогировать «нет SF-данных» отдельно.
  *  - Один сильный ход и MaiaTopK не содержит других кандидатов →
  *    weak_set пустой → `weakChoiceProb = 0` (позиция «однозначная»).
- *  - Несколько равно-сильных в MaiaTopK (все с loss_E ≤ 0.02) →
- *    weak_set пустой → `weakChoiceProb = 0`.
+ *  - Несколько равно-сильных в MaiaTopK (loss_E ≤ center − width/2) →
+ *    все weight = 0 → weak_set пустой → `weakChoiceProb = 0`.
+ *  - Ход в переходной зоне (loss_E между center − width/2 и
+ *    center + width/2) → 0 < weight < 1, ход попадает в weakSet с
+ *    дробным весом, вклад в prob = policy · weight.
  */
 export function computeWeakChoiceProb(
   input: WeakChoiceInput,
@@ -196,21 +290,21 @@ export function computeWeakChoiceProb(
   const policyByMove = new Map<string, number>();
   for (const p of input.policy) policyByMove.set(p.move, p.probability);
 
+  const center = input.weakLossCenter ?? WEAK_LOSS_E_CENTER;
+  const width = input.weakLossSoftWidth ?? WEAK_LOSS_E_SOFT_WIDTH;
+
   const weakSet: WeakSetEntry[] = [];
+  let weakChoiceProb = 0;
   for (const move of maiaTopK) {
     const e = input.expectedScores.get(move);
     if (e === undefined) continue;
     const lossE = bestE - e;
-    if (lossE > WEAK_LOSS_E_THRESHOLD) {
-      weakSet.push({
-        move,
-        policy: policyByMove.get(move) ?? 0,
-        lossE,
-      });
-    }
+    const weight = weakWeight(lossE, center, width);
+    if (weight <= 0) continue;
+    const policy = policyByMove.get(move) ?? 0;
+    weakSet.push({ move, policy, lossE, weight });
+    weakChoiceProb += policy * weight;
   }
-
-  const weakChoiceProb = weakSet.reduce((acc, w) => acc + w.policy, 0);
 
   return {
     weakChoiceProb,

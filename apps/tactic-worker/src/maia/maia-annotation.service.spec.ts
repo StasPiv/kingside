@@ -177,8 +177,8 @@ describe('MaiaAnnotationService', () => {
 
     it('один слабый ход в MaiaTopK → weakChoiceProb = policy(weak)', async () => {
       // Maia: best=0.6, weak=0.35; firstMovePV1='best'.
-      // SF eval: best E=0.9, weak E=0.3 → weak slabый (loss 0.6 > 0.02).
-      // → weakChoiceProb = 0.35.
+      // SF eval: best E=0.9, weak E=0.3 → loss=0.6 ≫ 0.025 → weight=1.
+      // → weakChoiceProb = 0.35 · 1 = 0.35.
       const sf = mockStockfish(async () => [
         {
           pv: 'best ...',
@@ -209,8 +209,9 @@ describe('MaiaAnnotationService', () => {
       expect(r!.elo).toBe(1500);
     });
 
-    it('равно-сильные ходы (loss ≤ 0.02) → weakChoiceProb=0', async () => {
-      // best E=0.5, alt E=0.49 → loss=0.01 → НЕ слабый.
+    it('равно-сильные ходы (loss ≤ 0.015) → weakChoiceProb=0', async () => {
+      // best E=0.5, alt E=0.49 → loss=0.01 (≤ нижней границы
+      // soft-threshold 0.015) → weight=0 → НЕ слабый.
       const sf = mockStockfish(async () => [
         {
           pv: 'best',

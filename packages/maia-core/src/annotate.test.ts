@@ -39,8 +39,8 @@ describe('annotateWeakChoice (ADR-124 §2.2)', () => {
     ]);
     const engine = engineMock([
       { bestMove: 'e2e4', score: { type: 'cp', value: 50 }, wdl: { w: 900, d: 80, l: 20 } }, // E=0.94 (best)
-      { bestMove: 'd2d4', score: { type: 'cp', value: 45 }, wdl: { w: 880, d: 90, l: 30 } }, // E=0.925 (loss 0.015 < 0.02 — НЕ слабый)
-      { bestMove: 'g1f3', score: { type: 'cp', value: 10 }, wdl: { w: 600, d: 200, l: 200 } }, // E=0.70 (loss 0.24 — слабый)
+      { bestMove: 'd2d4', score: { type: 'cp', value: 45 }, wdl: { w: 880, d: 90, l: 30 } }, // E=0.925 (loss 0.015 = нижняя граница soft-threshold → weight=0)
+      { bestMove: 'g1f3', score: { type: 'cp', value: 10 }, wdl: { w: 600, d: 200, l: 200 } }, // E=0.70 (loss 0.24 ≫ 0.025 → weight=1)
     ]);
     const res = await annotateWeakChoice({
       fen: FEN,
