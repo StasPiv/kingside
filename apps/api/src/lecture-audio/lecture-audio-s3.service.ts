@@ -5,24 +5,64 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  DeleteObjectCommand,
-  DeleteObjectsCommand,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl as getSignedS3Url } from '@aws-sdk/s3-request-presigner';
-import { getSignedUrl as getSignedCloudFrontUrl } from '@aws-sdk/cloudfront-signer';
-import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from '@aws-sdk/client-secrets-manager';
+// KS-3926: AWS-SDK импорты переведены на type-only + lazy require.
+// До правки `@aws-sdk/client-s3` + 3 других пакета грузились на
+// bootstrap (≈6 мс self-time на локали с тёплым FS, на холодном FS
+// прода — кратно больше). Lecture-audio-сервис нужен только когда
+// пользователь реально работает с аудио — на cold-start /health /
+// /auth этот код вообще не вызывается. См. lazy `getS3()` /
+// `getSecretsManager()` ниже.
+import type { S3Client } from '@aws-sdk/client-s3';
+import type { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { createReadStream, createWriteStream, promises as fsp } from 'node:fs';
 import { basename } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+
+/**
+ * KS-3926. Lazy-cache для AWS-SDK модулей. CJS `require` запускается при
+ * первом обращении к свойству, после — повторное обращение тривиально
+ * быстрое (кеш V8). На bootstrap эти модули не трогаем — типы
+ * импортированы `import type` (стерты при компиляции).
+ */
+let s3SdkPromise: Promise<typeof import('@aws-sdk/client-s3')> | null = null;
+function loadS3Sdk(): Promise<typeof import('@aws-sdk/client-s3')> {
+  if (!s3SdkPromise) s3SdkPromise = import('@aws-sdk/client-s3');
+  return s3SdkPromise;
+}
+let s3PresignerPromise: Promise<
+  typeof import('@aws-sdk/s3-request-presigner')
+> | null = null;
+function loadS3Presigner(): Promise<
+  typeof import('@aws-sdk/s3-request-presigner')
+> {
+  if (!s3PresignerPromise) {
+    s3PresignerPromise = import('@aws-sdk/s3-request-presigner');
+  }
+  return s3PresignerPromise;
+}
+let cloudfrontSignerPromise: Promise<
+  typeof import('@aws-sdk/cloudfront-signer')
+> | null = null;
+function loadCloudfrontSigner(): Promise<
+  typeof import('@aws-sdk/cloudfront-signer')
+> {
+  if (!cloudfrontSignerPromise) {
+    cloudfrontSignerPromise = import('@aws-sdk/cloudfront-signer');
+  }
+  return cloudfrontSignerPromise;
+}
+let secretsManagerSdkPromise: Promise<
+  typeof import('@aws-sdk/client-secrets-manager')
+> | null = null;
+function loadSecretsManagerSdk(): Promise<
+  typeof import('@aws-sdk/client-secrets-manager')
+> {
+  if (!secretsManagerSdkPromise) {
+    secretsManagerSdkPromise = import('@aws-sdk/client-secrets-manager');
+  }
+  return secretsManagerSdkPromise;
+}
 
 /**
  * KS-3831 / ADR-116 §5.1. Тонкая обёртка над AWS SDK для операций над
@@ -60,8 +100,11 @@ import { pipeline } from 'node:stream/promises';
 @Injectable()
 export class LectureAudioS3Service implements OnModuleInit {
   private readonly logger = new Logger(LectureAudioS3Service.name);
-  private s3!: S3Client;
-  private secretsManager!: SecretsManagerClient;
+  // KS-3926: `s3` / `secretsManager` теперь создаются лениво при первом
+  // реальном AWS-вызове, а не на bootstrap. Cold-start /health и /auth
+  // вообще не дотрагиваются до AWS-SDK кода.
+  private s3: S3Client | null = null;
+  private secretsManager: SecretsManagerClient | null = null;
   private bucket!: string;
   private region!: string;
   private cdnBase!: string;
@@ -138,11 +181,36 @@ export class LectureAudioS3Service implements OnModuleInit {
     this.cdnBase = (cdnBase as string).replace(/\/+$/, '');
     this.cdnKeyPairId = cdnKeyPairId as string;
     this.cdnPrivateKeySecretName = cdnPrivateKeySecretName as string;
-    this.s3 = new S3Client({ region: this.region });
-    this.secretsManager = new SecretsManagerClient({ region: this.region });
+    // KS-3926: реальная инициализация S3Client / SecretsManagerClient
+    // отложена до первого вызова — `getS3()` / `getSecretsManager()`
+    // подгружают `@aws-sdk/*` через `await import` и кешируют клиент.
     this.logger.log(
-      `LectureAudioS3Service ready: bucket=${this.bucket} region=${this.region} cdn=${this.cdnBase}`,
+      `LectureAudioS3Service configured: bucket=${this.bucket} region=${this.region} cdn=${this.cdnBase} (clients lazy-init)`,
     );
+  }
+
+  /**
+   * KS-3926. Lazy-init S3Client. `await import('@aws-sdk/client-s3')`
+   * подгружает модуль при первом вызове (≈6 мс на локали, кратно больше
+   * на холодном FS прода) — на bootstrap-пути этот код не выполняется.
+   * Все методы, которые делают `this.s3.send(...)`, теперь делают
+   * `(await this.getS3()).send(...)`.
+   */
+  private async getS3(): Promise<S3Client> {
+    if (this.s3) return this.s3;
+    const sdk = await loadS3Sdk();
+    this.s3 = new sdk.S3Client({ region: this.region });
+    return this.s3;
+  }
+
+  /** KS-3926. Lazy-init SecretsManagerClient (один путь к ключу CDN). */
+  private async getSecretsManager(): Promise<SecretsManagerClient> {
+    if (this.secretsManager) return this.secretsManager;
+    const sdk = await loadSecretsManagerSdk();
+    this.secretsManager = new sdk.SecretsManagerClient({
+      region: this.region,
+    });
+    return this.secretsManager;
   }
 
   /**
@@ -203,8 +271,13 @@ export class LectureAudioS3Service implements OnModuleInit {
     ttlSec = 300,
   ): Promise<string> {
     this.ensureEnabled();
+    const [s3, sdk, presigner] = await Promise.all([
+      this.getS3(),
+      loadS3Sdk(),
+      loadS3Presigner(),
+    ]);
     const key = this.chunkKey(lectureId, seq);
-    const command = new PutObjectCommand({
+    const command = new sdk.PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
       ContentLength: sizeBytes,
@@ -234,7 +307,7 @@ export class LectureAudioS3Service implements OnModuleInit {
       { step: 'build', name: 'EnsureChunkTaggingHeader' },
     );
 
-    return getSignedS3Url(this.s3, command, {
+    return presigner.getSignedUrl(s3, command, {
       expiresIn: ttlSec,
       // Не выносим тег и Content-Length в query — оставляем как
       // подписанные заголовки, чтобы клиент обязан был передать их в
@@ -256,6 +329,7 @@ export class LectureAudioS3Service implements OnModuleInit {
     lectureId: string,
   ): Promise<Array<{ seq: number; key: string; etag: string; sizeBytes: number }>> {
     this.ensureEnabled();
+    const [s3, sdk] = await Promise.all([this.getS3(), loadS3Sdk()]);
     const prefix = this.chunksPrefix(lectureId);
     const out: Array<{
       seq: number;
@@ -265,8 +339,8 @@ export class LectureAudioS3Service implements OnModuleInit {
     }> = [];
     let continuationToken: string | undefined;
     do {
-      const resp = await this.s3.send(
-        new ListObjectsV2Command({
+      const resp = await s3.send(
+        new sdk.ListObjectsV2Command({
           Bucket: this.bucket,
           Prefix: prefix,
           ContinuationToken: continuationToken,
@@ -307,6 +381,7 @@ export class LectureAudioS3Service implements OnModuleInit {
     this.ensureEnabled();
     const chunks = await this.listChunks(lectureId);
     if (chunks.length === 0) return 0;
+    const [s3, sdk] = await Promise.all([this.getS3(), loadS3Sdk()]);
     let deleted = 0;
     for (
       let i = 0;
@@ -317,8 +392,8 @@ export class LectureAudioS3Service implements OnModuleInit {
         i,
         i + LectureAudioS3Service.DELETE_BATCH_LIMIT,
       );
-      const resp = await this.s3.send(
-        new DeleteObjectsCommand({
+      const resp = await s3.send(
+        new sdk.DeleteObjectsCommand({
           Bucket: this.bucket,
           Delete: {
             Objects: batch.map((c) => ({ Key: c.key })),
@@ -347,8 +422,9 @@ export class LectureAudioS3Service implements OnModuleInit {
    */
   async downloadObject(key: string, localPath: string): Promise<void> {
     this.ensureEnabled();
-    const resp = await this.s3.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    const [s3, sdk] = await Promise.all([this.getS3(), loadS3Sdk()]);
+    const resp = await s3.send(
+      new sdk.GetObjectCommand({ Bucket: this.bucket, Key: key }),
     );
     const body = resp.Body;
     if (!body) {
@@ -367,10 +443,11 @@ export class LectureAudioS3Service implements OnModuleInit {
    */
   async putFinalTrack(lectureId: string, localPath: string): Promise<void> {
     this.ensureEnabled();
+    const [s3, sdk] = await Promise.all([this.getS3(), loadS3Sdk()]);
     const key = this.finalKey(lectureId);
     const stat = await fsp.stat(localPath);
-    await this.s3.send(
-      new PutObjectCommand({
+    await s3.send(
+      new sdk.PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
         Body: createReadStream(localPath),
@@ -391,8 +468,9 @@ export class LectureAudioS3Service implements OnModuleInit {
    */
   async deleteFinalTrack(lectureId: string): Promise<void> {
     this.ensureEnabled();
-    await this.s3.send(
-      new DeleteObjectCommand({
+    const [s3, sdk] = await Promise.all([this.getS3(), loadS3Sdk()]);
+    await s3.send(
+      new sdk.DeleteObjectCommand({
         Bucket: this.bucket,
         Key: this.finalKey(lectureId),
       }),
@@ -415,10 +493,13 @@ export class LectureAudioS3Service implements OnModuleInit {
     ttlSec = 86400,
   ): Promise<string> {
     this.ensureEnabled();
-    const privateKey = await this.loadCdnPrivateKey();
+    const [privateKey, signer] = await Promise.all([
+      this.loadCdnPrivateKey(),
+      loadCloudfrontSigner(),
+    ]);
     const url = `${this.cdnBase}/audio/${lectureId}/track.ogg`;
     const dateLessThan = new Date(Date.now() + ttlSec * 1000).toISOString();
-    return getSignedCloudFrontUrl({
+    return signer.getSignedUrl({
       url,
       keyPairId: this.cdnKeyPairId,
       privateKey,
@@ -433,8 +514,12 @@ export class LectureAudioS3Service implements OnModuleInit {
 
   private async loadCdnPrivateKey(): Promise<string> {
     if (this.cachedCdnPrivateKey) return this.cachedCdnPrivateKey;
-    const resp = await this.secretsManager.send(
-      new GetSecretValueCommand({ SecretId: this.cdnPrivateKeySecretName }),
+    const [secretsManager, sdk] = await Promise.all([
+      this.getSecretsManager(),
+      loadSecretsManagerSdk(),
+    ]);
+    const resp = await secretsManager.send(
+      new sdk.GetSecretValueCommand({ SecretId: this.cdnPrivateKeySecretName }),
     );
     const raw = resp.SecretString;
     if (!raw) {
