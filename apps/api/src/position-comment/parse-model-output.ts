@@ -1,18 +1,27 @@
 /**
- * KS-3690 / ADR-108b §6.2. Парсер ответа модели для
+ * KS-3690 / ADR-108b §6.2 + KS-3693/KS-3690 follow-up (Gherkin §9 Q1
+ * сценарий 2). Парсер ответа модели для
  * `POST /analyses/position/comment`.
  *
  * Алгоритм:
  *  1. Strip markdown-fences ```json … ``` / ``` … ```.
- *  2. JSON.parse; на любую ошибку — фолбэк `{comment: raw.trim(),
- *     highlights: [], arrows: []}`.
+ *  2. JSON.parse; на любую ошибку — пустой шейп
+ *     `{comment: '', highlights: [], arrows: []}` (см. ниже).
  *  3. Type-guard объекта; если `comment` отсутствует / не строка —
- *     фолбэк (т.к. ответ должен содержать текст; пустой ответ модели —
- *     отдельный сценарий, см. тест «пустой ответ»).
+ *     тот же пустой шейп.
  *  4. Валидация `highlights[]`: regex клетки `/^[a-h][1-8]$/`, цвет
  *     из палитры. Дедуп по `square` (последний выигрывает). Срез ≤ 4.
  *  5. Валидация `arrows[]`: regex `from`/`to`, `from !== to`, цвет
  *     валидный. Дедуп по `(from, to)` (последний выигрывает). Срез ≤ 2.
+ *
+ * Поведение «фолбэк = пустой шейп» (вместо `comment: raw.trim()`)
+ * приведено к Gherkin сценария 2 ADR-108b §9 Q1: при не-JSON
+ * ответе в HTTP 200 фронт должен показать state=error, никакая
+ * подсветка не появляется. Фронт детектирует error по пустому
+ * `comment` (тот же шейп возвращает сервис при webhook 5xx /
+ * таймауте — единый контракт). Сырой текст модели наружу не
+ * утекает: гарантия для оверлеев и i18n (RU/EN), что в UI всегда
+ * отрисовывается либо валидный JSON-комментарий, либо state=error.
  *
  * Чисто-функция. Не бросает. Не зависит от Nest / Redis / fetch.
  */
@@ -47,8 +56,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function fallback(raw: string): PositionCommentResponse {
-  return { comment: raw.trim(), highlights: [], arrows: [] };
+/**
+ * KS-3693 / Gherkin §9 Q1 сценарий 2. Пустой шейп — единый сигнал
+ * «фронту показать state=error / не отрисовывать overlay» как при
+ * non-JSON в HTTP 200, так и при webhook 5xx / таймауте. Сырой
+ * текст модели наружу не отдаём, чтобы UI не уходил в фейковый
+ * `state=success` с обрывками JSON / системного промпта.
+ */
+function fallback(): PositionCommentResponse {
+  return { comment: '', highlights: [], arrows: [] };
 }
 
 function stripFences(raw: string): string {
@@ -118,11 +134,11 @@ export function parseModelOutput(
   try {
     parsed = JSON.parse(body);
   } catch {
-    return fallback(raw);
+    return fallback();
   }
 
   if (!isPlainObject(parsed) || typeof parsed.comment !== 'string') {
-    return fallback(raw);
+    return fallback();
   }
 
   return {

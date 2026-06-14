@@ -831,7 +831,11 @@ describe('PositionCommentService', () => {
       ]);
     });
 
-    it('модель отдала чистый текст без JSON → comment = raw, массивы пустые', async () => {
+    it('KS-3693: модель отдала не-JSON в HTTP 200 → пустой шейп (фронт = state=error)', async () => {
+      // KS-3690 follow-up. Gherkin ADR-108b §9 Q1 сценарий 2:
+      // не-JSON в успешном HTTP — это сломанный контракт, фронт
+      // должен показать state=error. Сервис возвращает тот же
+      // пустой шейп, что и при webhook 5xx — единый сигнал ошибки.
       const svc = new PositionCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
         makeRedisStub(),
@@ -845,7 +849,7 @@ describe('PositionCommentService', () => {
 
       const result = await svc.comment('user-1', makeDto());
       expect(result).toEqual({
-        comment: 'просто текст без структуры',
+        comment: '',
         highlights: [],
         arrows: [],
       });

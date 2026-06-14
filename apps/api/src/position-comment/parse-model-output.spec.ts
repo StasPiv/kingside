@@ -32,11 +32,13 @@ describe('parseModelOutput (KS-3690 / ADR-108b §6)', () => {
     });
   });
 
-  // 3. Не-JSON текст → фолбэк (comment = raw.trim()).
-  it('3. произвольный текст без JSON → фолбэк, текст идёт в comment', () => {
+  // 3. Не-JSON текст в HTTP 200 → пустой шейп (state=error на фронте,
+  // overlay не рисуется). KS-3693 follow-up: согласно Gherkin §9 Q1
+  // сценарий 2 сырой текст модели наружу не отдаём.
+  it('3. произвольный текст без JSON → пустой шейп (фронт идёт в state=error)', () => {
     const raw = '  Это просто текст без JSON. \n';
     expect(parseModelOutput(raw)).toEqual({
-      comment: 'Это просто текст без JSON.',
+      comment: '',
       highlights: [],
       arrows: [],
     });
@@ -161,13 +163,15 @@ describe('parseModelOutput (KS-3690 / ADR-108b §6)', () => {
     });
   });
 
-  // 11. Только highlights без comment → фолбэк (comment = raw.trim(), массивы пустые).
-  it('11. JSON без comment → фолбэк: comment=raw.trim(), массивы пустые', () => {
+  // 11. Только highlights без comment → пустой шейп (state=error на
+  // фронте). KS-3693: highlights без comment — сломанный контракт,
+  // overlay тоже не рисуем.
+  it('11. JSON без comment → пустой шейп, никакого overlay', () => {
     const raw = JSON.stringify({
       highlights: [{ square: 'e4', color: 'red' }],
     });
     expect(parseModelOutput(raw)).toEqual({
-      comment: raw,
+      comment: '',
       highlights: [],
       arrows: [],
     });
@@ -201,19 +205,19 @@ describe('parseModelOutput (KS-3690 / ADR-108b §6)', () => {
     ]);
   });
 
-  it('comment не строка (например число) → фолбэк', () => {
+  it('comment не строка (например число) → пустой шейп', () => {
     const raw = JSON.stringify({ comment: 42, highlights: [] });
     expect(parseModelOutput(raw)).toEqual({
-      comment: raw,
+      comment: '',
       highlights: [],
       arrows: [],
     });
   });
 
-  it('JSON это массив (не объект) → фолбэк', () => {
+  it('JSON это массив (не объект) → пустой шейп', () => {
     const raw = JSON.stringify([{ comment: 'oops' }]);
     expect(parseModelOutput(raw)).toEqual({
-      comment: raw,
+      comment: '',
       highlights: [],
       arrows: [],
     });
