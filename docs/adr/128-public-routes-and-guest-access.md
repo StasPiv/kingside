@@ -1,9 +1,12 @@
 # ADR-128 — Политика публичных маршрутов и модель «гость пользуется функционалом / логин для записи в БД»
 
 - Статус: **Proposed** (2026-06-14, ревизия §7+§10+§11 в тот же день по
-  KS-4121, ревизия §4+§4.1+§5+§6+§8+§10+§11+§12 в тот же день по KS-4125)
+  KS-4121, ревизия §4+§4.1+§5+§6+§8+§10+§11+§12 в тот же день по KS-4125,
+  фиксация решений §11.12–§11.14 в тот же день по KS-4126)
 - Задача: KS-4120 (исходный), KS-4121 (§7), KS-4125 (отказ от
-  PM-лендингов, кодификация inline guest-CTA)
+  PM-лендингов, кодификация inline guest-CTA), KS-4126 (закрытие
+  §11.12–§11.14, добавление KS-31/32 на seed-контент, явный запрет
+  привлекать chess-expert — контент даёт пользователь)
 - Связанные ADR / задачи:
   - KS-4116 — внедрение prerender (frontend, `apps/web/scripts/prerender.mjs`),
     реестр `apps/web/src/config/publicRoutes.ts`.
@@ -244,7 +247,7 @@ Throttler глобально не подключён по умолчанию. П
 | `/analyses/:analysisId/metrics` | PX | Метрики публичного анализа (ADR-122) | — | — |
 | `/game/:id`, `/game/:id/review` | PV | Личная партия | — | `ProtectedRoute` |
 | `/games/live`, `/games/:id/watch` | PR | Лента live-партий | Поставить лайк, написать в чат | модалка |
-| `/workshop`, `/workshop/pgn-files`, `/workshop/pgn-files/:fileId` | **PF** | Анализ позиции в Мастерской, ввод FEN, импорт PGN в браузер, движок Stockfish-WASM локально, оценки, варианты | Сохранение анализа, прикрепление PGN-файла | inline-CTA «войди, чтобы сохранить анализ» (WorkshopAnalysisList уже работает) |
+| `/workshop`, `/workshop/pgn-files`, `/workshop/pgn-files/:fileId` | **PF** | Анализ позиции (FEN, PGN-импорт, Stockfish-WASM, варианты). Сайдбар «Мои анализы» гостю замещается на **демо-список классических партий с ротацией** (§11.14) — гость открывает партию в полнофункциональном анализе | Сохранение анализа, прикрепление PGN-файла | анализ — без CTA (полный функционал); кнопка «Сохранить» — паттерн B; сайдбар — демо-партии |
 | `/broadcasts/*` | PR | Список трансляций, конкретный турнир, раунд, партия | Чат, лайки, комментарии | модалка по кнопке |
 | `/players` | PR | Лидерборд игроков, поиск | — | — |
 | `/player/:username` | PR | Публичный профиль, рейтинги, история | Вызов на партию, написать сообщение, добавить в друзья | модалка (PlayerProfilePage уже использует `useRequireAuth`) |
@@ -258,8 +261,9 @@ Throttler глобально не подключён по умолчанию. П
 | `/lessons/my`, `/lessons/my-active`, `/lessons/editor`, `/lessons/:courseSlug`, `/lessons/:courseSlug/:lessonSlug` | PV | Личные курсы, прогресс | — | `ProtectedRoute` |
 | `/feedback`, `/feedback/:id` | PR | Доска идей | Голосовать, комментировать, создать | модалка по кнопке |
 | `/drills`, `/drills/about`, `/drills/sprint*`, `/drills/:type` | **PF** | Тематические тренажёры. `/drills/about` (статика) уже public | Sprint setup/play/results — сохранение прогресса, leaderboard | inline-CTA на странице тренажёра |
-| `/opening-trainer` | **PF/PV** | Без репертуара тренажёр пуст. Открыть гостю «системный демо-репертуар» (если есть готовый — KS-3273), иначе оставить за логином **без лендинга** — см. §11.12 | Личный репертуар, прогресс, SRS-очередь | inline-CTA на главной + модалка по «создать репертуар» |
-| `/opening-trainer/new`, `/opening-trainer/:id`, `/opening-trainer/:id/session/*`, `/opening-trainer/reviews`, `/opening-trainer/:id/stats` | PV | Личные репертуары | — | `ProtectedRoute` (пока §11.12 не решён) |
+| `/opening-trainer` | **PF** | Главная раздела с двумя секциями: «Демо-репертуары» (open, контент-seed §11.12 — несколько содержательных репертуаров от пользователя) + «Мои репертуары» (для гостя — guest-CTA). Гость проходит демо в SRS-flow локально | Личный репертуар, прогресс, SRS-очередь | inline-CTA на секции «Мои» + модалка по «создать репертуар» |
+| `/opening-trainer/demo/:id` (новый) | **PF** | Сессия по демо-репертуару, прогресс in-memory/localStorage | — (no-op 204 при попытке записи, §11.13) | — |
+| `/opening-trainer/new`, `/opening-trainer/:id`, `/opening-trainer/:id/session/*`, `/opening-trainer/reviews`, `/opening-trainer/:id/stats` | PV | Личные репертуары | — | `ProtectedRoute` |
 | `/guess`, `/guess/sessions/:id` | **PF** | Угадай ход — тренажёр без личных данных, работает локально | Score, история | inline-CTA |
 | `/guess/stats`, `/guess/history` | **PF (stats)** + PV | Stats/history гостю — guest-CTA по образцу `PrecisionStatsPage` (GuessStatsPage уже использует шаблон) | Личные тренды | inline-CTA |
 | `/blind-board`, `/blind-board/sessions/:id` | **PF** | Тренажёр слепой игры — локально | Score, история | inline-CTA |
@@ -504,16 +508,23 @@ inline guest-CTA: `<Link to="/login">{auth.loginToSaveProgress}</Link>`
 - `/analysis`, `/analysis/:id` — то же.
 - `/analysis/public/:id` — read-only shared (без изменений).
 
-В БД пишется (требует логина):
-- «Сохранить в Мои анализы» — кнопка disabled с hint'ом для гостя
-  (AnalysisPage.tsx:792-797 уже работает), на click — модалка
-  (`useRequireAuth`).
-- «Добавить позицию в репертуар» — то же.
-- `WorkshopAnalysisList` — гостю «Sign in to save your analyses»
-  (уже работает, `WorkshopAnalysisList.tsx:662-664`).
+**Сайдбар workshop для гостя** (решено §11.14, KS-4126): вместо
+guest-CTA «войди чтобы сохранять» показываем **демо-список
+классических партий** (контент-seed от пользователя) с ротацией
+«партия дня» / «партия недели». Гость кликает на партию → открывается
+в полнофункциональном анализе. Сохранение анализа — модалка.
 
-`/workshop/pgn-files`, `/workshop/pgn-files/:fileId` — личные файлы,
-для гостя список заменяется guest-CTA, верхняя половина (анализ) —
+В БД пишется (требует логина):
+- «Сохранить в Мои анализы» (`POST /workshop/analyses`) — кнопка
+  disabled с hint'ом для гостя (AnalysisPage.tsx:792-797 уже работает),
+  на click — модалка (`useRequireAuth`). Бэкенд: **401 при `user==null`**
+  как защитная граница (см. §11.13).
+- «Добавить позицию в репертуар» — то же.
+- `WorkshopAnalysisList` (бывший «Мои анализы» сайдбар) — заменён на
+  демо-список §11.14 для гостя. Для авторизованного — без изменений.
+
+`/workshop/pgn-files`, `/workshop/pgn-files/:fileId` — личные файлы;
+для гостя секция замещается на демо-список, верхняя половина (анализ) —
 полнофункциональна.
 
 ---
@@ -1012,8 +1023,7 @@ preview партии в мессенджере с актуальной доск�
 | Archive game | «{white} vs {black} ({result}) — {event}» | Дата, турнир, дебют, PGN рендерится в `<noscript>` + интерактивная доска на клиенте |
 | Archive player | «{name} archive» | Кол-во партий, peak rating, range дат, топ-партии, ссылки на каждую |
 
-Подробные тексты — content + chess-expert (KS-5 декомпозиции, теперь
-расширенный).
+Подробные тексты — content (пользователь, без chess-expert, KS-4126).
 
 ### 7.7. Унифицированный `<MarketingLanding>` для PM
 
@@ -1165,15 +1175,15 @@ cron+mutation), разные исходники (dist/ vs S3-staging frontend +
 
 13. **Players top-1000** — cron + sitemap (§7.4.2).
 14. **Archive games policy** (avgElo ≥ 2400 или TWIC top-1000) —
-    `afterImport` hook (§7.4.3). Сверка с chess-expert и marketing.
+    `afterImport` hook (§7.4.3). Пороги — пользователь + marketing.
 15. **Archive players top-1000** — аналогично.
 
 ### Волна 5 — открытие caталога курсов гостю
 
 16. **`/lessons`, `/lessons/discover`** — открыть каталог системных
-    курсов гостю (зависит от ADR-026 / ADR-054, сверка с chess-expert
-    и content). PF: гость пробует первый урок без сохранения
-    прогресса, inline-CTA «войди чтобы продолжить». §11.2.
+    курсов гостю (зависит от ADR-026 / ADR-054, продуктовая сверка с
+    пользователем + content). PF: гость пробует первый урок без
+    сохранения прогресса, inline-CTA «войди чтобы продолжить». §11.2.
 
 ### Волна 6 — динамический og:image и top-N broadcast games
 
@@ -1232,6 +1242,13 @@ flowchart TD
 > (компонент `<GuestCTA>`), KS-23 (миграция существующих inline-CTA
 > на `<GuestCTA>`), KS-24..KS-29 (открытие PF-тренажёров гостю).
 > Нумерация старых тикетов сохранена.
+>
+> **Ревизия 2026-06-14 (KS-4126).** KS-30 переформулирован из research
+> в имплементацию (`/opening-trainer` гостю — вариант (b) с реальным
+> демо-репертуаром). Добавлены KS-31 (seed демо-репертуаров для
+> opening-trainer) и KS-32 (seed демо-партий для workshop сайдбара).
+> Из тикетов KS-13, KS-16 убран chess-expert как соисполнитель —
+> содержательный контент по всему ADR-128 даёт пользователь.
 
 | # | Тикет | Что | Исполнитель | Размер | Зависит от |
 |---|-------|-----|-------------|--------|------------|
@@ -1248,10 +1265,10 @@ flowchart TD
 | 10 | KS-новый | Shared: `packages/shared/prerender-client.ts` (SQS sendMessage с типизацией) | backend | S | 8 |
 | 11 | KS-новый | Backend: mutation hooks для on-demand prerender (`CoachService.updateProfile`, `LectureService.publish`/`update`, `ArenaService.finish`, `ArchiveImporterService.afterImport`; broadcast-worker `finishRound`) | backend | M | 9, 10 |
 | 12 | KS-новый | DevOps: EventBridge schedule'ы (broadcasts-active 15 мин, tournaments-active 30 мин, lectures-list 30 мин, players-top1000 24 ч, archive-list 24 ч, safety-net 24 ч) | devops | M | 9 |
-| 13 | KS-новый | Backend: policy-фильтры (§7.4) для players (top-1000) и archive (avgElo ≥ 2400 / TWIC top-1000) — сверка с chess-expert + marketing | backend + chess-expert + marketing | M | 9 |
+| 13 | KS-новый | Backend: policy-фильтры (§7.4) для players (top-1000) и archive (avgElo ≥ 2400 / TWIC top-1000) — пороги согласовать с пользователем + marketing (без chess-expert) | backend + marketing | M | 9 |
 | 14 | KS-новый | Frontend+content: расширение `react-helmet-async` метатегами + JSON-LD (`SportsEvent`, `Person`, `Course`, `Article`) на каждой PR/PF-карточке | frontend + content | L | 7, 9 |
 | 15 | KS-новый | Backend: per-entity sitemap'ы (`sitemap-broadcasts.xml`, …) + sitemap-index | backend | M | 11 |
-| 16 | KS-новый | Content: SEO-форматы заголовков карточек (broadcast «{tournament} — {round}», player, coach, lecture, archive game) | content + chess-expert | L | 14 |
+| 16 | KS-новый | Content: SEO-форматы заголовков карточек (broadcast «{tournament} — {round}», player, coach, lecture, archive game). Контент — пользователь, без chess-expert | content | L | 14 |
 | 17 | KS-новый | DevOps+backend: og:image (внутри prerender-service или отдельная Lambda — §11.9) | devops + backend | L | 9 |
 | **ОТКРЫТИЕ КАТАЛОГОВ И PF-ТРЕНАЖЁРОВ (KS-4125)** | | | | | |
 | 18 | KS-новый | Backend: `GET /lobby/open-challenges` (волна 3, для `/lobby` PF) | backend | S | 1 |
@@ -1265,17 +1282,20 @@ flowchart TD
 | 26 | KS-новый | Frontend+backend: открыть `/blind-board` гостю (паттерн A). Stats/history уже шаблонны (§5.13), проверить тестами | frontend + backend | S | 1, 22 |
 | 27 | KS-новый | Frontend+backend: открыть `/guess` лендинг + stats гостю (паттерн A). `GUESS_ENTRY_ENABLED`-флаг — отдельно. `/guess/sessions/:id` ownership — оставить PV | frontend + backend | S | 1, 22 |
 | 28 | KS-новый | Frontend+backend: открыть `/play` + `/lobby` гостю (PF). Гостю: «играть с ботом» open, «играть онлайн» / «принять вызов» через `useRequireAuth`. Backend: матчмейкинг и ws-handshake без JWT не обслуживаются (401 на subscribe) | frontend + backend | L | 1, 3, 18, 22 |
-| 29 | KS-новый | Frontend+backend: открыть верх `/workshop` (анализ позиции) гостю (паттерн A). Sidebar «Мои анализы» — `WorkshopAnalysisList` уже шаблонен. Решение по PGN-импорту: храним в memory, при сохранении — модалка | frontend + backend | M | 1, 22 |
-| 30 | KS-новый | Architect+frontend: research/решение по `/opening-trainer` (PF/PV) — §11.12 | architect + frontend | S | 22 |
+| 29 | KS-новый | Frontend+backend: открыть `/workshop` гостю (PF). Анализ позиции — полнофункциональный (без CTA на инструменте). Сайдбар «Мои анализы» гостю замещается на **демо-список классических партий** (§11.14, контент-seed KS-32). Кнопка «Сохранить» — модалка через `useRequireAuth`. PGN-импорт работает в memory. Backend: `POST /workshop/analyses` для гостя → 401 (PR, см. §11.13) | frontend + backend | M | 1, 22, 32 |
+| 30 | KS-новый | Frontend+backend: открыть `/opening-trainer` гостю (PF, §11.12). Главная раздела с секцией «Демо-репертуары» (KS-31). `GET /opening-trainer/demo` + `GET /opening-trainer/demo/:id` open-эндпоинты. Сессия по демо: `POST /opening-trainer/sessions` → 204 для гостя (no-op). Прогресс по узлам — localStorage. Auth-private маршруты (`/opening-trainer/new`, `:id`, `reviews`) остаются `ProtectedRoute` | frontend + backend | M | 1, 22, 31 |
+| 31 | KS-новый | Backend: seed-данные демо-репертуаров для `/opening-trainer` (§11.12). Несколько содержательных репертуаров от пользователя (примеры: Найдорф, Дебют ферзевых пешек, Английское начало). Формат: JSON-seed файлы в `apps/api/src/opening-trainer/seeds/demo-repertoires/*.json` (или эквивалентная таблица — выбор за backend). **Контент даёт пользователь, не chess-expert.** Backend задаёт только структуру и загрузчик | backend (контент — пользователь) | M | 30 |
+| 32 | KS-новый | Backend: seed-данные демо-партий для сайдбара `/workshop` (§11.14). Несколько классических партий с аннотациями от пользователя (примеры: Капабланка, Алехин, Карлсен). Формат: PGN-файлы + sidecar `meta.json` (title, white/black, event, date, tags) в `apps/api/src/workshop/seeds/demo-games/`. Эндпоинты: `GET /workshop/demo-games`, `GET /workshop/demo-games/featured` (детерминированная ротация дня/недели). **Контент даёт пользователь, не chess-expert** | backend (контент — пользователь) | M | 29 |
 
 ---
 
 ## 11. Открытые вопросы
 
 > **Ревизии**: §11.1, §11.4 закрыты KS-4121 (см. помету «resolved»
-> ниже). KS-4125 добавил §11.12–§11.14. Прежний §11.12 (S3 layout)
-> переименован в §11.15, чтобы порядок появления пунктов
-> соответствовал номерам.
+> ниже). KS-4125 добавил §11.12–§11.14. **KS-4126 закрыл §11.12,
+> §11.13, §11.14** — пункты ниже содержат принятые пользователем
+> решения, не открытые вопросы. Прежний §11.12 (S3 layout) переименован
+> в §11.15, чтобы порядок появления пунктов соответствовал номерам.
 
 ### 11.1. ~~Где брать данные для prerender PR-маршрутов~~ — **resolved**
 
@@ -1292,8 +1312,9 @@ ADR-026 / ADR-054 описывают user-courses и system-courses. Катал�
 - backend: открыть `GET /courses/system?published=true` для анонимов;
 - frontend: `<DiscoverCoursesPage>` (уже без auth) + лендинг
   раздела `/lessons` для гостя;
-- сверка с **chess-expert + content** на тему, какие курсы и какой
-  free-preview подходят для индексации.
+- продуктовая сверка с **пользователем + content** (без chess-expert,
+  KS-4126) на тему, какие курсы и какой free-preview подходят для
+  индексации.
 
 Не делаем в волне 1–2 — слишком много продуктовых вопросов.
 
@@ -1336,7 +1357,7 @@ KS-3 + KS-6.
   игрок в TWIC top-1000.
 
 Это рабочие первичные пороги, но цифры требуют **продуктовой сверки с
-marketing + chess-expert + пользователем**:
+пользователем + marketing** (без chess-expert, KS-4126):
 - какой реальный SEO-объём ожидаем (запросы вида «{username} chess
   archive» — измерить через Wordstat / GSC, если есть);
 - какой % партий из TWIC попадёт под фильтр (нужна выборка из
@@ -1400,58 +1421,133 @@ Playwright load + screenshot) — 1 инстанс выдаёт ~120/час. З�
 
 Окончательно — devops в KS-12 (cron-расписания).
 
-### 11.12. `/opening-trainer` для гостя — что показать? (новый, KS-4125)
+### 11.12. `/opening-trainer` для гостя — **решено (KS-4126): вариант (b) с реальным контентом**
 
-Тренажёр построен вокруг personal репертуара. Без него на странице
-показывать нечего. Варианты:
+Выбран **вариант (b) — системные демо-репертуары**. Условие: не
+пустой шаблон, а несколько готовых содержательных репертуаров
+(примеры: «Сицилианская защита Найдорф», «Дебют ферзевых пешек»,
+«Английское начало»). Гость проходит их в SRS-flow, прогресс
+in-memory; сохранение — модалка `<LoginRequiredModal>` через
+`useRequireAuth`.
 
-- (a) **Закрыть для гостя** без лендинга — `ProtectedRoute` + редирект
-  на `/login`. Минимум работы, согласовано с правилом «лендинги не
-  делаем».
-- (b) **Показать «системный демо-репертуар»** (например, белый
-  итальянский +1, чёрный сицилианка +1 — статика в JSON). Гость
-  пробует SRS-flow на demo-репертуаре, прогресс in-memory.
-- (c) **Открыть конструктор**: гость собирает временный репертуар в
-  памяти, при попытке сохранить — модалка.
+Требования к реализации (детали — в KS-30, KS-31 декомпозиции):
 
-Архитектор предлагает: (a) на волну 3 (минимум работы, соответствует
-правилу), (b)/(c) — отдельный продуктовый разговор, если нужно
-индексировать раздел в поиске. Решение — за пользователем.
+- **Источник контента — пользователь.** Конкретный набор репертуаров,
+  их структуру (ходы, ветки, объяснения, NAG'и) подбирает и
+  редактирует **пользователь сам**. Никакой автогенерации, никакого
+  привлечения агента chess-expert.
+- **Формат хранения** — JSON-seed в backend (предложение архитектора:
+  `apps/api/src/opening-trainer/seeds/demo-repertoires/*.json`), либо
+  отдельная таблица `demo_opening_repertoires` с `isPublic=true`. Выбор
+  формата — за backend в KS-31; и тот и другой подходят, в seed-JSON
+  проще принимать правки от пользователя (через git), в таблице —
+  проще ротировать без деплоя.
+- **API:** новый `GET /opening-trainer/demo` — open эндпоинт, возвращает
+  массив демо-репертуаров. `GET /opening-trainer/demo/:id` —
+  конкретный репертуар целиком. Без `OptionalJwtGuard` — это
+  публичные данные, не зависят от user-id.
+- **Frontend:** на `/opening-trainer` для гостя — лендинг с карточками
+  демо-репертуаров и кнопкой «попробовать». Внутри сессии —
+  стандартный SRS-flow, но `POST /opening-trainer/sessions` идёт
+  no-op (см. §11.13). Прогресс по узлам — в localStorage гостя
+  (опционально, чтобы между перезагрузками не сбрасывалось).
+- **Auth-private маршруты остаются:** `/opening-trainer/new` (создать
+  свой репертуар), `/opening-trainer/:id` (личный репертуар),
+  `/opening-trainer/reviews` (личная SRS-очередь),
+  `/opening-trainer/:id/stats` — `ProtectedRoute`. Гость на главной
+  раздела видит две секции: «Демо-репертуары» (всегда) и «Мои
+  репертуары» (для гостя — guest-CTA «войди, чтобы собрать свой»).
 
-### 11.13. No-op POST vs 401 для гостя на write-эндпоинтах PF (новый, KS-4125)
+Категория в §4 — **PF**. Старая пометка «PF/PV — под вопросом»
+снимается.
 
-§5.13 + §10 KS-24/25 предлагают: при `user==null` бэкенд возвращает
-no-op (200/204), не 401. Это оборотная сторона UX-решения «гость
-играет, score не пишется» — фронт не должен получать ошибку и
-прерывать сессию.
+### 11.13. No-op POST vs 401 для гостя на write-эндпоинтах PF — **решено (KS-4126): no-op 204**
 
-Альтернатива: 401, фронт ловит и просто игнорирует. Хуже —
-конзоль/Sentry зашумится 401-ками от гостей.
+**Контракт:** на тренажёрских write-эндпоинтах PF при `user==null`
+бэкенд возвращает **204 No Content** (no-op), не 401. На PR
+write-эндпоинтах при `user==null` — **401 Unauthorized**.
 
-Архитектор предлагает: **no-op на write-эндпоинтах PF**
-(`POST /puzzle-rush/scores`, `POST /drills/sprint/result`,
-`POST /blind-board/scores`, `POST /guess/scores`, `POST /precision/attempt`
-— уже, см. KS-3349/ADR-079). Для PR write-эндпоинтов (`POST /messages`,
-`POST /friends/request`, etc.) — **401 остаётся**, гость не должен
-туда попадать, модалка отлавливает раньше. Если попал — это уже
-client-side баг.
+Per-endpoint список:
 
-KS-13 декомпозиции должен явно зафиксировать this contract per-endpoint.
+| Эндпоинт | Категория | Поведение для гостя |
+|---|---|---|
+| `POST /puzzles/:id/attempt` | PF | 204 (no-op, attempt не пишется) |
+| `POST /puzzles/:id/skip` | PF | 204 |
+| `POST /precision/:id/attempt` | PF | 204 (см. KS-3349/ADR-079 — уже работает) |
+| `POST /precision/next` | PF | 200 с next без рейтинг-дельты |
+| `POST /puzzle-rush/scores` | PF | 204 |
+| `POST /drills/sprint/result` | PF | 204 |
+| `POST /blind-board/scores` | PF | 204 |
+| `POST /guess/scores` | PF | 204 |
+| `POST /opening-trainer/sessions` (на демо) | PF | 204 |
+| `POST /workshop/analyses` (сохранить анализ) | **PR** | **401** (модалка ловит на фронте; если дошло до бэка — баг фронта) |
+| `POST /messages` | PR | 401 |
+| `POST /friends/request` | PR | 401 |
+| `POST /arena/:id/register` | PR | 401 |
+| `POST /broadcasts/:id/chat` | PR | 401 |
+| `POST /feedback`, `POST /feedback/:id/vote`, `POST /feedback/:id/comment` | PR | 401 |
+| `POST /coach/:u/book-lecture` | PR | 401 |
 
-### 11.14. Workshop: layout для гостя (новый, KS-4125)
+Обоснование выбора no-op vs 401:
 
-`/workshop` сейчас — два-колоночная страница: слева анализ, справа
-сайдбар «Мои анализы / Мои PGN-файлы». Для гостя сайдбар бесполезен.
-Варианты:
+- **PF — запись «по факту»** (attempt, score, session). Гость
+  использует тренажёр через тот же фронт-код, что и юзер. Если бэк
+  на каждую попытку отвечает 401 — `console.error` шумит, Sentry
+  засоряется false-positive'ами, фронту приходится ставить try/catch
+  и игнорировать ошибку. Чище — `if (req.user) save(); return res.status(204)`.
+- **PR — discrete-action** (Send, Save, Register, Add). Гость на эту
+  ручку без авторизации не должен попадать — модалка
+  `<LoginRequiredModal>` через `useRequireAuth` ловит на фронте.
+  401 здесь — защитная граница: если кто-то обошёл модалку (старый
+  фронт-код, прямой запрос из curl/Postman), backend отказывает явно.
 
-- (a) **Сайдбар → guest-CTA**, верхняя часть (анализ) полнофункциональна.
-  Минимум работы, не ломает layout.
-- (b) **Скрыть сайдбар для гостя**, анализ занимает full-width.
-  Чище, но требует условного flexbox-layout.
-- (c) **Переделать на лендинг + анализ как отдельная страница
-  `/workshop/quick`** — мажорный рефакторинг, не оправдан.
+Реализация — KS-13 декомпозиции (`OptionalJwtGuard` + явный `if
+(req.user)`-чек в сервисе для PF-эндпоинтов).
 
-Архитектор предлагает (a). Решение — frontend в KS-29.
+### 11.14. Workshop: layout для гостя — **решено (KS-4126): сайдбар с демо-партиями классиков**
+
+Вариант (a) с guest-CTA в сайдбаре отвергнут. Принятое решение:
+**сайдбар «Мои анализы» гостю показывает демо-список классических
+партий** (примеры: Капабланка, Алехин, Карлсен и другие). Гость
+кликает на партию → она открывается в полнофункциональном анализе
+(Stockfish-WASM, варианты, NAG'и, оценки) — всё локально, без
+сохранения. Кнопка «Сохранить анализ» — модалка
+`<LoginRequiredModal>` (паттерн B, как уже работает в KS-29).
+
+Требования к реализации (детали — в KS-29 + новый KS-32):
+
+- **Источник контента — пользователь.** Конкретный набор демо-партий,
+  имена/PGN/комментарии, **ротацию** («партия дня», «партия недели»,
+  тематические подборки) подбирает и поддерживает **пользователь
+  сам**. Никакой автогенерации, никакого привлечения агента
+  chess-expert.
+- **Формат хранения:** seed-данные демо-партий — JSON в backend
+  (предложение архитектора: `apps/api/src/workshop/seeds/demo-games/*.pgn`
+  + sidecar `meta.json` с заголовком, автором аннотаций, тегами; либо
+  таблица `workshop_demo_games` с `isPublic=true`). Выбор — за
+  backend в KS-32; правки PGN от пользователя удобнее принимать
+  через git (seed-файлы), это аргумент в пользу JSON+PGN-файлов.
+- **Ротация:** «партия дня» / «партия недели» — простой
+  детерминированный pick по `dayOfYear % N` или `weekOfYear % M` (без
+  cron'а, без runtime-state). Если пользователь захочет ручной
+  override (показать конкретную партию в конкретный день) — добавить
+  поле `pinnedFrom`/`pinnedUntil` в meta; делать сразу не обязательно,
+  по факту запроса.
+- **API:** новый `GET /workshop/demo-games` — open эндпоинт, возвращает
+  массив `{id, title, white, black, event, date, pgn, comments}`.
+  `GET /workshop/demo-games/featured` — сегодняшняя/недельная
+  выделенная партия. Без `OptionalJwtGuard` — публичные данные.
+- **Frontend:** сайдбар workshop при `user==null` рендерит секцию
+  «Классические партии» с топ-выделенной партией и списком ниже,
+  кнопка «открыть в анализе» — переход на `/analysis?demo=:id`
+  (или прямо инстанс анализа в верхней половине без навигации).
+  Сама верхняя половина (FEN ввод, PGN импорт, движок) для гостя
+  доступна **полностью** — это паттерн A inline, без guest-CTA на
+  самом инструменте.
+- **Кнопка «Сохранить анализ»:** паттерн B через `useRequireAuth`
+  (как уже описано в §5.14 + AnalysisPage.tsx:792-797).
+
+Категория `/workshop` в §4 остаётся **PF**.
 
 ### 11.15. Где лежит HTML-снапшот: одна S3-папка vs per-domain (новый, KS-4121)
 
@@ -1483,7 +1579,7 @@ ADR-127.
 - Не пишет тексты метатегов карточек (KS-16).
 - Не дизайнит модалку логина / лендинги в Figma.
 - Не выбирает финальные значения policy top-N для players и archive —
-  это §11.8, требует сверки с marketing/chess-expert.
+  это §11.8, требует сверки с пользователем + marketing.
 - Не меняет policy admin-маршрутов, dev-bypass, OAuth-flow.
 - Не вводит passwordless / magic-link / SSO с третьими сторонами.
 - Не пересматривает `noindex` для `/analysis/public/:id`, `/live/:slug`,
