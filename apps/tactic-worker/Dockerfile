@@ -107,6 +107,16 @@ ENV NODE_ENV=production
 # совместимости с runtime-конфигом приложений.
 ENV STOCKFISH_PATH=/usr/games/stockfish
 ENV STOCKFISH_POOL_SIZE=1
+# KS-4107: путь к ONNX-модели Maia-3 для T2 (continuous-annotation
+# через MaiaAnnotationService) и для parity-check CLI. WORKDIR в
+# production = /app/apps/tactic-worker (см. ниже), поэтому
+# относительный дефолт `tools/maia3/maia3_simplified.onnx` из
+# `MaiaAnnotationService.fromEnv` резолвится в
+# /app/apps/tactic-worker/tools/maia3/... — там модели нет. Реально
+# она лежит в /app/tools/maia3/ (см. COPY tools/maia3 выше). По
+# образцу apps/api/Dockerfile (`POSITION_COMMENT_MAIA_MODEL_PATH`)
+# задаём абсолютный путь явно через ENV.
+ENV PRECISION_MAIA_MODEL_PATH=/app/tools/maia3/maia3_simplified.onnx
 # KS-2411: Node автоматически подхватывает этот CA bundle для всех
 # TLS-соединений (pg, https, fetch). Безопаснее глобального bypass'а
 # через NODE_TLS_REJECT_UNAUTHORIZED=0.
