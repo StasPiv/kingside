@@ -911,6 +911,15 @@
       "error": "Authorization failed. Please try again.",
       "connecting": "Connecting..."
     },
+    "loginRequired": {
+      "title": "Sign in to continue",
+      "descriptionDefault": "Sign in to your Kingside account to continue.",
+      "sendMessage": "Sign in to message {{username}} on Kingside.",
+      "joinTournament": "Sign in to register for «{{name}}» and play.",
+      "loginBtn": "Sign in",
+      "registerBtn": "Create account",
+      "cancelBtn": "Cancel"
+    },
     "usernameSetup": {
       "title": "Choose your username",
       "label": "Username",

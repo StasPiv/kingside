@@ -101,3 +101,68 @@
   text-align: center;
 }
 
+/* KS-4124 / ADR-128 §6: LoginRequiredModal.
+   Базовые modal-overlay/modal-content/modal-header берём из общего
+   набора (puzzle.css §«Generic modal»); здесь — только специфика. */
+.login-required-overlay {
+  /* Поднимаем над глобальными overlay'ями (1000), но ниже toast'ов. */
+  z-index: 1100;
+}
+
+.login-required-modal {
+  max-width: 420px;
+  width: 90vw;
+}
+
+.login-required-modal__description {
+  margin: 0 0 20px;
+  color: var(--c-cbd5e1, var(--c-e0e0e0));
+  line-height: 1.45;
+  font-size: 14px;
+}
+
+.login-required-modal__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.login-required-modal__btn {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, opacity 0.15s, border-color 0.15s;
+}
+
+.login-required-modal__btn--primary {
+  background: var(--c-6366f1, var(--c-7c83ff));
+  color: var(--c-fff);
+}
+
+.login-required-modal__btn--primary:hover {
+  background: var(--c-4f46e5, var(--c-6366f1));
+}
+
+.login-required-modal__btn--secondary {
+  background: transparent;
+  border-color: var(--c-6366f1, var(--c-7c83ff));
+  color: var(--c-6366f1, var(--c-7c83ff));
+}
+
+.login-required-modal__btn--secondary:hover {
+  background: var(--ov-indigo-10, var(--ov-black-60));
+}
+
+.login-required-modal__btn--ghost {
+  background: transparent;
+  color: var(--c-94a3b8, var(--c-888));
+}
+
+.login-required-modal__btn--ghost:hover {
+  color: var(--c-cbd5e1, var(--c-e0e0e0));
+}
+

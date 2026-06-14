@@ -6,6 +6,7 @@ import { BoardSettingsProvider } from './context/BoardSettingsContext';
 import { ChatProvider } from './context/ChatContext';
 import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
 import { FocusModeProvider } from './context/FocusModeContext';
+import { RequireAuthProvider } from './context/RequireAuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { App } from './App';
 import { initClientLogger } from './utils/clientLogger';
@@ -154,7 +155,14 @@ createRoot(document.getElementById('root')!).render(
             <ChatProvider>
               <BoardSettingsProvider>
                 <FocusModeProvider>
-                  <App />
+                  {/* KS-4124 / ADR-128 §6: глобальный провайдер
+                      LoginRequiredModal для auth-gated действий. Должен
+                      быть внутри BrowserRouter (useNavigate) и
+                      AuthProvider (useAuth), над App, чтобы модалка
+                      могла рендериться поверх любого маршрута. */}
+                  <RequireAuthProvider>
+                    <App />
+                  </RequireAuthProvider>
                 </FocusModeProvider>
               </BoardSettingsProvider>
             </ChatProvider>

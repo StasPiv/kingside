@@ -1102,6 +1102,15 @@
       "error": "Ошибка авторизации. Попробуйте ещё раз.",
       "connecting": "Подключение..."
     },
+    "loginRequired": {
+      "title": "Войдите, чтобы продолжить",
+      "descriptionDefault": "Войдите в Kingside, чтобы продолжить.",
+      "sendMessage": "Войдите в Kingside, чтобы написать игроку {{username}}.",
+      "joinTournament": "Войдите в Kingside, чтобы зарегистрироваться в турнире «{{name}}» и играть.",
+      "loginBtn": "Войти",
+      "registerBtn": "Создать аккаунт",
+      "cancelBtn": "Отмена"
+    },
     "usernameSetup": {
       "title": "Выберите имя пользователя",
       "label": "Имя пользователя",

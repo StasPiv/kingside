@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { setAuthReturnUrl } from '../utils/authReturnUrl';
+import { useRequireAuth } from '../context/RequireAuthContext';
 import { RatingHistoryChart } from '../components/RatingHistoryChart';
 import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
 // KS-2236 (ADR-035 §7, E3): drill-статистика на собственном профиле.
@@ -80,6 +80,7 @@ export function PlayerProfilePage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
+  const requireAuth = useRequireAuth();
   const { username } = useParams<{ username: string }>();
   const [profile, setProfile] = useState<PlayerProfileExtended | null>(null);
   const [loading, setLoading] = useState(true);
@@ -285,18 +286,23 @@ export function PlayerProfilePage() {
           <button
             className="player-profile-message-btn"
             onClick={() => {
-              // KS-4119: для гостя — на /login, сохранив текущий путь
-              // как returnUrl (паттерн KS-2110: sessionStorage +
-              // react-router state, чтобы OAuth-callback его прочитал).
-              // Без этого ProtectedRoute /messages молча уведёт на /login
-              // и потеряет контекст «откуда пришёл».
-              if (!currentUser) {
-                const returnUrl = `${window.location.pathname}${window.location.search}`;
-                setAuthReturnUrl(returnUrl);
-                navigate('/login', { state: { returnUrl } });
-                return;
-              }
-              navigate(`/messages/${profile.id}`, { state: { username: profile.username } });
+              // KS-4124 / ADR-128 §6: гостю показываем
+              // LoginRequiredModal с описанием действия. Авторизованному
+              // — выполняем переход в /messages сразу. returnUrl
+              // сохраняет requireAuth сам (текущий path+search).
+              requireAuth(
+                () =>
+                  navigate(`/messages/${profile.id}`, {
+                    state: { username: profile.username },
+                  }),
+                {
+                  description: t(
+                    'auth.loginRequired.sendMessage',
+                    'Sign in to message {{username}} on Kingside.',
+                    { username: profile.username },
+                  ),
+                },
+              );
             }}
           >
             {t('playerProfile.sendMessage')}

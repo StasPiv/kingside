@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
+import { useRequireAuth } from '../context/RequireAuthContext';
 import { api } from '../api';
 import { tournamentSocket } from '../socket';
 import { useServerBusy } from '../hooks/useServerBusy';
@@ -86,6 +87,7 @@ export function TournamentLobbyPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
+  const requireAuth = useRequireAuth();
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [standings, setStandings] = useState<Standing[]>([]);
@@ -416,7 +418,11 @@ export function TournamentLobbyPage() {
     };
   }, [id, userId]);
 
-  const handleJoin = async () => {
+  // KS-4124 / ADR-128 §6: гостю на клик Join показываем
+  // LoginRequiredModal вместо тихого fail (раньше кнопка была скрыта
+  // через `user &&`, теперь видна гостю и явно объясняет, что нужно
+  // войти). Авторизованный — реальный join через сокет/REST.
+  const performJoin = async () => {
     if (!id) return;
     if (tournamentSocket.connected) {
       tournamentSocket.emit('tournament:join', { tournamentId: id });
@@ -428,6 +434,16 @@ export function TournamentLobbyPage() {
         fetchStandings();
       } catch { /* ignore */ }
     }
+  };
+
+  const handleJoin = () => {
+    requireAuth(performJoin, {
+      description: t(
+        'auth.loginRequired.joinTournament',
+        'Sign in to register for «{{name}}» and play.',
+        { name: tournament?.name ?? '' },
+      ),
+    });
   };
 
   const handleSeek = () => {
@@ -556,13 +572,17 @@ export function TournamentLobbyPage() {
         <div className="tournament-header__actions">
           {renderRoundStatus()}
 
-          {isUpcoming && user && !isPlayer && (
+          {/* KS-4124 / ADR-128 §6: Join-кнопки показываем и гостям —
+              клик откроет LoginRequiredModal через requireAuth.
+              Leave/Withdraw/Seek остаются под `user &&`, т. к. требуют
+              существующего участия. */}
+          {isUpcoming && !isPlayer && (
             <button className="tournament-join-btn" onClick={handleJoin}>{t('tournaments.join', 'Join')}</button>
           )}
           {isArena && isActive && user && isPlayer && !seeking && (
             <button className="tournament-seek-btn" onClick={handleSeek}>{t('tournaments.seek', 'Find opponent')}</button>
           )}
-          {isArena && isActive && user && !isPlayer && !joined && (
+          {isArena && isActive && !isPlayer && !joined && (
             <button className="tournament-join-btn" onClick={handleJoin}>{t('tournaments.joinAndPlay', 'Join & Play')}</button>
           )}
           {isArena && seeking && (
@@ -571,7 +591,7 @@ export function TournamentLobbyPage() {
               {t('tournaments.seeking', 'Looking for opponent...')}
             </div>
           )}
-          {!isArena && isActive && user && !isPlayer && !joined && (
+          {!isArena && isActive && !isPlayer && !joined && (
             <button className="tournament-join-btn" onClick={handleJoin}>{t('tournaments.join', 'Join')}</button>
           )}
           {isUpcoming && user && isPlayer && (
