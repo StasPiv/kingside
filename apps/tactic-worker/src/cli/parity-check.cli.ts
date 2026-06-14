@@ -16,8 +16,20 @@
  *
  *   containerOverrides.command = [
  *     "node","dist/main.js","parity-check",
- *     "--ids=754f93d5,aa9c8b2a,5830f706,712665fb"
+ *     "--ids=<full-uuid>,<full-uuid>,..."
  *   ]
+ *
+ * либо по 8-символьному префиксу id (`LEFT(id::text, 8)`):
+ *
+ *   containerOverrides.command = [
+ *     "node","dist/main.js","parity-check",
+ *     "--id-prefixes=754f93d5,aa9c8b2a,5830f706,712665fb"
+ *   ]
+ *
+ * При префиксном режиме CLI печатает полные id в каждом объекте JSON,
+ * чтобы caller (QA) мог потом обратиться к точечным id. Если префикс
+ * матчит несколько строк — все попадают в выдачу (надо разрешать
+ * вручную).
  *
  * Опциональные флаги:
  *   --elo=1500       (default 1500)
@@ -32,18 +44,31 @@ import { StockfishService } from '../stockfish/stockfish.service';
 
 interface CliOpts {
   ids: string[];
+  idPrefixes: string[];
   elo: number;
   depth: number;
   policyTop: number;
 }
 
 function parseArgs(argv: string[]): CliOpts {
-  const opts: CliOpts = { ids: [], elo: 1500, depth: 15, policyTop: 12 };
+  const opts: CliOpts = {
+    ids: [],
+    idPrefixes: [],
+    elo: 1500,
+    depth: 15,
+    policyTop: 12,
+  };
   for (const arg of argv) {
     const [k, v] = arg.replace(/^--/, '').split('=');
     switch (k) {
       case 'ids':
         opts.ids = (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+        break;
+      case 'id-prefixes':
+        opts.idPrefixes = (v ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
         break;
       case 'elo':
         opts.elo = parseInt(v, 10);
@@ -58,8 +83,10 @@ function parseArgs(argv: string[]): CliOpts {
         throw new Error(`unknown CLI option: ${arg}`);
     }
   }
-  if (opts.ids.length === 0) {
-    throw new Error('--ids is required (comma-separated puzzle ids)');
+  if (opts.ids.length === 0 && opts.idPrefixes.length === 0) {
+    throw new Error(
+      '--ids or --id-prefixes is required (comma-separated puzzle ids)',
+    );
   }
   return opts;
 }
@@ -87,63 +114,106 @@ export async function runParityCheck(
     PRECISION_MAIA_SF_DEPTH: String(opts.depth),
   });
 
-  // Тащим только нужные поля; sourceMetadata — JSON в БД.
-  const rows = (await prisma.$queryRawUnsafe(
-    `SELECT id, fen,
-            source_metadata AS "sourceMetadata"
-       FROM puzzles
-      WHERE id::text = ANY($1::text[])`,
-    opts.ids,
-  )) as Array<{
-    id: string;
-    fen: string;
-    sourceMetadata: Record<string, unknown> | null;
-  }>;
+  // Достаём строки: либо по полным id, либо по 8-символьным префиксам
+  // через LEFT(id::text, 8). UUID-text имеет дефисы; первые 8
+  // символов префикса совпадают с первой группой UUID v4
+  // (`xxxxxxxx-xxxx-...`), поэтому LEFT работает в обоих случаях.
+  const rows = opts.ids.length > 0
+    ? ((await prisma.$queryRawUnsafe(
+        `SELECT id, fen,
+                source_metadata AS "sourceMetadata"
+           FROM puzzles
+          WHERE id::text = ANY($1::text[])`,
+        opts.ids,
+      )) as Array<{
+        id: string;
+        fen: string;
+        sourceMetadata: Record<string, unknown> | null;
+      }>)
+    : ((await prisma.$queryRawUnsafe(
+        `SELECT id, fen,
+                source_metadata AS "sourceMetadata"
+           FROM puzzles
+          WHERE LEFT(id::text, 8) = ANY($1::text[])`,
+        opts.idPrefixes,
+      )) as Array<{
+        id: string;
+        fen: string;
+        sourceMetadata: Record<string, unknown> | null;
+      }>);
 
-  const byId = new Map<string, (typeof rows)[number]>();
-  for (const r of rows) byId.set(String(r.id), r);
+  // Группировка по «запрошенному» ключу: для --ids это сам id, для
+  // --id-prefixes — префикс (несколько строк под один префикс
+  // допустимы; QA сам разрешит).
+  const buckets = new Map<string, typeof rows>();
+  const keys: string[] =
+    opts.ids.length > 0 ? opts.ids : opts.idPrefixes;
+  for (const k of keys) buckets.set(k, []);
+  for (const r of rows) {
+    if (opts.ids.length > 0) {
+      const arr = buckets.get(String(r.id));
+      if (arr) arr.push(r);
+    } else {
+      const prefix = String(r.id).slice(0, 8);
+      const arr = buckets.get(prefix);
+      if (arr) arr.push(r);
+    }
+  }
 
   const out: Array<Record<string, unknown>> = [];
-  for (const id of opts.ids) {
-    const row = byId.get(id);
-    if (!row) {
-      out.push({ puzzleId: id, error: 'not_found' });
-      logger.warn(`puzzle ${id}: not found`);
+  for (const key of keys) {
+    const matched = buckets.get(key) ?? [];
+    if (matched.length === 0) {
+      out.push({ queryKey: key, error: 'not_found' });
+      logger.warn(`key ${key}: not found`);
       continue;
     }
-    const firstMovePV1 =
-      row.sourceMetadata && typeof row.sourceMetadata === 'object'
-        ? String(
-            (row.sourceMetadata as Record<string, unknown>).firstMovePV1 ?? '',
-          )
-        : '';
-    if (!firstMovePV1) {
-      out.push({
-        puzzleId: id,
-        fen: row.fen,
-        error: 'no_firstMovePV1_in_sourceMetadata',
-      });
-      logger.warn(`puzzle ${id}: no firstMovePV1 in sourceMetadata`);
-      continue;
-    }
-    try {
-      const trace = await svc.inspect(row.id, row.fen, firstMovePV1);
-      out.push({
-        ...trace,
-        maiaPolicyTop: trace.maiaPolicyTop.slice(0, opts.policyTop),
-      });
-      logger.log(
-        `puzzle ${id}: weakChoiceProb=${trace.weakChoiceProb.toFixed(4)} ` +
-          `metric_version=${trace.metricVersion} weakSet=${trace.weakSet.length}`,
+    if (matched.length > 1) {
+      logger.warn(
+        `key ${key}: matched ${matched.length} puzzles — emitting all`,
       );
-    } catch (e) {
-      out.push({
-        puzzleId: id,
-        fen: row.fen,
-        firstMovePV1,
-        error: (e as Error).message,
-      });
-      logger.error(`puzzle ${id}: ${(e as Error).message}`);
+    }
+    for (const row of matched) {
+      const firstMovePV1 =
+        row.sourceMetadata && typeof row.sourceMetadata === 'object'
+          ? String(
+              (row.sourceMetadata as Record<string, unknown>).firstMovePV1 ??
+                '',
+            )
+          : '';
+      if (!firstMovePV1) {
+        out.push({
+          queryKey: key,
+          puzzleId: row.id,
+          fen: row.fen,
+          error: 'no_firstMovePV1_in_sourceMetadata',
+        });
+        logger.warn(
+          `puzzle ${row.id}: no firstMovePV1 in sourceMetadata`,
+        );
+        continue;
+      }
+      try {
+        const trace = await svc.inspect(row.id, row.fen, firstMovePV1);
+        out.push({
+          queryKey: key,
+          ...trace,
+          maiaPolicyTop: trace.maiaPolicyTop.slice(0, opts.policyTop),
+        });
+        logger.log(
+          `puzzle ${row.id}: weakChoiceProb=${trace.weakChoiceProb.toFixed(4)} ` +
+            `metric_version=${trace.metricVersion} weakSet=${trace.weakSet.length}`,
+        );
+      } catch (e) {
+        out.push({
+          queryKey: key,
+          puzzleId: row.id,
+          fen: row.fen,
+          firstMovePV1,
+          error: (e as Error).message,
+        });
+        logger.error(`puzzle ${row.id}: ${(e as Error).message}`);
+      }
     }
   }
 
