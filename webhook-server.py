@@ -163,6 +163,7 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     # node_modules (ro)
     "ROLE_READ_NODE_MODULES":          [f"{_P}/node_modules:/project/node_modules:ro"],
     "ROLE_READ_APPS_API_NODE_MODULES": [f"{_P}/apps/api/node_modules:/project/apps/api/node_modules:ro"],
+    "ROLE_READ_APPS_WEB":              [f"{_P}/apps/web:/project/apps/web:ro"],
     "ROLE_READ_APPS_WEB_NODE_MODULES": [f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro"],
     # Read-only all apps / весь проект (для координатора, qa, architect)
     "ROLE_READ_APPS":                  [f"{_P}/apps:/project/apps:ro"],
@@ -962,6 +963,7 @@ AGENT_ROLES: dict[str, list[str]] = {
     ],
     "marketing": [
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND",
+        "ROLE_READ_APPS_WEB",
     ],
     "coordinator": [
         "ROLE_GIT_READ",
