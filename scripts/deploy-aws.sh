@@ -359,12 +359,20 @@ ECR_URI_TACTIC_WORKER="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-ta
 # Production-образ kingside-api сам по себе после KS-3924 не содержит prisma
 # CLI / @prisma/engines — экономия ~170 МБ в распакованном виде.
 ECR_URI_API_MIGRATIONS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api-migrations"
+# KS-3925: тот же паттерн для archive-service и broadcast-service. Отдельные
+# migration-образы содержат packages/archive-db/prisma и packages/broadcasts-db/prisma
+# соответственно. Production-образы archive/broadcast после KS-3925 не содержат
+# prisma CLI / @prisma/engines — даёт экономию ~30-60 МБ сжатых на каждый.
+ECR_URI_ARCHIVE_MIGRATIONS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service-migrations"
+ECR_URI_BROADCAST_MIGRATIONS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-service-migrations"
 # Короткие имена ECR-repo для aws ecr put-image / batch-get-image.
 ECR_REPO_API="kingside-api"
 ECR_REPO_API_MIGRATIONS="kingside-api-migrations"  # KS-3924
 ECR_REPO_GAME="kingside-game-service"
 ECR_REPO_BROADCAST_SERVICE="kingside-broadcast-service"
+ECR_REPO_BROADCAST_MIGRATIONS="kingside-broadcast-service-migrations"  # KS-3925
 ECR_REPO_ARCHIVE_SERVICE="kingside-archive-service"
+ECR_REPO_ARCHIVE_MIGRATIONS="kingside-archive-service-migrations"  # KS-3925
 ECR_REPO_TACTIC_WORKER="kingside-tactic-worker"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
@@ -381,7 +389,16 @@ TD_FAMILY_API="kingside-api"
 TD_FAMILY_API_MIGRATE="kingside-api-migrate"
 TD_FAMILY_GAME="kingside-game-service"
 TD_FAMILY_BROADCAST_SERVICE="kingside-broadcast-service"
+# KS-3925: migrate task-def family для broadcast-service. Клонируется с
+# kingside-broadcast-service на каждом деплое (BROADCASTS_DATABASE_URL и secrets
+# берутся из его env).
+TD_FAMILY_BROADCAST_MIGRATE="kingside-broadcast-service-migrate"
 TD_FAMILY_ARCHIVE_SERVICE="kingside-archive-service"
+# KS-3925: migrate task-def family для archive-service. Клонируется с
+# kingside-archive-service на каждом деплое (ARCHIVE_DATABASE_URL и secrets
+# берутся из его env). Одна migrate-family на все три ARCHIVE_TD_FAMILIES —
+# БД одна (archive_kingside, ADR-018/019).
+TD_FAMILY_ARCHIVE_MIGRATE="kingside-archive-service-migrate"
 TD_FAMILY_ARCHIVE_IMPORTER="kingside-archive-importer"
 # KS-2440: task-def family для tactic-worker. Один family на все subcommand'ы
 # (index-tactic-drills / sf-validate / generate-puzzles), реальная команда
@@ -944,6 +961,15 @@ ensure_ecr_repo() {
 # healthCheck из production-образа в migration-контейнере не сработает
 # (контейнер выходит после `prisma migrate deploy`), но run-task оценивает
 # только exit code, так что это нейтрально.
+#
+# KS-3925: дополнительно сбрасываем .command, .entryPoint и .healthCheck на
+# каждом containerDefinition. Production task-def archive/broadcast-service
+# содержит явный `command` (стартовый CMD сервиса), который перебивает
+# ENTRYPOINT migration-образа — migrate не запустится, контейнер пойдёт в
+# main.js production-логики. Сброс делает поведение универсальным для всех
+# трёх migrate-family (api/archive/broadcast): ENTRYPOINT migration-образа
+# (`npx prisma migrate deploy`) гарантированно отрабатывает. У api command
+# был null, для него сброс — no-op.
 register_migrate_task_def_revision() {
     local mig_family=$1
     local src_family=$2
@@ -955,7 +981,10 @@ register_migrate_task_def_revision() {
         --query 'taskDefinition' --output json \
         | jq --arg fam "$mig_family" --arg img "$new_image" '
             .family = $fam
-            | .containerDefinitions |= map(.image = $img)
+            | .containerDefinitions |= map(
+                .image = $img
+                | del(.command, .entryPoint, .healthCheck)
+              )
             | del(
                 .taskDefinitionArn, .revision, .status, .compatibilities,
                 .requiresAttributes, .registeredAt, .registeredBy,
@@ -1649,6 +1678,41 @@ if $DEPLOY_BROADCAST_SERVICE; then
     fi
     _perf_stamp "broadcast_docker_push_done"
 
+    # KS-3925: отдельный лёгкий migration-образ (node:20-slim + prisma CLI +
+    # packages/broadcasts-db/prisma). Используется в pre-rollout `prisma migrate
+    # deploy` вместо production-образа. Освобождает production от prisma CLI и
+    # @prisma/engines (~30-60 МБ сжатых).
+    NEW_MIG_IMAGE="${ECR_URI_BROADCAST_MIGRATIONS}:${DEPLOY_SHA}"
+    ensure_ecr_repo "$ECR_REPO_BROADCAST_MIGRATIONS"
+
+    echo "[broadcast-service] Building migrations image (tag=$DEPLOY_SHA)..."
+    MIG_BUILD_LOG="$REPO_DIR/logs/broadcast-service-migrations-build-${DEPLOY_SHA}.log"
+    set +e
+    docker build --progress=plain -t "kingside-broadcast-service-migrations:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/scripts/Dockerfile.broadcast-migrations" "$REPO_DIR" 2>&1 \
+        | _with_ts | tee "$MIG_BUILD_LOG"
+    MIG_BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$MIG_BUILD_RC" -ne 0 ]; then
+        echo "  ERROR: migrations image build failed (rc=$MIG_BUILD_RC). Full log: $MIG_BUILD_LOG"
+        tail -80 "$MIG_BUILD_LOG" || true
+        exit "$MIG_BUILD_RC"
+    fi
+    _perf_stamp "broadcast_migrations_build_done"
+
+    echo "[broadcast-service] Pushing ${ECR_REPO_BROADCAST_MIGRATIONS}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-broadcast-service-migrations:${DEPLOY_SHA}" "$NEW_MIG_IMAGE"
+    MIG_PUSH_LOG="$REPO_DIR/logs/broadcast-service-migrations-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_MIG_IMAGE" 2>&1 | _with_ts | tee "$MIG_PUSH_LOG" | tail -3
+    MIG_PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$MIG_PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: migrations push failed (rc=$MIG_PUSH_RC). Full log: $MIG_PUSH_LOG"
+        exit "$MIG_PUSH_RC"
+    fi
+    _perf_stamp "broadcast_migrations_push_done"
+
     SVC_STATUS=$(aws ecs describe-services \
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_BROADCAST_SERVICE" \
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
@@ -1669,14 +1733,23 @@ if $DEPLOY_BROADCAST_SERVICE; then
         # не приехала вместе с деплоем KS-1813 и /rounds падал 500.
         # KS-1826: migrate-run-task идёт на НОВУЮ revision (image :<sha>) — прод-сервисы
         # пока продолжают работать на предыдущей revision / предыдущем :latest.
-        # KS-3049: skip migrate run-task если нет pending миграций.
+        # KS-3474: skip-логика выпилена, всегда run.
+        # KS-3925: migrate бежит не на production-образе, а на отдельном
+        # kingside-broadcast-service-migrations. На каждый деплой регистрируем
+        # новую revision `kingside-broadcast-service-migrate`, клонируя текущую
+        # активную production-revision `kingside-broadcast-service` (env/secrets/
+        # BROADCASTS_DATABASE_URL/IAM-роли всегда в синхроне). Команду не override-им —
+        # ENTRYPOINT migration-образа уже `npx prisma migrate deploy`. WORKDIR /app,
+        # schema лежит в /app/prisma/schema.prisma (см. scripts/Dockerfile.broadcast-migrations).
         if should_run_migrate "broadcast" "packages/broadcasts-db/prisma/migrations"; then
-            echo "[broadcast-service] Running Prisma migrations (broadcasts-db) on new revision..."
+            echo "[broadcast-service] Running Prisma migrations (broadcasts-db) on dedicated migration image..."
             ensure_migrate_network
+            NEW_MIG_TD_ARN=$(register_migrate_task_def_revision \
+                "$TD_FAMILY_BROADCAST_MIGRATE" "$TD_FAMILY_BROADCAST_SERVICE" "$NEW_MIG_IMAGE")
+            echo "  migrate task-def: $NEW_MIG_TD_ARN"
             MIGRATE_TASK=$(aws ecs run-task \
-                --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_ARN" --launch-type FARGATE \
+                --cluster "$ECS_CLUSTER" --task-definition "$NEW_MIG_TD_ARN" --launch-type FARGATE \
                 --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
-                --overrides '{"containerOverrides":[{"name":"kingside-broadcast-service","command":["sh","-c","cd /app/packages/broadcasts-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
                 --query 'tasks[0].taskArn' --output text)
             aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
             MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
@@ -1786,6 +1859,42 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     fi
     _perf_stamp "archive_docker_push_done"
 
+    # KS-3925: отдельный лёгкий migration-образ (node:20-slim + prisma CLI +
+    # packages/archive-db/prisma). Используется в pre-rollout `prisma migrate
+    # deploy` вместо production-образа. Освобождает production от prisma CLI и
+    # @prisma/engines (~30-60 МБ сжатых). Одна migrate-family на все три
+    # ARCHIVE_TD_FAMILIES — БД одна (archive_kingside).
+    NEW_MIG_IMAGE="${ECR_URI_ARCHIVE_MIGRATIONS}:${DEPLOY_SHA}"
+    ensure_ecr_repo "$ECR_REPO_ARCHIVE_MIGRATIONS"
+
+    echo "[archive-service] Building migrations image (tag=$DEPLOY_SHA)..."
+    MIG_BUILD_LOG="$REPO_DIR/logs/archive-service-migrations-build-${DEPLOY_SHA}.log"
+    set +e
+    docker build --progress=plain -t "kingside-archive-service-migrations:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/scripts/Dockerfile.archive-migrations" "$REPO_DIR" 2>&1 \
+        | _with_ts | tee "$MIG_BUILD_LOG"
+    MIG_BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$MIG_BUILD_RC" -ne 0 ]; then
+        echo "  ERROR: migrations image build failed (rc=$MIG_BUILD_RC). Full log: $MIG_BUILD_LOG"
+        tail -80 "$MIG_BUILD_LOG" || true
+        exit "$MIG_BUILD_RC"
+    fi
+    _perf_stamp "archive_migrations_build_done"
+
+    echo "[archive-service] Pushing ${ECR_REPO_ARCHIVE_MIGRATIONS}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-archive-service-migrations:${DEPLOY_SHA}" "$NEW_MIG_IMAGE"
+    MIG_PUSH_LOG="$REPO_DIR/logs/archive-service-migrations-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_MIG_IMAGE" 2>&1 | _with_ts | tee "$MIG_PUSH_LOG" | tail -3
+    MIG_PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$MIG_PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: migrations push failed (rc=$MIG_PUSH_RC). Full log: $MIG_PUSH_LOG"
+        exit "$MIG_PUSH_RC"
+    fi
+    _perf_stamp "archive_migrations_push_done"
+
     ARCHIVE_SVC_STATUS=$(aws ecs describe-services \
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE" \
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
@@ -1821,14 +1930,23 @@ if $DEPLOY_ARCHIVE_SERVICE; then
         # ADR-018). Симметрично api- и broadcast-service-блокам (KS-1817).
         # Одного migrate-таска достаточно: все archive task-def family ездят на
         # одном образе и работают с одной БД (ADR-019).
-        # KS-3049: skip migrate run-task если нет pending миграций.
+        # KS-3474: skip-логика выпилена, всегда run.
+        # KS-3925: migrate бежит не на production-образе, а на отдельном
+        # kingside-archive-service-migrations. На каждый деплой регистрируем
+        # новую revision `kingside-archive-service-migrate`, клонируя текущую
+        # активную production-revision `kingside-archive-service` (env/secrets/
+        # ARCHIVE_DATABASE_URL/IAM-роли всегда в синхроне). Команду не override-им —
+        # ENTRYPOINT migration-образа уже `npx prisma migrate deploy`. WORKDIR /app,
+        # schema лежит в /app/prisma/schema.prisma (см. scripts/Dockerfile.archive-migrations).
         if should_run_migrate "archive" "packages/archive-db/prisma/migrations"; then
-            echo "[archive-service] Running Prisma migrations (archive-db) on new HTTP revision..."
+            echo "[archive-service] Running Prisma migrations (archive-db) on dedicated migration image..."
             ensure_migrate_network
+            NEW_MIG_TD_ARN=$(register_migrate_task_def_revision \
+                "$TD_FAMILY_ARCHIVE_MIGRATE" "$TD_FAMILY_ARCHIVE_SERVICE" "$NEW_MIG_IMAGE")
+            echo "  migrate task-def: $NEW_MIG_TD_ARN"
             MIGRATE_TASK=$(aws ecs run-task \
-                --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_HTTP_ARN" --launch-type FARGATE \
+                --cluster "$ECS_CLUSTER" --task-definition "$NEW_MIG_TD_ARN" --launch-type FARGATE \
                 --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
-                --overrides '{"containerOverrides":[{"name":"kingside-archive-service","command":["sh","-c","cd /app/packages/archive-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
                 --query 'tasks[0].taskArn' --output text)
             aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
             MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
