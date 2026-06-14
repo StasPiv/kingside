@@ -3301,19 +3301,26 @@ class WebhookHandler(BaseHTTPRequestHandler):
             scope = payload.get("scope", "")
             if not self._check_role("/deploy", scope):
                 return
-            cmd = ["bash", os.path.join(PROJECT_DIR, "scripts/deploy-aws.sh")]
-            if scope:
-                cmd.append(scope)
-            # Динамический таймаут: deploy all сжирает 30-45 мин (frontend +
-            # api + game + broadcast + archive + tactic-worker подряд),
-            # workers ~15 мин (broadcast + archive), per-scope ~5-10 мин.
-            # Прежний жёсткий 600с обрывал deploy all → агент получал 504,
-            # не знал реального статуса и запускал заново, пока первый
-            # ещё крутился в docker build / aws cli.
-            deploy_timeout = {
-                "all": 3600,
-                "workers": 1800,
-            }.get(scope, 900)
+            # KS: scope=all и workers запрещены. Deploy должен быть атомарным,
+            # один scope за раз — это даёт прозрачность статуса (агент видит
+            # успех/фейл по конкретному сервису), независимый rollback и
+            # отсутствие side-эффекта когда один из 7 сервисов упал, а
+            # остальные уже выкачены.
+            if scope in ("all", "workers", ""):
+                log(f"Deploy ОТКАЗАНО: scope='{scope}' (запрещено). Только per-scope: frontend/api/game-service/broadcast-service/archive-service/synthetic-bot/tactic-worker.")
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "rejected",
+                    "error": f"scope='{scope}' запрещено. Deploy атомарный — один scope за вызов.",
+                    "allowed": ["frontend", "api", "game-service", "broadcast-service", "archive-service", "synthetic-bot", "tactic-worker"],
+                    "hint": "Если нужно несколько сервисов — последовательные вызовы с явными scope. Координация нескольких scope — задача координатора, не одного MCP-вызова.",
+                }, ensure_ascii=False).encode())
+                return
+            cmd = ["bash", os.path.join(PROJECT_DIR, "scripts/deploy-aws.sh"), scope]
+            # Per-scope деплой укладывается в 5-10 мин; берём с запасом 15 мин.
+            deploy_timeout = 900
             log(f"Deploy запущен: {' '.join(cmd)} (timeout {deploy_timeout}s)")
             try:
                 env = os.environ.copy()
