@@ -26,10 +26,24 @@
  *     "--id-prefixes=754f93d5,aa9c8b2a,5830f706,712665fb"
  *   ]
  *
- * При префиксном режиме CLI печатает полные id в каждом объекте JSON,
- * чтобы caller (QA) мог потом обратиться к точечным id. Если префикс
- * матчит несколько строк — все попадают в выдачу (надо разрешать
- * вручную).
+ * либо в РЕЖИМЕ САМПЛИНГА — берёт N пограничных и M «явных» пазлов
+ * из puzzles, чтобы QA получил репрезентативный набор без знания
+ * конкретных id (полезно когда оригинальные id-шники теста потеряны):
+ *
+ *   containerOverrides.command = [
+ *     "node","dist/main.js","parity-check",
+ *     "--sample-borderline-prob=2", "--sample-clear-prob=2"
+ *   ]
+ *
+ * Пограничные — `maia_weak_choice_prob ∈ [0.001, 0.05]` при
+ * `maia_metric_version = 1` (старая ступенька с тонкой границей).
+ * Явные — `maia_weak_choice_prob = 0 OR ≥ 0.5`. Все пазлы — с
+ * `solution_mode='play-vs-engine'` и непустым `firstMovePV1` в
+ * `source_metadata` (иначе аннотация невозможна).
+ *
+ * При префиксном режиме / режиме сэмплинга CLI печатает полные id в
+ * каждом объекте JSON, чтобы caller (QA) мог потом обратиться к
+ * точечным id.
  *
  * Опциональные флаги:
  *   --elo=1500       (default 1500)
@@ -45,6 +59,8 @@ import { StockfishService } from '../stockfish/stockfish.service';
 interface CliOpts {
   ids: string[];
   idPrefixes: string[];
+  sampleBorderline: number;
+  sampleClear: number;
   elo: number;
   depth: number;
   policyTop: number;
@@ -54,6 +70,8 @@ function parseArgs(argv: string[]): CliOpts {
   const opts: CliOpts = {
     ids: [],
     idPrefixes: [],
+    sampleBorderline: 0,
+    sampleClear: 0,
     elo: 1500,
     depth: 15,
     policyTop: 12,
@@ -70,6 +88,12 @@ function parseArgs(argv: string[]): CliOpts {
           .map((s) => s.trim())
           .filter(Boolean);
         break;
+      case 'sample-borderline-prob':
+        opts.sampleBorderline = parseInt(v, 10);
+        break;
+      case 'sample-clear-prob':
+        opts.sampleClear = parseInt(v, 10);
+        break;
       case 'elo':
         opts.elo = parseInt(v, 10);
         break;
@@ -83,9 +107,14 @@ function parseArgs(argv: string[]): CliOpts {
         throw new Error(`unknown CLI option: ${arg}`);
     }
   }
-  if (opts.ids.length === 0 && opts.idPrefixes.length === 0) {
+  const hasIdMode =
+    opts.ids.length > 0 || opts.idPrefixes.length > 0;
+  const hasSampleMode =
+    opts.sampleBorderline > 0 || opts.sampleClear > 0;
+  if (!hasIdMode && !hasSampleMode) {
     throw new Error(
-      '--ids or --id-prefixes is required (comma-separated puzzle ids)',
+      'one of --ids / --id-prefixes / --sample-borderline-prob / ' +
+        '--sample-clear-prob is required',
     );
   }
   return opts;
@@ -114,48 +143,99 @@ export async function runParityCheck(
     PRECISION_MAIA_SF_DEPTH: String(opts.depth),
   });
 
-  // Достаём строки: либо по полным id, либо по 8-символьным префиксам
-  // через LEFT(id::text, 8). UUID-text имеет дефисы; первые 8
-  // символов префикса совпадают с первой группой UUID v4
-  // (`xxxxxxxx-xxxx-...`), поэтому LEFT работает в обоих случаях.
-  const rows = opts.ids.length > 0
-    ? ((await prisma.$queryRawUnsafe(
-        `SELECT id, fen,
-                source_metadata AS "sourceMetadata"
-           FROM puzzles
-          WHERE id::text = ANY($1::text[])`,
-        opts.ids,
-      )) as Array<{
-        id: string;
-        fen: string;
-        sourceMetadata: Record<string, unknown> | null;
-      }>)
-    : ((await prisma.$queryRawUnsafe(
-        `SELECT id, fen,
-                source_metadata AS "sourceMetadata"
-           FROM puzzles
-          WHERE LEFT(id::text, 8) = ANY($1::text[])`,
-        opts.idPrefixes,
-      )) as Array<{
-        id: string;
-        fen: string;
-        sourceMetadata: Record<string, unknown> | null;
-      }>);
+  type Row = {
+    id: string;
+    fen: string;
+    sourceMetadata: Record<string, unknown> | null;
+  };
 
-  // Группировка по «запрошенному» ключу: для --ids это сам id, для
-  // --id-prefixes — префикс (несколько строк под один префикс
-  // допустимы; QA сам разрешит).
-  const buckets = new Map<string, typeof rows>();
-  const keys: string[] =
-    opts.ids.length > 0 ? opts.ids : opts.idPrefixes;
+  // Режим определяется первым непустым флагом. Несколько режимов
+  // одновременно не поддерживаются (запросы разные, объединять
+  // в одном bucket-Map смысла нет).
+  let rows: Row[] = [];
+  let keys: string[] = [];
+  let mode: 'ids' | 'prefixes' | 'sample-borderline' | 'sample-clear';
+
+  if (opts.ids.length > 0) {
+    mode = 'ids';
+    rows = (await prisma.$queryRawUnsafe(
+      `SELECT id, fen,
+              source_metadata AS "sourceMetadata"
+         FROM puzzles
+        WHERE id::text = ANY($1::text[])`,
+      opts.ids,
+    )) as Row[];
+    keys = opts.ids;
+  } else if (opts.idPrefixes.length > 0) {
+    mode = 'prefixes';
+    // UUID-text имеет дефисы; первые 8 символов префикса совпадают
+    // с первой группой UUID v4 (`xxxxxxxx-xxxx-...`).
+    rows = (await prisma.$queryRawUnsafe(
+      `SELECT id, fen,
+              source_metadata AS "sourceMetadata"
+         FROM puzzles
+        WHERE LEFT(id::text, 8) = ANY($1::text[])`,
+      opts.idPrefixes,
+    )) as Row[];
+    keys = opts.idPrefixes;
+  } else if (opts.sampleBorderline > 0) {
+    mode = 'sample-borderline';
+    // KS-4107. Пограничные при v1: prob ∈ [0.001, 0.05] — старая
+    // ступенька зафиксировала «один слабый ход у границы 0.02».
+    // Под soft-threshold v2 эти пазлы должны изменить prob на
+    // policy·weight с дробным весом — главный сценарий теста.
+    rows = (await prisma.$queryRawUnsafe(
+      `SELECT id, fen,
+              source_metadata AS "sourceMetadata"
+         FROM puzzles
+        WHERE maia_metric_version = 1
+          AND maia_weak_choice_prob BETWEEN 0.001 AND 0.05
+          AND solution_mode = 'play-vs-engine'
+          AND source_metadata ? 'firstMovePV1'
+        ORDER BY maia_weak_choice_prob ASC
+        LIMIT $1`,
+      opts.sampleBorderline,
+    )) as Row[];
+    keys = rows.map((r) => String(r.id));
+    logger.log(
+      `sample-borderline: requested=${opts.sampleBorderline} found=${rows.length}`,
+    );
+  } else {
+    mode = 'sample-clear';
+    // «Явные» — prob = 0 либо ≥ 0.5. На них soft-threshold должен
+    // давать тот же ответ (далеко от переходной зоны).
+    rows = (await prisma.$queryRawUnsafe(
+      `SELECT id, fen,
+              source_metadata AS "sourceMetadata"
+         FROM puzzles
+        WHERE maia_metric_version = 1
+          AND (maia_weak_choice_prob = 0
+               OR maia_weak_choice_prob >= 0.5)
+          AND solution_mode = 'play-vs-engine'
+          AND source_metadata ? 'firstMovePV1'
+        ORDER BY random()
+        LIMIT $1`,
+      opts.sampleClear,
+    )) as Row[];
+    keys = rows.map((r) => String(r.id));
+    logger.log(
+      `sample-clear: requested=${opts.sampleClear} found=${rows.length}`,
+    );
+  }
+
+  // Группировка по «запрошенному» ключу: для `ids` это сам id, для
+  // `prefixes` — префикс (несколько строк под один префикс
+  // допустимы; QA сам разрешит). Для sample-режимов ключ совпадает
+  // с полным id строки.
+  const buckets = new Map<string, Row[]>();
   for (const k of keys) buckets.set(k, []);
   for (const r of rows) {
-    if (opts.ids.length > 0) {
-      const arr = buckets.get(String(r.id));
-      if (arr) arr.push(r);
-    } else {
+    if (mode === 'prefixes') {
       const prefix = String(r.id).slice(0, 8);
       const arr = buckets.get(prefix);
+      if (arr) arr.push(r);
+    } else {
+      const arr = buckets.get(String(r.id));
       if (arr) arr.push(r);
     }
   }
