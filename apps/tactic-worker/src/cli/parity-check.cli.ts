@@ -143,10 +143,17 @@ export async function runParityCheck(
     PRECISION_MAIA_SF_DEPTH: String(opts.depth),
   });
 
+  // ВАЖНО: `puzzles.source_metadata` — это `Text` (см.
+  // `packages/db/prisma/schema.prisma:348`: `sourceMetadata String?
+  // @map("source_metadata") @db.Text`), а не `jsonb`. PG-оператор
+  // `?` (key-exists) к Text не применим — упадёт с
+  // `42883 operator does not exist: text ? unknown`. Поэтому в
+  // фильтрах sample-режимов используется `LIKE '%"firstMovePV1"%'`,
+  // а на JS-стороне строка парсится через `JSON.parse` в try/catch.
   type Row = {
     id: string;
     fen: string;
-    sourceMetadata: Record<string, unknown> | null;
+    sourceMetadata: string | null;
   };
 
   // Режим определяется первым непустым флагом. Несколько режимов
@@ -191,7 +198,8 @@ export async function runParityCheck(
         WHERE maia_metric_version = 1
           AND maia_weak_choice_prob BETWEEN 0.001 AND 0.05
           AND solution_mode = 'play-vs-engine'
-          AND source_metadata ? 'firstMovePV1'
+          AND source_metadata IS NOT NULL
+          AND source_metadata LIKE '%"firstMovePV1"%'
         ORDER BY maia_weak_choice_prob ASC
         LIMIT $1`,
       opts.sampleBorderline,
@@ -212,7 +220,8 @@ export async function runParityCheck(
           AND (maia_weak_choice_prob = 0
                OR maia_weak_choice_prob >= 0.5)
           AND solution_mode = 'play-vs-engine'
-          AND source_metadata ? 'firstMovePV1'
+          AND source_metadata IS NOT NULL
+          AND source_metadata LIKE '%"firstMovePV1"%'
         ORDER BY random()
         LIMIT $1`,
       opts.sampleClear,
@@ -254,13 +263,23 @@ export async function runParityCheck(
       );
     }
     for (const row of matched) {
-      const firstMovePV1 =
-        row.sourceMetadata && typeof row.sourceMetadata === 'object'
-          ? String(
-              (row.sourceMetadata as Record<string, unknown>).firstMovePV1 ??
-                '',
-            )
-          : '';
+      // `source_metadata` хранится как Text (см. schema.prisma:348),
+      // на JS прилетает строка. Парсим в JSON в try/catch — невалидный
+      // JSON / NULL → пустой firstMovePV1 → отдельная error-ветка.
+      let parsedMeta: Record<string, unknown> | null = null;
+      if (typeof row.sourceMetadata === 'string') {
+        try {
+          const v = JSON.parse(row.sourceMetadata);
+          if (v && typeof v === 'object' && !Array.isArray(v)) {
+            parsedMeta = v as Record<string, unknown>;
+          }
+        } catch {
+          // оставляем parsedMeta=null — попадёт в error-ветку ниже
+        }
+      }
+      const firstMovePV1 = parsedMeta
+        ? String(parsedMeta.firstMovePV1 ?? '')
+        : '';
       if (!firstMovePV1) {
         out.push({
           queryKey: key,
