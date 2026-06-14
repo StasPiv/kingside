@@ -61,6 +61,7 @@ interface CliOpts {
   idPrefixes: string[];
   sampleBorderline: number;
   sampleClear: number;
+  sampleAny: number;
   elo: number;
   depth: number;
   policyTop: number;
@@ -72,6 +73,7 @@ function parseArgs(argv: string[]): CliOpts {
     idPrefixes: [],
     sampleBorderline: 0,
     sampleClear: 0,
+    sampleAny: 0,
     elo: 1500,
     depth: 15,
     policyTop: 12,
@@ -94,6 +96,9 @@ function parseArgs(argv: string[]): CliOpts {
       case 'sample-clear-prob':
         opts.sampleClear = parseInt(v, 10);
         break;
+      case 'sample-any-prob':
+        opts.sampleAny = parseInt(v, 10);
+        break;
       case 'elo':
         opts.elo = parseInt(v, 10);
         break;
@@ -110,11 +115,11 @@ function parseArgs(argv: string[]): CliOpts {
   const hasIdMode =
     opts.ids.length > 0 || opts.idPrefixes.length > 0;
   const hasSampleMode =
-    opts.sampleBorderline > 0 || opts.sampleClear > 0;
+    opts.sampleBorderline > 0 || opts.sampleClear > 0 || opts.sampleAny > 0;
   if (!hasIdMode && !hasSampleMode) {
     throw new Error(
       'one of --ids / --id-prefixes / --sample-borderline-prob / ' +
-        '--sample-clear-prob is required',
+        '--sample-clear-prob / --sample-any-prob is required',
     );
   }
   return opts;
@@ -156,80 +161,127 @@ export async function runParityCheck(
     sourceMetadata: string | null;
   };
 
-  // Режим определяется первым непустым флагом. Несколько режимов
-  // одновременно не поддерживаются (запросы разные, объединять
-  // в одном bucket-Map смысла нет).
-  let rows: Row[] = [];
+  type SampleType = 'borderline' | 'clear' | 'any' | 'id' | 'prefix';
+
+  // ids/prefixes имеют приоритет: если они переданы, sample-флаги
+  // игнорируются (вычитываем точечно по запросу). Иначе — выполняем
+  // все 3 sample-режима параллельно и объединяем результат с
+  // меткой `sampleType` в каждой строке (так QA в JSON-выдаче видит,
+  // какой пазл из какого среза).
+  const rows: Row[] = [];
+  const sampleTypeByRowId = new Map<string, SampleType>();
   let keys: string[] = [];
-  let mode: 'ids' | 'prefixes' | 'sample-borderline' | 'sample-clear';
+  let mode: 'ids' | 'prefixes' | 'sample';
 
   if (opts.ids.length > 0) {
     mode = 'ids';
-    rows = (await prisma.$queryRawUnsafe(
+    const r = (await prisma.$queryRawUnsafe(
       `SELECT id, fen,
               source_metadata AS "sourceMetadata"
          FROM puzzles
         WHERE id::text = ANY($1::text[])`,
       opts.ids,
     )) as Row[];
+    for (const row of r) sampleTypeByRowId.set(String(row.id), 'id');
+    rows.push(...r);
     keys = opts.ids;
   } else if (opts.idPrefixes.length > 0) {
     mode = 'prefixes';
     // UUID-text имеет дефисы; первые 8 символов префикса совпадают
     // с первой группой UUID v4 (`xxxxxxxx-xxxx-...`).
-    rows = (await prisma.$queryRawUnsafe(
+    const r = (await prisma.$queryRawUnsafe(
       `SELECT id, fen,
               source_metadata AS "sourceMetadata"
          FROM puzzles
         WHERE LEFT(id::text, 8) = ANY($1::text[])`,
       opts.idPrefixes,
     )) as Row[];
+    for (const row of r) sampleTypeByRowId.set(String(row.id), 'prefix');
+    rows.push(...r);
     keys = opts.idPrefixes;
-  } else if (opts.sampleBorderline > 0) {
-    mode = 'sample-borderline';
-    // KS-4107. Пограничные при v1: prob ∈ [0.001, 0.05] — старая
-    // ступенька зафиксировала «один слабый ход у границы 0.02».
-    // Под soft-threshold v2 эти пазлы должны изменить prob на
-    // policy·weight с дробным весом — главный сценарий теста.
-    rows = (await prisma.$queryRawUnsafe(
-      `SELECT id, fen,
-              source_metadata AS "sourceMetadata"
-         FROM puzzles
-        WHERE maia_metric_version = 1
-          AND maia_weak_choice_prob BETWEEN 0.001 AND 0.05
-          AND solution_mode = 'play-vs-engine'
-          AND source_metadata IS NOT NULL
-          AND source_metadata LIKE '%"firstMovePV1"%'
-        ORDER BY maia_weak_choice_prob ASC
-        LIMIT $1`,
-      opts.sampleBorderline,
-    )) as Row[];
-    keys = rows.map((r) => String(r.id));
-    logger.log(
-      `sample-borderline: requested=${opts.sampleBorderline} found=${rows.length}`,
-    );
   } else {
-    mode = 'sample-clear';
-    // «Явные» — prob = 0 либо ≥ 0.5. На них soft-threshold должен
-    // давать тот же ответ (далеко от переходной зоны).
-    rows = (await prisma.$queryRawUnsafe(
-      `SELECT id, fen,
-              source_metadata AS "sourceMetadata"
-         FROM puzzles
-        WHERE maia_metric_version = 1
-          AND (maia_weak_choice_prob = 0
-               OR maia_weak_choice_prob >= 0.5)
-          AND solution_mode = 'play-vs-engine'
-          AND source_metadata IS NOT NULL
-          AND source_metadata LIKE '%"firstMovePV1"%'
-        ORDER BY random()
-        LIMIT $1`,
-      opts.sampleClear,
-    )) as Row[];
+    mode = 'sample';
+
+    if (opts.sampleBorderline > 0) {
+      // KS-4107. Пограничные при v1: prob ∈ [0.001, 0.05] — старая
+      // ступенька зафиксировала «один слабый ход у границы 0.02».
+      const r = (await prisma.$queryRawUnsafe(
+        `SELECT id, fen,
+                source_metadata AS "sourceMetadata"
+           FROM puzzles
+          WHERE maia_metric_version = 1
+            AND maia_weak_choice_prob BETWEEN 0.001 AND 0.05
+            AND solution_mode = 'play-vs-engine'
+            AND source_metadata IS NOT NULL
+            AND source_metadata LIKE '%"firstMovePV1"%'
+          ORDER BY maia_weak_choice_prob ASC
+          LIMIT $1`,
+        opts.sampleBorderline,
+      )) as Row[];
+      logger.log(
+        `sample-borderline: requested=${opts.sampleBorderline} found=${r.length}`,
+      );
+      for (const row of r) {
+        if (sampleTypeByRowId.has(String(row.id))) continue;
+        sampleTypeByRowId.set(String(row.id), 'borderline');
+        rows.push(row);
+      }
+    }
+
+    if (opts.sampleClear > 0) {
+      // «Явные» — prob = 0 либо ≥ 0.5. На них soft-threshold должен
+      // давать тот же ответ (далеко от переходной зоны).
+      const r = (await prisma.$queryRawUnsafe(
+        `SELECT id, fen,
+                source_metadata AS "sourceMetadata"
+           FROM puzzles
+          WHERE maia_metric_version = 1
+            AND (maia_weak_choice_prob = 0
+                 OR maia_weak_choice_prob >= 0.5)
+            AND solution_mode = 'play-vs-engine'
+            AND source_metadata IS NOT NULL
+            AND source_metadata LIKE '%"firstMovePV1"%'
+          ORDER BY random()
+          LIMIT $1`,
+        opts.sampleClear,
+      )) as Row[];
+      logger.log(
+        `sample-clear: requested=${opts.sampleClear} found=${r.length}`,
+      );
+      for (const row of r) {
+        if (sampleTypeByRowId.has(String(row.id))) continue;
+        sampleTypeByRowId.set(String(row.id), 'clear');
+        rows.push(row);
+      }
+    }
+
+    if (opts.sampleAny > 0) {
+      // KS-4107. Последний резерв: любой пазл с непустым
+      // `maia_weak_choice_prob`. QA добавил флаг чтобы убедиться,
+      // что код-путь работает, когда узкие фильтры дают 0.
+      const r = (await prisma.$queryRawUnsafe(
+        `SELECT id, fen,
+                source_metadata AS "sourceMetadata"
+           FROM puzzles
+          WHERE maia_weak_choice_prob IS NOT NULL
+            AND solution_mode = 'play-vs-engine'
+            AND source_metadata IS NOT NULL
+            AND source_metadata LIKE '%"firstMovePV1"%'
+          ORDER BY random()
+          LIMIT $1`,
+        opts.sampleAny,
+      )) as Row[];
+      logger.log(
+        `sample-any: requested=${opts.sampleAny} found=${r.length}`,
+      );
+      for (const row of r) {
+        if (sampleTypeByRowId.has(String(row.id))) continue;
+        sampleTypeByRowId.set(String(row.id), 'any');
+        rows.push(row);
+      }
+    }
+
     keys = rows.map((r) => String(r.id));
-    logger.log(
-      `sample-clear: requested=${opts.sampleClear} found=${rows.length}`,
-    );
   }
 
   // Группировка по «запрошенному» ключу: для `ids` это сам id, для
@@ -263,6 +315,7 @@ export async function runParityCheck(
       );
     }
     for (const row of matched) {
+      const sampleType = sampleTypeByRowId.get(String(row.id)) ?? null;
       // `source_metadata` хранится как Text (см. schema.prisma:348),
       // на JS прилетает строка. Парсим в JSON в try/catch — невалидный
       // JSON / NULL → пустой firstMovePV1 → отдельная error-ветка.
@@ -283,6 +336,7 @@ export async function runParityCheck(
       if (!firstMovePV1) {
         out.push({
           queryKey: key,
+          sampleType,
           puzzleId: row.id,
           fen: row.fen,
           error: 'no_firstMovePV1_in_sourceMetadata',
@@ -296,6 +350,7 @@ export async function runParityCheck(
         const trace = await svc.inspect(row.id, row.fen, firstMovePV1);
         out.push({
           queryKey: key,
+          sampleType,
           ...trace,
           maiaPolicyTop: trace.maiaPolicyTop.slice(0, opts.policyTop),
         });
@@ -306,6 +361,7 @@ export async function runParityCheck(
       } catch (e) {
         out.push({
           queryKey: key,
+          sampleType,
           puzzleId: row.id,
           fen: row.fen,
           firstMovePV1,
