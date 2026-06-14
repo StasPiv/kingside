@@ -24,7 +24,7 @@ RUN pip install --break-system-packages --no-cache-dir piper-tts chess \
     && wget -q -O /opt/piper-voices/ru_RU-irina-medium.onnx.json \
         https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json
 
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @anthropic-ai/claude-code@latest
 
 RUN useradd -m -s /bin/bash agent
 
