@@ -252,6 +252,9 @@ class AgentDaemon:
         # text-blocks накапливаются в _turn_text; на result событии — валидация склейки.
         self._turn_buffer: list[str] = []
         self._turn_text: list[str] = []
+        # Имена реально вызванных tool_use в текущем turn'е — для проверки
+        # «слова против дела» в валидаторе.
+        self._turn_tool_uses: list[str] = []
         self._validation_attempts: int = 0
 
     def _emit_status(self, kind: str, detail: str = ""):
@@ -361,6 +364,7 @@ class AgentDaemon:
                         lf.write(_json_with_ts(buffered))
             self._turn_buffer = []
             self._turn_text = []
+            self._turn_tool_uses = []
 
         try:
             for line in iter(proc.stdout.readline, ""):
@@ -402,6 +406,8 @@ class AgentDaemon:
                             tname = c.get("name", "")
                             short = tname.replace("mcp__agent__", "").replace("mcp__", "")
                             self._emit_status("tool", short)
+                            # Запоминаем имя для проверки «слова против дела»
+                            self._turn_tool_uses.append(short)
                             tinp = c.get("input") or {}
                             expected = self._current_reply_channel
                             if expected:
@@ -436,7 +442,7 @@ class AgentDaemon:
                 # === result event: валидация накопленного текста ===
                 full_text = "".join(self._turn_text).strip()
                 if full_text:
-                    verdict = validate_outbound(full_text)
+                    verdict = validate_outbound(full_text, tool_uses=list(self._turn_tool_uses))
                 else:
                     verdict = {"ok": True}
 
@@ -495,6 +501,7 @@ class AgentDaemon:
                     _log_validation_reject("agent-chat", self.name, self._validation_attempts, full_text, verdict)
                     self._turn_buffer = []
                     self._turn_text = []
+                    self._turn_tool_uses = []
                     correction = (
                         f"[SYSTEM] Твой предыдущий ответ нарушил правила CLAUDE.md "
                         f"и НЕ был опубликован пользователю.\n\nНарушения:\n{violations_text}\n\n"
@@ -2794,11 +2801,16 @@ class WebhookHandler(BaseHTTPRequestHandler):
             try:
                 with open(os.path.join(LOG_DIR, "agents.log")) as f:
                     for line in f:
-                        if f'"session_id":"{sid}"' not in line:
+                        # Дешёвый префильтр по подстроке — пропускаем строки,
+                        # где session_id точно нет (3+ ГБ агент-лог иначе будем
+                        # парсить целиком). Точная проверка — после json.loads.
+                        if sid not in line:
                             continue
                         try:
                             data = json.loads(line)
                         except (json.JSONDecodeError, ValueError):
+                            continue
+                        if data.get("session_id") != sid:
                             continue
                         t = data.get("type")
                         if t == "assistant":

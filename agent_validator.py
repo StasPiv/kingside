@@ -45,6 +45,15 @@ SYSTEM_PROMPT_TEMPLATE = """Ты — пост-валидатор исходящ�
 - запрет на длинные простыни, маркетинговые/бодрые обороты, повторение одного и того же;
 - ответ должен быть на русском языке, лаконичный, по делу.
 
+=== Слова против дела ===
+К каждому сообщению вместе с текстом тебе передаётся список инструментов, которые агент реально вызвал в этом turn'е (`tool_uses`). Проверь:
+
+Если в тексте есть обещание действия в настоящем/ближайшем времени любой формулировки — «иду делать», «правлю прямо сейчас», «приступаю», «делаю», «сейчас сделаю», «коммичу», «исправлю сейчас», «приступил» и любые их вариации/синонимы — должен быть как минимум один tool_use вне набора {`agent_message`, `telegram_send`, `issue_add_comment`, `issue_comments`, `Read`, `Grep`, `Glob`, `ToolSearch`} в том же turn'е. Перечисленные исключения — это коммуникация и чтение, не «делание».
+
+Если обещание есть, а ни одного реального tool_use нет — это нарушение «слова разошлись с делом»: агент после end-of-turn уйдёт в idle и не выполнит обещанного, пока не придёт следующий внешний triggering сигнал. Описание правила в violation: «слова разошлись с делом — обещание действия без tool_use».
+
+Если в тексте обещаний действия нет (просто ответ на вопрос, описание состояния, отчёт о уже сделанном в прошлых turn'ах) — это правило игнорируй, даже если tool_use'ы пустые.
+
 НЕ проверяй: пункты про код, git, MCP-тулы, инфраструктуру, метки задач, ownership — это не про текст сообщения.
 
 === Формат ответа ===
@@ -179,8 +188,12 @@ class ValidatorDaemon:
                 pass
             self._response_ready.set()
 
-    def validate(self, text: str, timeout: float = VALIDATOR_TIMEOUT) -> dict:
-        """Возвращает {"ok": bool, "violations": [...]} или {"ok": True, "error": "..."} при сбое."""
+    def validate(self, text: str, tool_uses: list[str] | None = None, timeout: float = VALIDATOR_TIMEOUT) -> dict:
+        """Возвращает {"ok": bool, "violations": [...]} или {"ok": True, "error": "..."} при сбое.
+
+        tool_uses — список имён MCP-/CLI-инструментов, реально вызванных агентом
+        в этом turn'е (для проверки правила «слова против дела»).
+        """
         if not text or not text.strip():
             return {"ok": True}
 
@@ -199,11 +212,17 @@ class ValidatorDaemon:
             self._collecting = True
             self._last_activity = time.time()
 
+            tools_block = (
+                f"\n\nИнструменты, вызванные в этом turn'е (`tool_uses`): {json.dumps(tool_uses or [], ensure_ascii=False)}"
+            )
             user_msg = json.dumps({
                 "type": "user",
                 "message": {
                     "role": "user",
-                    "content": f"Проверь сообщение:\n\n```\n{text}\n```\n\nВерни JSON-вердикт.",
+                    "content": (
+                        f"Проверь сообщение:\n\n```\n{text}\n```"
+                        f"{tools_block}\n\nВерни JSON-вердикт."
+                    ),
                 },
             })
 
@@ -253,9 +272,9 @@ class ValidatorDaemon:
 _validator = ValidatorDaemon()
 
 
-def validate_outbound(text: str) -> dict:
+def validate_outbound(text: str, tool_uses: list[str] | None = None) -> dict:
     """Точка входа из webhook-server.py."""
-    return _validator.validate(text)
+    return _validator.validate(text, tool_uses=tool_uses)
 
 
 def format_violations(result: dict) -> str:
