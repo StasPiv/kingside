@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && node scripts/prerender.mjs",
+    "build:no-prerender": "vite build",
+    "prerender": "node scripts/prerender.mjs",
     "dev": "vite",
     "lint": "eslint src/ --max-warnings 207",
     "test": "vitest run",
