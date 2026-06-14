@@ -43,17 +43,11 @@
 import { Logger } from '@nestjs/common';
 import {
   Maia,
-  MAIA_WEAK_CHOICE_METRIC_VERSION,
-  buildMaiaSearchMoves,
-  computeWeakChoiceProb,
+  annotateWeakChoice,
   createNodeProvider,
   loadModelFromFs,
-  type PredictResult,
+  type WeakChoiceAnalysisEngine,
 } from '@kingside/maia-core';
-import {
-  expectedScoreFromWdl,
-  wdlOrMateFallback,
-} from '@kingside/shared';
 
 import type { StockfishService } from '../stockfish/stockfish.service';
 
@@ -166,98 +160,69 @@ export class MaiaAnnotationService {
 
     const t0 = Date.now();
 
-    // 1. Maia inference.
-    let maiaResult: PredictResult;
+    // Maia-движок: getEngine держит kill-switch на init-фейле
+    // (initFailed=true → дальнейшие annotate сразу null).
+    let engine: Maia;
     try {
-      const engine = await this.getEngine();
-      maiaResult = await engine.predictMoves(
-        fen,
-        this.config.elo,
-        this.config.elo,
-      );
+      engine = await this.getEngine();
     } catch (e) {
       this.logger.warn(
-        `maia-annotate puzzle=${puzzleId} maia-failed: ${(e as Error).message}`,
+        `maia-annotate puzzle=${puzzleId} maia-init-failed: ${(e as Error).message}`,
       );
-      // kill-switch на init-фейле — getEngine выставляет initFailed=true.
-      // Для редких inference-ошибок после успешной сессии — не отключаем.
       return null;
     }
 
-    if (maiaResult.policy.length === 0) {
+    // KS-4100 / ADR-124 §2.3: Stockfish-seam для weak-choice — адаптер
+    // над StockfishService.analyzePositionWdl. MultiPvLine структурно
+    // совместим с WeakChoiceLine (bestMove/score/wdl).
+    const sfEngine: WeakChoiceAnalysisEngine = {
+      analyzeWithWdl: (f, opts) =>
+        this.stockfish.analyzePositionWdl(
+          f,
+          { depth: opts.depth },
+          opts.multiPV,
+          `maia-annotate p=${puzzleId}`,
+          undefined,
+          opts.searchMoves,
+        ),
+    };
+
+    // Делегируем в общую оркестрацию (ADR-124). Исключения движков она
+    // не глушит — ловим здесь и пишем null + WARN (как раньше).
+    let result;
+    try {
+      result = await annotateWeakChoice({
+        fen,
+        firstMovePV1,
+        maia: engine, // Maia удовлетворяет MaiaPolicySource
+        engine: sfEngine,
+        elo: this.config.elo,
+        sfDepth: this.config.sfDepth,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `maia-annotate puzzle=${puzzleId} failed: ${(e as Error).message}`,
+      );
+      return null;
+    }
+
+    if (!result) {
       this.logger.warn(
         `maia-annotate puzzle=${puzzleId} maia-empty-policy (без легальных)`,
       );
       return null;
     }
 
-    // 2-3. Сформировать searchmoves (Maia top-K + firstMovePV1).
-    const { searchMoves } = buildMaiaSearchMoves(
-      maiaResult.policy,
-      firstMovePV1,
-    );
-    if (searchMoves.length === 0) {
-      // firstMovePV1 пустой и MaiaTopK пустой — единственный кейс,
-      // когда policy низкая (<=0.10 у всех). Технически возможно при
-      // обширном множестве равновероятных ходов; пишем 0 (slot
-      // «нет слабых, ничего не отсеиваем»).
-      this.logger.log(
-        `maia-annotate puzzle=${puzzleId} no-searchmoves → weakChoiceProb=0`,
-      );
-      return {
-        weakChoiceProb: 0,
-        metricVersion: MAIA_WEAK_CHOICE_METRIC_VERSION,
-        elo: this.config.elo,
-        latencyMs: Date.now() - t0,
-      };
-    }
-
-    // 4. SF eval с searchmoves. MultiPV подтянется в SF.
-    let sfLines;
-    try {
-      sfLines = await this.stockfish.analyzePositionWdl(
-        fen,
-        { depth: this.config.sfDepth },
-        searchMoves.length,
-        `maia-annotate p=${puzzleId}`,
-        undefined,
-        searchMoves,
-      );
-    } catch (e) {
-      this.logger.warn(
-        `maia-annotate puzzle=${puzzleId} sf-failed: ${(e as Error).message}`,
-      );
-      return null;
-    }
-
-    // expectedScores: map<uci, expectedScore>. POV side-to-move на fen.
-    const expectedScores = new Map<string, number>();
-    for (const line of sfLines) {
-      const wdl = wdlOrMateFallback(line.wdl, line.score);
-      if (!wdl) continue;
-      expectedScores.set(line.bestMove, expectedScoreFromWdl(wdl));
-    }
-
-    // 5-7. Pure-вычисление weakChoiceProb.
-    const result = computeWeakChoiceProb({
-      policy: maiaResult.policy,
-      firstMovePV1,
-      expectedScores,
-    });
-
     const latencyMs = Date.now() - t0;
     this.logger.log(
       `maia-annotate puzzle=${puzzleId} weakProb=${result.weakChoiceProb.toFixed(4)} ` +
-        `maiaTopK=[${result.maiaTopK.join(',')}] ` +
-        `bestE=${result.bestExpectedScore.toFixed(3)} ` +
-        `weakSet=${result.weakSet.length} ` +
-        `elo=${this.config.elo} latency=${latencyMs}ms`,
+        `elo=${result.elo} latency=${latencyMs}ms`,
     );
 
     return {
       weakChoiceProb: result.weakChoiceProb,
-      metricVersion: MAIA_WEAK_CHOICE_METRIC_VERSION,
-      elo: this.config.elo,
+      metricVersion: result.metricVersion,
+      elo: result.elo,
       latencyMs,
     };
   }

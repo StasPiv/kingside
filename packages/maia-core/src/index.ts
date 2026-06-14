@@ -61,3 +61,12 @@ export {
   type WeakChoiceResult,
   type WeakSetEntry,
 } from './weak-choice.js';
+
+// KS-4100 / ADR-124: консолидированная оркестрация weak-choice.
+export {
+  annotateWeakChoice,
+  type MaiaPolicySource,
+  type WeakChoiceAnalysisEngine,
+  type WeakChoiceAnnotation,
+  type WeakChoiceLine,
+} from './annotate.js';

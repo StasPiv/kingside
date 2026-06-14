@@ -435,8 +435,17 @@ export function buildPuzzlesFromCandidate(
           ...commonMetaBase,
           objective: objectiveP,
           puzzlePhase: 'preventive',
+          // KS-4100 / ADR-124 §2.4. ИНВАРИАНТ: каждый PVE-пазл обязан
+          // иметь `firstMovePV1` — правильный первый ход solver'а. Для
+          // preventive это PV1 движка на fenBefore (то, что должен был
+          // сыграть «зевнувший»). Раньше поле НЕ ставилось → Maia-
+          // аннотация падала `no-solution-uci` (корень KS-4096, 2/13
+          // пазлов с maiaWeakChoiceProb=null). Чинится один раз в общем
+          // pipeline — исправляет и клиент, и сервер.
+          firstMovePV1: candidate.pv1BeforeUci,
           // Правильный ход (PV1 движка на fenBefore) — то, что должен
           // был сыграть «зевнувший». UI может подсветить как hint.
+          // Дубликат firstMovePV1 — оставлен для обратной совместимости.
           preventiveCorrectMoveUci: candidate.pv1BeforeUci,
         },
       });

@@ -26,11 +26,12 @@
     }
   },
   "scripts": {
-    "build": "tsc && esbuild src/browser.ts --bundle --format=esm --platform=browser --external:chess.js --outfile=dist/browser.mjs",
+    "build": "tsc && esbuild src/browser.ts --bundle --format=esm --platform=browser --external:chess.js --external:@kingside/shared --outfile=dist/browser.mjs",
     "lint": "eslint src/",
     "test": "vitest run"
   },
   "dependencies": {
+    "@kingside/shared": "*",
     "chess.js": "^1.4.0"
   },
   "peerDependencies": {

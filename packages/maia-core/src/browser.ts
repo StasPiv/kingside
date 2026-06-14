@@ -34,6 +34,8 @@ import {
   buildMaiaSearchMoves as buildMaiaSearchMoves_,
   computeWeakChoiceProb as computeWeakChoiceProb_,
 } from './weak-choice.js';
+// KS-4100 / ADR-124: консолидированная оркестрация weak-choice (browser-safe).
+import { annotateWeakChoice as annotateWeakChoice_ } from './annotate.js';
 
 // ── Значения: прямое присваивание → детектируется Rollup commonjs ──
 export const Maia = Maia_;
@@ -51,6 +53,7 @@ export const MAIA_WEAK_CHOICE_METRIC_VERSION = MAIA_WEAK_CHOICE_METRIC_VERSION_;
 export const WEAK_LOSS_E_THRESHOLD = WEAK_LOSS_E_THRESHOLD_;
 export const buildMaiaSearchMoves = buildMaiaSearchMoves_;
 export const computeWeakChoiceProb = computeWeakChoiceProb_;
+export const annotateWeakChoice = annotateWeakChoice_;
 
 // ── Типы: рантайма нет, форма не важна. `Maia` как тип = instance-тип
 //    класса (нужен для аннотаций `: Maia` наряду с `new Maia()`). ──
@@ -71,3 +74,9 @@ export type {
   WeakChoiceResult,
   WeakSetEntry,
 } from './weak-choice.js';
+export type {
+  MaiaPolicySource,
+  WeakChoiceAnalysisEngine,
+  WeakChoiceAnnotation,
+  WeakChoiceLine,
+} from './annotate.js';

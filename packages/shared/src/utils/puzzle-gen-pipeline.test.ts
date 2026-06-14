@@ -340,6 +340,11 @@ describe('buildPuzzlesFromCandidate (KS-3157 / ADR-070 §2.3 — двойной 
     // preventiveCorrectMoveUci пишется ТОЛЬКО для preventive.
     expect(preventive.sourceMetadata.preventiveCorrectMoveUci).toBe('e2e4');
     expect(reactive.sourceMetadata.preventiveCorrectMoveUci).toBeUndefined();
+
+    // KS-4100 / ADR-124 §2.4. ИНВАРИАНТ: ОБА пазла имеют firstMovePV1
+    // (нужен Maia-аннотации; раньше preventive его не ставил → KS-4096).
+    expect(reactive.sourceMetadata.firstMovePV1).toBe('a7a8'); // firstMoveAfterUci
+    expect(preventive.sourceMetadata.firstMovePV1).toBe('e2e4'); // pv1BeforeUci
   });
 
   it('emitPreventivePuzzle=false → только реактивный', () => {
