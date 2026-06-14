@@ -2640,6 +2640,10 @@
       "ctaPlay": "Start playing",
       "ctaLearn": "Learn more"
     },
+    "page": {
+      "title": "Features",
+      "subtitle": "Everything Kingside has to offer"
+    },
     "play": {
       "title": "Play Online",
       "description": "Challenge players worldwide in bullet, blitz, rapid or classical. Play against bots (8 levels) to practice. Custom time controls available.",

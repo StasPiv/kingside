@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { setAuthReturnUrl } from '../utils/authReturnUrl';
 import { RatingHistoryChart } from '../components/RatingHistoryChart';
 import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
 // KS-2236 (ADR-035 §7, E3): drill-статистика на собственном профиле.
@@ -283,7 +284,20 @@ export function PlayerProfilePage() {
             )}
           <button
             className="player-profile-message-btn"
-            onClick={() => navigate(`/messages/${profile.id}`, { state: { username: profile.username } })}
+            onClick={() => {
+              // KS-4119: для гостя — на /login, сохранив текущий путь
+              // как returnUrl (паттерн KS-2110: sessionStorage +
+              // react-router state, чтобы OAuth-callback его прочитал).
+              // Без этого ProtectedRoute /messages молча уведёт на /login
+              // и потеряет контекст «откуда пришёл».
+              if (!currentUser) {
+                const returnUrl = `${window.location.pathname}${window.location.search}`;
+                setAuthReturnUrl(returnUrl);
+                navigate('/login', { state: { returnUrl } });
+                return;
+              }
+              navigate(`/messages/${profile.id}`, { state: { username: profile.username } });
+            }}
           >
             {t('playerProfile.sendMessage')}
           </button>

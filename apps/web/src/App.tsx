@@ -350,7 +350,7 @@ function HomePage() {
   const { user, loading } = useAuth();
   const { t } = useTranslation();
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-  return user ? <Navigate to="/play" replace /> : <FeaturesPage />;
+  return user ? <Navigate to="/play" replace /> : <FeaturesPage variant="home" />;
 }
 
 function ProfileRedirect() {

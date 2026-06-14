@@ -8,7 +8,13 @@ const ICONS: Record<string, string> = {
   broadcasts: '📡', social: '👥', customize: '🎨', rating: '📊',
 };
 
-export function FeaturesPage() {
+/**
+ * KS-4119: `variant='home'` — страница используется как guest-лендинг на `/`
+ * (брендовый h1 «Play chess. Analyze. Improve.»). `variant='features'` (дефолт)
+ * — страница используется по прямому URL `/features` (h1 «Features»), чтобы
+ * prerender для `/` и `/features` отдавал РАЗНЫЕ h1 (не дубль-контент в SEO).
+ */
+export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'features' }) {
   const { t } = useTranslation();
   const { hash } = useLocation();
 
@@ -19,12 +25,21 @@ export function FeaturesPage() {
     }
   }, [hash]);
 
+  const heroTitle =
+    variant === 'home'
+      ? t('features.hero.title')
+      : t('features.page.title', 'Features');
+  const heroSubtitle =
+    variant === 'home'
+      ? t('features.hero.subtitle')
+      : t('features.page.subtitle', 'Everything Kingside has to offer');
+
   return (
     <div className="features-page">
       {/* HERO */}
       <section className="features-hero">
-        <h1 className="features-hero__title">{t('features.hero.title')}</h1>
-        <p className="features-hero__subtitle">{t('features.hero.subtitle')}</p>
+        <h1 className="features-hero__title">{heroTitle}</h1>
+        <p className="features-hero__subtitle">{heroSubtitle}</p>
         <div className="features-hero__cta">
           <Link to="/register" className="features-btn features-btn--primary">{t('features.hero.ctaPlay')}</Link>
           <a href="#play" className="features-btn features-btn--secondary">{t('features.hero.ctaLearn')}</a>
