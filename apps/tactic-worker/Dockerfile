@@ -12,9 +12,33 @@ FROM node:22-slim AS base
 # generate-puzzles). В index-tactic-drills он не используется, но
 # держим бинарь в образе с самого начала — упрощает rollout этапов
 # §9.3 / §9.6 ADR-042.
+#
+# KS-4111 / KS-4107: пакет `stockfish` из debian-bookworm даёт SF15.x,
+# а на клиенте (apps/web) используется SF18 WASM. Расхождение WDL у
+# границы loss_E=0.02 приводило к флипу классификации хода
+# (см. KS-4107, паритет-тест KS-4100). После выравнивания версий
+# движков ставим Stockfish 18 native прямо из официальных GitHub-
+# releases. `curl` и `ca-certificates` нужны для скачивания и
+# проверки TLS-цепочки; `stockfish` из apt больше не ставим — он
+# был бы перезаписан и оставлял лишний слой.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    stockfish openssl ca-certificates \
+    curl openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# KS-4111: Stockfish 18 native (вместо apt-get install stockfish с
+# SF15 из debian-репо). AVX2 — оптимально для AMD EPYC Rome на
+# Fargate (BMI2 на этой архитектуре тормозит — PEXT slow). sha256
+# архива зафиксирован — защита от подмены release-asset'а на GitHub.
+ARG SF_VERSION=18
+ARG SF_TARBALL=stockfish-ubuntu-x86-64-avx2.tar
+ARG SF_SHA256=536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964
+RUN curl -fsSL -o /tmp/sf.tar \
+        "https://github.com/official-stockfish/Stockfish/releases/download/sf_${SF_VERSION}/${SF_TARBALL}" \
+    && echo "${SF_SHA256}  /tmp/sf.tar" | sha256sum -c - \
+    && tar -xf /tmp/sf.tar -C /tmp \
+    && install -D -m 0755 /tmp/stockfish/stockfish-ubuntu-x86-64-avx2 /usr/games/stockfish \
+    && rm -rf /tmp/sf.tar /tmp/stockfish \
+    && stockfish bench 2>&1 | tail -3
 
 WORKDIR /app
 
@@ -77,9 +101,10 @@ RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@ki
 RUN rm -rf node_modules/@kingside/maia-core && ln -s ../../packages/maia-core node_modules/@kingside/maia-core
 
 ENV NODE_ENV=production
-# Stockfish-бинарь от apt (Debian Bookworm: SF 15.x). Версионирование
-# обсуждается в ADR-042 §8.6 — пока apt, при необходимости перейдём на
-# pinned NNUE-binary с GitHub releases.
+# KS-4111 / KS-4107: Stockfish 18 native (pinned binary с GitHub
+# releases, AVX2-сборка под Fargate AMD EPYC Rome, sha256 проверяется
+# в RUN-блоке выше). Путь /usr/games/stockfish сохранён ради
+# совместимости с runtime-конфигом приложений.
 ENV STOCKFISH_PATH=/usr/games/stockfish
 ENV STOCKFISH_POOL_SIZE=1
 # KS-2411: Node автоматически подхватывает этот CA bundle для всех
