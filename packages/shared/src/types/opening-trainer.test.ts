@@ -234,13 +234,27 @@ describe('OpeningTrainerMoveResponse — discriminated union', () => {
 });
 
 describe('OPENING_REPERTOIRE_LIMITS', () => {
-  it('содержит значения из ADR-077 §2.2', () => {
+  it('содержит актуальные значения после KS-3335', () => {
+    // KS-3335: лимит `maxDepthHalfMoves` снят (см. opening-trainer.ts:70).
+    // Пользователи добавляют полные партии — глубина > 80 ходов штатна.
+    // Защита от патологических объёмов теперь только через
+    // nodeCount/edgeCount/pgnBytes.
     expect(OPENING_REPERTOIRE_LIMITS.maxNodes).toBe(2000);
     expect(OPENING_REPERTOIRE_LIMITS.maxEdges).toBe(5000);
-    expect(OPENING_REPERTOIRE_LIMITS.maxDepthHalfMoves).toBe(80);
     expect(OPENING_REPERTOIRE_LIMITS.maxPgnBytes).toBe(500 * 1024);
     expect(OPENING_REPERTOIRE_LIMITS.maxRepertoiresPerUser).toBe(50);
     expect(OPENING_REPERTOIRE_LIMITS.maxActiveSessionsPerUser).toBe(10);
+    // KS-3324 / ADR-078: новое поле maxSourcesPerRepertoire.
+    expect(OPENING_REPERTOIRE_LIMITS.maxSourcesPerRepertoire).toBe(20);
+  });
+
+  it('KS-3416: поле maxDepthHalfMoves больше не существует (снято KS-3335)', () => {
+    // Гард-инвариант: если кто-то снова добавит поле — тест попросит
+    // явно обосновать (через ADR), не по undefined-проверке.
+    expect(
+      (OPENING_REPERTOIRE_LIMITS as Record<string, unknown>)
+        .maxDepthHalfMoves,
+    ).toBeUndefined();
   });
 });
 
