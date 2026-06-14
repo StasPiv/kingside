@@ -49,6 +49,11 @@ apps/e2e/blob-report/
 apps/web/public/version.json
 tools/tracker/tracker.db
 .deploy-commit-aws
+
+# Runtime locks (deploy/flock), не должны быть в репо.
+.deploy.lock
+.deploy.*.lock
+.git-sync.lock
 node_modules
 .agent-tmp/
 __pycache__/
