@@ -288,6 +288,85 @@ describe('<PrecisionTrendsChart>', () => {
     });
   });
 
+  // KS-3034 / ADR-066 §7.3 (F3 follow-up): источник даты — поле API
+  // `classifyMigrationAt`. Fallback на shared-константу когда сервер
+  // вернул null/undefined/пустую строку.
+  describe('KS-3034: динамический classifyMigrationAt из API', () => {
+    it('classifyMigrationAt задан → marker использует серверную дату', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        bucket: 'week' as const,
+        classifyMigrationAt: '2026-05-14',
+        points: [
+          { bucketStart: '2026-05-01T00:00:00Z', attempts: 5, preserved: 3, avgAccuracyPercent: 60, avgWdlLeakPerMove: 0.05 },
+          { bucketStart: '2026-05-08T00:00:00Z', attempts: 6, preserved: 4, avgAccuracyPercent: 65, avgWdlLeakPerMove: 0.04 },
+          { bucketStart: '2026-05-22T00:00:00Z', attempts: 7, preserved: 6, avgAccuracyPercent: 85, avgWdlLeakPerMove: 0.02 },
+          { bucketStart: '2026-05-29T00:00:00Z', attempts: 8, preserved: 7, avgAccuracyPercent: 88, avgWdlLeakPerMove: 0.015 },
+        ],
+      });
+      renderWithProviders(<PrecisionTrendsChart fetcher={fetcher} />);
+      const marker = await screen.findByTestId(
+        'precision-trends-migration-marker',
+      );
+      // Серверная дата (2026-05-14) приоритетнее hardcode (2026-05-15).
+      expect(marker.getAttribute('data-migration-date')).toBe('2026-05-14');
+    });
+
+    it('classifyMigrationAt = null → fallback на shared-константу', async () => {
+      const resp = makeRespAroundMigration();
+      // Явный null от API.
+      (resp as PrecisionTrendsResponse & { classifyMigrationAt: null }).classifyMigrationAt = null;
+      const fetcher = vi.fn().mockResolvedValue(resp);
+      renderWithProviders(<PrecisionTrendsChart fetcher={fetcher} />);
+      const marker = await screen.findByTestId(
+        'precision-trends-migration-marker',
+      );
+      expect(marker.getAttribute('data-migration-date')).toBe('2026-05-15');
+    });
+
+    it('classifyMigrationAt = "" / whitespace → fallback на shared-константу', async () => {
+      const resp = makeRespAroundMigration();
+      (resp as PrecisionTrendsResponse & { classifyMigrationAt: string }).classifyMigrationAt = '   ';
+      const fetcher = vi.fn().mockResolvedValue(resp);
+      renderWithProviders(<PrecisionTrendsChart fetcher={fetcher} />);
+      const marker = await screen.findByTestId(
+        'precision-trends-migration-marker',
+      );
+      expect(marker.getAttribute('data-migration-date')).toBe('2026-05-15');
+    });
+
+    it('classifyMigrationAt отсутствует в ответе → fallback на shared-константу (backward-compat)', async () => {
+      // makeRespAroundMigration() не задаёт поле classifyMigrationAt — это
+      // эмулирует старый backend, который поле ещё не возвращает.
+      const fetcher = vi.fn().mockResolvedValue(makeRespAroundMigration());
+      renderWithProviders(<PrecisionTrendsChart fetcher={fetcher} />);
+      const marker = await screen.findByTestId(
+        'precision-trends-migration-marker',
+      );
+      expect(marker.getAttribute('data-migration-date')).toBe('2026-05-15');
+    });
+
+    it('classifyMigrationAt задан, но дата вне видимого диапазона → marker НЕ рисуется', async () => {
+      const fetcher = vi.fn().mockResolvedValue({
+        bucket: 'week' as const,
+        // Серверная дата 2026-01-01 — раньше всех видимых точек (май).
+        classifyMigrationAt: '2026-01-01',
+        points: [
+          { bucketStart: '2026-05-01T00:00:00Z', attempts: 5, preserved: 3, avgAccuracyPercent: 60, avgWdlLeakPerMove: 0.05 },
+          { bucketStart: '2026-05-22T00:00:00Z', attempts: 7, preserved: 6, avgAccuracyPercent: 85, avgWdlLeakPerMove: 0.02 },
+        ],
+      });
+      renderWithProviders(<PrecisionTrendsChart fetcher={fetcher} />);
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('precision-trends').getAttribute('data-state'),
+        ).toBe('ready');
+      });
+      expect(
+        screen.queryByTestId('precision-trends-migration-marker'),
+      ).toBeNull();
+    });
+  });
+
   // KS-3377 (ADR-082 §3 / §7 F2). Переключатель «Точность ↔ Рейтинг»,
   // URL-state, рендер rating-режима + gap-skip null-бакетов.
   describe('KS-3377: metric switcher', () => {

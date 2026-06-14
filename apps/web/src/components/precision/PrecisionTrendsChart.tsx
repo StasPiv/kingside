@@ -111,12 +111,12 @@ const PAD_BOTTOM = 18;
  * момента, чтобы пользователь видел, что разрыв в accuracy в этой
  * точке — это смена методики, а не реальное падение/рост точности.
  *
- * Placeholder-значение. B3 (backend backfill) уточнит точную дату —
- * либо она прилетит в `PrecisionTrendsResponse` отдельным полем
- * `classifyMigrationAt`, либо в shared-константе. До тех пор хардкод
- * безопасен: пользователю эта дата НЕ выводится в виде даты (только
- * tooltip с пояснением), и сдвиг в пределах ±1 дня нагрузки UI не
- * меняет — marker всё равно попадёт в «недельный» бакет.
+ * KS-3034 (F3 follow-up): теперь это **fallback**. Источник истины —
+ * `PrecisionTrendsResponse.classifyMigrationAt` (backend читает ENV
+ * `CLASSIFY_WDL_MIGRATION_AT`). Эта константа используется только
+ * когда сервер вернул `null`/`undefined` (старый клиент, ENV не
+ * проставлен, legacy-fallback). Сдвиг в пределах ±1 дня UI не меняет
+ * — marker всё равно попадёт в «недельный» бакет.
  */
 export const CLASSIFY_WDL_MIGRATION_DATE = '2026-05-15';
 
@@ -202,6 +202,22 @@ export function PrecisionTrendsChart({
   );
 
   /**
+   * KS-3034 (F3 follow-up): источник даты миграции — поле API
+   * `classifyMigrationAt` (backend читает ENV `CLASSIFY_WDL_MIGRATION_AT`).
+   * Если сервер вернул `null`/`undefined` (ENV не проставлен или
+   * старый backend) — fallback на shared-константу. Пустая строка
+   * после `trim` приравнивается к «нет значения» — защита от случая,
+   * когда devops оставил ENV пустым.
+   */
+  const migrationDate = useMemo<string>(() => {
+    const fromApi = data?.classifyMigrationAt;
+    if (typeof fromApi === 'string' && fromApi.trim().length > 0) {
+      return fromApi;
+    }
+    return CLASSIFY_WDL_MIGRATION_DATE;
+  }, [data]);
+
+  /**
    * KS-3024 / ADR-066 §7.3 (F1): X-координата marker'а или `null`, если
    * дата миграции вне диапазона видимых точек. Marker рисуется только
    * когда у пользователя ЕСТЬ данные с обеих сторон миграции (≥2 точки,
@@ -209,10 +225,13 @@ export function PrecisionTrendsChart({
    * ничего полезного. KS-3040 follow-up: позиция считается через
    * общий `xForDate` (окно since..until), что даёт корректный X
    * независимо от bucket-плотности.
+   *
+   * KS-3034: дата миграции теперь динамическая (`migrationDate`),
+   * приоритет — `response.classifyMigrationAt`, fallback — константа.
    */
   const migrationMarkerX = useMemo<number | null>(() => {
     if (points.length < 2) return null;
-    const migrationTs = Date.parse(CLASSIFY_WDL_MIGRATION_DATE);
+    const migrationTs = Date.parse(migrationDate);
     if (Number.isNaN(migrationTs)) return null;
     const firstTs = Date.parse(points[0].bucketStart);
     const lastTs = Date.parse(points[points.length - 1].bucketStart);
@@ -224,8 +243,8 @@ export function PrecisionTrendsChart({
     ) {
       return null;
     }
-    return xForDate(CLASSIFY_WDL_MIGRATION_DATE);
-  }, [points, xForDate]);
+    return xForDate(migrationDate);
+  }, [points, xForDate, migrationDate]);
 
   // KS-3377: rating-режим использует динамический Y-диапазон по
   // видимым `ratingEnd` (null-бакеты исключены). Расширяем ±10 пунктов
@@ -462,7 +481,7 @@ export function PrecisionTrendsChart({
           <g
             className="precision-trends__migration-marker"
             data-testid="precision-trends-migration-marker"
-            data-migration-date={CLASSIFY_WDL_MIGRATION_DATE}
+            data-migration-date={migrationDate}
           >
             <line
               x1={migrationMarkerX}
