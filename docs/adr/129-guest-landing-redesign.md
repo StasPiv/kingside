@@ -339,10 +339,11 @@ ADR-128 §6.1). После партии — модалка «Хотите сох
 
 ### 7.1. `<title>`
 
-Per language. Через `react-helmet` / `<title>` управляется в самом
-`FeaturesPage` (текущий компонент не ставит title — это сейчас
-ставится prerender'ом или дефолтным `index.html`; проверить и
-выставить явно).
+Per language. Управляется в `FeaturesPage` через `<SeoHelmet>` —
+тонкая обёртка на нативных metadata-тегах React 19, без внешних
+библиотек (ADR-128 §7.6.1.1.A; KS-4176). Текущий компонент title
+не ставит — это сейчас даёт prerender или дефолтный `index.html`;
+выставить явно через `<SeoHelmet>`.
 
 | variant | en | ru |
 |---|---|---|
@@ -570,7 +571,7 @@ landing.seo.description      // <meta description> для variant='home'
 | Тикет | Что | Зависит от |
 |---|---|---|
 | **KS-FE-1** | Переписать `apps/web/src/pages/FeaturesPage.tsx` под новую структуру (§5). Удалить блоки `#navigation`, `features-quick-links`, цикл по `SECTIONS` для `variant='home'`. Добавить блоки Hero (новые тексты + новый primary CTA на `/play/local-bot`), USP (Блок 2), Cards (Блок 3), Proof (Блок 4), CTA-footer (Блок 5), inline-Footer (Блок 6 — после сверки с `MainLayout`). Использовать ключи `landing.*` (§8.3). Сохранить `variant='features'` поведение для `/features` (h1 «Features» + `.guide`-секции). | KS-MK-3 (тексты), KS-BE-1 (эндпоинт `/landing/stats`) |
-| **KS-FE-2** | SEO: `<title>`, `<meta description>`, `<meta og:*>`, `<meta twitter:*>`, `<link rel="canonical">`, `<link rel="alternate" hreflang>` через `react-helmet-async` (или текущий механизм проекта — проверить). Разные значения для `variant='home'` и `variant='features'` (§7.1–§7.6). Сверить факт схемы URL для языков (path vs query) с настройкой `i18next` — поправить `hreflang` под факт. | — |
+| **KS-FE-2** | SEO: `<title>`, `<meta description>`, `<meta og:*>`, `<meta twitter:*>`, `<link rel="canonical">`, `<link rel="alternate" hreflang>` через `<SeoHelmet>` — нативные metadata-теги React 19 без внешних библиотек (ADR-128 §7.6.1.1.A; KS-4176). Разные значения для `variant='home'` и `variant='features'` (§7.1–§7.6). Сверить факт схемы URL для языков (path vs query) с настройкой `i18next` — поправить `hreflang` под факт. | — |
 | **KS-FE-3** | JSON-LD WebSite + Organization (§7.5). | — |
 | **KS-FE-4** | Обновить prerender (`apps/web/scripts/prerender.mjs`): мок `/landing/stats` → пустой ответ (Блок 4 в bot-снимке скрыт или с placeholder'ами). Убедиться, что `/` и `/features` отдают разные h1 после редизайна — каноникал-конфликт ADR-128 §3.4 закрывается. | KS-FE-1 |
 

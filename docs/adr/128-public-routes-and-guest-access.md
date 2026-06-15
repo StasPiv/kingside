@@ -1171,8 +1171,8 @@ preview партии в мессенджере с актуальной доск�
 
 ### 7.6. Содержание HTML на каждой карточке
 
-Стандартный набор полей в `<head>` (через `react-helmet-async`,
-заполняется в компоненте страницы):
+Стандартный набор полей в `<head>` (через нативные metadata-теги
+React 19 — см. §7.6.1.1.A, заполняется в компоненте страницы):
 
 - `<title>` — entity-specific, ≤ 60 символов.
 - `<meta name="description">` — ≤ 160 символов.
@@ -1217,6 +1217,18 @@ preview партии в мессенджере с актуальной доск�
 
 #### 7.6.1.1. Conventions
 
+> **Ревизия 2026-06-15 (KS-4176).** `react-helmet-async@2.0.5`
+> объявляет peerDependencies до React 18 — `npm install` в проекте
+> с React 19.2.4 падает на EERESOLVE, поддержки React 19 у пакета
+> нет. В React 19 теги `<title>`, `<meta>`, `<link>` и
+> `<script type="application/ld+json">` в JSX компонента
+> автоматически переносятся в `<head>` документа (механизм
+> "Document Metadata", react.dev/reference/react-dom/components/title).
+> Внешняя библиотека не нужна. Все упоминания
+> `react-helmet-async` / `<HelmetProvider>` ниже в этом ADR
+> заменены на нативный механизм — см. §7.6.1.1.A для контракта
+> компонента-обёртки `<SeoHelmet>`.
+
 - **Длины**: `<title>` ≤ 60 символов, `<meta description>` ≤ 160. При
   превышении — обрезка с `…` (frontend в `<SeoHelmet>` обрезает по
   слову, не по символу).
@@ -1247,6 +1259,139 @@ preview партии в мессенджере с актуальной доск�
   (например `seo.broadcasts.list`). Внутри группы — `.title`,
   `.description`, при необходимости `.titleNoDate` и так далее под
   fallback-варианты.
+
+##### 7.6.1.1.A. Контракт компонента `<SeoHelmet>` (React 19, без библиотек)
+
+`<SeoHelmet>` — тонкая обёртка-typed-компонент в
+`apps/web/src/components/seo/SeoHelmet.tsx`. Не зависит от
+`react-helmet-async` и от любой внешней библиотеки. Внутри —
+просто JSX-теги `<title>`, `<meta>`, `<link>`,
+`<script type="application/ld+json">`; React 19 сам переносит их в
+`<head>` (механизм Document Metadata).
+
+Контракт пропсов:
+
+```tsx
+interface SeoHelmetProps {
+  title: string;                        // ≤ 60, обрезается утилитой ниже
+  description: string;                  // ≤ 160, обрезается
+  canonical: string;                    // абсолютный URL без query
+  ogType?: 'website' | 'article' | 'event' | 'profile';  // default 'website'
+  ogImage?: string;                     // default '/og/default.png'
+  ogImageAlt?: string;
+  twitterCard?: 'summary' | 'summary_large_image';        // default 'summary_large_image'
+  noindex?: boolean;                    // ставит <meta name="robots" content="noindex">
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];  // один объект или массив (несколько LD-блоков)
+  lang?: 'en' | 'ru';                   // для og:locale; default — из i18next
+}
+```
+
+Скелет реализации (frontend кладёт это как-есть в
+`SeoHelmet.tsx`, без правок ADR):
+
+```tsx
+export function SeoHelmet(props: SeoHelmetProps) {
+  const title = truncateByWord(props.title, 60);
+  const description = truncateByWord(props.description, 160);
+  const ogType = props.ogType ?? 'website';
+  const ogImage = props.ogImage ?? '/og/default.png';
+  const twitterCard = props.twitterCard ?? 'summary_large_image';
+  const locale = props.lang === 'ru' ? 'ru_RU' : 'en_US';
+  const altLocale = props.lang === 'ru' ? 'en_US' : 'ru_RU';
+  const jsonLdArr = !props.jsonLd
+    ? []
+    : Array.isArray(props.jsonLd) ? props.jsonLd : [props.jsonLd];
+
+  return (
+    <>
+      <title>{title}</title>
+      <meta name="description" content={description} />
+      <link rel="canonical" href={props.canonical} />
+      {props.noindex && <meta name="robots" content="noindex" />}
+
+      <meta property="og:type" content={ogType} />
+      <meta property="og:title" content={title} />
+      <meta property="og:description" content={description} />
+      <meta property="og:url" content={props.canonical} />
+      <meta property="og:image" content={ogImage} />
+      {props.ogImageAlt && <meta property="og:image:alt" content={props.ogImageAlt} />}
+      <meta property="og:locale" content={locale} />
+      <meta property="og:locale:alternate" content={altLocale} />
+
+      <meta name="twitter:card" content={twitterCard} />
+      <meta name="twitter:title" content={title} />
+      <meta name="twitter:description" content={description} />
+      <meta name="twitter:image" content={ogImage} />
+
+      {jsonLdArr.map((ld, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          // React 19 безопасно сериализует объект — но для гарантии
+          // экранирования закрывающего тега используем dangerouslySetInnerHTML
+          // с JSON.stringify (стандарт для JSON-LD в SPA).
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(ld) }}
+        />
+      ))}
+    </>
+  );
+}
+```
+
+Использование на странице:
+
+```tsx
+function BroadcastTournamentPage() {
+  const { data } = useBroadcast(tournamentId);
+  if (!data) return <Spinner />;
+  return (
+    <>
+      <SeoHelmet
+        title={t('seo.broadcasts.tournament.title', { title: data.title })}
+        description={t('seo.broadcasts.tournament.description', {
+          title: data.title, roundCount: data.roundCount,
+        })}
+        canonical={`https://kingside.site/broadcasts/${data.id}`}
+        ogType="event"
+        ogImage={data.imageUrl ?? '/og/broadcast.png'}
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'SportsEvent',
+          name: data.title,
+          sport: 'Chess',
+          startDate: data.startDate ?? undefined,
+        }}
+      />
+      <BroadcastBody data={data} />
+    </>
+  );
+}
+```
+
+Технические ограничения React 19 (для frontend, чтобы не наступить):
+- Document Metadata работает на client (SPA) и при SSR/streaming.
+  В текущем prerender-пайплайне (`apps/web/scripts/prerender.mjs`,
+  Playwright headless) теги попадают в `<head>` через DOM-рендер —
+  работает «как обычно».
+- `<title>` в React 19 — singleton: последний отрендеренный
+  выигрывает. Если два компонента отрендерили `<title>` одновременно
+  (например, layout + page) — берётся последний. На наших страницах
+  `<SeoHelmet>` вызывается **один раз на маршрут** — конфликтов
+  нет. Layout `<MainLayout>` свой `<title>` не ставит.
+- `<meta>` с тем же `name`/`property` — React 19 дедуплицирует.
+  Тоже не задача frontend'а — но знание полезно при отладке.
+- На динамической смене маршрута (SPA-навигация без перезагрузки)
+  React 19 правильно убирает старые теги при unmount компонента-
+  источника. То есть `<SeoHelmet>` смонтированный в `Broadcasts
+  TournamentPage` при переходе на `BroadcastRoundPage` корректно
+  заменяется на теги новой страницы.
+
+`<HelmetProvider>` / `react-helmet-async` / любой провайдер для
+SEO-тегов в `apps/web/src/main.tsx` **не нужен и не добавляется**.
+
+Утилита `truncateByWord` — отдельный модуль
+`apps/web/src/components/seo/truncate.ts`, режет строку по последнему
+пробелу не превышая лимит, добавляет `…`. Реализация — KS-4171, не ADR.
 
 #### 7.6.1.2. Per-route таблица
 
@@ -1656,8 +1801,9 @@ seo.archive.player.descriptionNoPeak         // {name}, {gamesCount}, {wins}, {d
 | **KS-4172-CT** | content | 8 OG-картинок 1200×630 PNG в `apps/web/public/og/` (список §7.6.1.3). |
 | **KS-4172-MK** | marketing | Финальные строки для ключей `seo.*` (§7.6.1.4) на en + ru, ≤60 / ≤160 символов с подставленными переменными. |
 
-Зависимости: KS-4171 (`<SeoHelmet>` + react-helmet-async) — общая
-инфраструктура, **блокирует** все KS-4172-FE-*. KS-4172-MK блокирует
+Зависимости: KS-4171 (`<SeoHelmet>` на нативных metadata-тегах
+React 19, см. §7.6.1.1.A) — общая инфраструктура, **блокирует**
+все KS-4172-FE-*. KS-4172-MK блокирует
 все KS-4172-FE-* (без строк нечего ставить в `<title>`). KS-4172-CT
 не блокирует (frontend стартует с fallback `/og/default.png`).
 KS-4172-BE-1 блокирует только KS-4172-FE-L (для L1).
@@ -1691,12 +1837,20 @@ PM-страницы — build-time prerender (текущий `apps/web/scripts/p
 Динамический поток (cron + on-demand) их не касается. Шаблон даёт
 SEO-консистентность (одна структура h1/h2/og).
 
-### 7.8. Метатеги через `react-helmet-async`
+### 7.8. Метатеги через нативные metadata-теги React 19
+
+> **Ревизия 2026-06-15 (KS-4176).** Изначально секция предписывала
+> `react-helmet-async`. Пакет не поддерживает React 19 (peerDeps до 18,
+> `npm install` падает с EERESOLVE). Используем нативный механизм
+> Document Metadata React 19 — контракт компонента-обёртки
+> `<SeoHelmet>` описан в §7.6.1.1.A.
 
 Каждая PR/PM/PX страница ставит свои `<title>`, `<meta>`, `<link
-rel="canonical">`, `<meta property="og:*">` через `react-helmet-async`
-(или эквивалент). Это работает и в runtime SPA, и в обоих pre-render
-пайплайнах (build-time для PM, runtime для PR).
+rel="canonical">`, `<meta property="og:*">` напрямую в JSX через
+`<SeoHelmet>` (§7.6.1.1.A). React 19 автоматически переносит эти
+теги в `<head>` документа — работает и в runtime SPA, и в pre-render
+пайплайнах (build-time через Playwright headless у нас и runtime,
+если позже введём).
 
 ADR фиксирует **требование**: каждый PR/PM маршрут обязан иметь свой
 title + description + canonical + og:image **перед открытием в prod**.
@@ -1915,7 +2069,7 @@ flowchart TD
 | ~~4~~ | ~~MarketingLanding~~ | **Отменён (KS-4125).** Шаблон не вводится. | — | — | — |
 | ~~5~~ | ~~Контент лендингов~~ | **Отменён (KS-4125).** Гость попадает на сам тренажёр. Контент `/features` остаётся в KS-4119 п.2 | — | — | — |
 | 6 | KS-новый | Frontend: внедрить `useRequireAuth` в action-кнопки витрин (`/broadcasts/:id` чат, `/tournaments/:id` register, `/players/:u` вызов/сообщение, `/feedback` голос/коммент). Образец готов — `PlayerProfilePage`, `TournamentLobbyPage` | frontend | M | 3 |
-| 7 | KS-новый | Frontend: SEO-метатеги per-route + JSON-LD через `react-helmet-async`; по странице на PR/PF/PX маршрут | frontend + content | L | 1, 2 |
+| 7 | KS-новый | Frontend: SEO-метатеги per-route + JSON-LD через нативные metadata-теги React 19 (компонент-обёртка `<SeoHelmet>`, §7.6.1.1.A); по странице на PR/PF/PX маршрут | frontend + content | L | 1, 2 |
 | **DYNAMIC PRERENDER (KS-4121)** | | | | | |
 | 8 | KS-новый | DevOps: SQS `kingside-prerender-tasks`, S3 `kingside-prerender-store`, IAM, CloudFront Function маппинг путей §7.3.4 | devops | M | 1 |
 | 9 | KS-новый | Backend: `apps/prerender-service` (ECS Fargate + Playwright), слушает SQS, рендерит, кладёт в S3 | backend + devops | L | 8 |
@@ -1923,7 +2077,7 @@ flowchart TD
 | 11 | KS-новый | Backend: mutation hooks для on-demand prerender (`CoachService.updateProfile`, `LectureService.publish`/`update`, `ArenaService.finish`, `ArchiveImporterService.afterImport`; broadcast-worker `finishRound`) | backend | M | 9, 10 |
 | 12 | KS-новый | DevOps: EventBridge schedule'ы (broadcasts-active 15 мин, tournaments-active 30 мин, lectures-list 30 мин, players-top1000 24 ч, archive-list 24 ч, safety-net 24 ч) | devops | M | 9 |
 | 13 | KS-новый | Backend: policy-фильтры (§7.4) для players (top-1000) и archive (avgElo ≥ 2400 / TWIC top-1000) — пороги согласовать с пользователем + marketing (без chess-expert) | backend + marketing | M | 9 |
-| 14 | KS-новый | Frontend+content: расширение `react-helmet-async` метатегами + JSON-LD (`SportsEvent`, `Person`, `Course`, `Article`) на каждой PR/PF-карточке | frontend + content | L | 7, 9 |
+| 14 | KS-новый | Frontend+content: расширение `<SeoHelmet>` метатегами + JSON-LD (`SportsEvent`, `Person`, `Course`, `Article`) на каждой PR/PF-карточке | frontend + content | L | 7, 9 |
 | 15 | KS-новый | Backend: per-entity sitemap'ы (`sitemap-broadcasts.xml`, …) + sitemap-index | backend | M | 11 |
 | 16 | KS-новый | Content: SEO-форматы заголовков карточек (broadcast «{tournament} — {round}», player, coach, lecture, archive game). Контент — пользователь, без chess-expert | content | L | 14 |
 | 17 | KS-новый | DevOps+backend: og:image (внутри prerender-service или отдельная Lambda — §11.9) | devops + backend | L | 9 |
@@ -2049,8 +2203,10 @@ flowchart TD
 
 ### 11.5. Чьи метатеги выигрывают: shell `index.html` vs route-specific
 
-Per-route компоненты через `react-helmet-async` (работает и в runtime
-SPA, и в prerender). Финальное решение — за frontend в KS-7.
+Per-route компоненты через нативные metadata-теги React 19 (`<title>`,
+`<meta>`, `<link>` ставятся напрямую в JSX страницы через
+`<SeoHelmet>`, см. §7.6.1.1.A; работает и в runtime SPA, и в
+prerender). Финальное решение — за frontend в KS-7.
 
 ### 11.6. Rate-limit гостя vs DDoS
 
