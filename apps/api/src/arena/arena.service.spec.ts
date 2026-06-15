@@ -6,6 +6,11 @@ describe('ArenaService', () => {
   let prisma: Record<string, any>;
   let redis: Record<string, any>;
   let gameService: Record<string, any>;
+  // KS-4205: ссылка на мок prerender для проверки в hooks-тестах.
+  let prerenderMock: {
+    enqueueFireAndForget: jest.Mock;
+    enqueueBatchFireAndForget: jest.Mock;
+  };
 
   beforeEach(() => {
     prisma = {
@@ -42,7 +47,17 @@ describe('ArenaService', () => {
       del: jest.fn(),
     };
     gameService = { initGame: jest.fn() };
-    service = new ArenaService(prisma as any, redis as any, gameService as any);
+    prerenderMock = {
+      enqueueFireAndForget: jest.fn(),
+      enqueueBatchFireAndForget: jest.fn(),
+    };
+    service = new ArenaService(
+      prisma as any,
+      redis as any,
+      gameService as any,
+      // KS-4205: PrerenderEnqueueService — мок, проверяется в hooks-test.
+      prerenderMock as any,
+    );
   });
 
   it('should reject duration outside 1-180 range', async () => {
@@ -170,6 +185,70 @@ describe('ArenaService', () => {
           where: expect.objectContaining({ username: 'hiddenuser', isHidden: false }),
         }),
       );
+    });
+  });
+
+  // KS-4205 / ADR-128 §10 #11 §7.3.7: prerender enqueue при досрочном
+  // завершении турнира через withdraw → finishTournamentEarly. Hook на
+  // естественном завершении (RoundManagerService.finalizeRound) покрыт
+  // отдельно — там нет unit-spec'а, проверяется на интеграционном
+  // прогоне tournament-flow.
+  describe('KS-4205: prerender hook на finishTournamentEarly', () => {
+    beforeEach(() => {
+      // Доукомплектовываем prisma-мок методами, которые `withdraw`
+      // дёргает в auto-finish ветке.
+      prisma.tournamentRound = {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      };
+      prisma.arenaTournamentEntry.count = jest.fn().mockResolvedValue(0);
+      prisma.game.findFirst = jest.fn().mockResolvedValue(null);
+    });
+
+    it('withdraw в swiss с <=1 оставшимся → finishTournamentEarly → enqueue tournament + list', async () => {
+      prisma.arenaTournament.findUnique.mockResolvedValue({
+        id: 't-fin-1',
+        type: 'swiss',
+        status: 'active',
+      });
+      prisma.arenaTournamentEntry.findUnique.mockResolvedValue({
+        id: 'e-1',
+        userId: 'u-1',
+        tournamentId: 't-fin-1',
+        withdrawn: false,
+      });
+      prisma.arenaTournamentEntry.count.mockResolvedValue(0); // никого не осталось
+      prisma.arenaTournament.update.mockResolvedValue({});
+      prisma.game.findMany.mockResolvedValue([]);
+
+      await service.leave('t-fin-1', 'u-1');
+
+      expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'tournament',
+        id: 't-fin-1',
+      });
+      expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'list',
+        route: '/tournaments',
+      });
+    });
+
+    it('withdraw в активной арене с активными игроками — НЕ дёргает prerender', async () => {
+      prisma.arenaTournament.findUnique.mockResolvedValue({
+        id: 't-still-1',
+        type: 'arena',
+        status: 'active',
+      });
+      prisma.arenaTournamentEntry.findUnique.mockResolvedValue({
+        id: 'e-2',
+        userId: 'u-2',
+        tournamentId: 't-still-1',
+        withdrawn: false,
+      });
+      prisma.arenaTournamentEntry.count.mockResolvedValue(5); // ещё играют
+
+      await service.leave('t-still-1', 'u-2');
+
+      expect(prerenderMock.enqueueFireAndForget).not.toHaveBeenCalled();
     });
   });
 });

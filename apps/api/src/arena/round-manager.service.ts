@@ -3,6 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GameService } from '../game/game.service';
 import { SwissPairingService } from './swiss-pairing.service';
 import { RoundRobinPairingService } from './round-robin-pairing.service';
+// KS-4205 / ADR-128 §10 #11 §7.3.7. Mutation hook на естественное
+// завершение турнира (последний раунд finalize'нулся → status=finished).
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 
 @Injectable()
 export class RoundManagerService {
@@ -13,6 +16,12 @@ export class RoundManagerService {
     private readonly gameService: GameService,
     private readonly swissPairing: SwissPairingService,
     private readonly rrPairing: RoundRobinPairingService,
+    /**
+     * KS-4205 / ADR-128 §10 #11 §7.3.7. Постановка prerender при
+     * естественном завершении турнира (последний раунд закрыт).
+     * Досрочное завершение — в `ArenaService.finishTournamentEarly`.
+     */
+    private readonly prerender: PrerenderEnqueueService,
   ) {}
 
   /**
@@ -303,6 +312,10 @@ export class RoundManagerService {
         data: { status: 'finished', totalRounds: maxRoundsF },
       });
       this.logger.log(`Tournament ${tournamentId} finished (all ${maxRoundsF} rounds complete)`);
+      // KS-4205 §10 #11. Естественный путь завершения турнира.
+      // Карточка /tournaments/:id + каталог /tournaments — обновить.
+      this.prerender.enqueueFireAndForget({ kind: 'tournament', id: tournamentId });
+      this.prerender.enqueueFireAndForget({ kind: 'list', route: '/tournaments' });
     } else {
       this.logger.log(`finalizeRound: round ${t.currentRound} finalized, tournament continues (${t.currentRound}/${maxRoundsF ?? '∞'})`);
     }

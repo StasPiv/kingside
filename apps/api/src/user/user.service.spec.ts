@@ -48,7 +48,13 @@ describe('UserService', () => {
       classify: jest.fn().mockReturnValue({ code: 'A00', name: 'Uncommon Opening' }),
     } as any;
 
-    service = new UserService(prisma, i18n, ecoService);
+    service = new UserService(
+      prisma,
+      i18n,
+      ecoService,
+      // KS-4205: no-op PrerenderEnqueueService.
+      { enqueueFireAndForget: jest.fn(), enqueueBatchFireAndForget: jest.fn() } as any,
+    );
   });
 
   describe('setUsername (KS-2786)', () => {

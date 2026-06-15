@@ -9,6 +9,9 @@ import {
 } from 'nestjs-i18n';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
+// KS-4205 / ADR-128 §10 #11 §7.3.7: глобальная шина postановки
+// prerender-задач в SQS (mutation hooks: lectures/arena/user/…).
+import { PrerenderModule } from './prerender/prerender.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { GameModule } from './game/game.module';
@@ -84,6 +87,7 @@ import { HealthController } from './health.controller';
     ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
+    PrerenderModule,
     AuthModule,
     UserModule,
     GameModule,

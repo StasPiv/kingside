@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
 import { classifyTimeControl } from '@kingside/shared';
+// KS-4205 / ADR-128 §10 #11 §7.3.7. Mutation hook на завершение турнира.
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 
 const MAX_TOURNAMENTS_PER_USER = 3;
 
@@ -15,6 +17,12 @@ export class ArenaService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly gameService: GameService,
+    /**
+     * KS-4205 / ADR-128 §10 #11 §7.3.7. Постановка prerender при
+     * завершении турнира (досрочное / естественное). Глобальный
+     * провайдер из PrerenderModule, в тестах подменяется моком.
+     */
+    private readonly prerender: PrerenderEnqueueService,
   ) {}
 
   async create(userId: string, data: {
@@ -219,6 +227,13 @@ export class ArenaService {
     }
 
     await this.redis.del(this.seekKey(tournamentId));
+
+    // KS-4205 §10 #11. Турнир досрочно завершён — карточка
+    // /tournaments/:id и каталог /tournaments обязаны отразить
+    // финальное состояние (статус, итоги). Параллельный путь
+    // естественного завершения — `RoundManagerService.finalizeRound`.
+    this.prerender.enqueueFireAndForget({ kind: 'tournament', id: tournamentId });
+    this.prerender.enqueueFireAndForget({ kind: 'list', route: '/tournaments' });
   }
 
   private async forfeitCurrentGame(tournamentId: string, userId: string) {

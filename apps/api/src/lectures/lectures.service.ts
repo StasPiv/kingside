@@ -19,6 +19,8 @@ import {
 import { RedisService } from '../redis/redis.service';
 import { CreateLectureDto, UpdateLectureDto } from './dto/create-lecture.dto';
 import { LecturesAccessService } from './lectures-access.service';
+// KS-4205 / ADR-128 §10 #11 §7.3.7. Mutation hooks для on-demand prerender.
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 
 /**
  * KS-3785/KS-3789. Возвращаемое значение POST/start: запись Lecture
@@ -76,6 +78,12 @@ export class LecturesService {
      * gateway отключит подключённых зрителей вне allowlist'а.
      */
     private readonly lecturesAccess: LecturesAccessService,
+    /**
+     * KS-4205 / ADR-128 §10 #11 §7.3.7. Постановка задач prerender
+     * при `create` / `start` / `update` публичных лекций. Глобальный
+     * провайдер из PrerenderModule, в тестах подменяется моком.
+     */
+    private readonly prerender: PrerenderEnqueueService,
   ) {}
 
   /**
@@ -182,6 +190,13 @@ export class LecturesService {
         `Lecture created (immediate live): id=${lecture.id} owner=${ownerId} liveAnalysisId=${session.id}` +
           ` visibility=${visibility} initialGrants=${initialAccessUserIds.length}`,
       );
+      // KS-4205 §10 #11. Публичная лекция «начать сейчас» сразу
+      // выходит в live: индексируем карточку и обновляем каталог.
+      // unlisted / restricted prerender'ить не надо — они вне SEO.
+      if (visibility === 'public') {
+        this.prerender.enqueueFireAndForget({ kind: 'lecture', id: lecture.id });
+        this.prerender.enqueueFireAndForget({ kind: 'list', route: '/lectures' });
+      }
       return { lecture, liveAnalysis: session as LectureLiveBinding };
     }
 
@@ -207,6 +222,13 @@ export class LecturesService {
       `Lecture created (scheduled): id=${lecture.id} owner=${ownerId} scheduledAt=${scheduledAt.toISOString()}` +
         ` visibility=${visibility} initialGrants=${initialAccessUserIds.length}`,
     );
+    // KS-4205 §10 #11. Запланированная публичная лекция — карточка
+    // уже доступна в каталоге (status='scheduled' попадает в
+    // /lectures/public). Индексируем её страницу и обновляем список.
+    if (visibility === 'public') {
+      this.prerender.enqueueFireAndForget({ kind: 'lecture', id: lecture.id });
+      this.prerender.enqueueFireAndForget({ kind: 'list', route: '/lectures' });
+    }
     return { lecture, liveAnalysis: null as LectureLiveBinding };
   }
 
@@ -335,6 +357,13 @@ export class LecturesService {
                 })`
               : ''),
         );
+        // KS-4205 §10 #11. Resume лекции: меняется привязка к LiveAnalysis,
+        // фронт-карточка должна обновиться. Карточка списка тоже зависит
+        // от live-биндинга (preview-FEN), обновляем /lectures.
+        if (updated.visibility === 'public') {
+          this.prerender.enqueueFireAndForget({ kind: 'lecture', id: lectureId });
+          this.prerender.enqueueFireAndForget({ kind: 'list', route: '/lectures' });
+        }
         return {
           lecture: updated,
           liveAnalysis: session as LectureLiveBinding,
@@ -371,6 +400,12 @@ export class LecturesService {
       this.logger.log(
         `Lecture started: id=${lectureId} owner=${actingUserId} liveAnalysisId=${session.id}`,
       );
+      // KS-4205 §10 #11. Лекция вышла в live — карточка и каталог
+      // должны это отразить (preview-FEN, статус «идёт сейчас»).
+      if (updated.visibility === 'public') {
+        this.prerender.enqueueFireAndForget({ kind: 'lecture', id: lectureId });
+        this.prerender.enqueueFireAndForget({ kind: 'list', route: '/lectures' });
+      }
       return {
         lecture: updated,
         liveAnalysis: session as LectureLiveBinding,
@@ -929,6 +964,26 @@ export class LecturesService {
         disabledTools: updated.disabledTools as LectureToolsChangedEvent['disabledTools'],
         hideMetricsTab: updated.hideMetricsTab,
       });
+    }
+
+    // KS-4205 §10 #11. Если итоговая лекция публичная — перегенерация
+    // карточки и каталога нужна в любом редактировании меты (title,
+    // description, scheduledAt, disabledTools и т. д. влияют на HTML).
+    // Дополнительно: переход visibility public→non-public (или
+    // обратно) меняет ВИДИМОСТЬ в каталоге — обновляем /lectures.
+    const wasPublic = lecture.visibility === 'public';
+    const isPublic = updated.visibility === 'public';
+    if (isPublic) {
+      this.prerender.enqueueFireAndForget({ kind: 'lecture', id: updated.id });
+    }
+    if (wasPublic !== isPublic) {
+      // Сменили видимость относительно публичной — каталог обязан
+      // получить или потерять карточку.
+      this.prerender.enqueueFireAndForget({ kind: 'list', route: '/lectures' });
+    } else if (isPublic) {
+      // Осталась публичной, но содержимое поменялось — каталог
+      // показывает title/description/scheduledAt в превью.
+      this.prerender.enqueueFireAndForget({ kind: 'list', route: '/lectures' });
     }
 
     return this.withLiveAnalysisBinding(updated);

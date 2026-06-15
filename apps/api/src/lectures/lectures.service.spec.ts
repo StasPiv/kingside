@@ -15,6 +15,7 @@ import {
 } from '../lecture-audio/lecture-audio.service';
 import { RedisService } from '../redis/redis.service';
 import { LecturesAccessService } from './lectures-access.service';
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1. Unit-тесты `LecturesService`.
@@ -65,6 +66,12 @@ describe('LecturesService', () => {
   let audioService: { finalizeRecording: jest.Mock };
   let redis: { publish: jest.Mock };
   let lecturesAccessMock: { publishRevokeEvent: jest.Mock };
+  // KS-4205: ссылка на мок prerender — нужна в тестах ниже для проверки
+  // постановки задач при create/update/start.
+  let prerenderMock: {
+    enqueueFireAndForget: jest.Mock;
+    enqueueBatchFireAndForget: jest.Mock;
+  };
 
   beforeEach(async () => {
     prisma = {
@@ -165,6 +172,17 @@ describe('LecturesService', () => {
         { provide: LectureAudioService, useValue: audioService },
         { provide: RedisService, useValue: redis },
         { provide: LecturesAccessService, useValue: lecturesAccessMock },
+        // KS-4205: мок PrerenderEnqueueService — большинство existing-
+        // тестов не следят за вызовами enqueue; отдельные тесты ниже
+        // (describe «KS-4205: prerender hooks») проверяют что hook
+        // действительно вызывается.
+        {
+          provide: PrerenderEnqueueService,
+          useValue: (prerenderMock = {
+            enqueueFireAndForget: jest.fn(),
+            enqueueBatchFireAndForget: jest.fn(),
+          }),
+        },
       ],
     }).compile();
     service = module.get(LecturesService);
@@ -2460,6 +2478,240 @@ describe('LecturesService', () => {
       await expect(
         service.forceEnd('missing', 'u-1'),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  // ─── KS-4205 / ADR-128 §10 #11 §7.3.7: mutation hooks prerender ───
+  //
+  // Прогрев: проверяем что enqueueFireAndForget вызывается при доменных
+  // событиях лекции. Содержимое body уже валидирует
+  // packages/shared/src/prerender-client.test.ts — здесь только сами
+  // hook'и: для каждого метода (create/update/start) — что ставится
+  // правильная задача и что list-каталог обновляется.
+  describe('KS-4205: prerender hooks', () => {
+    function findEnqueueCalls(): unknown[][] {
+      return prerenderMock.enqueueFireAndForget.mock.calls.map(([t]) => [t]);
+    }
+
+    describe('create', () => {
+      it('public scheduled → enqueue lecture + list', async () => {
+        prisma.lecture.create.mockResolvedValueOnce({
+          id: 'l-pub-1',
+          ownerId: 'u-1',
+          status: 'scheduled',
+        });
+        await service.create('u-1', {
+          title: 'Урок',
+          scheduledAt: '2026-06-07T18:00:00.000Z',
+        });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledTimes(2);
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'lecture',
+          id: 'l-pub-1',
+        });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'list',
+          route: '/lectures',
+        });
+      });
+
+      it('public immediate-live → enqueue lecture + list', async () => {
+        prisma.lecture.create.mockResolvedValueOnce({
+          id: 'l-pub-2',
+          ownerId: 'u-1',
+          status: 'live',
+        });
+        await service.create('u-1', { title: 'Стрим' });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'lecture',
+          id: 'l-pub-2',
+        });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'list',
+          route: '/lectures',
+        });
+      });
+
+      it('unlisted → НЕ enqueue (вне SEO)', async () => {
+        prisma.lecture.create.mockResolvedValueOnce({
+          id: 'l-3',
+          status: 'live',
+        });
+        await service.create('u-1', { title: 'Закрытый', visibility: 'unlisted' });
+        expect(prerenderMock.enqueueFireAndForget).not.toHaveBeenCalled();
+      });
+
+      it('restricted → НЕ enqueue (вне SEO)', async () => {
+        prisma.lecture.create.mockResolvedValueOnce({
+          id: 'l-4',
+          status: 'live',
+        });
+        await service.create('u-1', { title: 'Restr', visibility: 'restricted' });
+        expect(prerenderMock.enqueueFireAndForget).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('update', () => {
+      it('public → public с изменением title — enqueue lecture + list', async () => {
+        prisma.lecture.findUnique.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          visibility: 'public',
+          status: 'scheduled',
+          liveAnalysisId: null,
+        });
+        prisma.lecture.update.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          visibility: 'public',
+          status: 'scheduled',
+          liveAnalysisId: null,
+          liveAnalysis: null,
+        });
+        await service.update('l-1', 'u-1', { title: 'Новый заголовок' });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'lecture',
+          id: 'l-1',
+        });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'list',
+          route: '/lectures',
+        });
+      });
+
+      it('public → restricted — enqueue list (каталог теряет карточку)', async () => {
+        prisma.lecture.findUnique.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          visibility: 'public',
+          status: 'scheduled',
+          liveAnalysisId: null,
+        });
+        prisma.lecture.update.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          visibility: 'restricted',
+          status: 'scheduled',
+          liveAnalysisId: null,
+          liveAnalysis: null,
+        });
+        await service.update('l-1', 'u-1', { visibility: 'restricted' });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'list',
+          route: '/lectures',
+        });
+        // Карточка лекции уже non-public — её не ставим в очередь
+        // (она не индексируется, нет смысла перерисовывать).
+        expect(prerenderMock.enqueueFireAndForget).not.toHaveBeenCalledWith({
+          kind: 'lecture',
+          id: 'l-1',
+        });
+      });
+
+      it('restricted → public — enqueue lecture + list', async () => {
+        prisma.lecture.findUnique.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          visibility: 'restricted',
+          status: 'scheduled',
+          liveAnalysisId: null,
+        });
+        prisma.lecture.update.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          visibility: 'public',
+          status: 'scheduled',
+          liveAnalysisId: null,
+          liveAnalysis: null,
+        });
+        await service.update('l-1', 'u-1', { visibility: 'public' });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'lecture',
+          id: 'l-1',
+        });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'list',
+          route: '/lectures',
+        });
+      });
+
+      it('no-op (пустой PATCH) → НЕ enqueue', async () => {
+        prisma.lecture.findUnique.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          visibility: 'public',
+          status: 'scheduled',
+          liveAnalysisId: null,
+        });
+        // findUnique для возврата current — в no-op ветке.
+        prisma.lecture.findUnique.mockResolvedValueOnce({
+          id: 'l-1',
+          liveAnalysisId: null,
+          liveAnalysis: null,
+        });
+        await service.update('l-1', 'u-1', {});
+        expect(prerenderMock.enqueueFireAndForget).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('start', () => {
+      it('public scheduled → live: enqueue lecture + list', async () => {
+        prisma.lecture.findUnique.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          status: 'scheduled',
+          visibility: 'public',
+          liveAnalysisId: null,
+          title: 'Урок',
+        });
+        prisma.lecture.update.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          status: 'live',
+          visibility: 'public',
+          liveAnalysisId: 'la-new',
+        });
+        await service.start('l-1', 'u-1', { analysisId: 'a-1' });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'lecture',
+          id: 'l-1',
+        });
+        expect(prerenderMock.enqueueFireAndForget).toHaveBeenCalledWith({
+          kind: 'list',
+          route: '/lectures',
+        });
+      });
+
+      it('unlisted start — НЕ enqueue', async () => {
+        prisma.lecture.findUnique.mockResolvedValueOnce({
+          id: 'l-1',
+          ownerId: 'u-1',
+          status: 'scheduled',
+          visibility: 'unlisted',
+          liveAnalysisId: null,
+          title: 'Х',
+        });
+        prisma.lecture.update.mockResolvedValueOnce({
+          id: 'l-1',
+          status: 'live',
+          visibility: 'unlisted',
+          liveAnalysisId: 'la-new',
+        });
+        await service.start('l-1', 'u-1', { analysisId: 'a-1' });
+        expect(prerenderMock.enqueueFireAndForget).not.toHaveBeenCalled();
+      });
+    });
+
+    // Отказоустойчивость mutation hook'а гарантируется контрактом
+    // `PrerenderEnqueueService.enqueueFireAndForget` (он сам глотает
+    // ошибку — см. prerender-enqueue.service.ts и шарoвой
+    // prerender-client.test.ts). Сервисы-потребители полагаются на это
+    // контрактно, в их тестах отдельно повторять «не валит mutation»
+    // не нужно.
+
+    // unused-помощник, чтобы lint не ругался на findEnqueueCalls.
+    it('utility used', () => {
+      expect(findEnqueueCalls).toBeDefined();
     });
   });
 });

@@ -11,6 +11,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EcoService } from '../game/eco.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+// KS-4205 / ADR-128 §10 #11 §7.3.7. Mutation hooks для prerender
+// публичной страницы тренера `/coach/:username`.
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 
 @Injectable()
 export class UserService {
@@ -18,6 +21,12 @@ export class UserService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly eco: EcoService,
+    /**
+     * KS-4205 / ADR-128 §10 #11 §7.3.7. Перегенерация страницы
+     * `/coach/:username` при смене username и при обновлении полей,
+     * отображаемых на ней.
+     */
+    private readonly prerender: PrerenderEnqueueService,
   ) {}
 
   private readonly SETTINGS_SELECT = {
@@ -106,6 +115,9 @@ export class UserService {
           data: createData as any,
           select: userSelect,
         });
+        // KS-4205 §10 #11. Новый username → новая публичная страница
+        // тренера. Старого username здесь нет — это первичная установка.
+        this.prerender.enqueueFireAndForget({ kind: 'coach', username });
         return { user: user as Record<string, unknown>, isNewUser: true };
       } catch (err: unknown) {
         // KS-2786: race-condition — между OAuth callback и set-username
@@ -127,6 +139,9 @@ export class UserService {
             data: { ...createData, email: null } as any,
             select: userSelect,
           });
+          // KS-4205 §10 #11. Та же первичная установка username
+          // (повтор после email-conflict fallback'а).
+          this.prerender.enqueueFireAndForget({ kind: 'coach', username });
           return { user: user as Record<string, unknown>, isNewUser: true };
         }
         throw err;
@@ -163,6 +178,12 @@ export class UserService {
       },
     });
 
+    // KS-4205 §10 #11. Существующий pending-user задаёт username
+    // впервые. Старого username в этом сценарии тоже нет (метод
+    // допускается только при `requiresUsernameSetup=true`), поэтому
+    // ставим один enqueue на новый username.
+    this.prerender.enqueueFireAndForget({ kind: 'coach', username });
+
     return { user: updated as Record<string, unknown>, isNewUser: false };
   }
 
@@ -186,20 +207,45 @@ export class UserService {
     if (dto.pieceSet !== undefined) data.pieceSet = dto.pieceSet;
     if (dto.soundEnabled !== undefined) data.soundEnabled = dto.soundEnabled;
 
+    // KS-4205 §10 #11. Расширяем select на username, чтобы хук
+    // мог поставить prerender без второго запроса. Username пилим
+    // из response (контракт getSettings не меняется).
     const user = await this.prisma.user.update({
       where: { id: userId },
       data,
-      select: this.SETTINGS_SELECT,
+      select: { ...this.SETTINGS_SELECT, username: true },
     });
-    return user;
+    if (user.username) {
+      this.prerender.enqueueFireAndForget({
+        kind: 'coach',
+        username: user.username,
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { username: _username, ...response } = user;
+    return response;
   }
 
   async updateExternalAccounts(userId: string, data: Record<string, string | null>) {
-    return this.prisma.user.update({
+    // KS-4205 §10 #11. chesscomUsername/lichessUsername отображаются на
+    // публичной странице тренера — перегенерация нужна. Запрашиваем
+    // username отдельно (response-контракт не трогаем).
+    const result = await this.prisma.user.update({
       where: { id: userId },
       data,
       select: { chesscomUsername: true, lichessUsername: true },
     });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
+    if (user?.username) {
+      this.prerender.enqueueFireAndForget({
+        kind: 'coach',
+        username: user.username,
+      });
+    }
+    return result;
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {

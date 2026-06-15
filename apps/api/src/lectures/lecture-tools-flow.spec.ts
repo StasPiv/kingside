@@ -114,6 +114,9 @@ describe('KS-3904 / ADR-117 A07: lecture-tools end-to-end (PATCH → Redis → W
       // KS-3942: lecturesAccess (publishRevokeEvent) — в KS-3904 не задействуется,
       // подставляем пустую заглушку через `as never`.
       { publishRevokeEvent: jest.fn() } as never,
+      // KS-4205: PrerenderEnqueueService — здесь не задействуется,
+      // подставляем no-op заглушку.
+      { enqueueFireAndForget: jest.fn(), enqueueBatchFireAndForget: jest.fn() } as never,
     );
 
     // Gateway собираем тоже вручную; зависимости не используются в
