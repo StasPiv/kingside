@@ -494,12 +494,14 @@ export function ArchivePlayerProfilePage() {
           draws: profile.byResult.draws,
           losses: profile.byResult.losses,
         });
+  const seoCanonical = `https://kingside.site/archive/players/${encodeURIComponent(profile.slug)}`;
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'Person',
     name: profile.name,
     alternateName: profile.name,
     description: seoDescription,
+    url: seoCanonical,
   };
 
   return (
@@ -512,6 +514,7 @@ export function ArchivePlayerProfilePage() {
       <SeoHelmet
         title={tSeo('seo.archive.player.title', { name: profile.name })}
         description={seoDescription}
+        canonical={seoCanonical}
         ogType="profile"
         ogImage="/og/archive.png"
         jsonLd={seoJsonLd}

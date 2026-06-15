@@ -411,12 +411,21 @@ function ArchiveGamePageInner() {
         date: seoDate,
         opening: seoOpening,
       });
+  const seoCanonical = `https://kingside.site/archive/games/${encodeURIComponent(id ?? '')}`;
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'Article',
     headline: `${seoWhite} — ${seoBlack}`,
     description: seoDescription,
     articleBody: game.pgn,
+    url: seoCanonical,
+    // KS-4218 / ADR-128 §7.6.1.2 A2. Авторы партии — оба игрока
+    // (Person). Боты используют author для атрибуции партии и
+    // связи с их профилями в архиве.
+    author: [
+      ...(seoWhite ? [{ '@type': 'Person', name: seoWhite }] : []),
+      ...(seoBlack ? [{ '@type': 'Person', name: seoBlack }] : []),
+    ],
     about: {
       '@type': 'SportsEvent',
       name: seoEvent || undefined,
@@ -429,6 +438,7 @@ function ArchiveGamePageInner() {
       <SeoHelmet
         title={seoTitle}
         description={seoDescription}
+        canonical={seoCanonical}
         ogType="article"
         ogImage="/og/archive.png"
         jsonLd={seoJsonLd}

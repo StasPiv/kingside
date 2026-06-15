@@ -19,6 +19,7 @@ import { archiveApi } from '../api/archive';
 import { archivePreferencesApi } from '../api/archivePreferencesApi';
 import { ArchiveGameRow } from '../components/archive/ArchiveGameRow';
 import { SavedFiltersDropdown } from '../components/savedFilters/SavedFiltersDropdown';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 import { useAuth } from '../context/AuthContext';
 import type { ArchiveFilters } from '@kingside/shared';
 import {
@@ -609,6 +610,11 @@ interface ArchiveSelectionState {
 
 function ArchiveMetadataMode() {
   const { t } = useTranslation('archive');
+  // KS-4218 / ADR-128 §7.6.1.2 A1. SEO-ключи (`seo.archive.*`) живут
+  // в namespace `translation` (default), а основной `t` страницы
+  // привязан к namespace `archive`. Отдельный `tSeo` без аргумента
+  // обращается к дефолтному namespace.
+  const { t: tSeo } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1326,6 +1332,23 @@ function ArchiveMetadataMode() {
       data-mode="metadata"
       data-selection={isSelectionMode ? 'true' : 'false'}
     >
+      {/* KS-4218 / ADR-128 §7.6.1.2 A1. SEO для списка архивных партий.
+          Canonical — голый `/archive` без query: фильтры в query
+          порождают комбинаторный взрыв URL'ов, индексной должна
+          оставаться корневая страница. */}
+      <SeoHelmet
+        title={tSeo('seo.archive.list.title')}
+        description={tSeo('seo.archive.list.description')}
+        canonical="https://kingside.site/archive"
+        ogType="website"
+        ogImage="/og/archive.png"
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'CollectionPage',
+          name: tSeo('seo.archive.list.title'),
+          description: tSeo('seo.archive.list.description'),
+        }}
+      />
       {/* KS-3499 (ADR-091 F2): sticky-баннер selection-режима. */}
       {isSelectionMode && (
         <div
