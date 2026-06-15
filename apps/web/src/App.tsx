@@ -527,8 +527,10 @@ export function App() {
           path="/admin/feature-flags"
           element={<AdminRoute><AdminFeatureFlagsPage /></AdminRoute>}
         />
-        {/* KS-2218: `/puzzle-rush*` — отдельный раздел, ВНЕ `puzzlesEnabled`. */}
-        <Route path="/puzzle-rush" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><PuzzleRushPage /></Suspense></ProtectedRoute>} />
+        {/* KS-2218: `/puzzle-rush*` — отдельный раздел, ВНЕ `puzzlesEnabled`.
+            KS-4157 / ADR-128 §5.13: /puzzle-rush открыт гостю — раунд
+            играется локально (chess.js), результат не пишется в БД. */}
+        <Route path="/puzzle-rush" element={<Suspense fallback={<LazyFallback />}><PuzzleRushPage /></Suspense>} />
         <Route path="/puzzle-rush/leaderboard" element={<PuzzleRushLeaderboardPage />} />
         <Route path="/puzzle-rush/review/:scoreId" element={<ProtectedRoute><PuzzleRushReviewPage /></ProtectedRoute>} />
         {/* KS-2218: `/puzzles/rush` — алиас на `/puzzle-rush`. Оставляем

@@ -7,16 +7,33 @@ import { puzzleApi } from '../api-puzzle';
 import { ApiError } from '../ApiError';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
+import { useAuth } from '../context/AuthContext';
 
 type RushScreen = 'start' | 'playing' | 'result';
 type TimeLimitOption = 180 | 300;
 
 const MAX_LIVES = 3;
 
+/**
+ * KS-4157 / ADR-128 §5.13: гость играет Puzzle Rush ПОЛНОСТЬЮ локально.
+ * Сервер не вызывается — нет сессии, нет solve-POST, нет endSession.
+ * Задачи берутся по одной через `/puzzles/next` (этот эндпоинт открыт
+ * для гостя). Ожидаемые ходы сравниваются на клиенте c moves[] из
+ * PuzzleDto. Лидерборд гостю не пишется — в start/result показываем CTA.
+ */
+type GuestRushPuzzle = {
+  id: string;
+  fen: string;
+  /** Полный список UCI ходов: [0]=setup, далее чередуются юзер/оппонент. */
+  moves: string[];
+};
+
 export function PuzzleRushPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { playSound } = useSounds();
+  const { user } = useAuth();
+  const isGuest = !user;
 
   // Screen state
   const [screen, setScreen] = useState<RushScreen>('start');
@@ -40,6 +57,12 @@ export function PuzzleRushPage() {
 
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
   // Board rendering delegated to PuzzleBoard component
+
+  // KS-4157: гостевой пазл и индекс текущего ожидаемого UCI в `moves`.
+  // moves[0] — setup-ход, который уже применён в setupPuzzle. Следующий
+  // ход юзера = moves[1], ответ оппонента = moves[2], и так далее.
+  const guestPuzzleRef = useRef<GuestRushPuzzle | null>(null);
+  const guestMoveIdxRef = useRef<number>(1);
 
   // Suppress animation when loading a new puzzle to avoid chaotic
   // piece movement from old position to new position ("board jerk").
@@ -106,17 +129,52 @@ export function PuzzleRushPage() {
 
   // When the session ends via client-side timer expiry (no scoreId from solveRush),
   // call endRushSession to save the session and obtain the scoreId for review.
+  // KS-4157: для гостя серверной сессии нет — endRushSession не вызываем.
   useEffect(() => {
     if (screen !== 'result' || scoreId !== null) return;
+    if (isGuest) return;
     puzzleApi.endRushSession()
       .then((data) => { if (data?.scoreId) setScoreId(data.scoreId); })
       .catch(() => { /* session may already be finished on the server */ });
-  }, [screen, scoreId]);
+  }, [screen, scoreId, isGuest]);
+
+  // KS-4157: гостевая загрузка следующей задачи через публичный
+  // `/puzzles/next`. Возвращает объект с moves[] или null при ошибке.
+  const fetchGuestPuzzle = useCallback(async (): Promise<GuestRushPuzzle | null> => {
+    try {
+      const data = await puzzleApi.getNext();
+      const raw = data.moves;
+      if (!raw) return null;
+      const moves = Array.isArray(raw) ? raw : String(raw).split(' ');
+      if (!moves[0]) return null;
+      return { id: data.id, fen: data.fen, moves };
+    } catch {
+      return null;
+    }
+  }, []);
 
   const handleStart = async () => {
     setLoading(true);
     setError('');
     try {
+      // KS-4157: гость стартует локальный раунд без серверной сессии.
+      if (isGuest) {
+        const next = await fetchGuestPuzzle();
+        if (!next) {
+          setError(t('puzzleRush.errorStarting'));
+          return;
+        }
+        setScore(0);
+        setLives(MAX_LIVES);
+        setTimeLeft(timeLimit);
+        setScoreId(null);
+        guestPuzzleRef.current = next;
+        guestMoveIdxRef.current = 1;
+        setupPuzzle(next.fen, next.moves[0]);
+        setScreen('playing');
+        return;
+      }
+
       const data = await puzzleApi.startRush({ timeMode: timeLimit === 180 ? '3' : '5' });
       setScore(0);
       setLives(MAX_LIVES);
@@ -156,6 +214,86 @@ export function PuzzleRushPage() {
     [setupPuzzle],
   );
 
+  // KS-4157: локальная гостевая логика. Возвращает true — ход легален
+  // (доска должна обновиться), false — ход вообще не применён.
+  const handleGuestMove = useCallback(
+    (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n'): boolean => {
+      if (!game) return false;
+      const puzzle = guestPuzzleRef.current;
+      if (!puzzle) return false;
+
+      const copy = new Chess(game.fen());
+      const move = copy.move({ from, to, promotion });
+      if (!move) return false;
+      playSound(soundEventFromSan(move.san));
+
+      const uci = from + to + (promotion ?? '');
+      setGame(copy);
+      setLastMoveUci(uci);
+
+      const idx = guestMoveIdxRef.current;
+      const expected = puzzle.moves[idx];
+      const isCorrect = expected === uci;
+
+      const advanceToNextPuzzle = (delayMs: number) => {
+        setTimeout(async () => {
+          const next = await fetchGuestPuzzle();
+          if (!next) {
+            playSound('puzzle-gameover');
+            endGame();
+            return;
+          }
+          guestPuzzleRef.current = next;
+          guestMoveIdxRef.current = 1;
+          setupPuzzle(next.fen, next.moves[0]);
+          setFeedback(null);
+        }, delayMs);
+      };
+
+      if (!isCorrect) {
+        setFeedback('wrong');
+        playSound('puzzle-incorrect');
+        const nextLives = lives - 1;
+        setLives(nextLives);
+        if (nextLives <= 0) {
+          playSound('puzzle-gameover');
+          // Финал гостя — без серверного score, scoreId остаётся null.
+          setTimeout(() => endGame(), 300);
+          return true;
+        }
+        advanceToNextPuzzle(600);
+        return true;
+      }
+
+      // Правильный ход. Если есть следующий полу-ход в moves[] — это
+      // ответ оппонента, играем его автоматически и ждём следующего
+      // хода юзера. Если ответа нет — задача решена.
+      const opMoveUci = puzzle.moves[idx + 1];
+      if (opMoveUci) {
+        setTimeout(() => {
+          const after = new Chess(copy.fen());
+          const opResult = after.move({
+            from: opMoveUci.slice(0, 2),
+            to: opMoveUci.slice(2, 4),
+            promotion: opMoveUci.length > 4 ? opMoveUci[4] : undefined,
+          });
+          if (opResult) playSound(soundEventFromSan(opResult.san));
+          setGame(after);
+          setLastMoveUci(opMoveUci);
+          guestMoveIdxRef.current = idx + 2;
+        }, 200);
+      } else {
+        // Задача решена целиком — +1 к счёту, грузим следующую.
+        setScore((s) => s + 1);
+        setFeedback('correct');
+        playSound('puzzle-correct');
+        advanceToNextPuzzle(400);
+      }
+      return true;
+    },
+    [game, lives, playSound, fetchGuestPuzzle, setupPuzzle, endGame],
+  );
+
   const isPromotionMove = useCallback((from: string, to: string): boolean => {
     if (!game) return false;
     const piece = game.get(from as Square);
@@ -167,6 +305,11 @@ export function PuzzleRushPage() {
   const executeRushMove = useCallback(
     (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
       if (!game) return;
+      // KS-4157: гостевой режим — локально, без сервера.
+      if (isGuest) {
+        handleGuestMove(from, to, promotion);
+        return;
+      }
 
       const copy = new Chess(game.fen());
       const move = copy.move({ from, to, promotion });
@@ -231,7 +374,7 @@ export function PuzzleRushPage() {
           setSubmitting(false);
         });
     },
-    [game, endGame, loadNextPuzzle],
+    [game, endGame, loadNextPuzzle, isGuest, handleGuestMove, playSound, t],
   );
 
   const handlePromotionChoice = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
@@ -256,6 +399,11 @@ export function PuzzleRushPage() {
         if (!testMove) return false;
         setPendingPromotion({ from: sourceSquare as Square, to: targetSquare as Square });
         return true;
+      }
+
+      // KS-4157: гостевой режим — локальная проверка хода.
+      if (isGuest) {
+        return handleGuestMove(sourceSquare, targetSquare);
       }
 
       const copy = new Chess(game.fen());
@@ -323,7 +471,7 @@ export function PuzzleRushPage() {
 
       return true;
     },
-    [game, screen, feedback, submitting, endGame, loadNextPuzzle, isPromotionMove],
+    [game, screen, feedback, submitting, endGame, loadNextPuzzle, isPromotionMove, isGuest, handleGuestMove, playSound, t],
   );
 
   const boardEnabled = screen === 'playing' && !feedback && !submitting;
@@ -341,11 +489,37 @@ export function PuzzleRushPage() {
   // --- Start Screen ---
   if (screen === 'start') {
     return (
-      <div className="puzzle-rush-page">
+      <div
+        className="puzzle-rush-page"
+        data-auth={isGuest ? 'guest' : 'user'}
+      >
         <h1>{t('puzzle.rush.title')}</h1>
         <p className="puzzle-rush-description">
           {t('puzzleRush.description')}
         </p>
+
+        {/* KS-4157 / ADR-128 §5.13: гостю показываем CTA — раунд играется,
+            но рекорд не сохраняется и в лидерборд не попадает. */}
+        {isGuest && (
+          <section
+            className="puzzle-rush-guest-cta"
+            data-testid="puzzle-rush-guest-cta"
+          >
+            <p>
+              {t(
+                'puzzleRush.guest.message',
+                'Sign in to save records and join the leaderboard.',
+              )}
+            </p>
+            <Link
+              to="/login"
+              className="puzzle-rush-guest-cta__link"
+              data-testid="puzzle-rush-guest-cta-link"
+            >
+              {t('puzzleRush.guest.cta', 'Sign in')}
+            </Link>
+          </section>
+        )}
 
         <div className="puzzle-rush-time-select">
           <h3>{t('puzzleRush.selectTime')}</h3>
@@ -387,9 +561,34 @@ export function PuzzleRushPage() {
     const timeUsed = timeLimit - timeLeft;
 
     return (
-      <div className="puzzle-rush-page">
+      <div
+        className="puzzle-rush-page"
+        data-auth={isGuest ? 'guest' : 'user'}
+      >
         <div className="puzzle-rush-result">
           <h2>{t('puzzle.rush.gameOver')}</h2>
+
+          {/* KS-4157: гостевой раунд — рекорд не сохраняется, CTA в лидерборд. */}
+          {isGuest && (
+            <section
+              className="puzzle-rush-guest-cta"
+              data-testid="puzzle-rush-guest-cta-result"
+            >
+              <p>
+                {t(
+                  'puzzleRush.guest.resultMessage',
+                  'Result not saved. Sign in to save records and join the leaderboard.',
+                )}
+              </p>
+              <Link
+                to="/login"
+                className="puzzle-rush-guest-cta__link"
+                data-testid="puzzle-rush-guest-cta-result-link"
+              >
+                {t('puzzleRush.guest.cta', 'Sign in')}
+              </Link>
+            </section>
+          )}
 
           <div className="rush-final-score">
             <div className="rush-score-big">{score}</div>
