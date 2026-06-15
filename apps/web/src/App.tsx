@@ -23,6 +23,8 @@ import MyLecturesPreviewPage from './pages/dev/MyLecturesPreviewPage';
 import LectureAccessPreviewPage from './pages/dev/LectureAccessPreviewPage';
 // KS-4196 dev-only: песочница для приёмочных скриншотов публичной /lectures.
 import PublicLecturesPreviewPage from './pages/dev/PublicLecturesPreviewPage';
+// KS-4206 dev-only: песочница для приёмочных скриншотов состояний кнопки «Завершённые».
+import BroadcastsFinishedTogglePreviewPage from './pages/dev/BroadcastsFinishedTogglePreviewPage';
 import { FeaturesPage } from './pages/FeaturesPage';
 import { DocsUserCoursesPage } from './pages/DocsUserCoursesPage';
 import { DiscoverCoursesPage } from './pages/DiscoverCoursesPage';
@@ -498,6 +500,8 @@ export function App() {
         <Route path="/__dev/lecture-access" element={<LectureAccessPreviewPage />} />
         {/* KS-4196 dev-only песочница публичной /lectures (Hero + CTA + табы + грид + состояния). */}
         <Route path="/__dev/public-lectures" element={<PublicLecturesPreviewPage />} />
+        {/* KS-4206 dev-only песочница состояний кнопки «Завершённые» на /broadcasts. */}
+        <Route path="/__dev/broadcasts-finished-toggle" element={<BroadcastsFinishedTogglePreviewPage />} />
         <Route path="/features" element={<FeaturesPage />} />
         {/* KS-1895: публичная документация — без ProtectedRoute */}
         <Route path="/docs/user-courses" element={<DocsUserCoursesPage />} />
