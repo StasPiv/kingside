@@ -5,6 +5,8 @@ import { WorkshopAnalysisList } from '../components/workshop/WorkshopAnalysisLis
 import { WorkshopPgnList } from '../components/workshop/WorkshopPgnList';
 import type { PgnFile } from '../components/workshop/WorkshopPgnList';
 import { HelpButton } from '../components/HelpButton';
+import { useAuth } from '../context/AuthContext';
+import { guestWorkshopStore } from '../utils/guestWorkshopStore';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -15,6 +17,8 @@ export function WorkshopPage() {
   const navigate = useNavigate();
   const params = useParams<{ fileId?: string }>();
   const location = useLocation();
+  const { user } = useAuth();
+  const isGuest = !user;
 
   const isPgnFilesSection = location.pathname.startsWith('/workshop/pgn-files');
   const section: Section = isPgnFilesSection ? 'pgnFiles' : 'myAnalyses';
@@ -28,6 +32,20 @@ export function WorkshopPage() {
     setResolvedFile(stateFile);
     if (fileId && !stateFile) {
       setFileLoading(true);
+
+      // KS-4166: гостю серверный список не дёргаем — ищем файл в
+      // локальном `guestWorkshopStore`.
+      if (isGuest) {
+        const found = guestWorkshopStore.listFiles().find((f) => f.id === fileId);
+        if (found) {
+          setResolvedFile(found);
+        } else {
+          navigate('/workshop/pgn-files', { replace: true });
+        }
+        setFileLoading(false);
+        return;
+      }
+
       const token = localStorage.getItem('token');
       fetch(`${API_URL}/workshop/pgn-files`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -57,7 +75,7 @@ export function WorkshopPage() {
       setResolvedFile(null);
       setFileLoading(false);
     }
-  }, [fileId, stateFile, navigate]);
+  }, [fileId, stateFile, navigate, isGuest]);
 
   const handleSectionChange = useCallback(
     (newSection: Section) => {

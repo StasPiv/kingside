@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api';
+import { useAuth } from '../../context/AuthContext';
 import { openAnalysis } from '../../utils/openAnalysis';
+import { guestWorkshopStore } from '../../utils/guestWorkshopStore';
 import { ImportExternalModal } from './ImportExternalModal';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -45,6 +47,11 @@ export function WorkshopPgnList({ selectedFile, onSelectFile }: WorkshopPgnListP
 
 function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFile) => void; onRefresh?: () => void }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  // KS-4166: гость хранит PGN локально (localStorage + IndexedDB),
+  // серверные эндпоинты `/workshop/pgn-files*` и `/users/me/settings`
+  // ему не вызываются.
+  const isGuest = !user;
   const [files, setFiles] = useState<PgnFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -57,15 +64,23 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
   const [externalAccounts, setExternalAccounts] = useState<{ chesscomUsername?: string; lichessUsername?: string }>({});
 
   useEffect(() => {
+    // KS-4166: гостю /users/me/settings не запрашиваем (был источник
+    // 401 на /workshop/pgn-files).
+    if (isGuest) return;
     api.get<{ chesscomUsername?: string; lichessUsername?: string }>('/users/me/settings')
       .then(setExternalAccounts)
       .catch(() => {});
-  }, []);
+  }, [isGuest]);
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
     setError(false);
     try {
+      if (isGuest) {
+        // Локальный список — без сетевых вызовов.
+        setFiles(guestWorkshopStore.listFiles());
+        return;
+      }
       const res = await fetch(`${API_URL}/workshop/pgn-files`, { headers: authHeaders() });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -81,7 +96,7 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isGuest]);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
@@ -92,6 +107,12 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
     setUploading(true);
     setUploadError('');
     try {
+      if (isGuest) {
+        const text = await file.text();
+        await guestWorkshopStore.addFile(file.name, text);
+        setFiles(guestWorkshopStore.listFiles());
+        return;
+      }
       const formData = new FormData();
       formData.append('file', file);
       const res = await fetch(`${API_URL}/workshop/pgn-files`, {
@@ -112,6 +133,11 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
     e.stopPropagation();
     if (!confirm(t('workshop.pgnFiles.confirmDelete', 'Delete this PGN file?'))) return;
     try {
+      if (isGuest) {
+        await guestWorkshopStore.deleteFile(id);
+        setFiles(guestWorkshopStore.listFiles());
+        return;
+      }
       await fetch(`${API_URL}/workshop/pgn-files/${id}`, { method: 'DELETE', headers: authHeaders() });
       setFiles((prev) => prev.filter((f) => f.id !== id));
     } catch { /* ignore */ }
@@ -126,6 +152,12 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
   const handleRename = async (id: string) => {
     if (!editName.trim()) { setEditingId(null); return; }
     try {
+      if (isGuest) {
+        guestWorkshopStore.renameFile(id, editName.trim());
+        setFiles(guestWorkshopStore.listFiles());
+        setEditingId(null);
+        return;
+      }
       await fetch(`${API_URL}/workshop/pgn-files/${id}`, {
         method: 'PATCH',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -220,6 +252,8 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
 function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isGuest = !user;
   const [games, setGames] = useState<PgnFileGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -231,6 +265,24 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
     setLoading(true);
     setError(false);
 
+    if (isGuest) {
+      // KS-4166: список партий читается из IndexedDB; сервер не зовётся.
+      guestWorkshopStore
+        .getGames(file.id)
+        .then((list) => {
+          if (!cancelled) setGames(list);
+        })
+        .catch(() => {
+          if (!cancelled) setError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     fetch(`${API_URL}/workshop/pgn-files/${file.id}/games`, { headers: authHeaders() })
       .then((res) => { if (!res.ok) throw new Error(); return res.json(); })
       .then((data) => { if (!cancelled) setGames(data.data ?? data); })
@@ -238,7 +290,7 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [file.id, refreshKey]);
+  }, [file.id, refreshKey, isGuest]);
 
   const handleOpenGame = (game: PgnFileGame) => {
     // KS-2605 (ADR-051 §4 B3): идём через openAnalysis — helper делает
@@ -264,7 +316,11 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
   const handleDeleteFile = async () => {
     if (!confirm(t('workshop.pgnFiles.confirmDelete', 'Delete this PGN file?'))) return;
     try {
-      await fetch(`${API_URL}/workshop/pgn-files/${file.id}`, { method: 'DELETE', headers: authHeaders() });
+      if (isGuest) {
+        await guestWorkshopStore.deleteFile(file.id);
+      } else {
+        await fetch(`${API_URL}/workshop/pgn-files/${file.id}`, { method: 'DELETE', headers: authHeaders() });
+      }
       navigate('/workshop/pgn-files');
     } catch { /* ignore */ }
   };
@@ -272,6 +328,11 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
   const handleRenameFile = async () => {
     if (!fileName.trim()) { setEditingName(false); return; }
     try {
+      if (isGuest) {
+        guestWorkshopStore.renameFile(file.id, fileName.trim());
+        setEditingName(false);
+        return;
+      }
       await fetch(`${API_URL}/workshop/pgn-files/${file.id}`, {
         method: 'PATCH',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -285,6 +346,11 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
     e.stopPropagation();
     if (!confirm(t('workshop.pgnFiles.confirmDeleteGame', 'Delete this game?'))) return;
     try {
+      if (isGuest) {
+        const remaining = await guestWorkshopStore.deleteGame(file.id, gameId);
+        setGames(remaining);
+        return;
+      }
       await fetch(`${API_URL}/workshop/pgn-files/${file.id}/games/${gameId}`, { method: 'DELETE', headers: authHeaders() });
       setGames((prev) => prev.filter((g) => g.id !== gameId));
     } catch { /* ignore */ }
