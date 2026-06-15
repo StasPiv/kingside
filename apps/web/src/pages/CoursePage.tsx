@@ -339,6 +339,15 @@ export function CoursePage() {
         >
           ← {t('lessons.backToList', 'All courses')}
         </Link>
+        {/* KS-4140 / ADR-128 §11.2: гостю — inline-CTA, курс открыт
+            для просмотра, прогресс не сохраняется. */}
+        {!user && (
+          <div className="guest-banner" data-testid="course-guest-banner">
+            <Link to="/login">
+              {t('auth.loginToSaveProgress', 'Sign in to save your progress')}
+            </Link>
+          </div>
+        )}
         <div className="course-header__title-row">
           <h1 data-testid="course-title">{courseTitle}</h1>
           {/* KS-2653: бейдж видимости — только для пользовательского

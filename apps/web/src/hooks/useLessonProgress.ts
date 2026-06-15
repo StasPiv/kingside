@@ -177,6 +177,12 @@ export function useLessonProgress({
       pendingPayloadsRef.current.delete(stepId);
       pendingTimersRef.current.delete(stepId);
       if (!payload || !lessonId) return;
+      // KS-4140 / ADR-128 §11.2: гость проходит урок локально, без
+      // записи прогресса. Никаких POST /lessons/:id/steps — иначе
+      // 401 → guest-401 (write PV) → LoginRequiredModal посреди урока.
+      if (typeof window !== 'undefined' && !localStorage.getItem('token')) {
+        return;
+      }
       try {
         const response = await lessonsApi.markStep(lessonId, payload);
         // KS-1880: серверный `stepsState` — авторитативный. Мерджим
@@ -255,6 +261,13 @@ export function useLessonProgress({
         await flushStep(id);
       }
       setIsCompleting(true);
+      // KS-4140 / ADR-128 §11.2: гостю completeLesson не отправляем —
+      // прогресса на сервере у него нет. Возвращаем ok=true как при
+      // локальном прохождении: UI-овер пользуется ratio/threshold.
+      if (typeof window !== 'undefined' && !localStorage.getItem('token')) {
+        setIsCompleting(false);
+        return { ok: true, ratio: score, threshold: passThreshold };
+      }
       try {
         // Body — `{score, quality?}`. lessonId уже в URL (KS-2646 unified).
         const progress = await lessonsApi.completeLesson(lessonId, {

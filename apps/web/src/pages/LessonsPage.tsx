@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   CourseListItem,
@@ -144,6 +144,15 @@ export function LessonsPage() {
         <p className="lessons-subtitle">
           {t('lessons.subtitle', 'Structured chess curriculum')}
         </p>
+        {/* KS-4140 / ADR-128 §11.2: гостю — inline-CTA по образцу
+            PuzzlePage. Каталог открыт, прогресс не сохраняется. */}
+        {!user && (
+          <div className="guest-banner" data-testid="lessons-guest-banner">
+            <Link to="/login">
+              {t('auth.loginToSaveProgress', 'Sign in to save your progress')}
+            </Link>
+          </div>
+        )}
         {/* KS-2650: табы «Все / Мои» — простое переключение источника
             списка курсов. Гостям таб «Мои» не показываем — нечего там
             показывать без авторизации. */}

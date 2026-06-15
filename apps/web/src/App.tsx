@@ -590,7 +590,9 @@ export function App() {
         )}
         {lessonsEnabled ? (
           <>
-            <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
+            {/* KS-4140 / ADR-128 §11.2: каталог системных курсов открыт
+                гостю (PF). Backend OptionalJwtGuard на /courses/system. */}
+            <Route path="/lessons" element={<LessonsPage />} />
             {/* KS-1941 (F-4): «Мои активные курсы» — страница со всеми
                 активными прогрессами пользователя. */}
             <Route
@@ -638,8 +640,11 @@ export function App() {
               path="/lessons/mistakes-practice"
               element={<RedirectWithQuery to="/puzzles/mistakes-practice" />}
             />
-            <Route path="/lessons/:courseSlug" element={<ProtectedRoute><CoursePage /></ProtectedRoute>} />
-            <Route path="/lessons/:courseSlug/:lessonSlug" element={<ProtectedRoute><LessonPage /></ProtectedRoute>} />
+            {/* KS-4140 / ADR-128 §11.2: страница курса и страница урока
+                открыты гостю (PF). Прогресс гостю не сохраняется —
+                компоненты сами не зовут write-эндпоинты при !user. */}
+            <Route path="/lessons/:courseSlug" element={<CoursePage />} />
+            <Route path="/lessons/:courseSlug/:lessonSlug" element={<LessonPage />} />
           </>
         ) : (
           // KS-1820: при выключенном флаге все lessons-маршруты

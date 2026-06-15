@@ -922,6 +922,7 @@
       "toastLoadFailed": "Could not load. Please try again later.",
       "toastActionFailed": "Action could not be completed. Please try again later."
     },
+    "loginToSaveProgress": "Sign in to save your progress",
     "usernameSetup": {
       "title": "Choose your username",
       "label": "Username",

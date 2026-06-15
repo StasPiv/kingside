@@ -14,6 +14,7 @@ import { lessonsApi } from '../api/lessonsApi';
 import { StepRenderer } from '../components/lessons/StepRenderer';
 import { UserLessonView } from '../components/lessons/views/UserLessonView';
 import { useLessonProgress } from '../hooks/useLessonProgress';
+import { useAuth } from '../context/AuthContext';
 import { resolveInlineText } from '../utils/inlineI18nText';
 
 /**
@@ -56,6 +57,7 @@ export function reviewScoreToQuality(score: number): 0 | 5 {
 
 export function LessonPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { courseSlug, lessonSlug } = useParams<{
     courseSlug: string;
     lessonSlug: string;
@@ -551,6 +553,16 @@ export function LessonPage() {
               course.course.slug,
             )}
           </Link>
+        )}
+        {/* KS-4140 / ADR-128 §11.2: гостю — inline-CTA. Урок проходится
+            локально, прогресс на сервер не отправляется (см. KS-4140
+            гард в useLessonProgress.flushStep / completeLesson). */}
+        {!user && (
+          <div className="guest-banner" data-testid="lesson-guest-banner">
+            <Link to="/login">
+              {t('auth.loginToSaveProgress', 'Sign in to save your progress')}
+            </Link>
+          </div>
         )}
         <h1>
           {resolveInlineText(
