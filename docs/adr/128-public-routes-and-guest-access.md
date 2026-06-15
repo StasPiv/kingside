@@ -1586,21 +1586,209 @@ SEO-тегов в `apps/web/src/main.tsx` **не нужен и не добавл
 
 ##### L1. `/lectures` (список)
 
+> **Ревизия 2026-06-15 (KS-4190).** KS-4188 поднял публичный эндпоинт
+> `GET /lectures/public` (OptionalJwtGuard + rate-limit 60/мин,
+> 16 опубликованных лекций на проде). Backend-пробел из исходной
+> редакции закрыт. Эта ревизия описывает UI-структуру страницы для
+> гостя — см. подраздел **L1.UI** ниже сразу после таблицы L1.
+
 | Поле | Значение |
 |---|---|
-| Компонент | `LecturesListPage` |
-| Файл | `apps/web/src/pages/LecturesListPage.tsx` |
-| API-запросы | Для гостя: маршрут открыт (ADR-128 §4.2), но **глобального публичного списка лекций нет** (только `GET /coaches/:u/lectures` per-coach и `GET /my/lectures` под JWT). Это пробел: frontend сейчас при `!user` рендерит CTA «sign in», а не публичный список. См. fallback'и ниже. |
-| DTO | — (для гостя список пустой; для авторизованного — `LectureSummary[]` через `GET /my/lectures`) |
-| Поля для SEO | Только статика. |
-| Prisma | `Lecture` |
+| Компонент | `LecturesListPage` (→ `LecturesIndexPage`) |
+| Файл | `apps/web/src/pages/LecturesIndexPage.tsx` (переэкспорт в `LecturesListPage.tsx`) |
+| API-запросы | **Гость**: `GET /lectures/public?limit=&offset=` (агрегат `visibility='public'`, исключает `cancelled`; сортировка `scheduledAt DESC, createdAt DESC` — финальная группировка по `status` делается на фронте). **Авторизованный**: текущие 4 запроса `GET /my/lectures?status=*` (как сейчас, без изменений) + **дополнительно** тот же `GET /lectures/public` для секции «Discover». |
+| DTO | `{ items: PublicLecture[], total, limit, offset, hasMore }`. Поля `PublicLecture`: `id`, `title`, `description?`, `status: 'scheduled'\|'live'\|'recorded'`, `visibility: 'public'`, `scheduledAt: string\|null`, `coach: { id, username, country? }` (без email/phone/lastSeenAt — вырезает `toPublicDto`), `liveAnalysis: { id, slug, startingFen }\|null`, `recording: { startingFen }\|null`, `previewFen?: string` (после `withPreviewFen`), `audio?: { durationMs }` (для recorded). |
+| Поля для SEO | агрегаты: `total` (если есть — в JSON-LD `numberOfItems`), top-N `items[].title`, top-N `items[].coach.username` для `ItemList`. |
+| Prisma | `Lecture` + `User` (как `coach`) + `LiveAnalysis` (для live) + `LectureRecording` (для recorded) + `LectureAudio` (`durationMs`). |
 | `<title>` (≤60) | `seo.lectures.list.title` — «Chess lectures and coaches — Kingside» |
 | `<meta description>` (≤160) | `seo.lectures.list.description` — «Live and recorded chess lectures by titled coaches. Book a class, watch replays on Kingside.» |
 | `og:type` | `website` |
 | `og:image` | `/og/lecture.png` |
-| `canonical` | `https://kingside.site/lectures` |
-| JSON-LD | `CollectionPage` без `ItemList` (нет публичного списка для гостя). |
-| Fallback'и | **Backend-пробел**: для нормального индексирования `/lectures` гостю нужен публичный эндпоинт `GET /lectures/public?status=public&limit=` (агрегат опубликованных лекций по всем тренерам). До его появления — list-страница имеет только статические meta + ссылки на отдельных тренеров (через карточки). Эндпоинт — отдельная backend-задача (см. §10). |
+| `canonical` | `https://kingside.site/lectures` (без `?status=` / `?offset=` — фильтры не canonical-семантика) |
+| JSON-LD | `CollectionPage` + `ItemList` с top-10 (или меньше) `items` как `Course`: `{ '@type': 'Course', name: title, provider: { '@type': 'Organization', name: 'Kingside' }, instructor: { '@type': 'Person', name: coach.username } }`. Если `total > 0` — `numberOfItems: total`. |
+| Fallback'и | Список пустой (`total=0`) → JSON-LD без `ItemList`, фронт показывает empty-state (`lecturesPublic.empty.*`). API 5xx / network → state `error`, фронт показывает retry-кнопку (см. L1.UI ниже), JSON-LD не выводим. |
+
+##### L1.UI. UI-структура страницы (расширение L1, KS-4190)
+
+> Цель: убрать сценарий, при котором гость видит четыре «Failed to load
+> lectures. Please try again» на странице с уже-проиндексированным
+> SEO-заголовком. Гость должен попадать на работающий публичный
+> каталог; авторизованный — на текущие коуч/студент-секции +
+> дополнительный публичный каталог.
+
+###### L1.UI.1. Источник режима
+
+- Режим определяет `useAuth().user`. Никаких feature-flag'ов.
+- **Гость (`user==null`)** — рендерится **только** публичный каталог
+  (`<PublicLecturesCatalog>`). Никаких секций «As a Coach» / «As a
+  Student» — они для гостя бессмысленны и сейчас именно они и
+  выдают 401.
+- **Авторизованный (`user!=null`)** — три секции в порядке: (1) `As a
+  Coach` (текущий `MyLecturesPage`); (2) `As a Student` (текущий
+  `StudentLecturesPage`); (3) `Discover public lectures` (новый
+  `<PublicLecturesCatalog>` с `limit=6` и ссылкой «See all» на
+  …отдельную страницу — не вводим, см. §L1.UI.7 «See all»).
+
+###### L1.UI.2. Структура для гостя (по блокам)
+
+| Блок | Содержание |
+|---|---|
+| 1. Hero | `<h1>` из `lecturesPublic.hero.title` (один на странице — другие `h2` не конкурируют). `<p>` подзаголовка из `lecturesPublic.hero.subtitle`: 1 предложение, описывающее раздел. Без иллюстрации (опционально иконка). |
+| 2. Inline guest-CTA баннер (паттерн A, ADR-128 §6.1) | Узкий баннер «Войдите, чтобы бронировать лекции и получать доступ к live-эфирам» + ссылка «Войти» → `/login`. Не модалка, не блокирует контент. Текст: `lecturesPublic.guest.bannerText` + `lecturesPublic.guest.bannerCta`. |
+| 3. Фильтр статусов | Tab-bar: `All` / `Live now` / `Scheduled` / `Recorded`. Без `Cancelled` (backend исключает). Без фильтра `visibility` (всё public). Без кнопки «Schedule a lecture». Клиентский фильтр над выкаченным набором (см. §L1.UI.4). Active tab сохраняется в URL `?status=` для shareable-ссылок; на canonical не влияет (canonical всегда голый `/lectures`). |
+| 4. Грид карточек | Список `<PublicLectureCard>` (см. §L1.UI.3). Сначала — `live` (если есть в текущем фильтре), затем `scheduled` по `scheduledAt ASC` (ближайшие сверху), затем `recorded` по `createdAt DESC`. Группировку делает фронт, backend отдаёт плоский список. |
+| 5. Пагинация | Кнопка «Show more» (`lecturesPublic.loadMore`) внизу. Подгружает следующую страницу через `offset += limit`. Limit по умолчанию **24** (4×6 desktop / 3×8 mobile — кратно популярным грид-сеткам, но это уже задача layout). Если `hasMore=false` — кнопка скрыта. |
+| 6. Empty state | Если `items=[]` после первой загрузки — карточка-заглушка с текстом `lecturesPublic.empty.title` + `lecturesPublic.empty.subtitle` («Public lectures coming soon. Browse coaches to see private offerings.»). Ссылка на `/players?tab=coaches` (если такого таба нет — на `/players`). |
+| 7. Error state | На 5xx / network: блок «Failed to load lectures» + кнопка «Try again» (`lecturesPublic.error.title` / `lecturesPublic.error.retry`). Один блок на всю страницу — **не четыре**, как сейчас. |
+
+###### L1.UI.3. Карточка `<PublicLectureCard>`
+
+| Элемент | Источник | Fallback / правила |
+|---|---|---|
+| Preview доски | `previewFen` (PNG-render через существующий board-snapshot компонент проекта) | `previewFen=null` → `/og/lecture.png` как 16:9 placeholder, либо просто пустой quadrat с иконкой. |
+| Бейдж статуса | `status` | `live` → красный точка-индикатор + «Live now» (`lecturesPublic.card.live`); `scheduled` → синий «Scheduled` + локализованная дата `{scheduledAt}` (`lecturesPublic.card.scheduled`); `recorded` → серый «Recorded» + дата записи или `createdAt` (`lecturesPublic.card.recorded`). |
+| Заголовок | `title` | Обрезка 2 строк (CSS line-clamp, не frontend) — фактическое обрезание — задача layout. |
+| Тренер | `coach.username` → ссылка на `/coach/:username` | Ссылка не блокирует клик карточки (см. ниже). |
+| Длительность | `audio.durationMs` для recorded → форматирование `mm:ss` или `Hh Mm` | `null` → блок скрыт. |
+| Описание-превью | `description` | `null/''` → блок скрыт; иначе обрезка ~2 строки. |
+| Клик по карточке | → `/lectures/:id` | Стандартный link. Внутри карточки могут быть subordinate-links (на `/coach/:u`) — для них `stopPropagation`, чтобы клик по никнейму не уносил на детальную лекцию. |
+| Hover | визуальный hint — задача layout | — |
+
+`priceCents` / «book this lecture» на карточке **не показываем** —
+это уже логика страницы детали (`/lectures/:id`, L2). Карточка
+гостя — только превью; решение «купить» гость принимает на L2 через
+`useRequireAuth` (паттерн B, ADR-128 §6.2). На L1 — никаких discrete
+write-actions.
+
+###### L1.UI.4. Клиентская группировка и фильтр
+
+Backend отдаёт смешанный список с сортировкой `scheduledAt DESC, createdAt DESC`. Фронт:
+
+1. Делит на 3 группы по `status`.
+2. Внутри `live` — `createdAt DESC`.
+3. Внутри `scheduled` — `scheduledAt ASC` (ближайшие сверху).
+4. Внутри `recorded` — `createdAt DESC`.
+5. Если фильтр `All` — выводит подряд live → scheduled → recorded.
+6. Если фильтр `Live now` / `Scheduled` / `Recorded` — только своя группа.
+
+Поскольку backend пагинирует **до** разделения по статусу, при
+агрессивной пагинации в одном «окне» (offset=0, limit=24) может
+оказаться, например, 0 live + 4 scheduled + 20 recorded. Это
+ожидаемо: гость кликает «Show more», подгружается следующая
+страница, статусы перераспределяются. Это компромисс — клиентский
+ре-сортинг не ломает «Show more»-логику, потому что `hasMore`
+отдаётся backend по полному набору, а не по группе.
+
+Если в будущем потребуется per-status пагинация — добавляем
+backend-параметр `lifecycleStatus`, в этом ADR не делаем (KS-4188
+эндпоинт без этого параметра, и пользователь не блокирован).
+
+###### L1.UI.5. Структура для авторизованного
+
+Сохраняется текущий `LecturesIndexPage` (две секции). Дополнительно
+ниже добавляется третья секция:
+
+| Блок | Содержание |
+|---|---|
+| Section 3 header | `<h2>` = `lecturesPublic.authSection.title` («Discover public lectures»). |
+| Section 3 body | `<PublicLecturesCatalog limit=6 noPagination>` — превью первых 6 карточек, без фильтра, без «Show more», без hero/баннера. |
+| Footer ссылка | «See all» → анкор-ссылка `#discover-all` на самой же странице? Или отдельная страница? — см. §L1.UI.7. |
+
+###### L1.UI.6. CTA — где (паттерн A) и где (паттерн B)
+
+| Действие | Паттерн | Где |
+|---|---|---|
+| «Войти» (общий) | **A** — inline-CTA баннер | Hero (Блок 2) на гостевой странице. Не модалка, обычная ссылка. |
+| Открытие карточки → `/lectures/:id` | — | Открыт всем (OptionalJwtGuard на L2). Гость попадает на детальную страницу лекции — там действия (book/buy) уже на ней. |
+| Клик на коуча → `/coach/:username` | — | Открыт всем. |
+
+Discrete-actions «book this lecture» / «buy access» — **не на L1**,
+а на `/lectures/:id` (L2). Там паттерн B через `useRequireAuth`.
+
+###### L1.UI.7. «See all» в секции 3 (авторизованный)
+
+Сейчас отдельной страницы «все публичные лекции для авторизованного
+пользователя» **нет**. Вариант — добавить query-параметр на ту же
+страницу:
+
+- `<a href="/lectures?view=discover">` — гость видит обычный
+  публичный каталог; авторизованный по этой ссылке **скрывает** свои
+  две секции и показывает только публичный каталог.
+- В таком виде «See all» — это ссылка `/lectures?view=discover`,
+  компонент `LecturesIndexPage` читает `searchParams.get('view')` и
+  при `view='discover'` рендерит то же, что гостю (без секций As a
+  Coach / As a Student). `canonical` всё равно остаётся голым
+  `/lectures` (фильтр UI-вью, не контентного состояния).
+
+Это решение **рекомендуется** как стартовое: не нужна отдельная
+маршрутизация. Альтернативно — авторизованный остаётся на
+`/lectures` без отдельного «See all», полный каталог открывает по
+явному управлению `?status=` фильтром. Решение — за frontend в KS-4190-FE,
+рекомендация в ADR — `?view=discover`.
+
+###### L1.UI.8. i18n-ключи
+
+Новые ключи (на `en` и `ru`, финальные строки — маркетинг):
+
+```
+lecturesPublic.hero.title              // h1
+lecturesPublic.hero.subtitle           // 1 предложение
+
+lecturesPublic.guest.bannerText        // «Войдите, чтобы бронировать лекции и live-доступ»
+lecturesPublic.guest.bannerCta         // «Войти» → /login
+
+lecturesPublic.filter.all              // «All»
+lecturesPublic.filter.live             // «Live now»
+lecturesPublic.filter.scheduled        // «Scheduled»
+lecturesPublic.filter.recorded         // «Recorded»
+
+lecturesPublic.card.live               // «Live now»
+lecturesPublic.card.scheduled          // «Scheduled for {date}»
+lecturesPublic.card.recorded           // «Recorded» (+ {date} в подписи карточки)
+lecturesPublic.card.byCoach            // «by {coach}»
+lecturesPublic.card.duration           // «{duration}» (минуты, формат — layout)
+
+lecturesPublic.empty.title             // «No public lectures yet»
+lecturesPublic.empty.subtitle          // «Public lectures are coming soon. Browse coaches to see private offerings.»
+lecturesPublic.empty.coachesLink       // «Browse coaches» → /players
+
+lecturesPublic.error.title             // «Failed to load lectures»
+lecturesPublic.error.retry             // «Try again»
+
+lecturesPublic.loadMore                // «Show more»
+lecturesPublic.authSection.title       // «Discover public lectures» (h2 третьей секции)
+lecturesPublic.authSection.seeAll      // «See all» → /lectures?view=discover
+```
+
+SEO-ключи `seo.lectures.list.*` — уже есть (§7.6.1.4), не дублируем.
+
+###### L1.UI.9. Что меняется в коде (для KS-4190-FE)
+
+| Файл | Что |
+|---|---|
+| `apps/web/src/pages/LecturesIndexPage.tsx` | Развилка по `useAuth().user`. Гость → `<PublicLecturesCatalog mode="full" />`. Авторизованный → текущие `<MyLecturesPage>` + `<StudentLecturesPage>` + `<PublicLecturesCatalog mode="preview" limit={6} />`. Дополнительно: `useSearchParams().get('view')==='discover'` → автоматически режим гостя. |
+| `apps/web/src/pages/LecturesListPage.tsx` | Без изменений (переэкспорт). |
+| `apps/web/src/components/lectures/PublicLecturesCatalog.tsx` | **Новый.** Принимает `mode: 'full' \| 'preview'`, `limit?: number`. Делает `GET /lectures/public` с пагинацией. Рендерит блоки 1–7 (§L1.UI.2) в режиме `full`. В режиме `preview` — только грид карточек, без hero/баннера/фильтра/пагинации/empty. |
+| `apps/web/src/components/lectures/PublicLectureCard.tsx` | **Новый.** Принимает `PublicLecture`. Рендерит всё из §L1.UI.3. |
+| `apps/web/src/hooks/usePublicLectures.ts` | **Новый.** Хук — обёртка над `GET /lectures/public` с состояниями `loading / error / data` и `loadMore()`. Тип ответа — `PublicLecturesResponse` (см. shared types). |
+| `apps/web/src/api/lecturesApi.ts` (либо `api.ts`) | Добавить вызов с типизацией. |
+| `packages/shared/src/types/api-contracts.ts` | Добавить `PublicLecture` (см. поля выше) и `PublicLecturesResponse = { items: PublicLecture[]; total: number; limit: number; offset: number; hasMore: boolean }`. |
+| `apps/web/src/i18n/locales/{en,ru}/translation.json` | Добавить узел `lecturesPublic.*` (§L1.UI.8). Финальные строки — KS-MK. |
+| `apps/web/scripts/prerender.mjs` | Прокинуть в моках `/lectures/public` → стабильный фиктивный ответ (например, пустой `items:[]` + `total:0` + `hasMore:false`), чтобы prerender выдавал empty-state с корректными SEO-метатегами, а не «Failed to load». |
+
+###### L1.UI.10. Декомпозиция
+
+| Тикет | Скоуп |
+|---|---|
+| **KS-4190-FE** | Реализация (§L1.UI.9). Зависит от KS-4171 (`<SeoHelmet>`) только в части метатегов — UI может ехать параллельно. |
+| **KS-4190-LL** | CSS-стили для `<PublicLecturesCatalog>`, `<PublicLectureCard>`, фильтр-табов, грид-сетки, адаптива. |
+| **KS-4190-MK** | Финальные строки `lecturesPublic.*` на en+ru. |
+| **KS-4190-FE-PR** | Обновление prerender-моков (`/lectures/public` → empty ответ). Это маленький подтикет внутри KS-4190-FE, можно не выделять отдельно. |
+
+Зависимости: KS-4189 (метатеги `/lectures`) **не блокируется**
+этим UI-патчем — может ехать параллельно, текстовые ключи `seo.lectures.list.*` уже есть. Сильное упрощение для frontend: гостевая страница теперь имеет содержательный empty-state вместо «Failed to load».
+
+KS-4189 + KS-4190-FE сводятся в одну страницу (`LecturesIndexPage`), но как отдельные тикеты — допустимо: KS-4189 ставит `<SeoHelmet>` и SEO-meta, KS-4190-FE переписывает контент-структуру. Координатор может слить их в один тикет, если выгоднее по объёму.
 
 ---
 
