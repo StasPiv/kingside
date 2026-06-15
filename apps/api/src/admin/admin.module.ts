@@ -4,6 +4,7 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminApiKeyGuard } from './admin-api-key.guard';
 import { ReindexBroadcastsProxyController } from './reindex-broadcasts-proxy.controller';
+import { ReindexAllController } from './reindex-all.controller';
 import { McpExclude } from '../mcp/decorators';
 
 // KS-2954 (ADR-061 §8): AdminModule отсекается hard-exclude'ом по
@@ -12,7 +13,11 @@ import { McpExclude } from '../mcp/decorators';
 @McpExclude()
 @Module({
   imports: [ConfigModule],
-  controllers: [AdminController, ReindexBroadcastsProxyController],
+  controllers: [
+    AdminController,
+    ReindexBroadcastsProxyController,
+    ReindexAllController,
+  ],
   providers: [AdminService, AdminApiKeyGuard],
 })
 export class AdminModule {}

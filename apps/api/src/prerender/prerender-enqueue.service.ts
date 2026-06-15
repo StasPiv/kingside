@@ -52,6 +52,23 @@ export class PrerenderEnqueueService implements OnModuleDestroy {
   }
 
   /**
+   * KS-4227. Синхронная отправка пачки задач — для разовой
+   * переиндексации через admin-эндпоинт. Шарoвой клиент сам режет на
+   * партии по 10 и шлёт SendMessageBatch. На ошибку SDK — пробрасывает,
+   * caller возвращает 500 с описанием.
+   */
+  async enqueueBatch(tasks: PrerenderTask[]): Promise<{ sent: number }> {
+    if (!this.client) {
+      this.logger.warn(
+        `prerender disabled (no client) — enqueueBatch skipped (would send ${tasks.length} tasks)`,
+      );
+      return { sent: 0 };
+    }
+    await this.client.enqueueBatch(tasks);
+    return { sent: tasks.length };
+  }
+
+  /**
    * Поставить пачку задач (см. `enqueueFireAndForget`). Полезно
    * на cron'ах / завершении турнира с большим числом партий.
    */
