@@ -1,12 +1,14 @@
 # ADR-128 — Политика публичных маршрутов и модель «гость пользуется функционалом / логин для записи в БД»
 
-- Статус: **Proposed** (2026-06-14, ревизия §7+§10+§11 в тот же день по
-  KS-4121, ревизия §4+§4.1+§5+§6+§8+§10+§11+§12 в тот же день по KS-4125,
-  фиксация решений §11.12–§11.14 в тот же день по KS-4126)
+- Статус: **Proposed** (2026-06-14: основа + ревизии по KS-4121,
+  KS-4125, KS-4126; 2026-06-15: фиксация решений §11.2 и §11.3 по
+  KS-4127)
 - Задача: KS-4120 (исходный), KS-4121 (§7), KS-4125 (отказ от
   PM-лендингов, кодификация inline guest-CTA), KS-4126 (закрытие
-  §11.12–§11.14, добавление KS-31/32 на seed-контент, явный запрет
-  привлекать chess-expert — контент даёт пользователь)
+  §11.12–§11.14, KS-31/32 на seed-контент, запрет привлекать
+  chess-expert — контент даёт пользователь), KS-4127 (закрытие
+  §11.2 — `/lessons` открыт гостю как PF — и §11.3 — onboarding
+  оставлен как текущий `UsernameSetupModal` + return)
 - Связанные ADR / задачи:
   - KS-4116 — внедрение prerender (frontend, `apps/web/scripts/prerender.mjs`),
     реестр `apps/web/src/config/publicRoutes.ts`.
@@ -256,9 +258,9 @@ Throttler глобально не подключён по умолчанию. П
 | `/lectures/:id/live` | PX/PV | Free-preview первых N минут (если ADR-119 позволит), иначе модалка | Платный доступ | модалка |
 | `/lectures/:id/replay`, `/lectures/:id/unavailable` | PV / PR | Replay требует ownership; unavailable — public-info | — | `ProtectedRoute` для replay |
 | `/archive`, `/archive/games/:id`, `/archive/players/:slug` | PR | Архив партий (уже без `ProtectedRoute`) | — | — |
-| `/lessons` (если `lessonsEnabled`) | PR/PF (зависит от §11.2) | Каталог системных курсов | Прогресс прохождения, отметка «изучено» | inline-CTA + модалка по «начать курс» — см. §11.2 |
+| `/lessons`, `/lessons/:courseSlug`, `/lessons/:courseSlug/:lessonSlug` (если `lessonsEnabled`) | **PF** | Каталог системных курсов, просмотр и прохождение уроков. Уроки идут локально, как `/puzzles`. См. §11.2 — решено в KS-4127 | Прогресс прохождения, отметка «изучено», запись «начал курс» | inline-CTA (`<GuestCTA variant="banner">`) на странице урока «войди для сохранения прогресса» |
 | `/lessons/discover` | PR (уже работает) | Каталог открытых курсов | — | — |
-| `/lessons/my`, `/lessons/my-active`, `/lessons/editor`, `/lessons/:courseSlug`, `/lessons/:courseSlug/:lessonSlug` | PV | Личные курсы, прогресс | — | `ProtectedRoute` |
+| `/lessons/my`, `/lessons/my-active`, `/lessons/editor`, `/lessons/my/:slug`, `/lessons/my/:slug/:lessonId` | PV | Личные курсы пользователя, редактор, прогресс | — | `ProtectedRoute` |
 | `/feedback`, `/feedback/:id` | PR | Доска идей | Голосовать, комментировать, создать | модалка по кнопке |
 | `/drills`, `/drills/about`, `/drills/sprint*`, `/drills/:type` | **PF** | Тематические тренажёры. `/drills/about` (статика) уже public | Sprint setup/play/results — сохранение прогресса, leaderboard | inline-CTA на странице тренажёра |
 | `/opening-trainer` | **PF** | Главная раздела с двумя секциями: «Демо-репертуары» (open, контент-seed §11.12 — несколько содержательных репертуаров от пользователя) + «Мои репертуары» (для гостя — guest-CTA). Гость проходит демо в SRS-flow локально | Личный репертуар, прогресс, SRS-очередь | inline-CTA на секции «Мои» + модалка по «создать репертуар» |
@@ -1180,10 +1182,12 @@ cron+mutation), разные исходники (dist/ vs S3-staging frontend +
 
 ### Волна 5 — открытие caталога курсов гостю
 
-16. **`/lessons`, `/lessons/discover`** — открыть каталог системных
-    курсов гостю (зависит от ADR-026 / ADR-054, продуктовая сверка с
-    пользователем + content). PF: гость пробует первый урок без
-    сохранения прогресса, inline-CTA «войди чтобы продолжить». §11.2.
+16. **`/lessons`, `/lessons/:courseSlug`, `/lessons/:courseSlug/:lessonSlug`,
+    `/lessons/discover`** — открыть каталог и просмотр уроков гостю
+    (PF, §11.2 решено в KS-4127). Гость проходит уроки локально, как
+    `/puzzles`; прогресс не пишется в БД до логина; inline-CTA на
+    странице урока. Контент курсов — пользователь, без chess-expert /
+    content-агента.
 
 ### Волна 6 — динамический og:image и top-N broadcast games
 
@@ -1249,6 +1253,13 @@ flowchart TD
 > opening-trainer) и KS-32 (seed демо-партий для workshop сайдбара).
 > Из тикетов KS-13, KS-16 убран chess-expert как соисполнитель —
 > содержательный контент по всему ADR-128 даёт пользователь.
+>
+> **Ревизия 2026-06-15 (KS-4127).** KS-19 уточнён — `/lessons`
+> открывается гостю как PF (а не «PR/PF зависит от §11.2»),
+> конкретные эндпоинты и paths перечислены явно. Отдельного тикета
+> под §11.3 (onboarding) не вводится — текущее поведение
+> `OAuthCallbackPage` + `UsernameSetupModal` + `returnUrl` остаётся
+> финальным.
 
 | # | Тикет | Что | Исполнитель | Размер | Зависит от |
 |---|-------|-----|-------------|--------|------------|
@@ -1272,7 +1283,7 @@ flowchart TD
 | 17 | KS-новый | DevOps+backend: og:image (внутри prerender-service или отдельная Lambda — §11.9) | devops + backend | L | 9 |
 | **ОТКРЫТИЕ КАТАЛОГОВ И PF-ТРЕНАЖЁРОВ (KS-4125)** | | | | | |
 | 18 | KS-новый | Backend: `GET /lobby/open-challenges` (волна 3, для `/lobby` PF) | backend | S | 1 |
-| 19 | KS-новый | Backend+frontend: открыть `/lessons`, `/lessons/discover` каталог гостю (волна 5, §11.2) | backend + frontend | M | 1 |
+| 19 | KS-новый | Backend+frontend: открыть `/lessons`, `/lessons/:courseSlug`, `/lessons/:courseSlug/:lessonSlug` гостю (PF, §11.2 — KS-4127). Backend: `GET /courses/system?published=true`, `GET /courses/:slug`, `GET /lessons/:slug` через `OptionalJwtGuard`; `POST /lessons/:id/progress`, `POST /courses/:slug/start` для гостя → 204 no-op (§11.13). Frontend: снять `ProtectedRoute` с трёх маршрутов; на странице урока — `<GuestCTA variant="banner">`. `lessonsEnabled` остаётся feature-flag'ом, но не auth-gate'ом. Личные `/lessons/my*`, `/lessons/editor` остаются `ProtectedRoute`. Контент курсов — пользователь (без chess-expert, без content-агента) | backend + frontend | M | 1, 22 |
 | 20 | KS-новый | Frontend: обновить `PUBLIC_ROUTES` реестр (флаг `dynamic: true` для шаблонных путей) | frontend | XS | 2 |
 | 21 | KS-новый | Architect: поднять ADR-128 Proposed → Accepted после волны 2, обновить фактами SEO-замеров | architect | S | 1–14 |
 | 22 | KS-новый | Frontend: компонент `<GuestCTA>` (§6.7) — единый шаблон inline-CTA с вариантами `banner` / `section` / `inline`, data-testid, data-auth | frontend | S | этот ADR |
@@ -1291,11 +1302,16 @@ flowchart TD
 
 ## 11. Открытые вопросы
 
-> **Ревизии**: §11.1, §11.4 закрыты KS-4121 (см. помету «resolved»
-> ниже). KS-4125 добавил §11.12–§11.14. **KS-4126 закрыл §11.12,
-> §11.13, §11.14** — пункты ниже содержат принятые пользователем
-> решения, не открытые вопросы. Прежний §11.12 (S3 layout) переименован
-> в §11.15, чтобы порядок появления пунктов соответствовал номерам.
+> **Ревизии**: §11.1, §11.4 закрыты KS-4121. KS-4125 добавил §11.12–§11.14.
+> KS-4126 закрыл §11.12, §11.13, §11.14. **KS-4127 закрыл §11.2 и §11.3.**
+> Прежний §11.12 (S3 layout) переименован в §11.15, чтобы порядок
+> появления пунктов соответствовал номерам.
+>
+> **Состояние §11 на 2026-06-15:** все продуктовые вопросы закрыты.
+> Оставшиеся пункты (§11.5 метатеги, §11.6 DDoS, §11.7 WS-handshake,
+> §11.8 top-N policy, §11.9 og:image, §11.10 GSC cloaking, §11.11
+> scale prerender worker'а, §11.15 S3 layout) — технические, решаются
+> при реализации соответствующими исполнителями (frontend/backend/devops).
 
 ### 11.1. ~~Где брать данные для prerender PR-маршрутов~~ — **resolved**
 
@@ -1304,26 +1320,77 @@ flowchart TD
 зациклиться — §7.3.6 (i)). Build-time prerender для PM остаётся без
 изменений.
 
-### 11.2. `/lessons` каталог для гостя
+### 11.2. `/lessons` каталог для гостя — **решено (KS-4127): открыть полностью, паттерн A**
 
-ADR-026 / ADR-054 описывают user-courses и system-courses. Каталог
-системных курсов потенциально open, но gate `lessonsEnabled` сейчас
-держит весь namespace под флагом. Открытие для гостя требует:
-- backend: открыть `GET /courses/system?published=true` для анонимов;
-- frontend: `<DiscoverCoursesPage>` (уже без auth) + лендинг
-  раздела `/lessons` для гостя;
-- продуктовая сверка с **пользователем + content** (без chess-expert,
-  KS-4126) на тему, какие курсы и какой free-preview подходят для
-  индексации.
+Каталог `/lessons` + просмотр уроков `/lessons/:courseSlug`,
+`/lessons/:courseSlug/:lessonSlug` открываются для гостя по тому же
+шаблону, что и `/puzzles`: гость проходит уроки, прогресс **не
+пишется** в БД до логина, на странице — inline guest-CTA «войди для
+сохранения прогресса».
 
-Не делаем в волне 1–2 — слишком много продуктовых вопросов.
+Контракт реализации (детали — в KS-19 декомпозиции):
 
-### 11.3. Onboarding после регистрации из модалки
+- **Backend:**
+  - `GET /courses/system?published=true` открыт для анонимов
+    (`OptionalJwtGuard`); `GET /courses/:slug`,
+    `GET /lessons/:slug` — то же.
+  - `POST /lessons/:id/progress`, `POST /courses/:slug/start` для
+    гостя → **204 no-op** (по контракту §11.13 PF write).
+  - `lessonsEnabled` остаётся feature-flag'ом, но не auth-gate'ом —
+    раздел появляется в навигации и для гостя при `lessonsEnabled=true`.
+- **Frontend:**
+  - снять `ProtectedRoute` с `/lessons`, `/lessons/:courseSlug`,
+    `/lessons/:courseSlug/:lessonSlug`;
+  - `<DiscoverCoursesPage>` уже без auth — без изменений;
+  - на странице урока — `<GuestCTA variant="banner">` с
+    `i18nKey="lessons.guest.saveProgress"` (по паттерну
+    `PuzzlePage.tsx:900-903`);
+  - `/lessons/my`, `/lessons/my-active`, `/lessons/editor`,
+    `/lessons/my/*` остаются `ProtectedRoute` — это личные курсы.
+- **Free-preview модели не вводим** — нет в проекте механики
+  «бесплатный фрагмент» отдельно от полного урока. Всё
+  опубликованное доступно гостю целиком.
 
-После успешной регистрации через `<LoginRequiredModal>` пользователь
-оказывается в середине сценария. Inline-onboarding в той же модалке
-или баннер в `<MainLayout>` до его прохождения — отдельная задача с
-пользователем.
+Категория `/lessons`, `/lessons/:courseSlug`,
+`/lessons/:courseSlug/:lessonSlug` в §4 — **PF** (была PR/PF
+«зависит от §11.2», теперь чётко PF). Обновление таблицы — в этой
+же ревизии.
+
+Контент курсов (тексты, программа, последовательность уроков) —
+**пользователь, без chess-expert и без content-агента**. Решение
+явно зафиксировано пользователем в KS-4127.
+
+### 11.3. Onboarding после регистрации — **решено (KS-4127): текущий UsernameSetupModal + return, ничего сверх**
+
+Существующее поведение фиксируется как финальное на сейчас:
+
+- В Kingside нет email/password-регистрации — только OAuth
+  (Google, Facebook, Telegram). Точки входа:
+  `apps/web/src/layouts/MainLayout.tsx:284-287` (кнопки на странице
+  логина), `apps/web/src/pages/LoginPage.tsx:81` (Telegram).
+- После первого OAuth-входа `OAuthCallbackPage.tsx:138` рендерит
+  `<UsernameSetupModal>` (`apps/web/src/components/UsernameSetupModal.tsx`)
+  — пользователь выбирает username.
+- После подтверждения username модалка закрывается, страница
+  читает `consumeAuthReturnUrl()` (или `state.returnUrl`) и
+  возвращает на исходный путь, ради которого был запущен логин.
+
+Этот flow покрывает все три случая входа:
+- из `<LoginRequiredModal>` через `useRequireAuth` (паттерн B,
+  §6.2) — `returnUrl` пишется в sessionStorage внутри
+  `RequireAuthContext.tsx:90, 97` перед навигацией;
+- из inline guest-CTA `<Link to="/login">` (паттерн A, §6.1) —
+  `LoginPage` сохраняет реферрер по дефолтному react-router-flow;
+- из прямого захода на `/login` — `returnUrl` = `/lobby` (или `/play`
+  для редиректа в `HomePage`).
+
+**Никакого дополнительного onboarding-шага** в scope ADR-128 не
+вводится. Расширенный сбор данных (шахматный уровень, аватар,
+предпочтительные тайм-контроли, цели обучения) — отдельная
+продуктовая задача в будущем, не в этом ADR.
+
+В §10 декомпозиции добавлять отдельный тикет под §11.3 не нужно —
+поведение уже реализовано.
 
 ### 11.4. ~~SSR / server-side prerender для динамических сегментов~~ — **resolved**
 
