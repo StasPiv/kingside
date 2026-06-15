@@ -50,6 +50,12 @@ describe('<SeoHelmet>', () => {
     expect(getMetaContent('meta[name="twitter:image"]')).toBe('/og/default.png');
   });
 
+  it('всегда ставит og:site_name=Kingside и twitter:site=@kingside_chess (KS-4211)', () => {
+    render(<SeoHelmet title="T" description="D" />);
+    expect(getMetaContent('meta[property="og:site_name"]')).toBe('Kingside');
+    expect(getMetaContent('meta[name="twitter:site"]')).toBe('@kingside_chess');
+  });
+
   it('canonical берётся из window.location.pathname, если не передан', () => {
     render(<SeoHelmet title="T" description="D" />);
     const link = document.head.querySelector('link[rel="canonical"]');
@@ -129,6 +135,63 @@ describe('<SeoHelmet>', () => {
     const desc = getMetaContent('meta[name="description"]') ?? '';
     expect(desc.length).toBeLessThanOrEqual(160);
     expect(desc.endsWith('…')).toBe(true);
+  });
+
+  it('hreflang рендерит <link rel="alternate"> на каждый язык (KS-4211)', () => {
+    render(
+      <SeoHelmet
+        title="T"
+        description="D"
+        hreflang={[
+          { lang: 'en', href: 'https://kingside.site/players' },
+          { lang: 'ru', href: 'https://kingside.site/ru/players' },
+          { lang: 'x-default', href: 'https://kingside.site/players' },
+        ]}
+      />,
+    );
+    const links = Array.from(
+      document.head.querySelectorAll('link[rel="alternate"]'),
+    );
+    expect(links).toHaveLength(3);
+    const byLang: Record<string, string | null> = {};
+    for (const l of links) {
+      byLang[l.getAttribute('hreflang') ?? ''] = l.getAttribute('href');
+    }
+    expect(byLang.en).toBe('https://kingside.site/players');
+    expect(byLang.ru).toBe('https://kingside.site/ru/players');
+    expect(byLang['x-default']).toBe('https://kingside.site/players');
+  });
+
+  it('удаляет статические дубликаты meta из index.html (KS-4211)', () => {
+    // Имитируем теги, прилетевшие из `index.html` (статический fallback).
+    const staticOgTitle = document.createElement('meta');
+    staticOgTitle.setAttribute('property', 'og:title');
+    staticOgTitle.setAttribute('content', 'Kingside — Play Chess Online');
+    document.head.appendChild(staticOgTitle);
+
+    const staticDescription = document.createElement('meta');
+    staticDescription.setAttribute('name', 'description');
+    staticDescription.setAttribute('content', 'Default site description');
+    document.head.appendChild(staticDescription);
+
+    render(<SeoHelmet title="Per-page" description="Per-page text" />);
+
+    const ogTitles = document.head.querySelectorAll('meta[property="og:title"]');
+    expect(ogTitles).toHaveLength(1);
+    expect(ogTitles[0].getAttribute('content')).toBe('Per-page');
+
+    const descriptions = document.head.querySelectorAll(
+      'meta[name="description"]',
+    );
+    expect(descriptions).toHaveLength(1);
+    expect(descriptions[0].getAttribute('content')).toBe('Per-page text');
+  });
+
+  it('по умолчанию <link rel="alternate"> не рендерится', () => {
+    render(<SeoHelmet title="T" description="D" />);
+    expect(
+      document.head.querySelector('link[rel="alternate"]'),
+    ).toBeNull();
   });
 
   it('lang проставляется на documentElement и откатывается на размонтировании', () => {
