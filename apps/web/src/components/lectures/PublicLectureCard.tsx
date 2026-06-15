@@ -54,7 +54,13 @@ export function PublicLectureCard({ lecture }: PublicLectureCardProps) {
   const { t, i18n } = useTranslation();
   const fen = lecture.previewFen ?? STARTING_FEN;
   const lectureHref = `/lectures/${encodeURIComponent(lecture.id)}`;
-  const coachHref = `/coach/${encodeURIComponent(lecture.coach.username)}`;
+  // KS-4195: `coach` опционален в реальном ответе backend'а — guard
+  // обязателен, иначе `encodeURIComponent(undefined.username)` валит
+  // весь рендер каталога (для гостей это пустая страница на проде).
+  const coachUsername = lecture.coach?.username ?? null;
+  const coachHref = coachUsername
+    ? `/coach/${encodeURIComponent(coachUsername)}`
+    : null;
 
   const statusLabel = (() => {
     if (lecture.status === 'live') {
@@ -105,9 +111,11 @@ export function PublicLectureCard({ lecture }: PublicLectureCardProps) {
           <h3 className="public-lecture-card__title">{lecture.title}</h3>
         </Link>
 
-        <Link to={coachHref} className="public-lecture-card__coach">
-          {lecture.coach.username}
-        </Link>
+        {coachHref && coachUsername && (
+          <Link to={coachHref} className="public-lecture-card__coach">
+            {coachUsername}
+          </Link>
+        )}
 
         {lecture.description && (
           <p className="public-lecture-card__description">

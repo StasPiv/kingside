@@ -37,7 +37,15 @@ export interface PublicLecture {
   durationMs: number | null;
   /** FEN стартовой позиции для preview-доски; fallback на `/og/lecture.png`. */
   previewFen?: string | null;
-  coach: PublicLectureCoach;
+  /**
+   * Информация о тренере. KS-4195: фактически backend `/lectures/public`
+   * (KS-4188) пока не отдаёт `coach` — это поле появится при расширении
+   * контракта. Поэтому делаем его опциональным и в UI guard'им через
+   * `lecture.coach?.username`, иначе старые/orphan-лекции крашат
+   * рендер `PublicLectureCard` и валят всю страницу `/lectures` для
+   * гостя.
+   */
+  coach?: PublicLectureCoach | null;
 }
 
 /**
