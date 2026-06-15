@@ -47,13 +47,8 @@ export function TrainLobbyPage() {
   // ко всем). На mobile рендерим грид карточек как раньше.
   const isMobile = useIsMobile();
 
-  useEffect(() => {
-    const prevTitle = document.title;
-    document.title = `${t('train.lobby.title', 'Train')} — Kingside`;
-    return () => {
-      document.title = prevTitle;
-    };
-  }, [t]);
+  // KS-4222: document.title больше не подменяем — конфликтует с
+  // SeoHelmet/PageSeo (см. BlindBoardLandingPage).
 
   // Desktop redirect (порядок приоритета по ADR-058 §11.5):
   //   puzzlesEnabled → /puzzles

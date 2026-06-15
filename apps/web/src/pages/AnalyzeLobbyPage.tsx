@@ -53,13 +53,8 @@ export function AnalyzeLobbyPage() {
   // прямой URL. На mobile — рендер карточек.
   const isMobile = useIsMobile();
 
-  useEffect(() => {
-    const prevTitle = document.title;
-    document.title = `${t('analyze.lobby.title', 'Analyze')} — Kingside`;
-    return () => {
-      document.title = prevTitle;
-    };
-  }, [t]);
+  // KS-4222: document.title больше не подменяем — конфликтует с
+  // SeoHelmet/PageSeo (см. BlindBoardLandingPage).
 
   if (!isMobile) {
     return <Navigate to="/workshop" replace />;

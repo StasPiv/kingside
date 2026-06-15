@@ -111,13 +111,10 @@ export function BlindBoardLandingPage() {
   );
   const [showSettings, setShowSettings] = useState(false);
 
-  useEffect(() => {
-    const prev = document.title;
-    document.title = `${t('blindBoard.setup.title', 'Blind board')} — Kingside`;
-    return () => {
-      document.title = prev;
-    };
-  }, [t]);
+  // KS-4222: document.title больше не подменяем — конфликтует с
+  // SeoHelmet/PageSeo, который ставит per-route title через React 19
+  // metadata-теги. Старый ручной useEffect оставлял два `<title>` в
+  // head после prerender'а.
 
   useEffect(() => {
     saveConfigToLs(config);

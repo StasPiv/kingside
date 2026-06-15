@@ -65,6 +65,11 @@ import { truncateByWord } from './truncate';
  * ранние совпадения.
  */
 const DEDUPE_SELECTORS = [
+  // KS-4222: `<title>` из index.html удалён, прежние страницы тоже
+  // не подменяют `document.title` императивно (см. AnalyzeLobbyPage/
+  // TrainLobbyPage/BlindBoardLandingPage, удалено в KS-4222) — React 19
+  // сам кладёт один JSX-title из SeoHelmet в head. Дедупликация для
+  // title больше не нужна.
   'meta[name="description"]',
   'meta[name="robots"]',
   'meta[name="twitter:card"]',
@@ -144,6 +149,7 @@ export function SeoHelmet({
   // на том же фрейме сразу после commit, до браузерной paint'ы; это
   // даёт чистый head ещё до сериализации HTML в prerender'е (Playwright
   // делает полный hydrate, эффекты успевают сработать).
+  //
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return;
     for (const selector of DEDUPE_SELECTORS) {
