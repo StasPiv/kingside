@@ -26,7 +26,6 @@ import type { Square } from 'chess.js';
 import { useTranslation } from 'react-i18next';
 
 import { MemoChessboard } from '../components/MemoChessboard';
-import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBotEngine } from '../hooks/useBotEngine';
 import { sendClientLog } from '../utils/clientLogger';
 
@@ -49,7 +48,6 @@ export function LocalBotGamePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { customPieces } = useBoardTheme();
   const state = (location.state ?? {}) as LocationState;
 
   const [playerColor] = useState<'white' | 'black'>(() => resolveColor(state.color));
@@ -214,17 +212,20 @@ export function LocalBotGamePage() {
     return styles;
   }, [selected, game]);
 
+  // KS-4148: оставляем дефолтный pieces-set react-chessboard (как на
+  // /puzzle и /game/:id). Раньше тянулся `customPieces` из
+  // useBoardTheme — у гостя `BoardSettingsContext` не определён,
+  // получался непривычный/неполный скин.
   const boardOptions = useMemo(
     () => ({
       position: fen,
       boardOrientation: playerColor,
       allowDragging: false,
       animationDurationInMs: 150,
-      ...(customPieces && { pieces: customPieces }),
       squareStyles,
       onSquareClick,
     }),
-    [fen, playerColor, customPieces, squareStyles, onSquareClick],
+    [fen, playerColor, squareStyles, onSquareClick],
   );
 
   return (
