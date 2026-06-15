@@ -208,6 +208,21 @@ async function setupApiMocks(page) {
 
 /* ------------------------- prerender ------------------------------- */
 
+/**
+ * KS-4212: публичный base URL, под которым страница реально живёт в
+ * продакшене. Подставляется в HTML вместо локального
+ * `http://127.0.0.1:4173`, на котором prerender открывает страницу.
+ * Это правит `<link rel="canonical">`, `<meta property="og:url">`,
+ * JSON-LD-ссылки и любые другие фрагменты, которые `SeoHelmet` /
+ * страницы собирают из `window.location.origin`.
+ *
+ * Override через env `PUBLIC_BASE_URL` — для пред-проды/прев'ю.
+ * Никакого слеша на конце — он попадёт из исходных путей.
+ */
+const PUBLIC_BASE_URL = (
+  process.env.PUBLIC_BASE_URL || 'https://kingside.site'
+).replace(/\/+$/, '');
+
 async function prerenderRoute(browser, baseUrl, route) {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -242,9 +257,17 @@ async function prerenderRoute(browser, baseUrl, route) {
   // заголовки/баннеры/мета-теги. Безопасный фиксированный буфер.
   await page.waitForTimeout(500);
 
-  const html = await page.content();
+  const rawHtml = await page.content();
 
   await context.close();
+
+  // KS-4212: подменяем все вхождения локального preview-URL на
+  // публичный. Регулярка по host:port покрывает и `http://`, и
+  // `https://` (если в будущем включим TLS), и относительные пути с
+  // абсолютным host. Замена строго на host:port — путь после него
+  // (`/lectures`, `/og/lecture.png`) сохраняется как есть.
+  const html = rawHtml.replaceAll(baseUrl, PUBLIC_BASE_URL);
+
   return html;
 }
 
@@ -304,7 +327,30 @@ async function main() {
     console.error(`\nprerender: ${failed.length}/${routes.length} routes failed`);
     process.exit(1);
   }
-  console.log(`\nprerender: ok (${results.length} routes)`);
+
+  // KS-4212 regression: ни один из сгенерированных HTML не должен
+  // содержать локальный preview-URL. Если строка осталась — значит
+  // замена `baseUrl → PUBLIC_BASE_URL` не покрыла какой-то случай
+  // (например, экранированный URL в JSON-LD). На проде это пробьёт
+  // canonical/og:url, поэтому валим сборку сразу.
+  const leaks = [];
+  for (const r of results) {
+    const text = fs.readFileSync(r.target, 'utf-8');
+    if (text.includes('127.0.0.1:4173')) {
+      leaks.push(r.target);
+    }
+  }
+  if (leaks.length > 0) {
+    console.error(
+      `\nprerender: KS-4212 regression — preview-URL leaked into ${leaks.length} file(s):`,
+    );
+    for (const f of leaks) console.error(`  - ${path.relative(APP_DIR, f)}`);
+    process.exit(1);
+  }
+
+  console.log(
+    `\nprerender: ok (${results.length} routes, base=${PUBLIC_BASE_URL})`,
+  );
 }
 
 main().catch((e) => {
