@@ -726,16 +726,15 @@ export function App() {
             />
           </>
         )}
-        {/* KS-3442 (ADR-088 §11 F1): blind-board режим. Backend под
-            JwtAuthGuard, оборачиваем в ProtectedRoute. */}
+        {/* KS-4139 / ADR-128 §4: главная blind-board открыта гостю (PF).
+            Backend OptionalJwtGuard (KS-4138). Личные /stats /history
+            /sessions/:id остаются под ProtectedRoute. */}
         <Route
           path="/blind-board"
           element={
-            <ProtectedRoute>
-              <Suspense fallback={<LazyFallback />}>
-                <BlindBoardLandingPage />
-              </Suspense>
-            </ProtectedRoute>
+            <Suspense fallback={<LazyFallback />}>
+              <BlindBoardLandingPage />
+            </Suspense>
           }
         />
         {/* KS-3511 (ADR-093 §4): /blind-board/stats и /history —

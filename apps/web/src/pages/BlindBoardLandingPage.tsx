@@ -14,6 +14,7 @@
  * Кнопка disabled пока config невалиден.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   BLIND_BOARD_LIMITS,
@@ -21,6 +22,7 @@ import {
   type BlindBoardConfig,
 } from '@kingside/shared';
 
+import { useAuth } from '../context/AuthContext';
 import { BlindBoardSessionRunner } from '../components/blindBoard/BlindBoardSessionRunner';
 import { BlindBoardConfigForm } from '../components/blindBoard/BlindBoardConfigForm';
 import { BlindBoardSubNav } from '../components/blindBoard/BlindBoardSubNav';
@@ -101,6 +103,7 @@ function configSummary(cfg: BlindBoardConfig, noProgression: string): string {
 
 export function BlindBoardLandingPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [running, setRunning] = useState(false);
   const [config, setConfig] = useState<BlindBoardConfig>(() =>
     loadConfigFromLs(),
@@ -164,6 +167,16 @@ export function BlindBoardLandingPage() {
     >
       {/* KS-3511: общая sub-nav. */}
       <BlindBoardSubNav />
+      {/* KS-4139 / ADR-128 §4: гостю — inline-CTA по образцу
+          PuzzlePage. Тренажёр работает локально, статистика на сервер
+          не сохраняется. */}
+      {!user && (
+        <div className="guest-banner" data-testid="blind-board-guest-banner">
+          <Link to="/login">
+            {t('auth.loginToSaveProgress', 'Sign in to save your progress')}
+          </Link>
+        </div>
+      )}
       <h1 data-testid="blind-board-page-title">
         {t('blindBoard.setup.title', 'Blind board')}
       </h1>
