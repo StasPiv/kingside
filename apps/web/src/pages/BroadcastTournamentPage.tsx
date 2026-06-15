@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next';
 import { broadcastApi } from '../api/broadcastApi';
 import { BroadcastStandings } from '../components/broadcast/BroadcastStandings';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 // Types
 type BroadcastMeta = {
@@ -77,10 +78,40 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
     { id: 'info', label: t('broadcast.tabInfo', 'Info') },
   ];
 
+  // KS-4183 / ADR-128 §7.6.1.2 B2. Description приоритетно из
+  // `broadcast.description` (`seo.broadcasts.tournament.descriptionFromLichess`,
+  // SeoHelmet урежет до 160 по слову через `truncateByWord`); иначе —
+  // derived-шаблон с `roundCount`. JSON-LD type=SportsEvent.
+  const seoTitle = t('seo.broadcasts.tournament.title', { title: broadcast.title });
+  const seoDescription = broadcast.description
+    ? t('seo.broadcasts.tournament.descriptionFromLichess', {
+        description: broadcast.description,
+      })
+    : t('seo.broadcasts.tournament.description', {
+        title: broadcast.title,
+        roundCount: rounds.length,
+      });
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'SportsEvent',
+    name: broadcast.title,
+    description: broadcast.description ?? undefined,
+    startDate: broadcast.startDate ?? undefined,
+    endDate: broadcast.endDate ?? undefined,
+    image: broadcast.imageUrl ?? undefined,
+  };
+
   const playerNames = broadcast.players?.split(', ') ?? [];
 
   return (
     <div className="broadcast-lobby">
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        ogType="event"
+        ogImage={broadcast.imageUrl ?? '/og/broadcast.png'}
+        jsonLd={seoJsonLd}
+      />
       {/* Hero Banner */}
       <div className="broadcast-hero" style={broadcast.imageUrl ? { backgroundImage: `linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.8)), url(${broadcast.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}>
         <div className="broadcast-hero__content">

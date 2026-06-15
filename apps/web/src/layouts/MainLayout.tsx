@@ -107,12 +107,15 @@ export function MainLayout() {
 
   const [appVersion, setAppVersion] = useState('');
 
+  // KS-4183 / ADR-128 §7.6.1: больше не подменяем `document.title` —
+  // он конфликтовал с `<SeoHelmet>`, который ставит per-page title.
+  // Версия отображается отдельным элементом в шапке/футере (state
+  // `appVersion` остаётся доступен).
   useEffect(() => {
     fetch('/version.json')
       .then((r) => r.json())
       .then((data: { version: string }) => {
         setAppVersion(data.version);
-        document.title = `Kingside (v.${data.version})`;
       })
       .catch(() => {});
   }, []);

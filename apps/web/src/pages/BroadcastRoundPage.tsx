@@ -16,6 +16,7 @@ import { useBroadcastEvalQueue } from '../hooks/useBroadcastEvalQueue';
 // KS-3261: batch-проверка «В мастерской» через POST /analyses/check.
 import { checkAnalyses } from '../api/checkAnalyses';
 import { useAuth } from '../context/AuthContext';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 // KS-1823: условный рендер `PlayoffBracket` на странице раунда был
 // регрессией (вкладка Rounds всегда должна показывать доски партий).
 // Компонент остаётся в репо — он будет использован на вкладке
@@ -452,8 +453,45 @@ export function BroadcastRoundPage() {
     return <div className="error">{error || t('broadcasts.error', 'Failed to load broadcast')}</div>;
   }
 
+  // KS-4183 / ADR-128 §7.6.1.2 B3. Description зависит от наличия
+  // партий: если игр в туре нет (часто перед стартом) — используем
+  // `descriptionNoGames`. JSON-LD type=SportsEvent (раунд как часть
+  // турнира).
+  const seoRoundName = currentRound?.name ?? '';
+  const seoTitle = t('seo.broadcasts.round.title', {
+    tournament: broadcast.title,
+    round: seoRoundName,
+  });
+  const seoDescription = games.length > 0
+    ? t('seo.broadcasts.round.description', {
+        tournament: broadcast.title,
+        round: seoRoundName,
+        gamesCount: games.length,
+      })
+    : t('seo.broadcasts.round.descriptionNoGames', {
+        tournament: broadcast.title,
+        round: seoRoundName,
+      });
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'SportsEvent',
+    name: `${broadcast.title} — ${seoRoundName}`,
+    description: seoDescription,
+    superEvent: {
+      '@type': 'SportsEvent',
+      name: broadcast.title,
+    },
+  };
+
   return (
     <div className="broadcast-round-page">
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        ogType="event"
+        ogImage="/og/broadcast.png"
+        jsonLd={seoJsonLd}
+      />
       <nav className="broadcast-breadcrumbs">
         <Link to="/broadcasts">{t('broadcasts.title')}</Link>
         <span className="broadcast-breadcrumb-sep">/</span>

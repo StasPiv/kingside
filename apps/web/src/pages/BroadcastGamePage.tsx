@@ -8,6 +8,7 @@ import {
   isForfeitTermination,
   readPgnHeader,
 } from '../utils/forfeitTermination';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 /**
  * KS-2204: Тонкий загрузчик — загружает партию из broadcast-service
@@ -142,12 +143,46 @@ export function BroadcastGamePage() {
 
   // KS-3258: forfeit-страница. Рендерится вместо редиректа.
   if (forfeit) {
-    const playersTitle = `${forfeit.game.whitePlayer || '?'} — ${forfeit.game.blackPlayer || '?'}`;
+    const white = forfeit.game.whitePlayer || '?';
+    const black = forfeit.game.blackPlayer || '?';
+    const playersTitle = `${white} — ${black}`;
+    // KS-4183 / ADR-128 §7.6.1.2 B4. Для forfeit-партии result/opening
+    // отсутствуют — используем `titleNoResult` и `descriptionNoElo`.
+    // JSON-LD type=Article (статья о партии).
+    const seoTitle = t('seo.broadcasts.game.titleNoResult', {
+      white,
+      black,
+      tournament: forfeit.meta.title,
+    });
+    const seoDescription = t('seo.broadcasts.game.descriptionNoElo', {
+      white,
+      black,
+      tournament: forfeit.meta.title,
+      round: forfeit.roundName ?? '',
+      opening: '',
+    });
+    const seoJsonLd: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'Article',
+      headline: playersTitle,
+      description: seoDescription,
+      isPartOf: {
+        '@type': 'SportsEvent',
+        name: forfeit.meta.title,
+      },
+    };
     return (
       <div
         className="broadcast-game-forfeit-page"
         data-testid="broadcast-game-forfeit-page"
       >
+        <SeoHelmet
+          title={seoTitle}
+          description={seoDescription}
+          ogType="article"
+          ogImage="/og/broadcast.png"
+          jsonLd={seoJsonLd}
+        />
         <nav
           className="broadcast-game-forfeit-page__breadcrumbs"
           aria-label={t('common.breadcrumbs', 'Breadcrumbs')}

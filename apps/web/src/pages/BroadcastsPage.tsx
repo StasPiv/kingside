@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { broadcastApi } from '../api/broadcastApi';
 import { HelpButton } from '../components/HelpButton';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 import type {
   BroadcastSummary,
   BroadcastLifecycleStatus,
@@ -175,8 +176,18 @@ export function BroadcastsPage() {
     return { featured, live, upcoming, finished };
   }, [lichessBroadcasts]);
 
+  // KS-4183 / ADR-128 §7.6.1.2 B1: list-страница трансляций. Без
+  // переменных в шаблоне — фиксированные title/description из i18n
+  // (`seo.broadcasts.list.*`, готовы в KS-4178), canonical собирается
+  // SeoHelmet'ом из текущего URL, ogImage = `/og/broadcast.png`.
   return (
     <div className="broadcasts-page">
+      <SeoHelmet
+        title={t('seo.broadcasts.list.title')}
+        description={t('seo.broadcasts.list.description')}
+        ogType="website"
+        ogImage="/og/broadcast.png"
+      />
       <h1>{t('broadcasts.title')}<HelpButton section="broadcasts" /></h1>
 
       {/* Featured — pinned live broadcasts (avg Elo >= threshold). */}
