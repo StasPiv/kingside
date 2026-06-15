@@ -1250,6 +1250,56 @@ describe('LecturesService', () => {
       expect((r as { disabledTools: string[] }).disabledTools).toEqual([]);
     });
 
+    // KS-4219. LectureDetail обязан включать `coach` (как listPublic
+    // в KS-4197): фронт строит JSON-LD `Course → provider: Person`
+    // на основе coach.username, иначе fallback к Organization(Kingside).
+    it('содержит coach { id, username } (KS-4219)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-coach',
+        ownerId: 'u-1',
+        visibility: 'public',
+        status: 'scheduled',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        owner: { id: 'u-1', username: 'alice' },
+      });
+      const r = await service.getById('l-coach');
+      expect((r as { coach: unknown }).coach).toEqual({
+        id: 'u-1',
+        username: 'alice',
+      });
+    });
+
+    it('coach.username=null если у тренера не задан username (KS-4219)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce({
+        id: 'l-coach-noname',
+        ownerId: 'u-2',
+        visibility: 'public',
+        status: 'scheduled',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        owner: { id: 'u-2', username: null },
+      });
+      const r = await service.getById('l-coach-noname');
+      expect((r as { coach: unknown }).coach).toEqual({
+        id: 'u-2',
+        username: null,
+      });
+    });
+
+    it('include содержит owner { id, username } (KS-4219)', async () => {
+      prisma.lecture.findUnique.mockResolvedValueOnce(null);
+      try {
+        await service.getById('any');
+      } catch {
+        // 404 — мы только проверяем include-аргументы.
+      }
+      const args = prisma.lecture.findUnique.mock.calls.at(-1)?.[0];
+      expect(args?.include?.owner).toEqual({
+        select: { id: true, username: true },
+      });
+    });
+
     it('KS-3787: live-лекция отдаёт liveAnalysis с id, slug, url', async () => {
       prisma.lecture.findUnique.mockResolvedValueOnce({
         id: 'l-2',

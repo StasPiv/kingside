@@ -720,32 +720,46 @@ export class LecturesService {
         },
         // KS-3985 / ADR-119 §8: previewFen для `recorded`-лекций.
         recording: { select: { startingFen: true } },
+        // KS-4219 / ADR-128 §7.6.1.2 (L2). Тренер нужен фронту для
+        // JSON-LD Course → provider: Person(coach.username). Селект
+        // минимальный (id + username), приватные поля автоматически
+        // дочищаются `toPublicDto` на контроллере для гостей.
+        // По образцу KS-4197 (listPublic).
+        owner: { select: { id: true, username: true } },
       },
     });
     if (!row) {
       throw new NotFoundException(`Lecture "${id}" not found`);
     }
-    const withLive = this.withLiveAnalysisBinding(row);
-    const withPreview = this.withPreviewFen(withLive, row);
+    // KS-4219. Вынимаем owner из row до прохождения через withLive*
+    // и withPreviewFen — эти хелперы не знают про новое поле, а
+    // на выходе хотим `coach` (а не `owner`) по контракту shared.
+    const { owner, ...rest } = row;
+    const coach = owner
+      ? { id: owner.id, username: owner.username ?? null }
+      : null;
+    const withLive = this.withLiveAnalysisBinding(rest);
+    const withPreview = this.withPreviewFen(withLive, rest);
     // KS-3986 / ADR-119 §8: viewerCount для live-лекций с привязкой.
     // Одна Redis-операция на запрос (GET viewers-key). Для остальных
     // статусов поле не пишем.
     let withViewerCount: typeof withPreview & { viewerCount?: number } =
       withPreview;
-    if (row.status === 'live' && row.liveAnalysisId) {
+    if (rest.status === 'live' && rest.liveAnalysisId) {
       try {
         const viewerCount =
           await this.liveAnalysisService.readLiveAnalysisViewerCount(
-            row.liveAnalysisId,
+            rest.liveAnalysisId,
           );
         withViewerCount = { ...withPreview, viewerCount };
       } catch (e) {
         this.logger.warn(
-          `readLiveAnalysisViewerCount failed lecture=${id} la=${row.liveAnalysisId}: ${(e as Error).message}`,
+          `readLiveAnalysisViewerCount failed lecture=${id} la=${rest.liveAnalysisId}: ${(e as Error).message}`,
         );
       }
     }
-    return this.withAudioInfo(id, withViewerCount);
+    const withAudio = await this.withAudioInfo(id, withViewerCount);
+    return { ...withAudio, coach };
   }
 
   /**

@@ -3738,9 +3738,17 @@ export interface LectureToolsChangedEvent {
  * — присутствует, если в БД есть запись `LectureAudio` (т.е.
  * cron-finalizer склеил клиентскую запись). `null` или отсутствует —
  * аудио ещё не финализировано / не было.
+ *
+ * KS-4219 / ADR-128 §7.6.1.2 (L2). `coach` — тренер лекции (минимум
+ * `id + username`), нужен фронту для JSON-LD `Course` →
+ * `provider: Person(coach.username)` на странице конкретной лекции
+ * `/lectures/:id`. Поле всегда присутствует: `Lecture.ownerId` NOT NULL.
+ * Тип допускает `null` как задел на будущее (системные лекции без
+ * owner). По аналогии с `PublicLecture.coach` (KS-4197).
  */
 export interface LectureDetail extends LectureSummary {
   audio?: LectureAudioInfo | null;
+  coach: PublicLectureCoach | null;
 }
 
 /**
