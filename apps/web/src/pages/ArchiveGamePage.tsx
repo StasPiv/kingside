@@ -19,6 +19,7 @@ import { isForfeitGame } from '../utils/forfeitTermination';
 import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 // KS-3412 (ADR-086, F3): кнопка «Угадай ходы» — скрыта за гейтом до релиза.
 import { GUESS_ENTRY_ENABLED } from '../config/guessFeature';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 /**
  * KS-2070 (F4 / ADR-033 §5.2): страница одной архивной партии.
@@ -178,6 +179,8 @@ function ArchiveGamePageInner() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation('archive');
+  // KS-4187: SEO-ключи живут в namespace `translation` (default).
+  const { t: tSeo } = useTranslation();
   const { customPieces } = useBoardTheme();
 
   const [game, setGame] = useState<ArchiveGameDetail | null>(null);
@@ -365,8 +368,71 @@ function ArchiveGamePageInner() {
   const whiteSlug = game.white.slug || null;
   const blackSlug = game.black.slug || null;
 
+  // KS-4187 / ADR-128 §7.6.1.2 A2. Описание зависит от наличия Elo
+  // обеих сторон — иначе берём `descriptionNoElo`. `titleShort`
+  // используется только если у партии нет event; обычный title с event
+  // включает его в заголовок. JSON-LD type=Article с articleBody=PGN.
+  const seoWhite = game.white.name ?? '?';
+  const seoBlack = game.black.name ?? '?';
+  const seoResult = game.result ?? '*';
+  const seoEvent = game.event ?? '';
+  const seoEco = game.eco ?? '';
+  const seoOpening = game.opening ?? '';
+  const seoDate = game.date ?? '';
+  const seoHasElo =
+    typeof game.white.elo === 'number' && typeof game.black.elo === 'number';
+  const seoTitle = seoEvent
+    ? tSeo('seo.archive.game.title', {
+        white: seoWhite,
+        black: seoBlack,
+        result: seoResult,
+        event: seoEvent,
+      })
+    : tSeo('seo.archive.game.titleShort', {
+        white: seoWhite,
+        black: seoBlack,
+        result: seoResult,
+      });
+  const seoDescription = seoHasElo
+    ? tSeo('seo.archive.game.description', {
+        white: seoWhite,
+        whiteElo: game.white.elo,
+        black: seoBlack,
+        blackElo: game.black.elo,
+        event: seoEvent,
+        date: seoDate,
+        opening: seoOpening,
+        eco: seoEco,
+      })
+    : tSeo('seo.archive.game.descriptionNoElo', {
+        white: seoWhite,
+        black: seoBlack,
+        event: seoEvent,
+        date: seoDate,
+        opening: seoOpening,
+      });
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: `${seoWhite} — ${seoBlack}`,
+    description: seoDescription,
+    articleBody: game.pgn,
+    about: {
+      '@type': 'SportsEvent',
+      name: seoEvent || undefined,
+      startDate: seoDate || undefined,
+    },
+  };
+
   return (
     <div className="archive-page archive-game-page" data-testid="archive-game-page" data-state="ready">
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        ogType="article"
+        ogImage="/og/archive.png"
+        jsonLd={seoJsonLd}
+      />
       <header className="archive-game-page__header">
         <h1 className="archive-game-page__title">
           {t('gamePage.title', 'Archive game')}

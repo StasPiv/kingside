@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArchiveSearchForm } from '../components/archive/ArchiveSearchForm';
 import { ArchiveRecentGamesBlock } from '../components/archive/ArchiveRecentGamesBlock';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 /**
  * KS-2067 (F1 / ADR-033 §1, §9.3): лобби архива партий `/archive`.
@@ -23,11 +24,21 @@ import { ArchiveRecentGamesBlock } from '../components/archive/ArchiveRecentGame
 
 export function ArchiveLobbyPage() {
   const { t } = useTranslation('archive');
+  // KS-4187 / ADR-128 §7.6.1.2 A1. SEO-ключи живут в namespace
+  // `translation` (default) — отдельный `tSeo` через `useTranslation()`
+  // без namespace-параметра.
+  const { t: tSeo } = useTranslation();
   return (
     <div
       className="archive-page archive-lobby-page"
       data-testid="archive-lobby-page"
     >
+      <SeoHelmet
+        title={tSeo('seo.archive.list.title')}
+        description={tSeo('seo.archive.list.description')}
+        ogType="website"
+        ogImage="/og/archive.png"
+      />
       <header className="archive-lobby__header">
         <h1>{t('lobby.title', 'Game Archive')}</h1>
         <p className="archive-lobby__subtitle">

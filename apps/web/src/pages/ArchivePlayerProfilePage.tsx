@@ -20,6 +20,7 @@ import {
   type ArchiveMetadataFilterValues,
   type MetadataResultFilter,
 } from '../components/archive/ArchiveMetadataFilters';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 /**
  * KS-2069 (F3 / ADR-033 §1 S5, §6.3): профиль игрока архива партий.
@@ -223,6 +224,8 @@ export function ArchivePlayerProfilePage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation('archive');
+  // KS-4187: SEO-ключи живут в namespace `translation` (default).
+  const { t: tSeo } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const state = useMemo(
@@ -471,6 +474,34 @@ export function ArchivePlayerProfilePage() {
     state.filters.maxPly !== null ||
     state.filters.timeControlCategory.length > 0;
 
+  // KS-4187 / ADR-128 §7.6.1.2 A3. Profile-SEO архивного игрока.
+  // Используем `description` с peakElo, если он есть, иначе fallback на
+  // `descriptionNoPeak`. JSON-LD type=Person.
+  const seoDescription =
+    profile.peakElo != null
+      ? tSeo('seo.archive.player.description', {
+          name: profile.name,
+          gamesCount: profile.gamesCount,
+          peakElo: profile.peakElo,
+          wins: profile.byResult.wins,
+          draws: profile.byResult.draws,
+          losses: profile.byResult.losses,
+        })
+      : tSeo('seo.archive.player.descriptionNoPeak', {
+          name: profile.name,
+          gamesCount: profile.gamesCount,
+          wins: profile.byResult.wins,
+          draws: profile.byResult.draws,
+          losses: profile.byResult.losses,
+        });
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Person',
+    name: profile.name,
+    alternateName: profile.name,
+    description: seoDescription,
+  };
+
   return (
     <div
       className="archive-page archive-player-profile-page"
@@ -478,6 +509,13 @@ export function ArchivePlayerProfilePage() {
       data-state="ready"
       data-slug={profile.slug}
     >
+      <SeoHelmet
+        title={tSeo('seo.archive.player.title', { name: profile.name })}
+        description={seoDescription}
+        ogType="profile"
+        ogImage="/og/archive.png"
+        jsonLd={seoJsonLd}
+      />
       <header className="archive-player-profile-page__header">
         <div className="archive-player-profile-page__title-row">
           <h1
