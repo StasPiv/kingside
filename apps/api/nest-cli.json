@@ -6,7 +6,10 @@
     "deleteOutDir": false,
     "assets": [
       { "include": "i18n/**/*.json", "watchAssets": true },
-      { "include": "engine/polyglot-keys.json", "watchAssets": false }
+      { "include": "engine/polyglot-keys.json", "watchAssets": false },
+      { "include": "opening-trainer/seeds/**/*.pgn", "watchAssets": true },
+      { "include": "opening-trainer/seeds/**/*.json", "watchAssets": true },
+      { "include": "opening-trainer/seeds/**/README.md", "watchAssets": false }
     ]
   }
 }

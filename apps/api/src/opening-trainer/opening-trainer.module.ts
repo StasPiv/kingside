@@ -8,6 +8,7 @@ import { OpeningTrainerRepository } from './opening-trainer.repository';
 import { RepertoireBuilderService } from './repertoire-builder.service';
 import { OpeningLineProgressService } from './opening-line-progress.service';
 import { ArchivePositionProxyService } from './archive-position-proxy.service';
+import { DemoRepertoireSeedService } from './demo-repertoire-seed.service';
 import { Sm2Service } from '../lessons/sm2.service';
 
 /**
@@ -32,6 +33,9 @@ import { Sm2Service } from '../lessons/sm2.service';
     // KS-3469 (ADR-090 §4.2 B2): proxy к archive-service для
     // GET /opening-trainer/archive-position/games.
     ArchivePositionProxyService,
+    // KS-4162: загрузчик демо-репертуаров для публичных GET-эндпоинтов
+    // `/opening-trainer/demo[/:id]`. Источник — seed-PGN файлы.
+    DemoRepertoireSeedService,
     // Sm2Service из lessons-модуля переиспользуется как чистая
     // утилита (static applyReview). Регистрируем напрямую — он
     // зависит только от PrismaService (есть в PrismaModule).
