@@ -131,7 +131,7 @@ DEPLOY_LOCK_EXIT_CODE=75
 
 # Список валидных per-scope значений (`workers` раскладывается в два
 # scope'а, поэтому здесь его нет — он обрабатывается отдельно ниже).
-DEPLOY_SCOPES_WITH_PER_LOCK=(frontend api game-service broadcast-service archive-service tactic-worker synthetic-bot)
+DEPLOY_SCOPES_WITH_PER_LOCK=(frontend api game-service broadcast-service archive-service tactic-worker synthetic-bot prerender-service)
 
 # Файл per-scope lock'а для конкретного scope.
 deploy_scope_lock_file() {
@@ -353,6 +353,11 @@ ECR_URI_ARCHIVE_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-
 # ECS service'а нет — pipeline аналогичен archive-importer-adhoc (build → push :<sha> →
 # register task-def revision → atomic :latest без update-service / smoke).
 ECR_URI_TACTIC_WORKER="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-tactic-worker"
+# KS-4194 / ADR-128 §7.3: SEO prerender-service — SQS-воркер на Playwright, S3 backstore.
+# Один ECS Fargate task в kingside-prerender-service (desiredCount=1, §7.3.5). Миграций
+# нет (нет БД), pipeline аналогичен game-service: build → push :<sha> → register task-def
+# revision → update-service → wait stable → atomic :latest.
+ECR_URI_PRERENDER_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-prerender-service"
 # KS-3924: отдельный ECR-repo для лёгкого migration-образа api. Содержит
 # node:20-slim + prisma CLI + packages/db/prisma. Используется только для
 # pre-rollout `prisma migrate deploy` через Fargate run-task (см. ниже).
@@ -374,6 +379,7 @@ ECR_REPO_BROADCAST_MIGRATIONS="kingside-broadcast-service-migrations"  # KS-3925
 ECR_REPO_ARCHIVE_SERVICE="kingside-archive-service"
 ECR_REPO_ARCHIVE_MIGRATIONS="kingside-archive-service-migrations"  # KS-3925
 ECR_REPO_TACTIC_WORKER="kingside-tactic-worker"
+ECR_REPO_PRERENDER_SERVICE="kingside-prerender-service"  # KS-4194
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
 ECS_CLUSTER="kingside"
@@ -404,6 +410,9 @@ TD_FAMILY_ARCHIVE_IMPORTER="kingside-archive-importer"
 # (index-tactic-drills / sf-validate / generate-puzzles), реальная команда
 # передаётся через containerOverrides при RunTask.
 TD_FAMILY_TACTIC_WORKER="kingside-tactic-worker"
+# KS-4194: task-def family для prerender-service (Fargate, desiredCount=1).
+TD_FAMILY_PRERENDER_SERVICE="kingside-prerender-service"
+ECS_SERVICE_PRERENDER_SERVICE="kingside-prerender-service"
 # KS-1897: все task-def family использующие образ kingside-archive-service.
 # Регистрируются на pinned SHA при каждом scope=archive-service деплое
 # (см. шапку файла, секцию KS-1897).
@@ -1136,6 +1145,7 @@ detect_deploy_scope() {
     local has_archive_service=false
     local has_synthetic_bot=false
     local has_tactic_worker=false
+    local has_prerender_service=false
 
     while IFS= read -r file; do
         [ -z "$file" ] && continue
@@ -1158,6 +1168,8 @@ detect_deploy_scope() {
                 has_synthetic_bot=true ;;
             apps/tactic-worker/*)
                 has_tactic_worker=true ;;
+            apps/prerender-service/*)
+                has_prerender_service=true ;;
             packages/shared/*)
                 has_frontend=true
                 has_api=true
@@ -1165,7 +1177,8 @@ detect_deploy_scope() {
                 has_broadcast_service=true
                 has_archive_service=true
                 has_synthetic_bot=true
-                has_tactic_worker=true ;;
+                has_tactic_worker=true
+                has_prerender_service=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
@@ -1173,7 +1186,8 @@ detect_deploy_scope() {
                 has_broadcast_service=true
                 has_archive_service=true
                 has_synthetic_bot=true
-                has_tactic_worker=true ;;
+                has_tactic_worker=true
+                has_prerender_service=true ;;
         esac
     done <<< "$changed_files"
 
@@ -1186,6 +1200,7 @@ detect_deploy_scope() {
     $has_archive_service && count=$((count + 1))
     $has_synthetic_bot && count=$((count + 1))
     $has_tactic_worker && count=$((count + 1))
+    $has_prerender_service && count=$((count + 1))
 
     if [ "$count" -gt 1 ]; then
         echo "all"
@@ -1203,6 +1218,8 @@ detect_deploy_scope() {
         echo "synthetic-bot"
     elif $has_tactic_worker; then
         echo "tactic-worker"
+    elif $has_prerender_service; then
+        echo "prerender-service"
     else
         echo "none"
     fi
@@ -1245,6 +1262,7 @@ DEPLOY_BROADCAST_SERVICE=false
 DEPLOY_ARCHIVE_SERVICE=false
 DEPLOY_SYNTHETIC_BOT=false
 DEPLOY_TACTIC_WORKER=false
+DEPLOY_PRERENDER_SERVICE=false
 
 case "$SCOPE" in
     frontend)           DEPLOY_FRONTEND=true ;;
@@ -1254,8 +1272,9 @@ case "$SCOPE" in
     archive-service)    DEPLOY_ARCHIVE_SERVICE=true ;;
     synthetic-bot)      DEPLOY_SYNTHETIC_BOT=true ;;
     tactic-worker)      DEPLOY_TACTIC_WORKER=true ;;
+    prerender-service)  DEPLOY_PRERENDER_SERVICE=true ;;
     workers)            DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
-    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true; DEPLOY_SYNTHETIC_BOT=true; DEPLOY_TACTIC_WORKER=true ;;
+    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true; DEPLOY_SYNTHETIC_BOT=true; DEPLOY_TACTIC_WORKER=true; DEPLOY_PRERENDER_SERVICE=true ;;
     *)                  echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
@@ -2147,6 +2166,114 @@ fi
 # KS-2195 / ADR-034-v2. Делегируем в scripts/deploy-synthetic-bot.sh — он
 # собирает образ, регистрирует новый task-def revision с pinned SHA, делает
 # update-service и ждёт services-stable. Атомарный move :latest → :<sha>
+# --- Prerender Service (apps/prerender-service): docker build → ECR push под :<sha> →
+#     register-task-def revision → update-service → services-stable → atomic :latest ---
+# KS-4194 / ADR-128 §7.3. SQS-воркер на Playwright: тянет PrerenderTask из
+# kingside-prerender-tasks, рендерит kingside.site/<path>, кладёт HTML в
+# kingside-prerender-store. Миграций нет (БД нет). На старте 1 task 24/7.
+#
+# Bootstrap-семантика: если ECS service ещё не существует (первичный pre-rollout
+# до создания сервиса), build+push+register-task-def выполняем, но update-service /
+# services-stable / atomic :latest пропускаем — после первого пуша создаём сервис
+# вручную через aws ecs create-service (см. KS-4194 runbook), последующие деплои
+# уже идут полным циклом.
+if $DEPLOY_PRERENDER_SERVICE; then
+    _perf_stamp "prerender_start"
+    NEW_IMAGE="${ECR_URI_PRERENDER_SERVICE}:${DEPLOY_SHA}"
+
+    echo "[prerender-service] Logging in to ECR..."
+    aws ecr get-login-password --region "$REGION" | \
+        docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+    _perf_stamp "prerender_ecr_login_done"
+
+    ensure_ecr_repo "$ECR_REPO_PRERENDER_SERVICE"
+
+    echo "[prerender-service] Building Docker image (tag=$DEPLOY_SHA)..."
+    BUILD_LOG="$REPO_DIR/logs/prerender-service-build-${DEPLOY_SHA}.log"
+    mkdir -p "$REPO_DIR/logs"
+    set +e
+    docker build --progress=plain -t "kingside-prerender-service:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/apps/prerender-service/Dockerfile" "$REPO_DIR" 2>&1 | _with_ts | tee "$BUILD_LOG"
+    BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$BUILD_RC" -ne 0 ]; then
+        echo "  ERROR: docker build failed (rc=$BUILD_RC). Full log: $BUILD_LOG"
+        tail -80 "$BUILD_LOG" || true
+        exit "$BUILD_RC"
+    fi
+    _perf_stamp "prerender_docker_build_done"
+
+    echo "[prerender-service] Pushing ${ECR_REPO_PRERENDER_SERVICE}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-prerender-service:${DEPLOY_SHA}" "$NEW_IMAGE"
+    PUSH_LOG="$REPO_DIR/logs/prerender-service-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_IMAGE" 2>&1 | _with_ts | tee "$PUSH_LOG" | tail -3
+    PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: docker push failed (rc=$PUSH_RC). Full log: $PUSH_LOG"
+        exit "$PUSH_RC"
+    fi
+    _perf_stamp "prerender_docker_push_done"
+
+    # Проверяем существование task-def family: при первом деплое его ещё нет —
+    # регистрируем напрямую из apps/prerender-service/task-definition.json, потом
+    # переписываем image на :<sha>. Последующие деплои — клонируем последнюю
+    # активную revision через register_new_task_def_with_image.
+    TD_LATEST_ARN=$(aws ecs describe-task-definition --task-definition "$TD_FAMILY_PRERENDER_SERVICE" \
+        --query 'taskDefinition.taskDefinitionArn' --output text 2>/dev/null || echo "NONE")
+    if [ "$TD_LATEST_ARN" = "NONE" ]; then
+        echo "[prerender-service] task-def family '$TD_FAMILY_PRERENDER_SERVICE' missing — bootstrap from apps/prerender-service/task-definition.json"
+        ensure_jq
+        BOOTSTRAP_TD_JSON=$(jq --arg img "$NEW_IMAGE" \
+            '.containerDefinitions[0].image=$img' \
+            "$REPO_DIR/apps/prerender-service/task-definition.json")
+        NEW_TD_ARN=$(aws ecs register-task-definition --cli-input-json "$BOOTSTRAP_TD_JSON" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+    else
+        echo "[prerender-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
+        NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_PRERENDER_SERVICE" "$NEW_IMAGE")
+    fi
+    echo "  task-def: $NEW_TD_ARN"
+    _perf_stamp "prerender_taskdef_done"
+
+    SVC_STATUS=$(aws ecs describe-services \
+        --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_PRERENDER_SERVICE" \
+        --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+    _perf_stamp "prerender_describe_service_done"
+
+    if [ "$SVC_STATUS" = "ACTIVE" ]; then
+        echo "[prerender-service] Updating ECS service to new revision..."
+        aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_PRERENDER_SERVICE" \
+            --task-definition "$NEW_TD_ARN" \
+            --force-new-deployment --query 'service.deployments[0].status' --output text
+        echo "  ECS service update initiated."
+        _perf_stamp "prerender_update_service_done"
+
+        echo "[prerender-service] Waiting for rollout to stabilize..."
+        if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_PRERENDER_SERVICE"; then
+            echo "  ERROR: services-stable timed out or failed. :latest NOT moved."
+            echo "  Rollback: см. runbook в шапке deploy-aws.sh."
+            exit 1
+        fi
+        echo "  Rollout stable."
+        _perf_stamp "prerender_services_stable_done"
+
+        echo "[prerender-service] Atomic move ${ECR_REPO_PRERENDER_SERVICE}:latest → :${DEPLOY_SHA}..."
+        ecr_move_latest_to_tag "$ECR_REPO_PRERENDER_SERVICE" "$DEPLOY_SHA"
+        _perf_stamp "prerender_atomic_latest_done"
+    else
+        echo "[prerender-service] ECS service '$ECS_SERVICE_PRERENDER_SERVICE' not found (status=$SVC_STATUS)."
+        echo "[prerender-service] Bootstrap flow: после первого push образа devops создаёт сервис вручную (aws ecs create-service)."
+        echo "[prerender-service] :latest НЕ перенесён (bootstrap)."
+        # Один раз вручную проставляем :latest на свежий :<sha>, чтобы create-service
+        # на :latest подхватил рабочий образ. На последующих деплоях это делает
+        # atomic move выше — после успешного services-stable.
+        echo "[prerender-service] Bootstrap: вручную проставляем ${ECR_REPO_PRERENDER_SERVICE}:latest на :${DEPLOY_SHA} (одноразовая операция первичного запуска)."
+        ecr_move_latest_to_tag "$ECR_REPO_PRERENDER_SERVICE" "$DEPLOY_SHA" || true
+    fi
+fi
+
 # выполняется внутри deploy-synthetic-bot.sh после wait services-stable
 # (тот же паттерн KS-1826/KS-2086).
 if $DEPLOY_SYNTHETIC_BOT; then
