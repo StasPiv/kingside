@@ -7,6 +7,9 @@ import { HealthModule } from './health/health.module';
 import { BroadcastModule } from './http/broadcast.module';
 import { BroadcastSyncModule } from './sync/broadcast-sync.module';
 import { ChessResultsModule } from './chess-results/chess-results.module';
+// KS-4205 / ADR-128 §10 #11 §7.3.7. Глобальная шина postановки
+// prerender-задач (mutation hooks в sync- и watchdog-сервисах).
+import { PrerenderModule } from './prerender/prerender.module';
 
 @Module({
   imports: [
@@ -16,6 +19,7 @@ import { ChessResultsModule } from './chess-results/chess-results.module';
     }),
     PrismaModule,
     RedisModule,
+    PrerenderModule,
     MetricsModule,
     HealthModule,
     BroadcastModule,

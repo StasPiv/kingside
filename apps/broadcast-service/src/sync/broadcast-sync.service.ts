@@ -4,6 +4,8 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+// KS-4205: postановка prerender при transition'ах раунда.
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 import { createHash } from 'crypto';
 import { Chess } from 'chess.js';
 import Redis from 'ioredis';
@@ -403,6 +405,12 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     // KS-2723: для event-driven инвалидации кэша standings при
     // изменении result или появлении новой partii.
     private readonly standingsSync: BroadcastStandingsSyncService,
+    /**
+     * KS-4205 / ADR-128 §10 #11 §7.3.7. Постановка prerender при
+     * переходе раундов в `ongoing`/`finished`. Глобальный провайдер
+     * (PrerenderModule), в тестах — мок.
+     */
+    private readonly prerender: PrerenderEnqueueService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -1214,6 +1222,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       tournamentFormat: broadcast.format,
       isTeamTournament: broadcast.teamTable,
     });
+    // KS-4205: читаем предыдущий status ДО upsert'а, чтобы понимать
+    // transition'ы (pending→ongoing, *→finished). При первом
+    // появлении раунда `existing === null` → транзишн считается «из
+    // несуществующего», prerender ставится так же.
+    const existing = await this.prisma.broadcastRound.findUnique({
+      where: { lichessRoundId: round.id },
+      select: { status: true },
+    });
     const upserted = await this.prisma.broadcastRound.upsert({
       where: { lichessRoundId: round.id },
       update: {
@@ -1231,6 +1247,23 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         tournamentType,
       },
     });
+    // KS-4205 §10 #11. Transition'ы статуса раунда → prerender:
+    //   *→ongoing  (старт раунда):      broadcast/list
+    //   *→finished (завершение раунда): broadcast/list
+    // На переходе pending→pending или sync без смены status — no-op
+    // (иначе SQS заполнится повторами sync-цикла).
+    const prevStatus = existing?.status ?? null;
+    if (status !== prevStatus && (status === 'ongoing' || status === 'finished')) {
+      this.prerender.enqueueFireAndForget({
+        kind: 'broadcast',
+        tid: broadcast.id,
+        rid: upserted.id,
+      });
+      this.prerender.enqueueFireAndForget({
+        kind: 'list',
+        route: '/broadcasts',
+      });
+    }
 
     // KS-1819: прогон `classifyRoundBrackets` при каждом sync-цикле раунда —
     // не только после PGN-update. Раньше существующие партии
@@ -1336,6 +1369,27 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             where: { id: r.id },
             data: { status: newStatus },
           });
+          // KS-4205 §10 #11. Transition'ы в metadata-fetch mirror-loop
+          // для broadcast'ов вне top-20. Нужны те же два triggera —
+          // ongoing/finished. Чтобы добыть `broadcast.id` (tid),
+          // делаем lookup на уже-известный rid.
+          if (newStatus === 'ongoing' || newStatus === 'finished') {
+            const round = await this.prisma.broadcastRound.findUnique({
+              where: { id: r.id },
+              select: { broadcastId: true },
+            });
+            if (round) {
+              this.prerender.enqueueFireAndForget({
+                kind: 'broadcast',
+                tid: round.broadcastId,
+                rid: r.id,
+              });
+              this.prerender.enqueueFireAndForget({
+                kind: 'list',
+                route: '/broadcasts',
+              });
+            }
+          }
         }
       } catch (e: unknown) {
         this.logger.warn(

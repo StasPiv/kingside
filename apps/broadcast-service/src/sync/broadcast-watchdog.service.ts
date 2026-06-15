@@ -49,6 +49,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+// KS-4205: postановка prerender при принудительном закрытии раунда.
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 
 const LICHESS_API = 'https://lichess.org/api';
 
@@ -72,6 +74,12 @@ export interface StaleRoundCandidate {
   broadcastId: string;
   lastUpdateAt: Date;
 }
+
+/**
+ * KS-4205. Передаётся в `WatchdogPrisma.broadcastRound.update(...).where`
+ * — для callback'а нужен `broadcastId`, чтобы поставить prerender. Мы
+ * берём его из StaleRoundCandidate (он уже там есть).
+ */
 
 export interface ProcessOutcome {
   roundId: string;
@@ -134,6 +142,13 @@ export interface WatchdogDeps {
   now?: () => number;
   staleThresholdMin?: number;
   unreachableFailThreshold?: number;
+  /**
+   * KS-4205 / ADR-128 §10 #11 §7.3.7. Опциональный callback на
+   * закрытие раунда (status='finished' через watchdog). Чистая функция
+   * (не сервис), чтобы ядро runWatchdogTick оставалось NestJS-
+   * независимым. Бросать не должна — ловится и игнорируется.
+   */
+  onRoundFinished?: (round: { id: string; broadcastId: string }) => void;
 }
 
 /**
@@ -350,6 +365,17 @@ async function applyDecision(
     logger.warn(
       `broadcast watchdog: round ${round.id} closed (status=finished, source: ${source.reason})`,
     );
+    // KS-4205 §10 #11. Watchdog принудительно завершил раунд →
+    // карточка broadcast'а и каталог /broadcasts должны это отразить.
+    // Кандидаты приходят из `ongoing`, так что transition'а нет
+    // — это всегда переход ongoing→finished.
+    try {
+      deps.onRoundFinished?.({ id: round.id, broadcastId: round.broadcastId });
+    } catch (err) {
+      logger.warn(
+        `broadcast watchdog: onRoundFinished threw for ${round.id}: ${(err as Error).message}`,
+      );
+    }
     return {
       roundId: round.id,
       outcome: 'closed-finished',
@@ -493,6 +519,11 @@ export class BroadcastWatchdogService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    /**
+     * KS-4205 / ADR-128 §10 #11 §7.3.7. При закрытии раунда watchdog'ом
+     * (status='finished') ставим prerender карточки и каталога.
+     */
+    private readonly prerender: PrerenderEnqueueService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -543,6 +574,21 @@ export class BroadcastWatchdogService implements OnModuleInit, OnModuleDestroy {
         },
         staleThresholdMin: parseStaleThresholdMin(),
         unreachableFailThreshold: parseUnreachableThreshold(),
+        // KS-4205 §10 #11. Callback вместо прямой инъекции сервиса
+        // внутрь чистого ядра runWatchdogTick — ядро остаётся без
+        // NestJS-зависимостей. Бросать не должна, но обернём от
+        // любых случаев.
+        onRoundFinished: ({ id, broadcastId }) => {
+          this.prerender.enqueueFireAndForget({
+            kind: 'broadcast',
+            tid: broadcastId,
+            rid: id,
+          });
+          this.prerender.enqueueFireAndForget({
+            kind: 'list',
+            route: '/broadcasts',
+          });
+        },
       });
 
       const closedFinished = result.outcomes.filter(
