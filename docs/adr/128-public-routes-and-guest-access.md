@@ -1032,6 +1032,64 @@ S3 origin behavior: при `404 NoSuchKey` (карточка вне policy / н�
 Бот тогда видит skeleton (как сегодня); пользователь получает SPA
 как обычно.
 
+> **Ревизия 2026-06-15 (KS-4191).** Уточнение механизма fallback'а
+> `404 → /index.html`. CloudFront `CustomErrorResponses` —
+> **distribution-wide**, не per-behavior. Использовать его «как есть»
+> нельзя:
+>
+> - Distribution-wide `404 → /index.html (200)` ломает `/api/*`:
+>   реальные 404 от NestJS (отсутствующий endpoint, отсутствующая
+>   сущность) будут заменены на HTML 200 — `response.ok===true`,
+>   парсинг JSON падает.
+> - Distribution-wide `403 → /index.html (200)` (вариант на S3 OAC
+>   без `ListBucket`, где отсутствие объекта = 403) ловит легитимные
+>   `ForbiddenException` NestJS (owner-check
+>   `puzzle.controller.ts:721`, `admin-user.guard`, ownership в
+>   `positional-trace.service.ts`) и WAF/CloudFront security blocking
+>   — security-инвариант ломается, атакующий получает HTML 200 вместо
+>   блока.
+> - S3 website endpoint + `ErrorDocument: index.html` отдаёт 404, не
+>   200 — нарушает P5 (бот и пользователь должны получать одинаковый
+>   код).
+>
+> **Решение — Lambda@Edge на `origin-response`**, ассоциированная
+> **только** с prerender-behaviors (`/broadcasts/*`, `/tournaments/*`,
+> `/arena/*`, `/lectures/*`, `/coach/*`, `/player/*`, `/archive/games/*`,
+> `/archive/players/*`). `/api/*`, `/socket.io/*`, default,
+> `/study/embed/*` — без триггера, поведение не меняется.
+>
+> Контракт Lambda:
+> 1. Триггер `origin-response`. На status `200` — pass-through.
+> 2. На status `404` — выполняет `GetObject` за
+>    `s3://kingside-frontend/index.html`, возвращает body со
+>    `status=200`, `Content-Type: text/html; charset=utf-8`,
+>    `Cache-Control: public, max-age=60` (бот может перезайти через
+>    минуту, когда prerender догонит).
+> 3. На любой другой статус (5xx) — pass-through (S3 ошибки
+>    инфраструктуры не маскируем фолбэком).
+>
+> Альтернатива по реализации (на усмотрение devops):
+> - **A. Inline body в Lambda artifact** — `index.html` собирается в
+>   bundle Lambda. Деплой фронта → пересборка Lambda. Чище runtime,
+>   связывает frontend-deploy с Lambda-deploy.
+> - **B. S3 SDK fetch на каждый 404** — Lambda тянет `index.html` из
+>   S3-frontend bucket'а. ~10мс overhead, но Lambda и frontend
+>   независимы.
+>
+> Рекомендация — **B** (гибче в разворачивании), но **A** допустима
+> если frontend и prerender-инфра деплоятся одним пайплайном.
+>
+> Стоимость: prerender-behaviors ~200–500 task/день; реальных
+> 404-фолбэков на порядки меньше (после прогрева — единичные новые
+> карточки между cron-окнами). Lambda@Edge stop-cost $0.60/1M
+> invocations + compute ⇒ $0.01–$0.05/мес. Cold-start редкий, на
+> origin-response не критичен (внутри AWS-сети).
+>
+> CloudFront Function на viewer-request (§7.3.4 выше, маппинг
+> URI → `/<path>/<id>/index.html`) **остаётся** — она дешевле и
+> работает на каждом запросе. Lambda@Edge добавляется поверх
+> только на origin-response prerender-behaviors.
+
 **Cloaking-риск минимальный** — render-результат тот же, что отдаст
 SPA в браузере после полной загрузки. Google объявляет, что
 prerender-сниппеты (где боту и пользователю отдаётся идентичный
