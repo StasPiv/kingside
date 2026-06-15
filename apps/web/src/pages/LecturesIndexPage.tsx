@@ -35,13 +35,12 @@ import { PublicLecturesCatalog } from '../components/lectures/PublicLecturesCata
 import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 const SECTION_HEADING_STYLE: React.CSSProperties = {
-  margin: '24px auto 0',
-  maxWidth: 1100,
-  padding: '0 16px',
-  fontSize: 14,
+  margin: '24px 0 12px',
+  fontSize: 13,
+  fontWeight: 600,
   textTransform: 'uppercase',
-  letterSpacing: 0.6,
-  opacity: 0.6,
+  letterSpacing: '0.06em',
+  color: 'var(--text-muted)',
 };
 
 export function LecturesIndexPage() {
@@ -73,7 +72,6 @@ export function LecturesIndexPage() {
       <div
         className="lectures-index-page lectures-index-page--public"
         data-testid="lectures-index-page"
-        style={{ paddingBottom: 32 }}
       >
         {seoBlock}
         <PublicLecturesCatalog mode="full" showGuestCta={!user} />
@@ -86,7 +84,6 @@ export function LecturesIndexPage() {
     <div
       className="lectures-index-page"
       data-testid="lectures-index-page"
-      style={{ paddingBottom: 32 }}
     >
       {seoBlock}
       <section
@@ -112,7 +109,6 @@ export function LecturesIndexPage() {
       <section
         aria-labelledby="lectures-index-discover-heading"
         data-testid="lectures-index-discover-section"
-        style={{ margin: '24px auto 0', maxWidth: 1100, padding: '0 16px' }}
       >
         <h2 id="lectures-index-discover-heading" style={SECTION_HEADING_STYLE}>
           {t('lecturesIndex.discoverSection', 'Discover public lectures')}
