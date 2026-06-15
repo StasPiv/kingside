@@ -556,6 +556,7 @@ export function TournamentLobbyPage() {
     participantsCount: standings.length,
     startsAt: tournament.startsAt,
   });
+  const seoCanonical = `https://kingside.site/tournaments/${id}`;
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'SportsEvent',
@@ -564,6 +565,14 @@ export function TournamentLobbyPage() {
     startDate: tournament.startsAt,
     endDate: tournament.endsAt ?? undefined,
     sport: 'Chess',
+    url: seoCanonical,
+    // KS-4214 / ADR-128 §7.6.1.2 T2. Виртуальное место проведения —
+    // боты любят `VirtualLocation` для онлайн-событий, оно помогает
+    // им классифицировать запись.
+    location: {
+      '@type': 'VirtualLocation',
+      url: seoCanonical,
+    },
   };
 
   return (
@@ -571,6 +580,7 @@ export function TournamentLobbyPage() {
       <SeoHelmet
         title={seoTitle}
         description={seoDescription}
+        canonical={seoCanonical}
         ogType="event"
         ogImage="/og/tournament.png"
         jsonLd={seoJsonLd}

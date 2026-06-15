@@ -108,8 +108,32 @@ export function TournamentsPage() {
       <SeoHelmet
         title={t('seo.tournaments.list.title')}
         description={t('seo.tournaments.list.description')}
+        canonical="https://kingside.site/tournaments"
         ogType="event"
         ogImage="/og/tournament.png"
+        jsonLd={{
+          // KS-4214 / ADR-128 §7.6.1.2 T1. Список турниров —
+          // CollectionPage. ItemList ограничен топ-20 активных и
+          // ближайших турниров; для индекса важен срез «что идёт
+          // сейчас и что вот-вот начнётся».
+          '@context': 'https://schema.org',
+          '@type': 'CollectionPage',
+          name: t('seo.tournaments.list.title'),
+          description: t('seo.tournaments.list.description'),
+          mainEntity: {
+            '@type': 'ItemList',
+            numberOfItems: tournaments.length,
+            itemListElement: tournaments
+              .filter((tn) => tn.status === 'active' || tn.status === 'upcoming')
+              .slice(0, 20)
+              .map((tn, idx) => ({
+                '@type': 'ListItem',
+                position: idx + 1,
+                url: `https://kingside.site/tournaments/${tn.id}`,
+                name: tn.name,
+              })),
+          },
+        }}
       />
       <div className="tnr-header">
         <h1>{t('tournaments.title', 'Tournaments')}</h1>
