@@ -136,6 +136,44 @@ export async function openAnalysis(
   // нестабильность dedup'а из-за расхождения PGN-headers (пробел в
   // Site/Round → другой sha256 → промах).
   const hasSourceId = Boolean(args.lichessGameId || args.archiveGameId);
+
+  // KS-4137 / ADR-128 §6. Гость не должен дёргать POST /analyses —
+  // backend требует JWT, 401 → guest-401 event → модалка «Sign in».
+  // Гость открывает /analysis в локальном режиме: PGN/title через
+  // state, AnalysisPage умеет initial-render из state.pgn (legacy
+  // путь, флаг `includePgnInState`). Запись на сервер у гостя НЕ
+  // делается ни автоматически (`if (!user) return` в autosave-effect),
+  // ни сейчас при открытии — она появится только при явном клике
+  // «Сохранить», который ходит через `useRequireAuth` → модалка.
+  //
+  // Если PGN не передан (callsite даёт только source-id, как
+  // ArchivePlayerProfilePage), отправляем на промежуточную страницу
+  // детали (там PGN подтягивается с archive-service), пользователь
+  // оттуда повторно откроет анализ — уже с pgn.
+  const isGuest =
+    typeof window !== 'undefined' && !localStorage.getItem('token');
+  if (isGuest) {
+    if (args.pgn !== undefined) {
+      // Кладём pgn/title в state даже если includePgnInState=false —
+      // у гостя другого способа передать PGN в AnalysisPage нет (нет
+      // id, GET /analyses/:id не вызывается).
+      navOpts.state = { ...navOpts.state, pgn, title };
+      navigate('/analysis', navOpts);
+      return;
+    }
+    if (args.archiveGameId) {
+      // ArchivePlayerProfilePage и подобные callsite'ы знают только
+      // archiveGameId. Открываем публичную деталь — там есть Open in
+      // analysis с реальным PGN (тогда уже сработает ветка выше).
+      navigate(`/archive/games/${args.archiveGameId}`, navOpts);
+      return;
+    }
+    // Edge case: callsite не передал ни pgn, ни source-id. Открываем
+    // пустой `/analysis` — пользователь сможет работать с пустой
+    // доской.
+    navigate('/analysis', navOpts);
+    return;
+  }
   // KS-2605: pgn/title в state — только если явно запрошено через
   // `includePgnInState`. По умолчанию state не содержит PGN — id в URL
   // уникальный, AnalysisPage подгружает по id (GET /analyses/:id).
