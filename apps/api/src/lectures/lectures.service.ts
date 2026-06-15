@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { LectureToolsChangedEvent } from '@kingside/shared';
+import { LectureStatus } from '@kingside/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveAnalysisService } from '../live-analysis/live-analysis.service';
 import { LectureAudioS3Service } from '../lecture-audio/lecture-audio-s3.service';
@@ -568,6 +569,83 @@ export class LecturesService {
         this.withPreviewFen(this.withLiveAnalysisBinding(row), row),
       ),
       total,
+      hasMore: offset + items.length < total,
+    };
+  }
+
+  /**
+   * KS-4188 / ADR-128 §7.6.1.6. Публичный агрегат лекций для индексации
+   * `/lectures` (SEO). Без JWT, rate-limit на контроллере.
+   *
+   * Фильтр:
+   *   - `visibility='public'` — приватные/`unlisted` не попадают в индекс;
+   *   - `status IN (scheduled, live, recorded)` — `cancelled` опубликованных
+   *     быть не должно по смыслу публичного списка;
+   *   - `limit` clamp [1..100] (default 50), `offset` >=0 (default 0).
+   *
+   * Сортировка:
+   *   - идущие сейчас (`live`) сверху,
+   *   - затем ближайшие `scheduled`,
+   *   - затем недавно записанные `recorded`,
+   *   - внутри группы — свежие выше по `createdAt`.
+   *
+   * Ответ `{ items, total, limit, offset, hasMore }` — фронт-лента с
+   * ленивой пагинацией. Каждая запись прогоняется через
+   * `withLiveAnalysisBinding` + `withPreviewFen`, нечувствительные поля
+   * (email/phone/lastSeenAt тренера) дочищаются `toPublicDto` на
+   * контроллере.
+   */
+  async listPublic(opts: { limit?: number; offset?: number } = {}) {
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
+    const offset = Math.max(opts.offset ?? 0, 0);
+
+    const where = {
+      visibility: 'public' as const,
+      status: {
+        in: [
+          LectureStatus.scheduled,
+          LectureStatus.live,
+          LectureStatus.recorded,
+        ],
+      },
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.lecture.findMany({
+        where,
+        orderBy: [
+          // `status` enum в БД хранится строкой; алфавитный порядок
+          // `cancelled < live < recorded < scheduled` нам не подходит.
+          // Поэтому пробрасываем стабильный по убыванию свежести,
+          // а группировку по статусу делаем на стороне приложения
+          // через partial-merge сортировок: live → scheduled → recorded.
+          // Prisma не умеет CASE в orderBy без $queryRaw; компромисс —
+          // отсортировать по `scheduledAt DESC NULLS LAST` (live без
+          // scheduledAt всё равно окажется приоритетным после фильтра)
+          // и `createdAt DESC` как стабильный tiebreaker. Чистая
+          // приоритезация группы делается фронтом по полю `status`.
+          { scheduledAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+        take: limit,
+        skip: offset,
+        include: {
+          liveAnalysis: {
+            select: { id: true, slug: true, startingFen: true },
+          },
+          recording: { select: { startingFen: true } },
+        },
+      }),
+      this.prisma.lecture.count({ where }),
+    ]);
+
+    return {
+      items: items.map((row) =>
+        this.withPreviewFen(this.withLiveAnalysisBinding(row), row),
+      ),
+      total,
+      limit,
+      offset,
       hasMore: offset + items.length < total,
     };
   }

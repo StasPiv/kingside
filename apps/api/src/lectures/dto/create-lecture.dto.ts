@@ -238,3 +238,35 @@ export class MyLecturesQueryDto {
   @Min(0)
   offset?: number;
 }
+
+/**
+ * KS-4188 / ADR-128 §7.6.1.6. Query для `GET /lectures/public` — публичный
+ * агрегат опубликованных лекций (`visibility='public'`).
+ *
+ * `status` — для совместимости с URL-схемой из ADR-128 (`?status=public`):
+ * принимается ровно одно значение `'public'` и трактуется как маркер
+ * фильтра по `visibility`. Lifecycle-фильтр (`scheduled|live|recorded`)
+ * сервис применяет неявно (исключая `cancelled`), отдельным параметром
+ * не управляем — публичный агрегат не имеет смысла для отменённых лекций.
+ *
+ * `limit`/`offset` — пагинация. Лимиты выровнены с `MyLecturesQueryDto`
+ * (1..100 / >=0).
+ */
+export class PublicLecturesQueryDto {
+  @IsOptional()
+  @IsIn(['public'])
+  status?: 'public';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
+}

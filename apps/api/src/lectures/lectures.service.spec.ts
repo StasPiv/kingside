@@ -1034,6 +1034,100 @@ describe('LecturesService', () => {
     });
   });
 
+  // ─── KS-4188 / ADR-128 §7.6.1.6: listPublic ───────────────────────
+
+  describe('listPublic (KS-4188)', () => {
+    it('where: visibility=public + status IN (scheduled, live, recorded), без cancelled', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      await service.listPublic();
+      const findArgs = prisma.lecture.findMany.mock.calls[0][0];
+      expect(findArgs.where.visibility).toBe('public');
+      expect(findArgs.where.status.in).toEqual(
+        expect.arrayContaining(['scheduled', 'live', 'recorded']),
+      );
+      expect(findArgs.where.status.in).not.toContain('cancelled');
+    });
+
+    it('пагинация: дефолты limit=50, offset=0', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      const r = await service.listPublic();
+      const findArgs = prisma.lecture.findMany.mock.calls[0][0];
+      expect(findArgs.take).toBe(50);
+      expect(findArgs.skip).toBe(0);
+      expect(r.limit).toBe(50);
+      expect(r.offset).toBe(0);
+    });
+
+    it('пагинация: limit/offset clamp до [1..100] и >=0', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      const r = await service.listPublic({ limit: 999, offset: -5 });
+      const findArgs = prisma.lecture.findMany.mock.calls[0][0];
+      expect(findArgs.take).toBe(100);
+      expect(findArgs.skip).toBe(0);
+      expect(r.limit).toBe(100);
+      expect(r.offset).toBe(0);
+    });
+
+    it('ответ: { items, total, limit, offset, hasMore }', async () => {
+      const rows = Array.from({ length: 5 }, (_, i) => ({
+        id: `lec-${i}`,
+        status: 'scheduled',
+        ownerId: 'owner',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        recording: null,
+      }));
+      prisma.lecture.findMany.mockResolvedValueOnce(rows);
+      prisma.lecture.count.mockResolvedValueOnce(42);
+      const r = await service.listPublic({ limit: 5, offset: 0 });
+      expect(r.items).toHaveLength(5);
+      expect(r.total).toBe(42);
+      expect(r.limit).toBe(5);
+      expect(r.offset).toBe(0);
+      expect(r.hasMore).toBe(true);
+    });
+
+    it('hasMore=false когда offset + items >= total', async () => {
+      const rows = Array.from({ length: 3 }, (_, i) => ({
+        id: `lec-${i}`,
+        status: 'scheduled',
+        ownerId: 'owner',
+        liveAnalysisId: null,
+        liveAnalysis: null,
+        recording: null,
+      }));
+      prisma.lecture.findMany.mockResolvedValueOnce(rows);
+      prisma.lecture.count.mockResolvedValueOnce(3);
+      const r = await service.listPublic();
+      expect(r.hasMore).toBe(false);
+    });
+
+    it('liveAnalysis включён в выборку — поле url подставляется', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([
+        {
+          id: 'lec-live',
+          status: 'live',
+          ownerId: 'owner',
+          liveAnalysisId: 'la-1',
+          liveAnalysis: { id: 'la-1', slug: 'SLUG000099', startingFen: 'fen' },
+          recording: null,
+        },
+      ]);
+      prisma.lecture.count.mockResolvedValueOnce(1);
+      const r = await service.listPublic();
+      expect(r.items[0].liveAnalysis).toMatchObject({
+        id: 'la-1',
+        slug: 'SLUG000099',
+      });
+      expect(r.items[0].liveAnalysis?.url).toContain('/live/SLUG000099');
+      // previewFen для live из liveAnalysis.startingFen.
+      expect((r.items[0] as { previewFen?: string }).previewFen).toBe('fen');
+    });
+  });
+
   // ─── getById ──────────────────────────────────────────────────────
 
   describe('getById', () => {
