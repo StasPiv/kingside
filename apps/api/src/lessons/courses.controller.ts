@@ -5,10 +5,16 @@ import {
   Param,
   Query,
   Request,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
+import {
+  RateLimit,
+  RedisRateLimitGuard,
+} from '../common/redis-rate-limit.guard';
 import { CoursesService } from './courses.service';
 import { UserCoursesService } from './user-courses/user-courses.service';
 import { ListUserCoursesQueryDto } from './user-courses/dto/user-course.dto';
@@ -20,23 +26,18 @@ import { ListUserCoursesQueryDto } from './user-courses/dto/user-course.dto';
  * truth — настройка профиля.
  *
  * KS-2643 / ADR-054 Phase C2. GET-роуты `/lessons/courses[/:slug]`
- * расширены поддержкой пользовательских курсов:
+ * расширены поддержкой пользовательских курсов.
  *
- *   - `GET /lessons/courses?mine=1|0` — при наличии query `mine` запрос
- *     уходит в `UserCoursesService.list({mine})`. Без query — старый
- *     системный listing (`CoursesService.listCourses`). Это позволяет
- *     alias-redirect'у `/lessons/user-courses?mine=…` транспарентно
- *     переходить на `/lessons/courses?mine=…` без потери семантики.
- *
- *   - `GET /lessons/courses/:slug` — сначала ищет системный курс
- *     (старое поведение). Если не нашёл — пробует пользовательский по
- *     namespace владельца / public. Аноним получает только системный
- *     путь (UserCoursesService требует userId, для null — пропускаем).
- *
- * Эти расширения нужны, чтобы фронт после Phase D ходил единым URL'ом
- * `/lessons/courses[/:slug]` и для системных, и для пользовательских.
+ * KS-4130 / ADR-128 §6.8.2: class-level `JwtAuthGuard` снят. Per-method:
+ *  - `GET /lessons/courses` (без `?mine=…`) → `OptionalJwtGuard` +
+ *    rate-limit 60 req/min. Каталог системных курсов открыт гостю.
+ *  - `GET /lessons/courses?mine=…` → требует логин (`?mine=…` =
+ *    личное listing'и пользовательских курсов).
+ *  - `GET /lessons/courses/enrolled` → `JwtAuthGuard` (личный прогресс).
+ *  - `GET /lessons/courses/:slug` → `OptionalJwtGuard` + rate-limit.
+ *    Аноним получает только системный путь; fallback в пользовательский
+ *    namespace — для залогиненных.
  */
-@UseGuards(JwtAuthGuard)
 @Controller('lessons/courses')
 export class CoursesController {
   constructor(
@@ -46,17 +47,23 @@ export class CoursesController {
 
   /**
    * GET /api/lessons/courses — listing.
-   *   - без `?mine=…` → системные курсы + рекомендация уровня (как раньше).
+   *   - без `?mine=…` → системные курсы + рекомендация уровня (открыт гостю).
    *   - `?mine=1` (или alias `?mine=true`/без значения) — свои
-   *     пользовательские курсы.
-   *   - `?mine=0` (или `?mine=false`) — публичные пользовательские.
+   *     пользовательские курсы (требует логин).
+   *   - `?mine=0` (или `?mine=false`) — публичные пользовательские
+   *     (требует логин — listing личной библиотеки чужих публичных).
    */
   @Get()
+  @UseGuards(OptionalJwtGuard, RedisRateLimitGuard)
+  @RateLimit(60, 60)
   list(
     @Request() req: AuthenticatedRequest,
     @Query() query: ListUserCoursesQueryDto,
   ) {
     if (query.mine !== undefined) {
+      if (!req.user?.id) {
+        throw new UnauthorizedException('login required for ?mine= filter');
+      }
       const minePath = query.mine !== '0' && query.mine !== 'false';
       return this.userCoursesService.list(req.user.id, {
         mine: minePath,
@@ -71,9 +78,11 @@ export class CoursesController {
    * GET /api/lessons/courses/enrolled — KS-2646 / ADR-054 Phase D fix.
    * «Курсы, которые я прохожу» — чужие пользовательские курсы, по
    * которым у меня есть прогресс. Объявлен **до** `@Get(':slug')` —
-   * иначе Express матчит `enrolled` как параметр slug.
+   * иначе Express матчит `enrolled` как параметр slug. Личный
+   * прогресс — `JwtAuthGuard`.
    */
   @Get('enrolled')
+  @UseGuards(JwtAuthGuard)
   listEnrolled(@Request() req: AuthenticatedRequest) {
     return this.userCoursesService.listEnrolled(req.user.id);
   }
@@ -82,8 +91,13 @@ export class CoursesController {
    * GET /api/lessons/courses/:slug — курс с блоками/уроками.
    * Сначала ищет системный, при отсутствии — пользовательский (для
    * залогиненных).
+   *
+   * KS-4130: гостю отдаётся системный курс. Если не нашёлся системный —
+   * 404 (fallback в user-courses только для авторизованных).
    */
   @Get(':slug')
+  @UseGuards(OptionalJwtGuard, RedisRateLimitGuard)
+  @RateLimit(60, 60)
   async getBySlug(
     @Request() req: AuthenticatedRequest,
     @Param('slug') slug: string,

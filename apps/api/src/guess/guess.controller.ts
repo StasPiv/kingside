@@ -1,6 +1,16 @@
 /**
  * KS-3409 / ADR-086 §9 B2. REST-endpoints guess-the-move.
- * Все требуют JwtAuthGuard (persist привязан к пользователю; гость 401).
+ *
+ * KS-4130 / ADR-128 §6.8.2: class-level `JwtAuthGuard` снят. Auth
+ * вешается per-method:
+ *  - Write-ручки (`POST /sessions`, `POST /sessions/:id/move`,
+ *    `POST /sessions/:id/finish`, `POST /sessions/:id/to-analysis`):
+ *    `OptionalJwtGuard`. Гость → 204 No Content без записи в БД
+ *    (ADR-128 §11.13: PF-write no-op для гостя).
+ *  - `GET /sessions/:id` (review): `OptionalJwtGuard`. Гость → 404
+ *    (личная сессия, гость не должен узнать о её существовании).
+ *  - Личные read-ручки (`GET /history`, `/stats/me`, `/trends/me`,
+ *    `/breakdowns/me`) и `DELETE /sessions/:id`: `JwtAuthGuard`.
  */
 import {
   Body,
@@ -10,6 +20,7 @@ import {
   Get,
   Headers,
   HttpCode,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Post,
@@ -18,6 +29,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { GuessService } from './guess.service';
 import { StartGuessSessionDto, SubmitGuessMoveDto } from './dto/guess.dto';
@@ -30,34 +42,59 @@ function pickLang(acceptLanguage?: string): string {
   return 'en';
 }
 
+/**
+ * KS-4130: req.user заполняется `OptionalJwtGuard`. Для гостя =
+ * `null`/`undefined`. Для авторизованного — объект Passport с `id`.
+ */
+type OptionalAuthRequest = AuthenticatedRequest & {
+  user?: AuthenticatedRequest['user'] | null;
+};
+
+function isGuest(req: OptionalAuthRequest): boolean {
+  return !req.user || !req.user.id;
+}
+
 @Controller('guess')
-@UseGuards(JwtAuthGuard)
 export class GuessController {
   constructor(private readonly guess: GuessService) {}
 
-  /** POST /guess/sessions — старт сессии. */
+  /**
+   * POST /guess/sessions — старт сессии.
+   * Гость → 204 (ADR-128 §11.13).
+   */
   @Post('sessions')
-  start(
-    @Request() req: AuthenticatedRequest,
+  @UseGuards(OptionalJwtGuard)
+  @HttpCode(200)
+  async start(
+    @Request() req: OptionalAuthRequest,
     @Body() dto: StartGuessSessionDto,
   ) {
-    return this.guess.startSession(req.user.id, dto);
+    if (isGuest(req)) {
+      // KS-4130: PF-write для гостя — no-op. Возвращаем 204 как
+      // унифицированный сигнал «принято, ничего не записали».
+      return undefined;
+    }
+    return this.guess.startSession(req.user!.id, dto);
   }
 
   /** POST /guess/sessions/:id/move — ход пользователя (server-trust). */
   @Post('sessions/:id/move')
-  move(
-    @Request() req: AuthenticatedRequest,
+  @UseGuards(OptionalJwtGuard)
+  async move(
+    @Request() req: OptionalAuthRequest,
     @Param('id') id: string,
     @Body() dto: SubmitGuessMoveDto,
   ) {
-    return this.guess.submitMove(req.user.id, id, dto);
+    if (isGuest(req)) return undefined;
+    return this.guess.submitMove(req.user!.id, id, dto);
   }
 
   /** POST /guess/sessions/:id/finish — финал (две точности + звёзды). */
   @Post('sessions/:id/finish')
-  finish(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
-    return this.guess.finish(req.user.id, id);
+  @UseGuards(OptionalJwtGuard)
+  async finish(@Request() req: OptionalAuthRequest, @Param('id') id: string) {
+    if (isGuest(req)) return undefined;
+    return this.guess.finish(req.user!.id, id);
   }
 
   /**
@@ -67,23 +104,33 @@ export class GuessController {
    * берётся из заголовка `Accept-Language` (ru | en), дефолт en.
    */
   @Post('sessions/:id/to-analysis')
-  toAnalysis(
-    @Request() req: AuthenticatedRequest,
+  @UseGuards(OptionalJwtGuard)
+  async toAnalysis(
+    @Request() req: OptionalAuthRequest,
     @Param('id') id: string,
     @Headers('accept-language') acceptLanguage?: string,
   ) {
+    if (isGuest(req)) return undefined;
     const lang = pickLang(acceptLanguage);
-    return this.guess.toAnalysis(req.user.id, id, lang);
+    return this.guess.toAnalysis(req.user!.id, id, lang);
   }
 
-  /** GET /guess/sessions/:id — review (сессия + ходы). */
+  /**
+   * GET /guess/sessions/:id — review (сессия + ходы).
+   * Гость → 404 (сессия личная, не светим существование).
+   */
   @Get('sessions/:id')
-  review(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
-    return this.guess.getSession(req.user.id, id);
+  @UseGuards(OptionalJwtGuard)
+  review(@Request() req: OptionalAuthRequest, @Param('id') id: string) {
+    if (isGuest(req)) {
+      throw new NotFoundException('guess session not found');
+    }
+    return this.guess.getSession(req.user!.id, id);
   }
 
   /** GET /guess/history?limit=&offset= — список сессий пользователя. */
   @Get('history')
+  @UseGuards(JwtAuthGuard)
   history(
     @Request() req: AuthenticatedRequest,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
@@ -94,12 +141,14 @@ export class GuessController {
 
   /** KS-3508. GET /guess/stats/me — личная статистика. */
   @Get('stats/me')
+  @UseGuards(JwtAuthGuard)
   statsMe(@Request() req: AuthenticatedRequest) {
     return this.guess.statsForUser(req.user.id);
   }
 
   /** KS-3508. GET /guess/trends/me?bucket=day|week|month (default week). */
   @Get('trends/me')
+  @UseGuards(JwtAuthGuard)
   trendsMe(
     @Request() req: AuthenticatedRequest,
     @Query('bucket') bucket?: string,
@@ -109,6 +158,7 @@ export class GuessController {
 
   /** KS-3508. GET /guess/breakdowns/me — verdict + userClass distribution. */
   @Get('breakdowns/me')
+  @UseGuards(JwtAuthGuard)
   breakdownsMe(@Request() req: AuthenticatedRequest) {
     return this.guess.breakdownsForUser(req.user.id);
   }
@@ -119,6 +169,7 @@ export class GuessController {
    * Owner-check встроен; 204 No Content при успехе.
    */
   @Delete('sessions/:id')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(204)
   async deleteSession(
     @Request() req: AuthenticatedRequest,

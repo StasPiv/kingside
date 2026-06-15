@@ -8,12 +8,21 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthenticatedRequest } from '../common/authenticated-request';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
+import {
+  RateLimit,
+  RedisRateLimitGuard,
+} from '../common/redis-rate-limit.guard';
 import { LessonsService } from './lessons.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserLessonsService } from './user-courses/user-lessons.service';
 
-@UseGuards(JwtAuthGuard)
+/**
+ * KS-4130 / ADR-128 §6.8.2: class-level `JwtAuthGuard` снят. `GET /:id`
+ * открыт гостю через `OptionalJwtGuard` + rate-limit 60/min — урок
+ * системного курса должен открываться без логина для SEO/витрины.
+ * Fallback в пользовательские уроки сохраняется только для авторизованных.
+ */
 @Controller('lessons/lessons')
 export class LessonsController {
   constructor(
@@ -37,6 +46,8 @@ export class LessonsController {
    * MVP всегда требуют логина (см. ADR-026 §2.6).
    */
   @Get(':id')
+  @UseGuards(OptionalJwtGuard, RedisRateLimitGuard)
+  @RateLimit(60, 60)
   async getOne(
     @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,

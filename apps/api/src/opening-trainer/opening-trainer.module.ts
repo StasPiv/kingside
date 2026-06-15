@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { OpeningTrainerController } from './opening-trainer.controller';
+import { OpeningTrainerPublicController } from './opening-trainer-public.controller';
 import { OpeningTrainerService } from './opening-trainer.service';
 import { OpeningTrainerRepository } from './opening-trainer.repository';
 import { RepertoireBuilderService } from './repertoire-builder.service';
@@ -17,7 +18,11 @@ import { Sm2Service } from '../lessons/sm2.service';
  */
 @Module({
   imports: [PrismaModule, AuthModule],
-  controllers: [OpeningTrainerController],
+  // KS-4130: PublicController объявлен ПЕРВЫМ, чтобы Nest зарегистрировал
+  // `GET /opening-trainer/demo` и `POST /opening-trainer/sessions` без
+  // конфликта с основным контроллером (тот идёт под class-JwtAuthGuard
+  // и не пересекается по путям).
+  controllers: [OpeningTrainerPublicController, OpeningTrainerController],
   providers: [
     OpeningTrainerService,
     OpeningTrainerRepository,
