@@ -40,7 +40,13 @@ export function CommunityStripBlock() {
   const [courses, setCourses] = useState<UserCourseDto[] | null>(null);
   const [errored, setErrored] = useState(false);
 
+  // KS-4146 / ADR-128 §6.9. Список «новое от сообщества» получается
+  // через `listLatest({mine:0})` — backend требует JWT (mine-параметр
+  // авторизованный). Для гостя любая попытка даёт 401 → guest-401
+  // event. Скипаем запрос для гостя; блок гостю не показываем (вернёт
+  // null ниже по `filtered === null`-логике, плюс ранний return).
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     setErrored(false);
     lessonsApi
@@ -56,7 +62,7 @@ export function CommunityStripBlock() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   const filtered = useMemo(() => {
     if (!courses) return null;
@@ -68,6 +74,10 @@ export function CommunityStripBlock() {
   // грузятся дольше 200мс — на быстром API сразу пропускаем.
   const isLoading = filtered === null;
   const showSkeleton = useDelayedFlag(isLoading, 200);
+
+  // KS-4146: гость не делает сетевого запроса и не видит блок.
+  // Ранний return ПОСЛЕ всех хуков (rules-of-hooks).
+  if (!user) return null;
 
   if (errored) return null;
 

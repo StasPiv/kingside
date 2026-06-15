@@ -101,7 +101,10 @@ export function LessonsPage() {
   // SM-2 «К повторению сегодня» (L-22, KS-1799). Ошибка этого запроса не
   // блокирует страницу — блок просто скрывается. Список пустой — блок
   // тоже скрывается (поведение по Gherkin).
+  // KS-4146: личные SRS-ревью гостю недоступны (backend требует JWT) —
+  // не дёргаем endpoint, иначе 401 → guest-401 event.
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     setReviewsDueErrored(false);
     lessonsApi
@@ -117,7 +120,7 @@ export function LessonsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   const grouped = LEVEL_ORDER.map((level) => ({
     level,
