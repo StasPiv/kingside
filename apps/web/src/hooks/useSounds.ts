@@ -45,7 +45,11 @@ const SOUND_MUTED_KEY = 'soundMuted';
 const SOUND_THEME_KEY = 'kingside.soundTheme';
 const SOUND_THEME_EVENT = 'kingside:sound-theme-change';
 
-const DEFAULT_THEME: SoundTheme = 'standard';
+// KS-4152: «деревянная доска» — звук по умолчанию для всех новых
+// пользователей и для гостя. Сохранённый явный выбор в `localStorage`
+// (`kingside.soundTheme`) приоритетнее — `readTheme` его вернёт; дефолт
+// действует только когда ничего не выбрано.
+const DEFAULT_THEME: SoundTheme = 'wood';
 
 function readTheme(): SoundTheme {
   try {

@@ -19,24 +19,26 @@ describe('KS-2172 useSounds — sound themes', () => {
     localStorage.clear();
   });
 
-  it('default theme is "standard"', () => {
-    expect(getSoundTheme()).toBe('standard');
+  // KS-4152: дефолтная тема — «деревянная доска» (`wood`).
+  it('default theme is "wood"', () => {
+    expect(getSoundTheme()).toBe('wood');
   });
 
-  it('exposes at least 3 themes including standard', () => {
+  it('exposes at least 3 themes including wood and standard', () => {
     expect(SOUND_THEMES.length).toBeGreaterThanOrEqual(3);
+    expect(SOUND_THEMES.some((t) => t.id === 'wood')).toBe(true);
     expect(SOUND_THEMES.some((t) => t.id === 'standard')).toBe(true);
   });
 
   it('setSoundTheme persists to localStorage', () => {
-    setSoundTheme('wood');
-    expect(localStorage.getItem('kingside.soundTheme')).toBe('wood');
-    expect(getSoundTheme()).toBe('wood');
+    setSoundTheme('standard');
+    expect(localStorage.getItem('kingside.soundTheme')).toBe('standard');
+    expect(getSoundTheme()).toBe('standard');
   });
 
-  it('readTheme falls back to standard for invalid value', () => {
+  it('readTheme falls back to default (wood) for invalid value', () => {
     localStorage.setItem('kingside.soundTheme', 'invalid-theme-id');
-    expect(getSoundTheme()).toBe('standard');
+    expect(getSoundTheme()).toBe('wood');
   });
 
   it('useSounds reads current theme from localStorage', () => {
@@ -49,8 +51,8 @@ describe('KS-2172 useSounds — sound themes', () => {
     const { result: a } = renderHook(() => useSounds());
     const { result: b } = renderHook(() => useSounds());
 
-    expect(a.current.theme).toBe('standard');
-    expect(b.current.theme).toBe('standard');
+    expect(a.current.theme).toBe('wood');
+    expect(b.current.theme).toBe('wood');
 
     act(() => {
       a.current.setTheme('eightbit');
