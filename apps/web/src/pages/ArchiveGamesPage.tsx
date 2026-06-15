@@ -1002,6 +1002,15 @@ function ArchiveMetadataMode() {
           }
           const plyQuery =
             typeof initialPly === 'number' ? `?ply=${initialPly}` : '';
+          // KS-4137 / ADR-128 §6. Гостю POST /analyses не делаем —
+          // backend требует JWT, 401 → guest-401 event → write PV
+          // → модалка «Sign in to continue» поверх. AnalysisPage
+          // умеет initial-render из state.pgn (legacy путь). Гость
+          // получит анализ локально, без id и без автосейва.
+          if (!localStorage.getItem('token')) {
+            navigate(`/analysis${plyQuery}`, { state: navState });
+            return;
+          }
           try {
             // KS-3263: body минимальный — backend (commit d557dd3a)
             // сам резолвит PGN из archive_games_remote по archiveGameId.
