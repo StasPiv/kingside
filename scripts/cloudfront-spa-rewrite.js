@@ -35,6 +35,7 @@ function handler(event) {
         '/workshop': 1,
         '/broadcasts': 1,
         '/players': 1,
+        '/lectures': 1,
         '/feedback': 1,
         '/features': 1,
         '/login': 1
