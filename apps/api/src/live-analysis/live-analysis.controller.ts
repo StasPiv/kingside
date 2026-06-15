@@ -23,6 +23,7 @@ import { CreateLiveAnalysisDto } from './dto/create-live-analysis.dto';
 import { LiveAnalysisService } from './live-analysis.service';
 import { LiveAnalysisGateway } from './live-analysis.gateway';
 import { LecturesAccessService } from '../lectures/lectures-access.service';
+import { toPublicDto } from '../common/public-dto.mapper';
 
 /**
  * KS-3732 / ADR-110 §2.3, §2.6: REST-эндпоинты live-трансляции анализа.
@@ -119,7 +120,10 @@ export class LiveAnalysisController {
       slug,
       req.user?.id ?? null,
     );
-    return this.service.getBySlug(slug, this.publicBaseUrl());
+    const result = await this.service.getBySlug(slug, this.publicBaseUrl());
+    // KS-4135: у автора live-анализа (и любых nested user'ов) для гостя
+    // вырезаем email/phone/oauthIds/lastSeenAt и пр.
+    return toPublicDto(result, req.user ?? null);
   }
 
   @UseGuards(JwtAuthGuard)

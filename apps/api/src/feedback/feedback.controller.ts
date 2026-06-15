@@ -8,6 +8,7 @@ import { AuthenticatedRequest } from '../common/authenticated-request';
 import { RedisService } from '../redis/redis.service';
 import { FeedbackService } from './feedback.service';
 import { CreateFeedbackDto } from './dto/create-feedback.dto';
+import { toPublicDto } from '../common/public-dto.mapper';
 
 const RATE_LIMIT_PER_MIN = 5;
 
@@ -39,9 +40,14 @@ export class FeedbackController {
     });
   }
 
+  /**
+   * KS-4135 / ADR-128 §6.8.3: ответ оборачивается в toPublicDto —
+   * у author/voter/commenter в nested-объектах гость не увидит
+   * email, phone, oauthIds, lastSeenAt и пр. приватных полей.
+   */
   @UseGuards(OptionalJwtGuard)
   @Get()
-  list(
+  async list(
     @Request() req: AuthenticatedRequest,
     @Query('type') type?: string,
     @Query('status') status?: string,
@@ -49,16 +55,25 @@ export class FeedbackController {
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset?: number,
   ) {
-    return this.feedbackService.list({ type, status, sort, limit, offset, userId: req.user?.id });
+    const result = await this.feedbackService.list({
+      type,
+      status,
+      sort,
+      limit,
+      offset,
+      userId: req.user?.id,
+    });
+    return toPublicDto(result, req.user ?? null);
   }
 
   @UseGuards(OptionalJwtGuard)
   @Get(':id')
-  getOne(
+  async getOne(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ) {
-    return this.feedbackService.getOne(id, req.user?.id);
+    const result = await this.feedbackService.getOne(id, req.user?.id);
+    return toPublicDto(result, req.user ?? null);
   }
 
   @UseGuards(JwtAuthGuard)
