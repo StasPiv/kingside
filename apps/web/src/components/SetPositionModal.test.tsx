@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 
-import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+import { renderWithAuth as renderWithProviders, screen, waitFor } from '../test/test-utils-auth';
 import { SetPositionModal } from './SetPositionModal';
 
 /**

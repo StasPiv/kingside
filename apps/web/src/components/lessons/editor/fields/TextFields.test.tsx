@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/react';
 
-import { renderWithProviders } from '../../../../test/test-utils';
+import { renderWithAuth as renderWithProviders } from '../../../../test/test-utils-auth';
 import { TextFields } from './TextFields';
 
 function getModalScope() {

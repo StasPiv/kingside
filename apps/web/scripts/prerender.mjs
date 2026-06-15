@@ -178,6 +178,20 @@ async function setupApiMocks(page) {
     route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
   );
 
+  // KS-4192: гостевой каталог `/lectures` зовёт `GET /lectures/public`
+  // через `usePublicLectures`. Универсальный `**/api/**`-мок ниже
+  // отдаёт `{}` — это не валидный `PublicLecturesResponse`, и хук
+  // дёрнется на `res.items.map(...)`. Подсовываем явный пустой
+  // ответ — каталог пуст, рендерится empty-state, prerender не
+  // падает.
+  await page.route('**/lectures/public*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+    }),
+  );
+
   // Любой остальной /api/* — пустой 200, чтобы консоль не сыпала
   // ошибками и страница не зависала на «loading» из-за конкретных
   // эндпоинтов (например, /nav-stats или /profile/me/admin-status).

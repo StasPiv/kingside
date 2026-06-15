@@ -34,6 +34,7 @@ import { useEffect } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLectureDetail } from '../hooks/useLectureDetail';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 function LectureLandingSkeleton() {
   return (
@@ -119,12 +120,60 @@ export function LectureLandingPage() {
   const slug = lecture.liveAnalysis?.slug ?? null;
   const scheduledAtFormatted = formatScheduledAt(lecture.scheduledAt);
 
+  // KS-4192 / ADR-128 §7.6.1.2 L2. SEO на лендинге лекции. В текущей
+  // версии `LectureDetail` нет `coachUsername` — используем
+  // `'coach'` как нейтральное значение в шаблоне до расширения
+  // контракта backend'ом (после этого подставим реальное имя).
+  // durationMin для `recorded`: ms → min. description обрезается
+  // SeoHelmet'ом через truncateByWord. ogType=article.
+  const seoCoach = '';
+  const seoDescriptionText = lecture.description ?? '';
+  const seoDurationMin =
+    lecture.durationMs && lecture.durationMs > 0
+      ? Math.round(lecture.durationMs / 60000)
+      : 0;
+  const seoTitle = t('seo.lectures.detail.title', {
+    title: lecture.title,
+    coach: seoCoach,
+  });
+  const seoDescription =
+    status === 'recorded'
+      ? t('seo.lectures.detail.descriptionRecorded', {
+          title: lecture.title,
+          coach: seoCoach,
+          description: seoDescriptionText,
+        })
+      : t('seo.lectures.detail.description', {
+          title: lecture.title,
+          coach: seoCoach,
+          scheduledAt: scheduledAtFormatted,
+          duration: seoDurationMin,
+          description: seoDescriptionText,
+        });
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Course',
+    name: lecture.title,
+    description: lecture.description ?? undefined,
+    courseMode: 'online',
+    provider: seoCoach
+      ? { '@type': 'Person', name: seoCoach }
+      : undefined,
+  };
+
   return (
     <div
       className="lecture-landing-page"
       data-testid="lecture-landing-page"
       data-status={status}
     >
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        ogType="article"
+        ogImage="/og/lecture.png"
+        jsonLd={seoJsonLd}
+      />
       <header className="lecture-landing-page__header">
         <h1
           className="lecture-landing-page__title"

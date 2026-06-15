@@ -38,6 +38,8 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   { path: '/workshop', priority: 0.6, changefreq: 'weekly' },
   { path: '/broadcasts', priority: 0.6, changefreq: 'daily' },
   { path: '/players', priority: 0.5, changefreq: 'daily' },
+  // KS-4192: гостевой каталог `/lectures` — открыт без логина.
+  { path: '/lectures', priority: 0.6, changefreq: 'daily' },
   { path: '/feedback', priority: 0.5, changefreq: 'weekly' },
   { path: '/features', priority: 0.4, changefreq: 'monthly' },
   { path: '/login', priority: 0.3, changefreq: 'monthly' },
