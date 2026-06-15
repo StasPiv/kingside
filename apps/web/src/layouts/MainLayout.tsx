@@ -314,7 +314,12 @@ export function MainLayout() {
         </nav>
       </header>
       <div className="app-body">
-        {user && <Sidebar />}
+        {/* KS-4128 / ADR-128 §4: Sidebar рендерим и гостям. Сам
+            Sidebar отфильтрует authOnly-пункты (Profile/Friends/
+            Settings/Admin) через `filterVisible` — гостю покажет
+            только групповые контентные пункты (Play/Train/Lessons/
+            Broadcasts/Analyze). */}
+        <Sidebar />
         <main className="main">
           <Outlet />
         </main>
@@ -326,7 +331,12 @@ export function MainLayout() {
           onDecline={declineChallenge}
         />
       )}
-      {user && !hideBottomBar && <MobileBottomBar />}
+      {/* KS-4128 / ADR-128 §4: MobileBottomBar рендерим и гостям.
+          Внутри `useTopNavStats` для гостя возвращает пустой массив
+          → bar показывает DEFAULT_TOP (`play`/`train`/`learn`).
+          Personal-пункты в drawer'е «Ещё» (Profile/Friends/Settings/
+          Lectures) уже фильтруются по `user`. */}
+      {!hideBottomBar && <MobileBottomBar />}
       {/* KS-3070: NavOnboardingTooltip удалён — окно показа KS-2814
           закрылось, плюс плашка ломала Playwright-скриншоты на
           чистом localStorage. */}
