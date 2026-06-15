@@ -12,6 +12,9 @@ import { RedisModule } from './redis/redis.module';
 // KS-4205 / ADR-128 §10 #11 §7.3.7: глобальная шина postановки
 // prerender-задач в SQS (mutation hooks: lectures/arena/user/…).
 import { PrerenderModule } from './prerender/prerender.module';
+// KS-4209 / ADR-128 §7.10 §10 #15: cron-генерация sitemap'ов в S3
+// + /robots.txt.
+import { SitemapModule } from './sitemap/sitemap.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { GameModule } from './game/game.module';
@@ -88,6 +91,7 @@ import { HealthController } from './health.controller';
     PrismaModule,
     RedisModule,
     PrerenderModule,
+    SitemapModule,
     AuthModule,
     UserModule,
     GameModule,
