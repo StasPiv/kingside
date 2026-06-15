@@ -48,3 +48,6 @@ export * from './features-catalog/index.js';
 // NB: `./utils/position-key.js` намеренно НЕ реэкспортируется — он тянет `node:crypto`
 // и ломает браузерный бандл. Backend (apps/api, apps/archive-service) импортирует
 // функцию напрямую: `@kingside/shared/dist/utils/position-key`.
+// NB: `./prerender-client.js` (KS-4203, ADR-128 §10 #10) — Node-only,
+// тянет `@aws-sdk/client-sqs`. По той же причине НЕ реэкспортируется.
+// Backend импортирует напрямую: `@kingside/shared/dist/prerender-client`.
