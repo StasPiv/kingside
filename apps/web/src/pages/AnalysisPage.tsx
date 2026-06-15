@@ -2263,6 +2263,14 @@ function AnalysisPageInner({
   // localStorage подгружает чужой снимок. Ad-hoc-сценарий —
   // только `ctx.kind==='analysis'`.
   const stateHasPgn = !!(location.state as { pgn?: string } | null)?.pgn;
+  // KS-4169: гость переключается между несколькими локальными анализами
+  // через тот же /analysis (без id). ad-hoc localStorage autosave при
+  // mount восстанавливает прошлое дерево и портит свежесозданный анализ.
+  // Гостю он не нужен — для каждого анализа есть отдельная запись в
+  // guestWorkshopStore через `guestAnalysisId` (KS-4167+KS-4168).
+  const stateHasGuestAnalysisId = !!(
+    location.state as { guestAnalysisId?: string } | null
+  )?.guestAnalysisId;
   useAdHocAnalysisAutosave({
     // KS-3780: viewer-режим live-трансляции — зритель НЕ должен ни
     // писать своё дерево в ad-hoc localStorage, ни тем более
@@ -2278,7 +2286,8 @@ function AnalysisPageInner({
       !stateHasPgn &&
       !puzzleFen &&
       !puzzlePgn &&
-      !isViewerLive,
+      !isViewerLive &&
+      !stateHasGuestAnalysisId,
     initialFen,
     history,
     initialAnnotations,
