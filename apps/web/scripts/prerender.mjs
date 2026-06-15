@@ -94,6 +94,17 @@ const MIME = {
 };
 
 function serveStatic(distDir, port) {
+  // KS-4224: сохраняем pristine `dist/index.html` ОДИН раз в памяти.
+  // Без этого SPA-fallback ниже отдавал бы УЖЕ пере-записанный
+  // `dist/index.html` (после пререндера `/` он содержит title и meta
+  // главной) — и при заходе на `/drills`, `/play` и т. п. в head
+  // первой попадал title главной, а вторым добавлялся per-page
+  // (React 19 не дедуплицирует `<title>` из исходного HTML).
+  const pristineIndex = fs.readFileSync(
+    path.join(distDir, 'index.html'),
+    'utf-8',
+  );
+
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       try {
@@ -103,15 +114,19 @@ function serveStatic(distDir, port) {
           .replace(/^(\.\.[/\\])+/, '/');
         let filePath = path.join(distDir, safePath);
 
-        // SPA fallback: пути без расширения → index.html
+        // SPA fallback: пути без расширения → pristine index.html
         if (!path.extname(filePath) || filePath.endsWith(path.sep)) {
-          filePath = path.join(distDir, 'index.html');
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Cross-Origin-Embedder-Policy': 'require-corp',
+          });
+          res.end(pristineIndex);
+          return;
         }
 
         fs.stat(filePath, (err, stat) => {
           if (err || !stat.isFile()) {
-            // На несуществующих файлах с расширением — 404.
-            // На «маршрутах» (без расширения) уже отдали index.html.
             res.writeHead(404);
             res.end('not found');
             return;
@@ -204,6 +219,7 @@ async function setupApiMocks(page) {
       body: '{}',
     });
   });
+
 }
 
 /* ------------------------- prerender ------------------------------- */

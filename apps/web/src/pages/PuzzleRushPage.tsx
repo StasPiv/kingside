@@ -487,6 +487,13 @@ export function PuzzleRushPage() {
     i < lives ? '\u2764\uFE0F' : '\uD83E\uDE76'
   ).join(' ');
 
+  // KS-4224 / ADR-128 §7.6.1. `<PageSeo>` рендерится во всех ветках
+  // (start/result/playing), чтобы предварительный генератор всегда
+  // успевал записать per-page title даже когда страница уходит в
+  // нестандартное состояние. React 19 поднимает teги в head независимо
+  // от поддерева.
+  const seoBlock = <PageSeo ns="puzzleRush" path="/puzzle-rush" />;
+
   // --- Start Screen ---
   if (screen === 'start') {
     return (
@@ -494,7 +501,7 @@ export function PuzzleRushPage() {
         className="puzzle-rush-page"
         data-auth={isGuest ? 'guest' : 'user'}
       >
-        <PageSeo ns="puzzleRush" path="/puzzle-rush" />
+        {seoBlock}
         <h1>{t('puzzle.rush.title')}</h1>
         <p className="puzzle-rush-description">
           {t('puzzleRush.description')}
@@ -567,6 +574,7 @@ export function PuzzleRushPage() {
         className="puzzle-rush-page"
         data-auth={isGuest ? 'guest' : 'user'}
       >
+        {seoBlock}
         <div className="puzzle-rush-result">
           <h2>{t('puzzle.rush.gameOver')}</h2>
 
@@ -632,6 +640,7 @@ export function PuzzleRushPage() {
   // --- Playing Screen ---
   return (
     <div className="puzzle-rush-page">
+      {seoBlock}
       <div className="puzzle-rush-header">
         <span className={`rush-time ${timeLeft <= 10 ? 'rush-time-low' : ''}`}>
           {formatTime(timeLeft)}

@@ -108,30 +108,44 @@ export function DrillsLobbyPage() {
     return out;
   }, [types]);
 
+  // KS-4224 / ADR-128 §7.6.1. `<PageSeo>` рендерится ДО всех ранних
+  // return-ветвей: иначе предварительный генератор, на котором API
+  // недоступен, успевает снять HTML на стадии loading/error и в
+  // `<head>` не попадает per-page title. React 19 поднимает teги в
+  // head независимо от текущего поддерева — фрагмент-обёртка
+  // достаточная.
+  const seoBlock = <PageSeo ns="drills.list" path="/drills" />;
+
   if (error) {
     return (
-      <div
-        className="drills-lobby drills-lobby--error"
-        data-testid="drills-lobby-error"
-      >
-        {t('drills.errors.loadFailed', 'Could not load drills.')}
-      </div>
+      <>
+        {seoBlock}
+        <div
+          className="drills-lobby drills-lobby--error"
+          data-testid="drills-lobby-error"
+        >
+          {t('drills.errors.loadFailed', 'Could not load drills.')}
+        </div>
+      </>
     );
   }
   if (!types || !byLayer) {
     return (
-      <div
-        className="drills-lobby drills-lobby--loading"
-        data-testid="drills-lobby-loading"
-      >
-        {t('drills.loading', 'Loading drills…')}
-      </div>
+      <>
+        {seoBlock}
+        <div
+          className="drills-lobby drills-lobby--loading"
+          data-testid="drills-lobby-loading"
+        >
+          {t('drills.loading', 'Loading drills…')}
+        </div>
+      </>
     );
   }
 
   return (
     <div className="drills-lobby" data-testid="drills-lobby">
-      <PageSeo ns="drills.list" path="/drills" />
+      {seoBlock}
       <header className="drills-lobby__header">
         <h1 className="drills-lobby__title">
           {t('drills.lobbyHeading', 'Pick a drill')}

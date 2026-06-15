@@ -135,6 +135,11 @@ export function BlindBoardLandingPage() {
     setConfig(DEFAULT_BLIND_BOARD_CONFIG);
   }, []);
 
+  // KS-4224: общий блок SEO для setup/playing — иначе при первом
+  // монтаже в playing-state предварительный генератор пишет HTML без
+  // per-page title.
+  const seoBlock = <PageSeo ns="blindBoard.list" path="/blind-board" />;
+
   if (running) {
     return (
       <div
@@ -142,6 +147,7 @@ export function BlindBoardLandingPage() {
         data-testid="blind-board-page"
         data-state="playing"
       >
+        {seoBlock}
         <div className="blind-board-page__header">
           <button
             type="button"
@@ -163,7 +169,7 @@ export function BlindBoardLandingPage() {
       data-testid="blind-board-page"
       data-state="setup"
     >
-      <PageSeo ns="blindBoard.list" path="/blind-board" />
+      {seoBlock}
       {/* KS-3511: общая sub-nav. */}
       <BlindBoardSubNav />
       {/* KS-4139 / ADR-128 §4: гостю — inline-CTA по образцу
