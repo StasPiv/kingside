@@ -37,20 +37,18 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
 
-    <!-- KS-1693: Resolve theme before first paint to prevent FOUC.
-         Reads localStorage.theme (set by ThemeContext), falls back to
-         prefers-color-scheme. Mirror logic in src/context/ThemeContext.tsx. -->
+    <!-- KS-1693 / KS-4164: Resolve theme before first paint to prevent FOUC.
+         Reads localStorage.theme (set by ThemeContext); fallback — всегда
+         'dark'. Системные настройки prefers-color-scheme игнорируются
+         сознательно: пользователи жаловались на «тёмная на первой
+         загрузке, светлая после перезагрузки» когда ОС в light-режиме.
+         Mirror logic in src/context/ThemeContext.tsx. -->
     <script>
       (function () {
         try {
           var stored = null;
           try { stored = localStorage.getItem('theme'); } catch (_) {}
-          var theme =
-            stored === 'light' || stored === 'dark'
-              ? stored
-              : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
-                  ? 'light'
-                  : 'dark');
+          var theme = stored === 'light' || stored === 'dark' ? stored : 'dark';
           document.documentElement.setAttribute('data-theme', theme);
         } catch (e) {
           document.documentElement.setAttribute('data-theme', 'dark');

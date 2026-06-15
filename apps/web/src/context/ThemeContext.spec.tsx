@@ -72,14 +72,16 @@ describe('ThemeContext initialization', () => {
     expect(screen.getByTestId('theme').textContent).toBe('light');
   });
 
-  it('falls back to matchMedia prefers-color-scheme: light when localStorage is empty', () => {
+  // KS-4164: prefers-color-scheme игнорируется сознательно. Дефолт —
+  // всегда 'dark', независимо от системных настроек.
+  it('ignores matchMedia prefers-color-scheme: light when localStorage is empty', () => {
     installMatchMedia(true);
     render(
       <ThemeProvider>
         <Harness />
       </ThemeProvider>,
     );
-    expect(screen.getByTestId('theme').textContent).toBe('light');
+    expect(screen.getByTestId('theme').textContent).toBe('dark');
   });
 
   it('defaults to dark when no signal is available', () => {
@@ -143,8 +145,12 @@ describe('ThemeContext toggle + persistence', () => {
   });
 });
 
+// KS-4164: подписка на изменение OS-темы удалена — системные настройки
+// больше не влияют. Тест переписан под новый контракт: вне зависимости
+// от того, что говорит matchMedia, без явного выбора тема остаётся
+// «dark».
 describe('ThemeContext system preference tracking', () => {
-  it('follows OS change while the user has not chosen a theme', () => {
+  it('ignores OS change while the user has not chosen a theme', () => {
     const mq = installMatchMedia(false);
     render(
       <ThemeProvider>
@@ -153,20 +159,18 @@ describe('ThemeContext system preference tracking', () => {
     );
     expect(screen.getByTestId('theme').textContent).toBe('dark');
     act(() => mq.dispatch(true));
-    expect(screen.getByTestId('theme').textContent).toBe('light');
+    expect(screen.getByTestId('theme').textContent).toBe('dark');
   });
 
-  it('stops following OS once the user clicks toggle', () => {
+  it('stored explicit choice overrides any OS signal', () => {
     const mq = installMatchMedia(false);
     render(
       <ThemeProvider>
         <Harness />
       </ThemeProvider>,
     );
-    // User explicitly picks light → stored.
     act(() => screen.getByTestId('toggle').click());
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
-    // OS later changes to dark → stored preference wins, state stays 'light'.
     act(() => mq.dispatch(false));
     expect(screen.getByTestId('theme').textContent).toBe('light');
   });

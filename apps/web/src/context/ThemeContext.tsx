@@ -18,19 +18,23 @@ import {
  * Chess-board colors are **not** part of this context — they are configured
  * via `BoardSettingsContext` (`BOARD_THEMES`) and are independent of UI theme.
  *
- * Initialization order:
- *   1. Inline `<script>` in `index.html` reads `localStorage.theme` (fallback
- *      to `prefers-color-scheme`) and sets `<html data-theme="...">` BEFORE
- *      React boots. This prevents FOUC (flash of wrong theme) на первом кадре.
- *   2. `ThemeProvider` reads the attribute back from `<html>` as the initial
- *      state, so React tree is consistent with the pre-bootstrap value.
- *   3. User clicks toggle → state updates → effect writes both the attribute
- *      and `localStorage.theme`.
+ * KS-4164: дефолт — `dark`. Системные настройки `prefers-color-scheme` НЕ
+ * учитываются ни на пре-бутстрапе (`index.html` inline-скрипт), ни в
+ * `resolveInitialTheme`, ни в live-listener'е. Пользователь жаловался, что
+ * при first-load тема тёмная, а после reload становилась светлой — это
+ * происходило, когда ОС была в light-режиме и pre-boot скрипт читал
+ * `prefers-color-scheme` раньше, чем сработать успевал inline-скрипт у
+ * других вкладок. Теперь дефолт фиксирован `dark`, явный выбор юзера
+ * (`localStorage.theme`) уважается как раньше.
  *
- * When the user has NOT chosen a theme yet (`localStorage.theme` unset) and
- * the OS-level preference changes, we mirror it live via the `matchMedia`
- * listener. Once the user clicks the toggle, `localStorage.theme` is set and
- * the listener no longer overrides the explicit choice.
+ * Initialization order:
+ *   1. Inline `<script>` в `index.html` читает `localStorage.theme`, ставит
+ *      `<html data-theme="dark|light">` ДО первого рендера. Если ключа нет
+ *      — fallback `dark`.
+ *   2. `ThemeProvider` читает атрибут с `<html>` как начальное состояние —
+ *      React-дерево согласовано с pre-bootstrap значением, FOUC нет.
+ *   3. Клик по переключателю → state обновляется → эффект пишет
+ *      атрибут на `<html>` и `localStorage.theme`.
  */
 
 export type Theme = 'light' | 'dark';
@@ -53,8 +57,7 @@ function isTheme(v: unknown): v is Theme {
  * Resolve the initial theme. Prefers:
  *   1. Attribute already set on `<html>` by the inline pre-boot script.
  *   2. Explicit `localStorage.theme` value.
- *   3. `prefers-color-scheme: light` media query.
- *   4. `'dark'` as the historical default.
+ *   3. `'dark'` — default (KS-4164: prefers-color-scheme игнорируется).
  */
 export function resolveInitialTheme(): Theme {
   if (typeof document !== 'undefined') {
@@ -68,13 +71,6 @@ export function resolveInitialTheme(): Theme {
     } catch {
       /* noop — storage unavailable (private mode, SSR, etc.) */
     }
-  }
-  if (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-color-scheme: light)').matches
-  ) {
-    return 'light';
   }
   return 'dark';
 }
@@ -121,28 +117,9 @@ export function ThemeProvider({ children, initialTheme }: ThemeProviderProps) {
     });
   }, []);
 
-  // Follow OS-level preference while the user has NOT made an explicit choice.
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
-    const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const onChange = (e: MediaQueryListEvent) => {
-      let stored: string | null = null;
-      try {
-        stored = localStorage.getItem(THEME_STORAGE_KEY);
-      } catch {
-        /* noop */
-      }
-      if (isTheme(stored)) return; // user chose — don't override
-      setThemeState(e.matches ? 'light' : 'dark');
-    };
-    // Safari <14 doesn't support addEventListener on MediaQueryList.
-    if (typeof mq.addEventListener === 'function') {
-      mq.addEventListener('change', onChange);
-      return () => mq.removeEventListener('change', onChange);
-    }
-    mq.addListener(onChange);
-    return () => mq.removeListener(onChange);
-  }, []);
+  // KS-4164: подписка на изменение OS-темы удалена. Системные настройки
+  // больше не влияют на наш дефолт — пользователь сам переключает через
+  // ThemeToggle, если хочет светлую.
 
   const value = useMemo<ThemeContextValue>(
     () => ({ theme, setTheme, toggleTheme }),
