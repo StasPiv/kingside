@@ -192,19 +192,31 @@ export function PlayersPage() {
     return () => clearTimeout(timeout);
   }, [tab, searchQuery]);
 
-  // KS-4185 / ADR-128 §7.6.1.2 P1. Список игроков — фиксированные
-  // title/description, JSON-LD CollectionPage.
+  // KS-4185 / KS-4215 / ADR-128 §7.6.1.2 P1. Список игроков —
+  // фиксированные title/description, JSON-LD CollectionPage с
+  // mainEntity=ItemList по топ-20 игроков (KS-4215 уточнение).
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
     name: t('seo.players.list.title'),
     description: t('seo.players.list.description'),
+    mainEntity: {
+      '@type': 'ItemList',
+      numberOfItems: topTotal || topPlayers.length,
+      itemListElement: topPlayers.slice(0, 20).map((p, idx) => ({
+        '@type': 'ListItem',
+        position: idx + 1,
+        url: `https://kingside.site/player/${encodeURIComponent(p.username)}`,
+        name: p.username,
+      })),
+    },
   };
   return (
     <div className="players-page">
       <SeoHelmet
         title={t('seo.players.list.title')}
         description={t('seo.players.list.description')}
+        canonical="https://kingside.site/players"
         ogType="website"
         ogImage="/og/player.png"
         jsonLd={seoJsonLd}

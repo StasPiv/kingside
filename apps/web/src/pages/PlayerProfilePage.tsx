@@ -243,6 +243,7 @@ export function PlayerProfilePage() {
     classical: profile.ratingClassical,
     totalGames: stats.totalGames,
   });
+  const seoCanonical = `https://kingside.site/player/${encodeURIComponent(profile.username)}`;
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'Person',
@@ -250,6 +251,7 @@ export function PlayerProfilePage() {
     alternateName: profile.username,
     description: seoDescription,
     nationality: profile.country ?? undefined,
+    url: seoCanonical,
   };
 
   return (
@@ -257,6 +259,7 @@ export function PlayerProfilePage() {
       <SeoHelmet
         title={seoTitle}
         description={seoDescription}
+        canonical={seoCanonical}
         ogType="profile"
         ogImage="/og/player.png"
         jsonLd={seoJsonLd}
