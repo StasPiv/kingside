@@ -1202,6 +1202,471 @@ preview партии в мессенджере с актуальной доск�
 
 Подробные тексты — content (пользователь, без chess-expert, KS-4126).
 
+### 7.6.1. SEO-карта PR/PF-карточек (per-entity шаблоны)
+
+> **Ревизия 2026-06-15 (KS-4172).** Готовая карта «маршрут → источник
+> данных → шаблон метатегов и JSON-LD» для каждой PR/PF-карточки.
+> Цель — снять с frontend необходимость дорисовывать SEO-шаблоны на
+> месте. После приёмки координатор раздаёт по одной маленькой задаче
+> на frontend за каждую сущность; разработчик подставляет готовый
+> шаблон, не размышляя о форме.
+>
+> Финальные тексты i18n-ключей — за маркетингом (отдельные задачи).
+> Здесь — структура: какие ключи, какие переменные подставляются,
+> какие fallback'и, какой JSON-LD по Schema.org.
+
+#### 7.6.1.1. Conventions
+
+- **Длины**: `<title>` ≤ 60 символов, `<meta description>` ≤ 160. При
+  превышении — обрезка с `…` (frontend в `<SeoHelmet>` обрезает по
+  слову, не по символу).
+- **i18n-namespace**: `seo.*` (новый). Изолирован от `landing.*`
+  (ADR-129) и `features.*` (страница `/features`). Ключи перечислены
+  per-entity ниже.
+- **Переменные** в шаблонах — `{name}`, `{rating}` и т. д. — i18next
+  interpolation.
+- **Языки**: en + ru. Финальные строки — KS-MK (marketing); архитектор
+  даёт **шаблон с переменными** (см. таблицу), не конкретный текст.
+- **og:image**: статический файл из `apps/web/public/og/`, один на
+  entity-тип (список §7.6.1.3). Динамическая генерация (volna 2) —
+  отдельный ADR.
+- **og:type**: `website` для list-страниц, `article` / `event` /
+  `profile` — для detail-страниц (по сущности).
+- **canonical**: всегда абсолютный URL без query (если query не
+  семантический — для `/archive`-фильтров canonical всё равно
+  голый `/archive`).
+- **JSON-LD**: вставляется через `<script type="application/ld+json">`
+  в `<SeoHelmet>`. Если обязательное поле пустое и Schema.org требует
+  значения — JSON-LD не выводится (лучше не выводить, чем
+  выводить «битый»).
+- **Fallback-правило по умолчанию**: nullable-поле пустое → подставляем
+  literal `—` в текст шаблона ИЛИ выкидываем секцию шаблона целиком
+  (что естественнее по смыслу). Конкретные fallback'и — в колонке
+  «Fallback'и» per-route.
+- **i18n-ключ**: только верхнеуровневое имя ключа группы в таблицах
+  (например `seo.broadcasts.list`). Внутри группы — `.title`,
+  `.description`, при необходимости `.titleNoDate` и так далее под
+  fallback-варианты.
+
+#### 7.6.1.2. Per-route таблица
+
+Источники данных по `frontend → backend`. Префиксы сервисов:
+- `api` — основной NestJS (`apps/api`), `kingside.site/api`;
+- `broadcasts` — `apps/broadcast-service`, subdomain `broadcasts.kingside.site`
+  (фронт-клиент: `apps/web/src/api/broadcastApi.ts`);
+- `archive` — `apps/archive-service`, subdomain `archive.kingside.site`.
+
+---
+
+##### B1. `/broadcasts` (список)
+
+| Поле | Значение |
+|---|---|
+| Компонент | `BroadcastsPage` |
+| Файл | `apps/web/src/pages/BroadcastsPage.tsx` |
+| API-запрос | `GET /` (broadcast-service: `broadcastApi.get('/')`); backend `broadcast.controller.ts:257` |
+| DTO | `BroadcastSummary[]` (`packages/shared/src/types/api-contracts.ts:1144`) |
+| Поля для SEO | `title`, `lifecycleStatus`, `roundCount`, `topPlayers[].name`, `topPlayers[].elo` (для агрегированных метрик списка) |
+| Prisma | broadcast-service: `BroadcastTournament` (поля `id`, `lichessId`, `title`, `status`, `pinned`, `avgElo`) |
+| `<title>` (≤60) | `seo.broadcasts.list.title` — «Live chess broadcasts — Kingside» / «Шахматные трансляции — Kingside» |
+| `<meta description>` (≤160) | `seo.broadcasts.list.description` — «Watch top tournaments live with engine analysis and AI move commentary on Kingside.» |
+| `og:type` | `website` |
+| `og:image` | `/og/broadcast.png` |
+| `canonical` | `https://kingside.site/broadcasts` |
+| JSON-LD | `CollectionPage` + `ItemList` из `BroadcastSummary[]` (первые 10, остальные — пагинация). Каждый item — `SportsEvent` с минимумом полей: `name=title`, `sport='Chess'`, `eventStatus` маппится из `lifecycleStatus`. |
+| Fallback'и | Список пустой → выводим page без JSON-LD `ItemList`, оставляем `CollectionPage` пустой. `topPlayers=[]` — игнорируем в агрегатах. |
+
+---
+
+##### B2. `/broadcasts/:tournamentId`
+
+| Поле | Значение |
+|---|---|
+| Компонент | `BroadcastTournamentPage` |
+| Файл | `apps/web/src/pages/BroadcastTournamentPage.tsx` |
+| API-запросы | `GET /:id` (BroadcastMeta) + `GET /:id/rounds` (`BroadcastRoundItem[]`) |
+| DTO | `BroadcastMeta` (локальный тип `:8-26`: `id`, `title`, `imageUrl?`, `description?`, `lifecycleStatus`, …), `BroadcastRoundItem` (`api-contracts.ts:1185`) |
+| Поля для SEO | `title`, `description`, `lifecycleStatus`, `rounds[].name`, `rounds[].startsAt`, `rounds[].status` |
+| Prisma | `BroadcastTournament` + `BroadcastRound` |
+| `<title>` (≤60) | `seo.broadcasts.tournament.title` — «{title} — Kingside» |
+| `<meta description>` (≤160) | `seo.broadcasts.tournament.description` — «{title}: {roundCount} rounds, live coverage with engine analysis on Kingside.» При наличии `description` от Lichess — `meta.description` подрезанное до 160. |
+| `og:type` | `event` |
+| `og:image` | `meta.imageUrl` (от Lichess) → fallback `/og/broadcast.png` |
+| `canonical` | `https://kingside.site/broadcasts/{tournamentId}` |
+| JSON-LD | `SportsEvent`: `name=title`, `sport='Chess'`, `description=meta.description`, `eventStatus` маппится из `lifecycleStatus` (`live` → `EventScheduled`+`isAccessibleForFree`, `upcoming` → `EventScheduled`, `finished` → `EventScheduled` с прошедшим `endDate`), `startDate=startDate`, `subEvent=[…BroadcastRoundItem]` (каждый round как вложенный `SportsEvent`). |
+| Fallback'и | `description=null/''` — описание не выводим, остаётся только title в текстовом блоке. `imageUrl=null` — `/og/broadcast.png`. `startDate=null` — `startDate` не выводим, JSON-LD без него. `rounds=[]` — `subEvent` пропускаем. |
+
+---
+
+##### B3. `/broadcasts/:tournamentId/:roundId`
+
+| Поле | Значение |
+|---|---|
+| Компонент | `BroadcastRoundPage` |
+| Файл | `apps/web/src/pages/BroadcastRoundPage.tsx` |
+| API-запросы | `GET /:tid` (`BroadcastMeta`) + `GET /:tid/rounds` (`BroadcastRoundItem[]`) + `GET /:tid/rounds/:rid/games` (`{ data: BroadcastGameSummary[] }`) |
+| DTO | `BroadcastMeta`, `BroadcastRoundItem`, `BroadcastGameSummary` (`api-contracts.ts:1209`) |
+| Поля для SEO | tournament: `title`; round: `name`, `startsAt`, `status`; games: count, first 3 pairings `whitePlayer`–`blackPlayer` |
+| Prisma | `BroadcastTournament` + `BroadcastRound` + `BroadcastGame` |
+| `<title>` (≤60) | `seo.broadcasts.round.title` — «{tournament} — {round} — Kingside» |
+| `<meta description>` (≤160) | `seo.broadcasts.round.description` — «{tournament} {round}: {gamesCount} games live. Engine analysis and move commentary on Kingside.» |
+| `og:type` | `event` |
+| `og:image` | `meta.imageUrl` (от Lichess родителя) → fallback `/og/broadcast.png` |
+| `canonical` | `https://kingside.site/broadcasts/{tid}/{rid}` |
+| JSON-LD | `SportsEvent`: `name='{tournament} — {round}'`, `sport='Chess'`, `superEvent={SportsEvent родителя}`, `startDate=round.startsAt`, `eventStatus` маппится из `round.status` (`ongoing` → live, `finished` → завершён, остальное → scheduled). |
+| Fallback'и | `round.startsAt=null` → `startDate` пропускаем; `gamesCount=0` → описание сокращаем до «{tournament} {round} round.»; `tournament.imageUrl=null` → `/og/broadcast.png`. |
+
+---
+
+##### B4. `/broadcasts/:tournamentId/:roundId/:gameId` (включая `/live`)
+
+| Поле | Значение |
+|---|---|
+| Компонент | `BroadcastGamePage` (lazy) или `BroadcastLiveGamePage` |
+| Файл | `apps/web/src/pages/BroadcastGamePage.tsx`, `BroadcastLiveGamePage.tsx` |
+| API-запросы | `GET /:tid` (`BroadcastMeta`) + `GET /:tid/rounds` (`{ data }`) + `GET /:tid/rounds/:rid/games` (`{ data: LichessGame[] }`); локально выбирается `game = games.find(id===gameId)`. См. `BroadcastGamePage.tsx:71-81`. |
+| DTO | `LichessGame` (≈ `BroadcastGameSummary`): `whitePlayer`, `blackPlayer`, `whiteElo`, `blackElo`, `result`, `pgn`, `currentFen`, `updatedAt`, `bracketStage?` |
+| Поля для SEO | `whitePlayer`, `blackPlayer`, `whiteElo?`, `blackElo?`, `result?`, `tournament.title`, `round.name` (из `rounds.find`), opening (из PGN-headers, fallback `eco`) |
+| Prisma | `BroadcastGame` (поля `pgn`, `whitePlayer`, `blackPlayer`, `result`, `updatedAt`) |
+| `<title>` (≤60) | `seo.broadcasts.game.title` — «{white} vs {black} ({result}) — Kingside» (без турнира — для длины). Fallback без `result`: «{white} vs {black} — {tournament}» |
+| `<meta description>` (≤160) | `seo.broadcasts.game.description` — «{white} ({whiteElo}) vs {black} ({blackElo}) — {tournament} {round}. {opening}. Engine analysis on Kingside.» |
+| `og:type` | `article` (партия как контент-единица; SportsEvent для одной партии семантически слабо ложится — chess `Game` в Schema.org нет) |
+| `og:image` | `/og/broadcast.png` (volna 2 — динамическая генерация превью доски по `currentFen`) |
+| `canonical` | `https://kingside.site/broadcasts/{tid}/{rid}/{gid}` (без `/live` — `/live` это рантайм-режим того же контента, не отдельный canonical) |
+| JSON-LD | `Article`: `headline='{white} vs {black}'`, `author=[{Person name=white},{Person name=black}]`, `datePublished=updatedAt`, `articleBody=pgn` (для индексации полного текста ходов), `isPartOf={SportsEvent родителя — round}`. |
+| Fallback'и | `whitePlayer/blackPlayer=null` → `'?'`. `whiteElo/blackElo=null` → скобки в description пропускаем. `result=null` → title без result. `pgn=null` (forfeit) → `Article.articleBody` пропускаем, в DOM выводим страницу forfeit (текущий поток `BroadcastGamePage.tsx:97-180`). Opening невытекаем — описание без opening. |
+
+---
+
+##### T1. `/tournaments` (список)
+
+| Поле | Значение |
+|---|---|
+| Компонент | `TournamentsPage` |
+| Файл | `apps/web/src/pages/TournamentsPage.tsx` |
+| API-запросы | `GET /arena?type=&status=` (`Tournament[]`); для авторизованных дополнительно `GET /arena/my` (приватный, не для SEO) |
+| DTO | Локальный `Tournament` (`:8-...`): `id`, `name`, `type` (`arena`/`swiss`/`round-robin`), `status`, `timeControl`, `startsAt`, `participantsCount` |
+| Поля для SEO | `name`, `status`, `type`, `participantsCount`, `startsAt` (агрегаты для description: «N tournaments live now») |
+| Prisma | api: `Tournament` (или `Arena` — точное имя taken from `apps/api/src/arena` Prisma модели; backend: `arena.controller.ts:41`) |
+| `<title>` (≤60) | `seo.tournaments.list.title` — «Chess tournaments — Kingside» / «Турниры — Kingside» |
+| `<meta description>` (≤160) | `seo.tournaments.list.description` — «Arena, Swiss and round-robin tournaments. Bullet, Blitz, Rapid and Classical formats on Kingside.» |
+| `og:type` | `website` |
+| `og:image` | `/og/tournament.png` |
+| `canonical` | `https://kingside.site/tournaments` |
+| JSON-LD | `CollectionPage` + `ItemList` с первыми 10 как `SportsEvent`. |
+| Fallback'и | Пустой список → JSON-LD без `ItemList`. |
+
+---
+
+##### T2. `/tournaments/:id` и `/arena/:id`
+
+| Поле | Значение |
+|---|---|
+| Компонент | `TournamentLobbyPage` |
+| Файл | `apps/web/src/pages/TournamentLobbyPage.tsx` |
+| API-запросы | `GET /arena/:id` (`Tournament`) + `GET /arena/:id/standings` (`Standing[]`) + `GET /arena/:id/rounds` (`RoundData[]`) |
+| DTO | `Tournament` (`:15-35`: `id`, `name`, `description`, `type`, `timeControl`, `status`, `startsAt`, `endsAt`, `prizeFund?`), `Standing` (`:70-...`: `userId`, `username`, `score`, `rating`) |
+| Поля для SEO | `name`, `description`, `type`, `timeControl`, `status`, `startsAt`, `endsAt`, `participantsCount` (из `standings.length`), top-3 `standings` (имена + score для description) |
+| Prisma | `Tournament`, `TournamentParticipant`, `TournamentRound` |
+| `<title>` (≤60) | `seo.tournaments.detail.title` — «{name} — Kingside» |
+| `<meta description>` (≤160) | `seo.tournaments.detail.description` — «{name}: {type} tournament, {timeControl} time control. {participantsCount} players. {startsAt}. Join on Kingside.» |
+| `og:type` | `event` |
+| `og:image` | `/og/tournament.png` |
+| `canonical` | `https://kingside.site/tournaments/{id}` (даже если зашёл по `/arena/:id` — это alias, canonical сводит к `/tournaments/:id`) |
+| JSON-LD | `SportsEvent`: `name`, `sport='Chess'`, `startDate=startsAt`, `endDate=endsAt`, `description`, `eventStatus` маппится из `status`, `location={VirtualLocation, url=canonical}`, `organizer={Organization, name='Kingside'}`. Если есть `prizeFund` — `offers={Offer prizeReward}`. |
+| Fallback'и | `description=null` → подставляем generic строку из `seo.tournaments.detail.descriptionNoDesc`. `endsAt=null` → пропускаем. `prizeFund=null` → `offers` пропускаем. `standings=[]` → блок «players» в description опускаем. |
+
+---
+
+##### P1. `/players` (список)
+
+| Поле | Значение |
+|---|---|
+| Компонент | `PlayersPage` |
+| Файл | `apps/web/src/pages/PlayersPage.tsx` |
+| API-запросы | `GET /players/top?type=&limit=&offset=` (`TopPlayersResponse`); `GET /players/online?limit=&offset=` (`OnlinePlayersResponse`); `GET /players/search?q=...` (`SearchPlayersResponse`) |
+| DTO | `TopPlayersResponse.data[]`: `{ username, ratingBullet, ratingBlitz, ratingRapid, ratingClassical, country? }`, `OnlinePlayersResponse.data[]`: то же + `lastSeenAt` |
+| Поля для SEO | Только агрегат (количество в списке) — для SEO детали игроков не нужны, они на T1-роуте. |
+| Prisma | `User` (поля `username`, `ratingBullet`, `ratingBlitz`, `ratingRapid`, `ratingClassical`, `country`, `lastSeenAt`) |
+| `<title>` (≤60) | `seo.players.list.title` — «Top chess players — Kingside» / «Топ игроки — Kingside» |
+| `<meta description>` (≤160) | `seo.players.list.description` — «Top-rated chess players by bullet, blitz, rapid and classical. Search and view profiles on Kingside.» |
+| `og:type` | `website` |
+| `og:image` | `/og/player.png` |
+| `canonical` | `https://kingside.site/players` (без `?type=&tab=` — canonical голый) |
+| JSON-LD | `CollectionPage` + `ItemList` с топ-10 как `Person`. |
+| Fallback'и | Список пустой → без `ItemList`. |
+
+---
+
+##### P2. `/player/:username`
+
+| Поле | Значение |
+|---|---|
+| Компонент | `PlayerProfilePage` |
+| Файл | `apps/web/src/pages/PlayerProfilePage.tsx` |
+| API-запросы | `GET /players/:username` (`PlayerProfileResponse`) |
+| DTO | `PlayerProfileResponse` (`api-contracts.ts:2272`): `id`, `username`, `country?`, `ratings.{bullet,blitz,rapid,classical,puzzle}`, `stats.{wins,losses,draws,totalGames}`, `createdAt`, `lastSeenAt`, `recentGames[]`, `isCoach` |
+| Поля для SEO | `username`, `country`, `ratings.*`, `stats.totalGames`, `stats.wins`, `isCoach`, `createdAt` |
+| Prisma | `User` |
+| Best rating логика | `bestRating = max(ratings.bullet, ratings.blitz, ratings.rapid, ratings.classical)`; `bestType` — соответствующее имя категории |
+| `<title>` (≤60) | `seo.players.profile.title` — «{username} — {bestRating} {bestType} — Kingside» |
+| `<meta description>` (≤160) | `seo.players.profile.description` — «{username}: Bullet {bullet}, Blitz {blitz}, Rapid {rapid}, Classical {classical}. {totalGames} games on Kingside.» |
+| `og:type` | `profile` |
+| `og:image` | `/og/player.png` (volna 2 — динамика с аватаром и рейтингом) |
+| `canonical` | `https://kingside.site/player/{username}` |
+| JSON-LD | `ProfilePage` + `Person`: `name=username`, `nationality=country`, `additionalType='https://schema.org/Athlete'`. Subject: `Person` без email/phone (skip-fields ADR-128 §6.8.3). |
+| Fallback'и | `country=null` → `nationality` пропускаем. `recentGames=[]` → ничего не теряет (поля не нужны в SEO). Если `isCoach=true` — frontend может **дополнительно** добавить `Person.jobTitle='Chess coach'` в JSON-LD (см. C1). |
+
+---
+
+##### C1. `/coach/:username`
+
+| Поле | Значение |
+|---|---|
+| Компонент | `CoachProfilePage` |
+| Файл | `apps/web/src/pages/CoachProfilePage.tsx` |
+| API-запросы | `GET /players/:username` (`PlayerProfileResponse`) + `GET /coaches/:username/lectures?status=public` + `GET /coaches/:username/schedule` |
+| DTO | `PlayerProfileResponse` + локальные `CoachLecture[]` (`:47-...`: `id`, `title`, `description`, `status`, `scheduledAt?`, `priceCents?`, `recordingUrl?`) |
+| Поля для SEO | `username`, `country`, `bestRating`, `stats.totalGames`, lectures: `count`, `nextScheduledAt` (если есть) |
+| Prisma | `User` + `Lecture` (api) |
+| `<title>` (≤60) | `seo.coach.profile.title` — «{username} — chess coach — Kingside» / «{username} — шахматный тренер — Kingside» |
+| `<meta description>` (≤160) | `seo.coach.profile.description` — «{username}: chess coach. {bestRating} {bestType} rating. {lecturesCount} lectures. Book a lesson on Kingside.» |
+| `og:type` | `profile` |
+| `og:image` | `/og/coach.png` |
+| `canonical` | `https://kingside.site/coach/{username}` |
+| JSON-LD | `ProfilePage` + `Person` (как P2) + `jobTitle='Chess coach'`, `worksFor={Organization, name='Kingside'}`, `makesOffer=[…Course по public lectures]` (top-10 lectures как `Offer`+`itemOffered=Course`). |
+| Fallback'и | `country=null` → пропуск. `lecturesCount=0` → description без mention lectures. `isCoach=false` (зашёл по `/coach/:u` к нетренеру) → frontend редиректит на `/player/:u` (или 404). SEO-метатеги в этом случае не ставятся (не индексируется как coach). |
+
+---
+
+##### L1. `/lectures` (список)
+
+| Поле | Значение |
+|---|---|
+| Компонент | `LecturesListPage` |
+| Файл | `apps/web/src/pages/LecturesListPage.tsx` |
+| API-запросы | Для гостя: маршрут открыт (ADR-128 §4.2), но **глобального публичного списка лекций нет** (только `GET /coaches/:u/lectures` per-coach и `GET /my/lectures` под JWT). Это пробел: frontend сейчас при `!user` рендерит CTA «sign in», а не публичный список. См. fallback'и ниже. |
+| DTO | — (для гостя список пустой; для авторизованного — `LectureSummary[]` через `GET /my/lectures`) |
+| Поля для SEO | Только статика. |
+| Prisma | `Lecture` |
+| `<title>` (≤60) | `seo.lectures.list.title` — «Chess lectures and coaches — Kingside» |
+| `<meta description>` (≤160) | `seo.lectures.list.description` — «Live and recorded chess lectures by titled coaches. Book a class, watch replays on Kingside.» |
+| `og:type` | `website` |
+| `og:image` | `/og/lecture.png` |
+| `canonical` | `https://kingside.site/lectures` |
+| JSON-LD | `CollectionPage` без `ItemList` (нет публичного списка для гостя). |
+| Fallback'и | **Backend-пробел**: для нормального индексирования `/lectures` гостю нужен публичный эндпоинт `GET /lectures/public?status=public&limit=` (агрегат опубликованных лекций по всем тренерам). До его появления — list-страница имеет только статические meta + ссылки на отдельных тренеров (через карточки). Эндпоинт — отдельная backend-задача (см. §10). |
+
+---
+
+##### L2. `/lectures/:id`
+
+| Поле | Значение |
+|---|---|
+| Компонент | `LectureLandingPage` |
+| Файл | `apps/web/src/pages/LectureLandingPage.tsx` |
+| API-запросы | `GET /lectures/:id` (открыт по `OptionalJwtGuard`, `lectures.controller.ts:125-129`) |
+| DTO | `LectureDetailResponse` (точная форма — в `lectures.service.ts`; ключевые поля: `id`, `title`, `description`, `coach.{id,username}`, `status`, `visibility`, `scheduledAt?`, `duration?`, `priceCents?`, `recordingUrl?`) |
+| Поля для SEO | `title`, `description`, `coach.username`, `status`, `scheduledAt`, `duration`, `priceCents` |
+| Prisma | `Lecture` (поля как в DTO) |
+| `<title>` (≤60) | `seo.lectures.detail.title` — «{title} — by {coach} — Kingside» |
+| `<meta description>` (≤160) | `seo.lectures.detail.description` — «{title} by {coach}. {scheduledAt}. {duration} min. {description}. Book on Kingside.» |
+| `og:type` | `article` (для recorded) / `event` (для scheduled/live) — выбирается по `status` |
+| `og:image` | `/og/lecture.png` (volna 2 — превью с темой и тренером) |
+| `canonical` | `https://kingside.site/lectures/{id}` |
+| JSON-LD | `Course`: `name=title`, `description`, `provider={Organization Kingside}`, `instructor={Person coach}`. Если `status='scheduled'` — дополнительно вкладываем `hasCourseInstance` (`CourseInstance` с `startDate=scheduledAt`, `duration`). Если `priceCents!=null` — `offers={Offer price=priceCents/100, priceCurrency='USD'}`. |
+| Fallback'и | `description=null` → description в meta — generic строка. `scheduledAt=null` (recorded) → `og:type='article'`, JSON-LD без `CourseInstance`. `priceCents=null` → `offers` пропускаем. `recordingUrl=null && status=='recorded'` → лекция технически недоступна; SEO ставим как article, но «book» в meta заменяем на «watch on Kingside». |
+
+---
+
+##### A1. `/archive` (список)
+
+| Поле | Значение |
+|---|---|
+| Компонент | `ArchiveGamesPage` |
+| Файл | `apps/web/src/pages/ArchiveGamesPage.tsx` |
+| API-запросы | `GET /games` (archive-service: `ArchiveGamesResponse`) + `GET /tree` (агрегаты) |
+| DTO | `ArchiveGamesResponse` (`packages/shared/src/types/archive.ts:222`): `total`, `hasNext`, `nextCursor`, `items[]: ArchiveGameSummary` |
+| Поля для SEO | Агрегаты: `total` (если есть — «{total} games archived»), top-3 `items[].event` для текстового блока |
+| Prisma | archive-service: `ArchiveGame` (поля `pgn`, `whitePlayer`, `blackPlayer`, `event`, `eco`, `timeControl`) |
+| `<title>` (≤60) | `seo.archive.list.title` — «Master games archive — Kingside» / «Архив партий — Kingside» |
+| `<meta description>` (≤160) | `seo.archive.list.description` — «Search master chess games by player, event, ECO, position. Replay with engine analysis on Kingside.» |
+| `og:type` | `website` |
+| `og:image` | `/og/archive.png` |
+| `canonical` | `https://kingside.site/archive` (без query — фильтры не canonical-семантика) |
+| JSON-LD | `CollectionPage` + `SearchAction` (есть поле поиска): `SearchAction.target='https://kingside.site/archive?player={query}'`. |
+| Fallback'и | `total=null` → описание без «{total}». `items=[]` → JSON-LD без вложенных. |
+
+---
+
+##### A2. `/archive/games/:id`
+
+| Поле | Значение |
+|---|---|
+| Компонент | `ArchiveGamePage` |
+| Файл | `apps/web/src/pages/ArchiveGamePage.tsx` |
+| API-запрос | `GET /games/:id` (`ArchiveGameDetail`, `archive.ts:192`) |
+| DTO | `ArchiveGameDetail`: `id`, `white`, `black`, `result`, `event`, `site`, `round`, `date`, `eco`, `opening`, `pgn`, `whiteElo`, `blackElo`, `timeControl`, `timeControlCategory` |
+| Поля для SEO | `white.name`, `black.name`, `whiteElo`, `blackElo`, `result`, `event`, `date`, `eco`, `opening`, `pgn` |
+| Prisma | archive-service: `ArchiveGame` |
+| `<title>` (≤60) | `seo.archive.game.title` — «{white} vs {black} ({result}) — {event}» (если суммарно >60: «{white} vs {black} ({result})») |
+| `<meta description>` (≤160) | `seo.archive.game.description` — «{white} ({whiteElo}) — {black} ({blackElo}), {event}, {date}. {opening} ({eco}). Replay on Kingside.» |
+| `og:type` | `article` |
+| `og:image` | `/og/archive.png` (volna 2 — динамика с превью доски на финальной позиции) |
+| `canonical` | `https://kingside.site/archive/games/{id}` |
+| JSON-LD | `Article`: `headline='{white} vs {black}'`, `author=[{Person name=white.name},{Person name=black.name}]`, `datePublished=date` (если есть), `articleBody=pgn` (для индексации полного текста; ключевая часть для длинного-хвоста по позициям). `isPartOf={Event name=event}` если есть. |
+| Fallback'и | `whiteElo/blackElo=null` → скобки пропускаем. `event=null` → title без `{event}`. `date=null` → `datePublished` JSON-LD пропускаем. `opening=null && eco=null` → блок opening в description пропускаем. `pgn` всегда есть (по контракту, A2 — это detail-страница, pgn гарантирован). |
+
+---
+
+##### A3. `/archive/players/:slug`
+
+| Поле | Значение |
+|---|---|
+| Компонент | `ArchivePlayerProfilePage` |
+| Файл | `apps/web/src/pages/ArchivePlayerProfilePage.tsx` |
+| API-запросы | `GET /players/:slug` (`ArchivePlayerProfile`, `archive.ts:333`) + `GET /players/:slug/games?...` (`ArchivePlayerGamesResponse`) |
+| DTO | `ArchivePlayerProfile`: `name`, `slug`, `gamesCount`, `peakElo`, `byColor.{white,black}`, `byResult.{wins,draws,losses}`, `firstSeenAt`, `lastSeenAt` |
+| Поля для SEO | `name`, `gamesCount`, `peakElo`, `byResult`, `firstSeenAt`, `lastSeenAt` |
+| Prisma | archive-service: `ArchivePlayer` |
+| `<title>` (≤60) | `seo.archive.player.title` — «{name} — archive — Kingside» |
+| `<meta description>` (≤160) | `seo.archive.player.description` — «{name}: {gamesCount} archived games, peak {peakElo}. {wins} wins, {draws} draws, {losses} losses on Kingside.» |
+| `og:type` | `profile` |
+| `og:image` | `/og/archive.png` (общая для архива; player-specific — volna 2) |
+| `canonical` | `https://kingside.site/archive/players/{slug}` |
+| JSON-LD | `ProfilePage` + `Person`: `name=name`, `additionalType='https://schema.org/Athlete'`. Без `email`/`telephone` (skip-fields ADR-128 §6.8.3) — у архивных игроков их и нет, это master/external. |
+| Fallback'и | `peakElo=null` → пропуск в title и description. `firstSeenAt/lastSeenAt=null` → пропуск (это и так в bullet'ах description). |
+
+---
+
+#### 7.6.1.3. Статические og:image-картинки
+
+Список файлов под `apps/web/public/og/`. Размер каждой — **1200×630**
+PNG, ≤300 КБ. Брендинг (логотип + название Kingside) + иллюстрация
+сущности.
+
+| Файл | Используется на маршрутах |
+|---|---|
+| `landing.png` | `/` (variant=home), `/features` — см. ADR-129 §7.3 |
+| `broadcast.png` | `/broadcasts`, `/broadcasts/:tid`, `/broadcasts/:tid/:rid`, `/broadcasts/:tid/:rid/:gid` (fallback, когда `meta.imageUrl` от Lichess пустой) |
+| `tournament.png` | `/tournaments`, `/tournaments/:id`, `/arena/:id` |
+| `player.png` | `/players`, `/player/:username` |
+| `coach.png` | `/coach/:username` |
+| `lecture.png` | `/lectures`, `/lectures/:id` |
+| `archive.png` | `/archive`, `/archive/games/:id`, `/archive/players/:slug` |
+| `default.png` | Fallback на любых других public страницах (`/feedback`, `/feedback/:id`, `/terms`, `/credits`, и т. д.); используется в `<SeoHelmet>` при отсутствии явного `og:image` |
+
+Итого **8 PNG** на боевой сервер на первую итерацию. Динамическая
+генерация per-entity картинок (например, превью с FEN текущей
+позиции, аватаром игрока, постером лекции) — volna 2, отдельный
+ADR (вне KS-4172).
+
+Задача content на эти файлы — KS-4172-CT (см. §10 ниже). Если на
+момент frontend'-реализации какой-то PNG ещё не готов — fallback на
+`/og/default.png` или `/og/landing.png` (frontend `<SeoHelmet>` сам
+не падает).
+
+#### 7.6.1.4. Свод i18n-ключей `seo.*`
+
+Финальные тексты пишет marketing (KS-4172-MK ниже). Архитектор фиксирует
+структуру ключей и переменных:
+
+```
+seo.broadcasts.list.title
+seo.broadcasts.list.description
+seo.broadcasts.tournament.title              // {title}
+seo.broadcasts.tournament.description        // {title}, {roundCount}
+seo.broadcasts.tournament.descriptionFromLichess  // используется как-есть, обрезается
+seo.broadcasts.round.title                   // {tournament}, {round}
+seo.broadcasts.round.description             // {tournament}, {round}, {gamesCount}
+seo.broadcasts.round.descriptionNoGames      // {tournament}, {round}
+seo.broadcasts.game.title                    // {white}, {black}, {result}
+seo.broadcasts.game.titleNoResult            // {white}, {black}, {tournament}
+seo.broadcasts.game.description              // {white}, {whiteElo}, {black}, {blackElo}, {tournament}, {round}, {opening}
+seo.broadcasts.game.descriptionNoElo         // {white}, {black}, {tournament}, {round}, {opening}
+
+seo.tournaments.list.title
+seo.tournaments.list.description
+seo.tournaments.detail.title                 // {name}
+seo.tournaments.detail.description           // {name}, {type}, {timeControl}, {participantsCount}, {startsAt}
+seo.tournaments.detail.descriptionNoDesc     // тот же набор переменных, generic-текст
+
+seo.players.list.title
+seo.players.list.description
+seo.players.profile.title                    // {username}, {bestRating}, {bestType}
+seo.players.profile.description              // {username}, {bullet}, {blitz}, {rapid}, {classical}, {totalGames}
+
+seo.coach.profile.title                      // {username}
+seo.coach.profile.description                // {username}, {bestRating}, {bestType}, {lecturesCount}
+
+seo.lectures.list.title
+seo.lectures.list.description
+seo.lectures.detail.title                    // {title}, {coach}
+seo.lectures.detail.description              // {title}, {coach}, {scheduledAt}, {duration}, {description}
+seo.lectures.detail.descriptionRecorded      // {title}, {coach}, {description}
+
+seo.archive.list.title
+seo.archive.list.description
+seo.archive.game.title                       // {white}, {black}, {result}, {event}
+seo.archive.game.titleShort                  // {white}, {black}, {result}
+seo.archive.game.description                 // {white}, {whiteElo}, {black}, {blackElo}, {event}, {date}, {opening}, {eco}
+seo.archive.game.descriptionNoElo            // {white}, {black}, {event}, {date}, {opening}
+seo.archive.player.title                     // {name}
+seo.archive.player.description               // {name}, {gamesCount}, {peakElo}, {wins}, {draws}, {losses}
+seo.archive.player.descriptionNoPeak         // {name}, {gamesCount}, {wins}, {draws}, {losses}
+```
+
+Языки — `en` + `ru` (минимум на первой итерации). Будущие — добавляются
+без структурных изменений.
+
+#### 7.6.1.5. Что не входит в эту карту
+
+- **Маршруты PF-тренажёров** (`/play`, `/puzzles`, `/precision`,
+  `/drills`, `/blind-board`, `/guess`, `/opening-trainer`, `/workshop`,
+  `/analysis`). Они индексируются как marketing/tool-страницы, без
+  per-entity DTO — у них только статика (заголовок раздела, описание
+  возможностей). Шаблоны для них — отдельный задел (можно
+  параметризовать одним конфигом с `seo.tools.{key}.title/description`,
+  не требуют API-запросов). См. §7.7 (PM-шаблон) — уже описан в
+  ADR-128.
+- **`/feedback`, `/feedback/:id`** — PR, но `feedback` это бэклог
+  фич. Индексировать каждый тикет отдельным title/description можно;
+  не вошло в KS-4172 (фокус — карточки контента). Добавляется
+  follow-up'ом, если нужно.
+- **`/live/:slug`** — `noindex` ставит сама страница (ADR-110), в
+  карту не входит.
+- **PV-страницы** (`/profile`, `/messages`, `/settings`, `/lessons/my/*`)
+  — `noindex` или редирект на `/login`, SEO не нужно.
+
+#### 7.6.1.6. Декомпозиция на исполнительские тикеты
+
+Карта готова — координатор раздаёт по одной маленькой задаче на
+сущность. На каждой стороне frontend подставляет шаблон из §7.6.1.2
+без дополнительного проектирования.
+
+| Тикет | Скоуп | Что делает |
+|---|---|---|
+| **KS-4172-FE-B** | broadcasts (B1–B4) | `<SeoHelmet>` в `BroadcastsPage`, `BroadcastTournamentPage`, `BroadcastRoundPage`, `BroadcastGamePage`+`BroadcastLiveGamePage`. Подставляет шаблоны/ключи/fallback'и точно по таблице. |
+| **KS-4172-FE-T** | tournaments (T1, T2) | `<SeoHelmet>` в `TournamentsPage`, `TournamentLobbyPage`. |
+| **KS-4172-FE-P** | players (P1, P2) | `<SeoHelmet>` в `PlayersPage`, `PlayerProfilePage`. |
+| **KS-4172-FE-C** | coach (C1) | `<SeoHelmet>` в `CoachProfilePage`. |
+| **KS-4172-FE-L** | lectures (L1, L2) | `<SeoHelmet>` в `LecturesListPage`, `LectureLandingPage`. |
+| **KS-4172-FE-A** | archive (A1, A2, A3) | `<SeoHelmet>` в `ArchiveGamesPage`, `ArchiveGamePage`, `ArchivePlayerProfilePage`. |
+| **KS-4172-BE-1** (backend) | публичный список лекций | `GET /lectures/public?status=public&limit=&offset=` — агрегат опубликованных лекций по всем тренерам. `OptionalJwtGuard`, rate-limit. Skip-fields — без `priceCents` (можно отдавать; контент публичный). Для закрытия пробела L1 (§7.6.1.2). |
+| **KS-4172-CT** | content | 8 OG-картинок 1200×630 PNG в `apps/web/public/og/` (список §7.6.1.3). |
+| **KS-4172-MK** | marketing | Финальные строки для ключей `seo.*` (§7.6.1.4) на en + ru, ≤60 / ≤160 символов с подставленными переменными. |
+
+Зависимости: KS-4171 (`<SeoHelmet>` + react-helmet-async) — общая
+инфраструктура, **блокирует** все KS-4172-FE-*. KS-4172-MK блокирует
+все KS-4172-FE-* (без строк нечего ставить в `<title>`). KS-4172-CT
+не блокирует (frontend стартует с fallback `/og/default.png`).
+KS-4172-BE-1 блокирует только KS-4172-FE-L (для L1).
+
+Порядок: KS-4171 + KS-4172-MK → KS-4172-FE-B, KS-4172-FE-T,
+KS-4172-FE-P, KS-4172-FE-C, KS-4172-FE-A (параллельно) →
+KS-4172-FE-L (после KS-4172-BE-1). KS-4172-CT — параллельно в любой
+момент.
+
 ### 7.7. Унифицированный `<MarketingLanding>` для PM
 
 ```tsx
