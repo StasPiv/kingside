@@ -307,22 +307,18 @@ export function GameShell(props: GameShellProps) {
     setSidebarWidth(Math.min(320, Math.max(200, Math.floor(total * 0.25))));
   }, []);
 
-  // CSS-переменная высоты доски — для медиа-запросов мобильной верстки
+  // KS-4151: CSS-переменная ширины доски — для адаптивной верстки
+  // `.player-info { max-width: var(--board-area-height) }`. Раньше
+  // была заведена через ResizeObserver на `boardAreaRef`, что давало
+  // обратную связь: блок player-info менял ширину → менялась высота
+  // board-area → ResizeObserver писал новое значение → ... доска
+  // «дёргалась» при ходе. Сейчас источник — стабильная ширина доски
+  // из `useResponsiveBoardSize`; обновляется только при ресайзе окна.
   useEffect(() => {
-    const el = boardAreaRef.current;
     const page = gamePageRef.current;
-    if (!el || !page) return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        page.style.setProperty(
-          '--board-area-height',
-          `${entry.contentRect.height}px`,
-        );
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+    if (!page || boardWidth <= 0) return;
+    page.style.setProperty('--board-area-height', `${boardWidth}px`);
+  }, [boardWidth]);
 
   // Обработка хода игрока: промоушен, премув, прямое применение
   const handleAttemptMove = useCallback(

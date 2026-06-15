@@ -130,7 +130,11 @@ body:has(.game-page),
   font-size: 24px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  min-width: 70px;
+  /* KS-4151: фиксированная ширина под пять моноширинных символов
+     ("10:00" / "9:59" / "0:00"). Без неё переход 10:00 → 9:59
+     уменьшал ширину текста и сдвигал блок `.player-info` —
+     отсюда «дрожание» доски на каждой секунде. */
+  min-width: 5ch;
   text-align: right;
 }
 

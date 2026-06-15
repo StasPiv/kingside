@@ -14,6 +14,11 @@
  *   - таймер тикает каждые 250 мс, уменьшая часы того, чей сейчас ход;
  *   - при достижении 0 партия завершается победой соперника по времени;
  *   - после каждого хода к часам игрока добавляется инкремент.
+ *
+ * KS-4151: единый `Chess` инстанс мутируется через `.move()/.reset()`,
+ * новый объект не создаётся. Это сохраняет идентичность ссылки между
+ * рендерами и не пересоздаёт колбэки в `useBoardHighlights` →
+ * `boardOptions` остаётся стабильным, доска не дёргается.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Chess } from 'chess.js';
@@ -96,8 +101,11 @@ export function useLocalBotGame(
   const [botLevel] = useState<number>(() => clampLevel(level));
   const [resetSeq, setResetSeq] = useState(0);
 
-  // chess.js инстанс пересоздаётся при каждой новой партии.
-  const [chess, setChess] = useState<Chess>(() => new Chess());
+  // KS-4151: единый chess-инстанс — мутируется, никогда не заменяется.
+  // Это сохраняет идентичность ссылки в зависимостях `useBoardHighlights`,
+  // `useFastDrag` и других хуков GameShell, что предотвращает
+  // пересоздание мемоизированного `boardOptions` и дрожание доски.
+  const [chess] = useState<Chess>(() => new Chess());
   const [fen, setFen] = useState<string>(() => chess.fen());
   const [moves, setMoves] = useState<string[]>([]);
   const [status, setStatus] = useState<'waiting' | 'active' | 'finished'>(
@@ -180,17 +188,15 @@ export function useLocalBotGame(
         const from = uci.slice(0, 2) as Square;
         const to = uci.slice(2, 4) as Square;
         const promotion = uci.length >= 5 ? uci[4] : undefined;
-        const next = new Chess(chess.fen());
-        const move = next.move({ from, to, promotion });
+        const move = chess.move({ from, to, promotion });
         if (!move) {
           sendClientLog('error', `[local-bot] illegal uci from engine: ${uci}`);
           return;
         }
         // Применяем ход и одновременно прибавляем инкремент тому, кто
         // только что походил (бот).
-        const ply = next.history().length;
-        setChess(next);
-        setFen(next.fen());
+        const ply = chess.history().length;
+        setFen(chess.fen());
         setMoves((prev) => [...prev, move.san]);
         setLastMove({ from, to, san: move.san, ply });
         if (incrementSec > 0) {
@@ -199,7 +205,7 @@ export function useLocalBotGame(
             [turnColor]: prev[turnColor] + incrementSec,
           }));
         }
-        if (next.isGameOver()) finalize(next);
+        if (chess.isGameOver()) finalize(chess);
       } catch (e) {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -222,16 +228,19 @@ export function useLocalBotGame(
       if (status !== 'active') return false;
       const turnColor: GameColor = chess.turn() === 'w' ? 'white' : 'black';
       if (turnColor !== playerColor) return false;
-      const next = new Chess(chess.fen());
-      const move = next.move({
-        from,
-        to,
-        ...(promotion ? { promotion } : {}),
-      });
+      let move;
+      try {
+        move = chess.move({
+          from,
+          to,
+          ...(promotion ? { promotion } : {}),
+        });
+      } catch {
+        return false;
+      }
       if (!move) return false;
-      const ply = next.history().length;
-      setChess(next);
-      setFen(next.fen());
+      const ply = chess.history().length;
+      setFen(chess.fen());
       setMoves((prev) => [...prev, move.san]);
       setLastMove({ from, to, san: move.san, ply });
       if (incrementSec > 0) {
@@ -240,7 +249,7 @@ export function useLocalBotGame(
           [turnColor]: prev[turnColor] + incrementSec,
         }));
       }
-      if (next.isGameOver()) finalize(next);
+      if (chess.isGameOver()) finalize(chess);
       return true;
     },
     [chess, status, playerColor, incrementSec, finalize],
@@ -254,9 +263,8 @@ export function useLocalBotGame(
   }, [status, playerColor]);
 
   const onNewGame = useCallback(() => {
-    const fresh = new Chess();
-    setChess(fresh);
-    setFen(fresh.fen());
+    chess.reset();
+    setFen(chess.fen());
     setMoves([]);
     setLastMove(null);
     setStatus('active');
@@ -264,7 +272,7 @@ export function useLocalBotGame(
     setBotError(null);
     setClocks({ white: initialSec, black: initialSec });
     setResetSeq((s) => s + 1);
-  }, [initialSec]);
+  }, [chess, initialSec]);
 
   return {
     chess,
