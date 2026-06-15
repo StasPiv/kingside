@@ -7,24 +7,38 @@
  *  - onAccept вызывается с актуальным FEN.
  */
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { cleanup } from '@testing-library/react';
 import { useEffect } from 'react';
 import { renderWithAuth as renderWithProviders, screen, waitFor } from '../test/test-utils-auth';
 
 // KS-4182: компонент теперь зовёт `useAuth` (см. guard перед recognize-
-// flow). Тестам нужен авторизованный сценарий — иначе handleFile
-// сразу открывает LoginRequiredModal и до recognizer'а дело не доходит.
+// flow). По умолчанию подаём авторизованного пользователя — иначе
+// handleFile сразу открывает LoginRequiredModal и до recognizer'а дело
+// не доходит. Гостевой сценарий проверяется в отдельном describe ниже
+// через `authState.user = null`.
+const { authState, requireAuthSpy } = vi.hoisted(() => ({
+  authState: {
+    user: { id: 'test-user', username: 'tester' } as
+      | { id: string; username: string }
+      | null,
+  },
+  requireAuthSpy: vi.fn(),
+}));
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({
-    user: { id: 'test-user', username: 'tester' },
-    loading: false,
-  }),
+  useAuth: () => ({ user: authState.user, loading: false }),
   AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   AuthContext: {
     Provider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   },
+}));
+vi.mock('../context/RequireAuthContext', () => ({
+  useRequireAuth: () => (action: () => void, options?: { description?: string }) => {
+    requireAuthSpy(options);
+    if (authState.user) action();
+  },
+  RequireAuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 // KS-3094: мок `react-easy-crop`, чтобы lazy-Suspense быстро отдал
@@ -560,5 +574,54 @@ describe('<BoardImageDropzone> (KS-2365)', () => {
     await userEvent.type(fenInput, 'garbage');
     const apply = screen.getByTestId('board-image-dropzone-apply') as HTMLButtonElement;
     expect(apply.disabled).toBe(true);
+  });
+});
+
+describe('<BoardImageDropzone> KS-4182: гостевой guard', () => {
+  beforeEach(() => {
+    requireAuthSpy.mockClear();
+    authState.user = null;
+  });
+  afterEach(() => {
+    authState.user = { id: 'test-user', username: 'tester' };
+  });
+
+  it('гость загружает картинку → requireAuth вызван, recognizer НЕ вызван', async () => {
+    const recognizer = vi.fn().mockResolvedValue(RECOGNIZED);
+    renderWithProviders(
+      <BoardImageDropzone onAccept={vi.fn()} recognizer={recognizer} />,
+    );
+    const input = screen.getByTestId(
+      'board-image-dropzone-file-input',
+    ) as HTMLInputElement;
+    await userEvent.upload(input, makeImageFile());
+
+    // requireAuth — единая точка входа: гость видит LoginRequiredModal,
+    // recognizer НЕ зовётся (нет 401 в консоли, нет красной плашки).
+    await waitFor(() => expect(requireAuthSpy).toHaveBeenCalledTimes(1));
+    expect(recognizer).not.toHaveBeenCalled();
+    const options = requireAuthSpy.mock.calls[0][0] as
+      | { description?: string }
+      | undefined;
+    expect(options?.description).toMatch(/Sign in.*recognize/i);
+  });
+
+  it('гость: setBusy/blob-URL не выставляются (нет «зависшего» UI)', async () => {
+    const recognizer = vi.fn().mockResolvedValue(RECOGNIZED);
+    renderWithProviders(
+      <BoardImageDropzone onAccept={vi.fn()} recognizer={recognizer} />,
+    );
+    const input = screen.getByTestId(
+      'board-image-dropzone-file-input',
+    ) as HTMLInputElement;
+    await userEvent.upload(input, makeImageFile());
+    await waitFor(() => expect(requireAuthSpy).toHaveBeenCalled());
+    // Дропзона осталась в исходном empty-состоянии: нет crop-overlay
+    // (lastImageUrlRef.current не выставлен — ранний return ДО
+    // `URL.createObjectURL`). Остальные элементы (FEN-чип пустой
+    // доски, кнопка Apply) — статическая часть UI, всегда видны.
+    expect(
+      screen.queryByTestId('board-image-dropzone-crop-frame'),
+    ).toBeNull();
   });
 });
