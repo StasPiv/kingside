@@ -383,8 +383,9 @@ describe('runBackfillTwic — Redis-lock', () => {
     const { deps, spies } = makeDeps();
     await runBackfillTwic(deps, { issue: 1638, force: false });
     expect(spies.setInterval).toHaveBeenCalledTimes(1);
-    // KS-3150: heartbeat = ttl/2 = 1800s (TTL 3600s) по умолчанию.
-    expect(spies.setInterval).toHaveBeenCalledWith(expect.any(Function), 1_800_000);
+    // KS-2157: TTL поднят до 600_000 ms (10 мин), heartbeat = ttl/2 = 300_000 ms.
+    // См. `archive-import/archive-import-lock.ts:resolveLockTimings`.
+    expect(spies.setInterval).toHaveBeenCalledWith(expect.any(Function), 300_000);
     expect(spies.clearInterval).toHaveBeenCalledTimes(1);
   });
 
