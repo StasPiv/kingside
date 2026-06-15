@@ -95,26 +95,44 @@ export function LocalBotGamePage() {
       backLink={{ to: '/play', label: t('game.backToLobby', 'Back to lobby') }}
       forceStandardPieces={forceStandardPieces}
       belowBoardBlock={
-        game.botError ? (
-          <div
-            className="local-bot-error"
-            data-testid="local-bot-error"
-            style={{ marginTop: 12, color: '#ef4444' }}
-            role="alert"
-          >
-            {t('game.botEngineError', 'Bot engine could not start: {{msg}}', {
-              msg: game.botError,
-            })}
-          </div>
-        ) : game.status === 'active' && game.botThinking ? (
-          <div
-            className="local-bot-status"
-            data-testid="local-bot-status-bot"
-            style={{ marginTop: 12 }}
-          >
-            {t('game.botThinking', 'Bot is thinking…')}
-          </div>
-        ) : null
+        // KS-4151: блок отрисовывается ВСЕГДА с фиксированной высотой.
+        // Раньше div появлялся/исчезал при botThinking → менялось число
+        // детей `.game-board-area` (flex column, justify-content: center)
+        // и доска визуально смещалась вверх/вниз на каждом ходе бота —
+        // отсюда «дрожание». Сейчас высота 24px зарезервирована всегда,
+        // меняется только текстовое содержимое — без layout shift.
+        <div
+          className="local-bot-below"
+          style={{
+            marginTop: 12,
+            minHeight: 24,
+            lineHeight: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '100%',
+          }}
+        >
+          {game.botError ? (
+            <span
+              className="local-bot-error"
+              data-testid="local-bot-error"
+              style={{ color: '#ef4444' }}
+              role="alert"
+            >
+              {t('game.botEngineError', 'Bot engine could not start: {{msg}}', {
+                msg: game.botError,
+              })}
+            </span>
+          ) : game.status === 'active' && game.botThinking ? (
+            <span
+              className="local-bot-status"
+              data-testid="local-bot-status-bot"
+            >
+              {t('game.botThinking', 'Bot is thinking…')}
+            </span>
+          ) : null}
+        </div>
       }
     />
   );
