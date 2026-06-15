@@ -86,6 +86,56 @@ function notifyLectureAccessError(
   );
 }
 
+/**
+ * KS-4131 / ADR-128 §6.9. Гостевой 401 — событие для UI-слоя.
+ * Раньше любой 401 у гостя приводил к глобальному редиректу на /login,
+ * ломая страницу. Теперь api.ts не редиректит сам — диспатчит событие,
+ * на которое подписан `RequireAuthProvider` и решает:
+ *   - GET PF/PR + POST PF → toast «не удалось загрузить»;
+ *   - POST PR/PV → открыть `<LoginRequiredModal>`.
+ *
+ * `path` и `method` нужны подписчику чтобы классифицировать тип
+ * действия. `errorCode` берётся из тела ответа backend'а (если есть).
+ */
+function notifyGuest401(
+  path: string,
+  method: string,
+  errorCode: string | undefined,
+  message: string | undefined,
+): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent('kingside:guest-401', {
+      detail: { path, method, errorCode, message },
+    }),
+  );
+}
+
+/**
+ * KS-4131. Эндпоинты, у которых 401 у гостя — нормальное состояние,
+ * а не ошибка для пользователя. На них toast/модалку показывать НЕ
+ * нужно (страница использует ответ как «нет сессии» и рисует guest-UI).
+ *
+ * - `/auth/me` — основной чекер сессии, AuthContext дёргает на каждом
+ *   загрузке; гость по дизайну получает 401.
+ * - `/auth/refresh` / `/auth/login` / `/auth/register` / `/auth/dev-bypass`
+ *   — внутренние auth-эндпоинты, их 401 обрабатывают вызывающие сами.
+ */
+const GUEST_401_SILENT_PATHS: readonly string[] = [
+  '/auth/me',
+  '/auth/refresh',
+  '/auth/login',
+  '/auth/register',
+  '/auth/dev-bypass',
+];
+
+function isGuest401Silent(path: string): boolean {
+  const clean = path.split('?')[0];
+  return GUEST_401_SILENT_PATHS.some(
+    (p) => clean === p || clean.startsWith(`${p}/`),
+  );
+}
+
 function notifySessionExpired(): void {
   if (typeof window === 'undefined') return;
   try {
@@ -241,6 +291,27 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   if (res.status === 401 && !path.includes('/auth/refresh') && !path.includes('/auth/login') && !path.includes('/auth/register')) {
+    // KS-4131 / ADR-128 §6.9. Гость на 401 — НЕ редиректим. Сессии
+    // нет, refresh бессмыслен. Диспатчим событие в UI-слой и бросаем
+    // ApiError; подписчик `RequireAuthProvider` сам решит: модалка
+    // (write PR/PV) или toast (read / write PF). Эндпоинты из
+    // silent-списка (auth/me и т. п.) — никакого UI вообще.
+    const hasToken = !!localStorage.getItem('token');
+    const hasRefresh = !!localStorage.getItem('refreshToken');
+    if (!hasToken && !hasRefresh) {
+      let body: { message?: string; errorCode?: string } = {};
+      try {
+        body = await res.json();
+      } catch { /* пустое тело — ок */ }
+      if (!isGuest401Silent(path)) {
+        notifyGuest401(path, method, body.errorCode, body.message);
+      }
+      throw new ApiError(
+        body.message ?? 'Authentication required',
+        body.errorCode ?? 'GUEST_UNAUTHORIZED',
+        401,
+      );
+    }
     if (!refreshPromise) {
       refreshPromise = refreshAccessToken().finally(() => { refreshPromise = null; });
     }

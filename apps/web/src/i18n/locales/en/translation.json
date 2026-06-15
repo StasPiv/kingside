@@ -918,7 +918,9 @@
       "joinTournament": "Sign in to register for «{{name}}» and play.",
       "loginBtn": "Sign in",
       "registerBtn": "Create account",
-      "cancelBtn": "Cancel"
+      "cancelBtn": "Cancel",
+      "toastLoadFailed": "Could not load. Please try again later.",
+      "toastActionFailed": "Action could not be completed. Please try again later."
     },
     "usernameSetup": {
       "title": "Choose your username",

@@ -166,3 +166,33 @@
   color: var(--c-cbd5e1, var(--c-e0e0e0));
 }
 
+/* KS-4131 / ADR-128 §6.9: глобальный toast от RequireAuthProvider.
+   Сюда попадает узкий класс уведомлений «гостевой 401 — не модалка,
+   а сообщение об ошибке загрузки/действия». Позиционирование как у
+   IncomingChallengeToast: правый нижний угол, поверх контента. */
+.api-notice-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1200;
+  max-width: 360px;
+  padding: 12px 16px;
+  background: var(--c-1a1a2e, #1a1a2e);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  color: var(--c-e0e0e0, #e0e0e0);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px var(--ov-black-60, rgba(0, 0, 0, 0.4));
+  pointer-events: auto;
+}
+
+@media (max-width: 480px) {
+  .api-notice-toast {
+    right: 12px;
+    bottom: 76px; /* над mobile-bottom-bar */
+    left: 12px;
+    max-width: none;
+  }
+}
+

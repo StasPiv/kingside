@@ -1109,7 +1109,9 @@
       "joinTournament": "Войдите в Kingside, чтобы зарегистрироваться в турнире «{{name}}» и играть.",
       "loginBtn": "Войти",
       "registerBtn": "Создать аккаунт",
-      "cancelBtn": "Отмена"
+      "cancelBtn": "Отмена",
+      "toastLoadFailed": "Не удалось загрузить. Попробуйте позже.",
+      "toastActionFailed": "Не удалось выполнить действие. Попробуйте позже."
     },
     "usernameSetup": {
       "title": "Выберите имя пользователя",
