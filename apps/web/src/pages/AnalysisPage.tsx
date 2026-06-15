@@ -1881,6 +1881,13 @@ function AnalysisPageInner({
     [],
   );
 
+  // KS-4170: гостевой ID анализа из `state.guestAnalysisId`. Используется
+  // в `handleTitleSave` ниже, чтобы переименование шло в локальное
+  // хранилище гостя, а не в серверный `updateAnalysis`. Объявление
+  // лифчено до handleTitleSave; дублирующий read ниже в гостевом
+  // autosave-эффекте удалён.
+  const guestAnalysisId = (location.state as { guestAnalysisId?: string } | null)?.guestAnalysisId ?? null;
+
   const handleTitleClick = useCallback(() => {
     if (gameId) return;
     // KS-2672: в publicMode не-владелец не редактирует title.
@@ -1895,10 +1902,18 @@ function AnalysisPageInner({
     setIsEditingTitle(false);
     // KS-2672: в publicMode мутация title запрещена.
     if (publicMode) return;
+    // KS-4170: гостю серверный updateAnalysis не подходит — localIdRef
+    // пустой/чужой, у его анализа есть только локальная запись в
+    // guestWorkshopStore. Пишем туда напрямую, чтобы заголовок появился
+    // в /workshop и в цепочке навигации.
+    if (!user && guestAnalysisId) {
+      void guestWorkshopStore.updateAnalysis(guestAnalysisId, { title: trimmed });
+      return;
+    }
     if (localIdRef.current) {
       updateAnalysis(localIdRef.current, { title: trimmed }).catch(() => {});
     }
-  }, [titleInput, updateAnalysis, publicMode]);
+  }, [titleInput, updateAnalysis, publicMode, user, guestAnalysisId]);
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -2480,8 +2495,8 @@ function AnalysisPageInner({
   // Условие активации: гость (`!user`) + переход на /analysis с
   // `state.guestAnalysisId` (выставляется WorkshopAnalysisList в KS-4167).
   // Серверный autosave выше выходит на `if (!user) return`, так что эти
-  // два эффекта не конкурируют.
-  const guestAnalysisId = (location.state as { guestAnalysisId?: string } | null)?.guestAnalysisId ?? null;
+  // два эффекта не конкурируют. `guestAnalysisId` объявлен выше для
+  // нужд `handleTitleSave` (KS-4170).
   const guestSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastGuestSavedPgnRef = useRef<string | null>(null);
   const isGuestAnalysisMode = !user && !!guestAnalysisId;
