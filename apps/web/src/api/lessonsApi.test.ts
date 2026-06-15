@@ -4,16 +4,24 @@ import { lessonsApi } from './lessonsApi';
 import { api } from '../api';
 
 /**
- * KS-2102: API больше НЕ принимает `?lang=`. Backend (KS-2101)
- * читает `User.locale`. Тесты проверяют, что lessonsApi:
- *   • НЕ добавляет query-параметр `lang`;
+ * KS-2102: API больше НЕ принимает `?lang=`. Backend (KS-2101) читает
+ * `User.locale`.
+ *
+ * KS-4143: после открытия каталога гостям (KS-4140) backend остался без
+ * локального источника языка — у гостей нет `User.locale`. Frontend
+ * теперь явно добавляет `?locale=<ru|en>` к каждому lessons GET. Для
+ * авторизованных параметр безвреден (User.locale всё ещё в приоритете).
+ *
+ * Тесты проверяют, что lessonsApi:
+ *   • НЕ добавляет query-параметр `lang` (легаси-имя из KS-2099);
+ *   • добавляет `?locale=en|ru` (актуальный контракт KS-4143);
  *   • кодирует slug через encodeURIComponent.
  *
- * Покрытие смены языка перенесено в MainLayout-тест (PATCH
- * /users/me/settings + invalidation на следующих effect-ах).
+ * В тестовой среде i18n.language не инициализирован, `currentLocale()`
+ * возвращает дефолт `en`.
  */
 
-describe('lessonsApi: запросы курсов без ?lang= (KS-2102)', () => {
+describe('lessonsApi: запросы курсов с ?locale= (KS-4143)', () => {
   let getSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -26,9 +34,9 @@ describe('lessonsApi: запросы курсов без ?lang= (KS-2102)', () =
     getSpy.mockRestore();
   });
 
-  it('listCourses() → /lessons/courses (без query)', async () => {
+  it('listCourses() → /lessons/courses?locale=en', async () => {
     await lessonsApi.listCourses();
-    expect(getSpy).toHaveBeenCalledWith('/lessons/courses');
+    expect(getSpy).toHaveBeenCalledWith('/lessons/courses?locale=en');
   });
 
   it('listActiveCourses() → /lessons/active-courses (без query)', async () => {
@@ -36,16 +44,16 @@ describe('lessonsApi: запросы курсов без ?lang= (KS-2102)', () =
     expect(getSpy).toHaveBeenCalledWith('/lessons/active-courses');
   });
 
-  it('getCourse(slug) → /lessons/courses/<slug> (без query)', async () => {
+  it('getCourse(slug) → /lessons/courses/<slug>?locale=en', async () => {
     await lessonsApi.getCourse('capablanca-fundamentals');
     expect(getSpy).toHaveBeenCalledWith(
-      '/lessons/courses/capablanca-fundamentals',
+      '/lessons/courses/capablanca-fundamentals?locale=en',
     );
   });
 
-  it('getCourse слаг с пробелами/спецсимволами → encodeURIComponent', async () => {
+  it('getCourse слаг с пробелами/спецсимволами → encodeURIComponent + ?locale=en', async () => {
     await lessonsApi.getCourse('a b/c');
-    expect(getSpy).toHaveBeenCalledWith('/lessons/courses/a%20b%2Fc');
+    expect(getSpy).toHaveBeenCalledWith('/lessons/courses/a%20b%2Fc?locale=en');
   });
 
   it('ни один из вызовов не подставляет ?lang= (регрессия KS-2099 → KS-2102)', async () => {
