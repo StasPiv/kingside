@@ -32,6 +32,7 @@ import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { guestWorkshopStore } from '../utils/guestWorkshopStore';
 import {
   ShareAnalysisButton,
   type ShareAnalysisButtonHandle,
@@ -2466,9 +2467,115 @@ function AnalysisPageInner({
     return () => { if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current); };
   }, [gameId, history, analysisTitle, initialFen, pgnHeaders, hasPgnHeaders, hasInitialAnnotations, initialAnnotations, annotationsByIndex, createAnalysis, updateAnalysis]);
 
+  // KS-4168: гостевое автосохранение в guestWorkshopStore.
+  // Условие активации: гость (`!user`) + переход на /analysis с
+  // `state.guestAnalysisId` (выставляется WorkshopAnalysisList в KS-4167).
+  // Серверный autosave выше выходит на `if (!user) return`, так что эти
+  // два эффекта не конкурируют.
+  const guestAnalysisId = (location.state as { guestAnalysisId?: string } | null)?.guestAnalysisId ?? null;
+  const guestSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastGuestSavedPgnRef = useRef<string | null>(null);
+  const isGuestAnalysisMode = !user && !!guestAnalysisId;
+
+  // Генерация осмысленного заголовка из первых SAN-ходов.
+  const deriveGuestTitle = useCallback(
+    (sans: string[]): string => {
+      const trimmed = sans.slice(0, 6).map((s) => s.trim()).filter(Boolean);
+      if (trimmed.length === 0) {
+        return t('workshop.myAnalyses.newAnalysis', 'New Analysis');
+      }
+      const out: string[] = [];
+      for (let i = 0; i < trimmed.length; i += 2) {
+        const num = Math.floor(i / 2) + 1;
+        const white = trimmed[i];
+        const black = trimmed[i + 1];
+        out.push(black ? `${num}.${white} ${black}` : `${num}.${white}`);
+      }
+      return out.join(' ');
+    },
+    [t],
+  );
+
+  useEffect(() => {
+    if (!isGuestAnalysisMode || !guestAnalysisId) return;
+    if (guestSaveTimerRef.current) clearTimeout(guestSaveTimerRef.current);
+
+    guestSaveTimerRef.current = setTimeout(() => {
+      try {
+        const movesOnly = serializeToAnnotatedPgn(
+          history,
+          initialAnnotations,
+          annotationsByIndex,
+        );
+        const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
+        if (lastGuestSavedPgnRef.current === pgn) return;
+        lastGuestSavedPgnRef.current = pgn;
+        const sans = history.map((m) => m.san).filter((s): s is string => !!s);
+        const generated = deriveGuestTitle(sans);
+        const explicit =
+          analysisTitle &&
+          analysisTitle !== getDefaultTitle() &&
+          analysisTitle !== t('workshop.myAnalyses.newAnalysis', 'New Analysis');
+        const titleToSave = explicit ? analysisTitle : generated;
+        void guestWorkshopStore.updateAnalysis(guestAnalysisId, {
+          pgn,
+          title: titleToSave,
+        });
+      } catch {
+        /* ignore — best-effort */
+      }
+    }, 800);
+
+    return () => {
+      if (guestSaveTimerRef.current) clearTimeout(guestSaveTimerRef.current);
+    };
+  }, [
+    isGuestAnalysisMode,
+    guestAnalysisId,
+    history,
+    initialFen,
+    pgnHeaders,
+    initialAnnotations,
+    annotationsByIndex,
+    analysisTitle,
+    deriveGuestTitle,
+    t,
+  ]);
+
   // KS-2152: при unload/visibility hidden flush'им несохранённое — чтобы
   // ALT-tab или close window не съели только что нарисованные аннотации.
   const flushSaveOnHide = useCallback(() => {
+    // KS-4168: гость — flush в guestWorkshopStore. Поток best-effort;
+    // если IndexedDB не успеет записать к моменту реального unload, в
+    // памяти остаётся уже debounced'нный save из главного эффекта.
+    if (!user && guestAnalysisId) {
+      try {
+        if (guestSaveTimerRef.current) {
+          clearTimeout(guestSaveTimerRef.current);
+          guestSaveTimerRef.current = null;
+        }
+        const movesOnly = serializeToAnnotatedPgn(
+          history,
+          initialAnnotations,
+          annotationsByIndex,
+        );
+        const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
+        const sans = history.map((m) => m.san).filter((s): s is string => !!s);
+        const generated = deriveGuestTitle(sans);
+        const explicit =
+          analysisTitle &&
+          analysisTitle !== getDefaultTitle() &&
+          analysisTitle !== t('workshop.myAnalyses.newAnalysis', 'New Analysis');
+        const titleToSave = explicit ? analysisTitle : generated;
+        void guestWorkshopStore.updateAnalysis(guestAnalysisId, {
+          pgn,
+          title: titleToSave,
+        });
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     if (!user) return;
     if (gameId) return;
     // KS-2672: в publicMode не сохраняем PGN на unload — read-only.
@@ -2511,7 +2618,7 @@ function AnalysisPageInner({
     } catch {
       updateAnalysis(localIdRef.current, body).catch(() => {});
     }
-  }, [user, gameId, history, hasPgnHeaders, hasInitialAnnotations, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex, updateAnalysis, publicMode]);
+  }, [user, gameId, history, hasPgnHeaders, hasInitialAnnotations, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex, updateAnalysis, publicMode, guestAnalysisId, analysisTitle, deriveGuestTitle, t]);
 
   useEffect(() => {
     const onHide = () => {
