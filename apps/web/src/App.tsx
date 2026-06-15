@@ -156,6 +156,25 @@ const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ defa
 // `publicMode=true` (читает через `GET /analyses/public/:id`,
 // автосохранение/edit-title/share отключены). Отдельный компонент
 // `PublicAnalysisPage` упразднён.
+
+/**
+ * KS-4169: обёртка над `<AnalysisPage />` для роута `/analysis` (без id).
+ * Читает `location.state.guestAnalysisId` и пробрасывает его в React-key
+ * — при смене значения React делает полный remount, гостевое внутреннее
+ * состояние (`history`/`initialFen`/`annotationsByIndex`) сбрасывается,
+ * прошлая открытая партия не «протекает» в новый анализ. Для авторизо-
+ * ванного пользователя ключ стабилен, поведение неизменно.
+ */
+function AnalysisRouteEntry() {
+  const location = useLocation();
+  const guestId = (location.state as { guestAnalysisId?: string } | null)
+    ?.guestAnalysisId;
+  return (
+    <Suspense fallback={<LazyFallback />}>
+      <AnalysisPage key={guestId ?? 'server'} />
+    </Suspense>
+  );
+}
 const BroadcastGamePage = lazy(() => import('./pages/BroadcastGamePage').then(m => ({ default: m.BroadcastGamePage })));
 const PuzzleRushPage = lazy(() => import('./pages/PuzzleRushPage').then(m => ({ default: m.PuzzleRushPage })));
 // KS-2796/KS-2797 (ADR-058 §6.1 T1, T2): лобби-страницы группы
@@ -810,7 +829,15 @@ export function App() {
         <Route path="/feedback/:id" element={<FeedbackDetailPage />} />
         {/* KS-2218: `/puzzle` и `/puzzle/:id` перенесены в puzzle-блок выше,
             чтобы при `puzzlesEnabled=false` редирект на /lobby сработал. */}
-        <Route path="/analysis" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
+        {/* KS-4169: гость переключается между несколькими локальными
+            анализами через тот же путь `/analysis` (без id). Чтобы при
+            смене `state.guestAnalysisId` AnalysisPage полностью
+            сбрасывал внутренний history/initialFen/annotations и не
+            перетягивал прошлую партию — оборачиваем в entry-компонент,
+            который ставит React-key по guestAnalysisId и форсирует
+            remount. Для авторизованного user'а guestAnalysisId
+            отсутствует, key стабилен — поведение не меняется. */}
+        <Route path="/analysis" element={<AnalysisRouteEntry />} />
         <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
         {/* KS-2666/KS-2672: публичный read-only анализ — тот же
             AnalysisPage с `publicMode=true` (без auth-guard, грузит
