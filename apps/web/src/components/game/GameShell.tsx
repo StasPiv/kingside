@@ -132,6 +132,14 @@ export interface GameShellProps {
   showHelpButton?: boolean;
   /** Произвольный блок над сайдбаром — например, статус «бот думает». */
   belowBoardBlock?: ReactNode;
+  /**
+   * KS-4148: принудительно использовать стандартный набор фигур
+   * react-chessboard (pieceSet 'standard'), игнорируя customPieces
+   * из BoardSettingsContext. Используется на `/play/local-bot`,
+   * когда у пользователя нет явного выбора pieceSet — чтобы дефолт
+   * проекта (chessnut) не перебивал ожидание «классический стаунтон».
+   */
+  forceStandardPieces?: boolean;
 }
 
 function formatTime(seconds: number): string {
@@ -196,6 +204,7 @@ export function GameShell(props: GameShellProps) {
     backLink,
     showHelpButton = false,
     belowBoardBlock,
+    forceStandardPieces = false,
   } = props;
 
   const { t } = useTranslation();
@@ -467,7 +476,7 @@ export function GameShell(props: GameShellProps) {
       showNotation,
       darkSquareStyle,
       lightSquareStyle,
-      ...(customPieces && { pieces: customPieces }),
+      ...(!forceStandardPieces && customPieces && { pieces: customPieces }),
       ...(boardStyle && { boardStyle }),
       squareStyles: mergedSquareStyles,
       onSquareClick: handleSquareClick,
@@ -483,6 +492,7 @@ export function GameShell(props: GameShellProps) {
       darkSquareStyle,
       lightSquareStyle,
       customPieces,
+      forceStandardPieces,
       boardStyle,
       mergedSquareStyles,
       handleSquareClick,

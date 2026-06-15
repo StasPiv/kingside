@@ -11,7 +11,7 @@
  * По умолчанию контроль времени 10+0. Опционально можно передать
  * `state.tc = { initialSec, incrementSec }` при навигации.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 
@@ -20,6 +20,20 @@ import {
   useLocalBotGame,
   type LocalBotTimeControl,
 } from '../hooks/useLocalBotGame';
+
+/**
+ * KS-4148: на `/play/local-bot` по умолчанию используем стандартный
+ * набор фигур react-chessboard (pieceSet 'standard'), а не дефолт
+ * проекта (chessnut). Перебиваем только когда пользователь не делал
+ * явного выбора pieceSet — в этом случае localStorage пустой.
+ */
+function readHasExplicitPieceSet(): boolean {
+  try {
+    return localStorage.getItem('pieceSet') !== null;
+  } catch {
+    return false;
+  }
+}
 
 type PieceColor = 'white' | 'black' | 'random';
 interface LocationState {
@@ -53,6 +67,10 @@ export function LocalBotGamePage() {
     game.onNewGame();
   }, [game]);
 
+  // KS-4148: если пользователь явно не выбрал pieceSet — форсим
+  // стандартный (react-chessboard default). Если выбрал — уважаем.
+  const forceStandardPieces = useMemo(() => !readHasExplicitPieceSet(), []);
+
   return (
     <GameShell
       chess={game.chess}
@@ -75,6 +93,7 @@ export function LocalBotGamePage() {
       showResultModal={showResultModal}
       onCloseResultModal={() => setShowResultModal(false)}
       backLink={{ to: '/play', label: t('game.backToLobby', 'Back to lobby') }}
+      forceStandardPieces={forceStandardPieces}
       belowBoardBlock={
         game.botError ? (
           <div
