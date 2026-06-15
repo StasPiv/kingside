@@ -34,6 +34,20 @@ import type {
 } from '@kingside/shared';
 
 import { api } from '../api';
+import i18n from '../i18n';
+
+/**
+ * KS-4143: текущий язык интерфейса для проброса в GET-запросы lessons.
+ * После KS-4140 каталог открыт гостям — у них нет `User.locale` на
+ * бэке, и без явной подсказки backend отдавал русские тексты по
+ * дефолту. Передаём `i18n.language` (`ru` или `en`); если приходит
+ * с region-кодом (`en-US`), отрезаем до базового.
+ */
+function currentLocale(): string {
+  const raw = (i18n.language || 'en').toLowerCase();
+  const base = raw.split('-')[0];
+  return base === 'ru' ? 'ru' : 'en';
+}
 
 /**
  * HTTP-клиент модуля lessons (apps/api/src/lessons).
@@ -118,10 +132,13 @@ const list: ListFn = ((
     const qs = listQueryString({
       mine: params.mine ? '1' : '0',
       limit: params.limit !== undefined ? String(params.limit) : undefined,
+      locale: currentLocale(),
     });
     return api.get<UserCourseListResponse>(`/lessons/courses${qs}`);
   }
-  return api.get<CourseListResponse>('/lessons/courses');
+  return api.get<CourseListResponse>(
+    `/lessons/courses?locale=${encodeURIComponent(currentLocale())}`,
+  );
 }) as ListFn;
 
 /**
@@ -134,7 +151,9 @@ type MarkStepBody = Pick<UpdateLessonStepRequest, 'stepId' | 'state' | 'score'>;
 export const lessonsApi = {
   /** Системные курсы (legacy alias, использует `list()` за капотом). */
   listCourses(): Promise<CourseListResponse> {
-    return api.get<CourseListResponse>('/lessons/courses');
+    return api.get<CourseListResponse>(
+      `/lessons/courses?locale=${encodeURIComponent(currentLocale())}`,
+    );
   },
 
   /** См. `ListFn` выше. */
@@ -158,6 +177,7 @@ export const lessonsApi = {
     const qs = listQueryString({
       mine: '0',
       limit: String(opts.limit),
+      locale: currentLocale(),
     });
     return api.get<UserCourseListResponse>(`/lessons/courses${qs}`);
   },
@@ -203,10 +223,16 @@ export const lessonsApi = {
    * Возвращает union-DTO: для системных — `CourseWithLessonsResponse`
    * с `level/titleI18nKey/...`; для user — `UserCourseWithLessonsResponse`
    * с `ownerId/isPublic/stats`. Различение по `course.ownerId`.
+   *
+   * KS-4143: передаём `?locale=<lang>` явно. После KS-4140 каталог
+   * открыт гостям — `User.locale` для них недоступен, и backend без
+   * подсказки отдавал русский по дефолту. Для авторизованных параметр
+   * не вреден (если backend учитывает `User.locale` приоритетно,
+   * query будет проигнорирован).
    */
   getCourse(slug: string): Promise<CourseWithLessonsResponse> {
     return api.get<CourseWithLessonsResponse>(
-      `/lessons/courses/${encodeURIComponent(slug)}`,
+      `/lessons/courses/${encodeURIComponent(slug)}?locale=${encodeURIComponent(currentLocale())}`,
     );
   },
 
@@ -217,7 +243,7 @@ export const lessonsApi = {
    */
   getUserCourse(slug: string): Promise<UserCourseWithLessonsResponse> {
     return api.get<UserCourseWithLessonsResponse>(
-      `/lessons/courses/${encodeURIComponent(slug)}`,
+      `/lessons/courses/${encodeURIComponent(slug)}?locale=${encodeURIComponent(currentLocale())}`,
     );
   },
 
@@ -258,7 +284,7 @@ export const lessonsApi = {
    */
   getLesson(lessonId: string): Promise<LessonWithStepsResponse> {
     return api.get<LessonWithStepsResponse>(
-      `/lessons/lessons/${encodeURIComponent(lessonId)}`,
+      `/lessons/lessons/${encodeURIComponent(lessonId)}?locale=${encodeURIComponent(currentLocale())}`,
     );
   },
 
@@ -267,7 +293,7 @@ export const lessonsApi = {
    */
   getUserLesson(lessonId: string): Promise<UserLessonWithStepsResponse> {
     return api.get<UserLessonWithStepsResponse>(
-      `/lessons/lessons/${encodeURIComponent(lessonId)}`,
+      `/lessons/lessons/${encodeURIComponent(lessonId)}?locale=${encodeURIComponent(currentLocale())}`,
     );
   },
 
