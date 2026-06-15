@@ -483,7 +483,10 @@ export function App() {
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/lobby" element={<LobbyPage />} />
-        <Route path="/play" element={<ProtectedRoute><PlayPage /></ProtectedRoute>} />
+        {/* KS-4142 / ADR-128 §4: зал открыт гостю. Все игровые
+            действия (matchmaking / challenge / Play vs Bot) обёрнуты
+            через useRequireAuth в самом PlayPage. */}
+        <Route path="/play" element={<PlayPage />} />
         {/* KS-2796 / KS-2797 (ADR-058 §6.1 T3): лобби-страницы
             тренировочной и аналитической групп. Без ProtectedRoute —
             видимы и гостям; gating отдельных модулей — внутри страниц

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
+import { useRequireAuth } from '../context/RequireAuthContext';
 import { api } from '../api';
 import { useTimeControl, CATEGORIES, presetKey } from '../hooks/useTimeControl';
 import { useMatchmaking } from '../hooks/useMatchmaking';
@@ -24,9 +25,10 @@ type FriendItem = {
 };
 
 export function PlayPage() {
-  useLazySocket(messagesSocket); // challenges
+  useLazySocket(messagesSocket); // challenges — useLazySocket guard'ит по token (гость не подключается)
   const { t } = useTranslation();
   const { user } = useAuth();
+  const requireAuth = useRequireAuth();
 
   const tc = useTimeControl();
   const matchmaking = useMatchmaking();
@@ -224,7 +226,20 @@ export function PlayPage() {
 
           <button
             className={`play-btn play-btn--big${searching ? ' searching' : ''}`}
-            onClick={() => handleSearch({ timeInitial: selectedMinutes * 60, increment: selectedIncrement, activeTab })}
+            onClick={() =>
+              // KS-4142 / ADR-128 §4: matchmaking требует профиль и
+              // рейтинг — гостю модалка через requireAuth, никакого
+              // сетевого запроса.
+              requireAuth(
+                () => handleSearch({ timeInitial: selectedMinutes * 60, increment: selectedIncrement, activeTab }),
+                {
+                  description: t(
+                    'auth.loginRequired.playOnline',
+                    'Sign in to play rated games on Kingside.',
+                  ),
+                },
+              )
+            }
             disabled={!!noOpponents}
           >
             {searching ? t('lobby.cancelSearch') : t('lobby.play')}
@@ -241,7 +256,11 @@ export function PlayPage() {
 
         {/* Right column */}
         <div className="play-section play-section--right">
-          {/* Play a Friend */}
+          {/* Play a Friend — KS-4142: блок про друзей зависит от
+              авторизованной сессии (списка друзей у гостя нет, кнопка
+              Invite шлёт challenge через WS под JwtAuth). Целиком
+              скрываем для гостя. */}
+          {user && (
           <div className="play-card">
             <button className="play-card__header" onClick={() => setFriendOpen(!friendOpen)}>
               <h2 className="play-card__title">👥 {t('play.playFriend', 'Play a Friend')}</h2>
@@ -271,6 +290,7 @@ export function PlayPage() {
               )}
             </div>
           </div>
+          )}
 
           {/* Play vs Bot */}
           <div className="play-card">
@@ -299,7 +319,22 @@ export function PlayPage() {
                   })}
                 </div>
               </div>
-              <button className="play-btn" onClick={() => setShowBotTCModal(true)} disabled={startingBot}>
+              <button
+                className="play-btn"
+                onClick={() =>
+                  // KS-4142: POST /games/bot создаёт серверную партию,
+                  // для гостя 401 → модалка. До появления чисто-
+                  // локальной игры с ботом (отдельный тикет) гостю
+                  // показываем requireAuth.
+                  requireAuth(() => setShowBotTCModal(true), {
+                    description: t(
+                      'auth.loginRequired.playBot',
+                      'Sign in to start a game vs bot.',
+                    ),
+                  })
+                }
+                disabled={startingBot}
+              >
                 {t('lobby.playBot')}
               </button>
               {botError && (

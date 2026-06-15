@@ -916,6 +916,8 @@
       "descriptionDefault": "Sign in to your Kingside account to continue.",
       "sendMessage": "Sign in to message {{username}} on Kingside.",
       "joinTournament": "Sign in to register for «{{name}}» and play.",
+      "playOnline": "Sign in to play rated games on Kingside.",
+      "playBot": "Sign in to start a game vs bot.",
       "loginBtn": "Sign in",
       "registerBtn": "Create account",
       "cancelBtn": "Cancel",

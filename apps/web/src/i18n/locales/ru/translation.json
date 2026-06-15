@@ -1107,6 +1107,8 @@
       "descriptionDefault": "Войдите в Kingside, чтобы продолжить.",
       "sendMessage": "Войдите в Kingside, чтобы написать игроку {{username}}.",
       "joinTournament": "Войдите в Kingside, чтобы зарегистрироваться в турнире «{{name}}» и играть.",
+      "playOnline": "Войдите в Kingside, чтобы играть рейтинговые партии.",
+      "playBot": "Войдите в Kingside, чтобы запустить партию с ботом.",
       "loginBtn": "Войти",
       "registerBtn": "Создать аккаунт",
       "cancelBtn": "Отмена",
