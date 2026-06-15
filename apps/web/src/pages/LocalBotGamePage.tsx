@@ -162,6 +162,25 @@ export function LocalBotGamePage() {
     [game, isPlayerTurn, finalize],
   );
 
+  // KS-4149: drag-n-drop. react-chessboard v5 вызывает onPieceDrop с
+  // `{sourceSquare, targetSquare}` (targetSquare может быть null если
+  // фигуру отпустили вне доски). Возвращаем true если ход легален,
+  // false — иначе (react-chessboard сам анимирует возврат фигуры).
+  const onPieceDrop = useCallback(
+    ({
+      sourceSquare,
+      targetSquare,
+    }: {
+      sourceSquare: string;
+      targetSquare: string | null;
+    }): boolean => {
+      if (!targetSquare) return false;
+      if (!isPlayerTurn) return false;
+      return tryMove(sourceSquare as Square, targetSquare as Square);
+    },
+    [isPlayerTurn, tryMove],
+  );
+
   const onSquareClick = useCallback(
     ({ square }: { square: string }) => {
       if (!isPlayerTurn) return;
@@ -216,16 +235,19 @@ export function LocalBotGamePage() {
   // /puzzle и /game/:id). Раньше тянулся `customPieces` из
   // useBoardTheme — у гостя `BoardSettingsContext` не определён,
   // получался непривычный/неполный скин.
+  // KS-4149: allowDragging+onPieceDrop — drag-n-drop. Click-to-move
+  // остаётся через onSquareClick (оба способа работают вместе).
   const boardOptions = useMemo(
     () => ({
       position: fen,
       boardOrientation: playerColor,
-      allowDragging: false,
+      allowDragging: isPlayerTurn,
       animationDurationInMs: 150,
       squareStyles,
       onSquareClick,
+      onPieceDrop,
     }),
-    [fen, playerColor, squareStyles, onSquareClick],
+    [fen, playerColor, isPlayerTurn, squareStyles, onSquareClick, onPieceDrop],
   );
 
   return (
