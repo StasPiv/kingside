@@ -2,8 +2,8 @@
   "family": "kingside-prerender-service",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
-  "cpu": "1024",
-  "memory": "2048",
+  "cpu": "512",
+  "memory": "1024",
   "taskRoleArn": "arn:aws:iam::342946498289:role/kingside-prerender-worker-role",
   "executionRoleArn": "arn:aws:iam::342946498289:role/ecsTaskExecutionRole",
   "runtimePlatform": {
