@@ -1700,6 +1700,19 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
               ...(lastMoveAt ? { lastMoveAt } : {}),
             },
           });
+          // KS-4208 §7.3.7. Завершение партии — переход финального
+          // result (null/'*'/иной) → '1-0' / '0-1' / '1/2-1/2'. Эта
+          // ветка только для существующих партий: новые с конечным
+          // result сразу покрывает старт-hook в else-ветке.
+          // `isNewFinalResult` уже посчитан выше с учётом existing.result.
+          if (isNewFinalResult && game.result && game.result !== '*') {
+            this.prerender.enqueueFireAndForget({
+              kind: 'broadcast',
+              tid: round.broadcastId,
+              rid: round.id,
+              gid: existing.id,
+            });
+          }
         } else {
           // KS-2798: новая запись с уже сделанными ходами (FEN ≠
           // стартовая) — выставляем lastMoveAt = now(). Если партия
@@ -1735,8 +1748,19 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             },
           });
           dbGameId = created.id;
+          // KS-4208 / ADR-128 §7.3.7. Новая партия в раунде — старт
+          // партии. Карточка `/broadcasts/:tid/:rid/:gid` должна стать
+          // индексируемой пока партия идёт (SEO под «{white} vs {black}
+          // live»). isNewGame=true в этой ветке по определению.
+          this.prerender.enqueueFireAndForget({
+            kind: 'broadcast',
+            tid: round.broadcastId,
+            rid: round.id,
+            gid: created.id,
+          });
         }
       }
+
 
       // Publish move via Redis pub/sub
       if (game.uci) {
