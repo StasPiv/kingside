@@ -4106,5 +4106,84 @@
     "leaderboard": {
       "customConfigTooltip": "Custom config"
     }
+  },
+  "seo": {
+    "broadcasts": {
+      "list": {
+        "title": "Live chess broadcasts — Kingside",
+        "description": "Watch top tournaments live with engine analysis and AI move commentary on Kingside."
+      },
+      "tournament": {
+        "title": "{{title}} broadcast — Kingside",
+        "description": "{{title}}: {{roundCount}} rounds live with engine analysis and AI commentary on Kingside.",
+        "descriptionFromLichess": "{{description}}"
+      },
+      "round": {
+        "title": "{{tournament}} — {{round}} — Kingside",
+        "description": "{{tournament}} — {{round}}: {{gamesCount}} games live with engine analysis on Kingside.",
+        "descriptionNoGames": "{{tournament}} — {{round}}: live broadcast with engine analysis and commentary on Kingside."
+      },
+      "game": {
+        "title": "{{white}} vs {{black}} ({{result}}) — Kingside",
+        "titleNoResult": "{{white}} vs {{black}} — {{tournament}}",
+        "description": "{{white}} ({{whiteElo}}) vs {{black}} ({{blackElo}}) — {{tournament}}, {{round}}. {{opening}}. Engine analysis on Kingside.",
+        "descriptionNoElo": "{{white}} vs {{black}} — {{tournament}}, {{round}}. {{opening}}. Engine analysis on Kingside."
+      }
+    },
+    "tournaments": {
+      "list": {
+        "title": "Chess tournaments — Kingside",
+        "description": "Arena, Swiss and round-robin chess tournaments. Bullet, Blitz, Rapid and Classical formats on Kingside."
+      },
+      "detail": {
+        "title": "{{name}} tournament — Kingside",
+        "description": "{{name}}: {{type}} tournament, {{timeControl}}. {{participantsCount}} players. Starts {{startsAt}}. Join on Kingside.",
+        "descriptionNoDesc": "{{name}}: {{type}} {{timeControl}} tournament with {{participantsCount}} players. Starts {{startsAt}}. Join on Kingside."
+      }
+    },
+    "players": {
+      "list": {
+        "title": "Top chess players — Kingside",
+        "description": "Top-rated chess players by bullet, blitz, rapid and classical. Search and view profiles on Kingside."
+      },
+      "profile": {
+        "title": "{{username}} — {{bestRating}} {{bestType}} — Kingside",
+        "description": "{{username}}: bullet {{bullet}}, blitz {{blitz}}, rapid {{rapid}}, classical {{classical}}. {{totalGames}} games on Kingside."
+      }
+    },
+    "coach": {
+      "profile": {
+        "title": "{{username}} — chess coach — Kingside",
+        "description": "{{username}}: chess coach, {{bestRating}} {{bestType}} rating. {{lecturesCount}} lectures. Book a lesson on Kingside."
+      }
+    },
+    "lectures": {
+      "list": {
+        "title": "Chess lectures and coaches — Kingside",
+        "description": "Live and recorded chess lectures by titled coaches. Book a class, watch replays on Kingside."
+      },
+      "detail": {
+        "title": "{{title}} — by {{coach}} — Kingside",
+        "description": "{{title}} by {{coach}}. Starts {{scheduledAt}}, {{duration}} min. {{description}}. Book on Kingside.",
+        "descriptionRecorded": "{{title}} by {{coach}}. {{description}}. Watch the recording on Kingside."
+      }
+    },
+    "archive": {
+      "list": {
+        "title": "Master games archive — Kingside",
+        "description": "Search master chess games by player, event, ECO or position. Replay with engine analysis on Kingside."
+      },
+      "game": {
+        "title": "{{white}} vs {{black}} ({{result}}) — {{event}}",
+        "titleShort": "{{white}} vs {{black}} ({{result}}) — Kingside",
+        "description": "{{white}} ({{whiteElo}}) — {{black}} ({{blackElo}}), {{event}}, {{date}}. {{opening}} ({{eco}}). Replay on Kingside.",
+        "descriptionNoElo": "{{white}} — {{black}}, {{event}}, {{date}}. {{opening}}. Replay on Kingside."
+      },
+      "player": {
+        "title": "{{name}} — archive games — Kingside",
+        "description": "{{name}}: {{gamesCount}} archived games, peak {{peakElo}}. {{wins}}W / {{draws}}D / {{losses}}L on Kingside.",
+        "descriptionNoPeak": "{{name}}: {{gamesCount}} archived games. {{wins}}W / {{draws}}D / {{losses}}L on Kingside."
+      }
+    }
   }
 }

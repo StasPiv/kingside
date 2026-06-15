@@ -4329,5 +4329,84 @@
     "leaderboard": {
       "customConfigTooltip": "Нестандартный конфиг"
     }
+  },
+  "seo": {
+    "broadcasts": {
+      "list": {
+        "title": "Шахматные трансляции — Kingside",
+        "description": "Прямые трансляции топовых турниров с движковым анализом и комментариями ИИ на Kingside."
+      },
+      "tournament": {
+        "title": "{{title}} — трансляция — Kingside",
+        "description": "{{title}}: {{roundCount}} туров в прямом эфире, движковый анализ и ИИ-комментарии на Kingside.",
+        "descriptionFromLichess": "{{description}}"
+      },
+      "round": {
+        "title": "{{tournament}} — {{round}} — Kingside",
+        "description": "{{tournament}} — {{round}}: {{gamesCount}} партий в эфире с движковым анализом на Kingside.",
+        "descriptionNoGames": "{{tournament}} — {{round}}: трансляция с движковым анализом и комментариями на Kingside."
+      },
+      "game": {
+        "title": "{{white}} — {{black}} ({{result}}) — Kingside",
+        "titleNoResult": "{{white}} — {{black}} — {{tournament}}",
+        "description": "{{white}} ({{whiteElo}}) — {{black}} ({{blackElo}}) — {{tournament}}, {{round}}. {{opening}}. Анализ движком на Kingside.",
+        "descriptionNoElo": "{{white}} — {{black}} — {{tournament}}, {{round}}. {{opening}}. Анализ движком на Kingside."
+      }
+    },
+    "tournaments": {
+      "list": {
+        "title": "Шахматные турниры — Kingside",
+        "description": "Arena, швейцарские и круговые шахматные турниры. Bullet, Blitz, Rapid и Classical на Kingside."
+      },
+      "detail": {
+        "title": "{{name}} — турнир — Kingside",
+        "description": "{{name}}: {{type}}, контроль {{timeControl}}. {{participantsCount}} игроков. Старт {{startsAt}}. Kingside.",
+        "descriptionNoDesc": "{{name}}: {{type}}-турнир, контроль {{timeControl}}, {{participantsCount}} игроков. Старт {{startsAt}}. Присоединяйтесь на Kingside."
+      }
+    },
+    "players": {
+      "list": {
+        "title": "Топ шахматных игроков — Kingside",
+        "description": "Топовые шахматисты по рейтингу bullet, blitz, rapid и classical. Поиск и профили игроков на Kingside."
+      },
+      "profile": {
+        "title": "{{username}} — {{bestRating}} {{bestType}} — Kingside",
+        "description": "{{username}}: bullet {{bullet}}, blitz {{blitz}}, rapid {{rapid}}, classical {{classical}}. {{totalGames}} партий на Kingside."
+      }
+    },
+    "coach": {
+      "profile": {
+        "title": "{{username}} — шахматный тренер — Kingside",
+        "description": "{{username}}: шахматный тренер, {{bestRating}} {{bestType}}. {{lecturesCount}} лекций. Запись урока на Kingside."
+      }
+    },
+    "lectures": {
+      "list": {
+        "title": "Шахматные лекции и тренеры — Kingside",
+        "description": "Прямые и записанные лекции от титулованных тренеров. Запись на занятие и повторы уроков на Kingside."
+      },
+      "detail": {
+        "title": "{{title}} — {{coach}} — Kingside",
+        "description": "{{title}} от {{coach}}. Старт {{scheduledAt}}, {{duration}} мин. {{description}}. Запись на Kingside.",
+        "descriptionRecorded": "{{title}} от {{coach}}. {{description}}. Запись лекции на Kingside."
+      }
+    },
+    "archive": {
+      "list": {
+        "title": "Архив шахматных партий — Kingside",
+        "description": "Поиск мастерских партий по игроку, событию, ECO или позиции. Просмотр с анализом движка на Kingside."
+      },
+      "game": {
+        "title": "{{white}} — {{black}} ({{result}}) — {{event}}",
+        "titleShort": "{{white}} — {{black}} ({{result}}) — Kingside",
+        "description": "{{white}} ({{whiteElo}}) — {{black}} ({{blackElo}}), {{event}}, {{date}}. {{opening}} ({{eco}}). Архив Kingside.",
+        "descriptionNoElo": "{{white}} — {{black}}, {{event}}, {{date}}. {{opening}}. Архив Kingside."
+      },
+      "player": {
+        "title": "{{name}} — архив партий — Kingside",
+        "description": "{{name}}: {{gamesCount}} партий в архиве, пик {{peakElo}}. {{wins}} побед, {{draws}} ничьих, {{losses}} поражений на Kingside.",
+        "descriptionNoPeak": "{{name}}: {{gamesCount}} партий в архиве. {{wins}} побед, {{draws}} ничьих, {{losses}} поражений на Kingside."
+      }
+    }
   }
 }
