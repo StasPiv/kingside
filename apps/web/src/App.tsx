@@ -698,29 +698,28 @@ export function App() {
             }
           />
         )}
-        {/* KS-3510 (ADR-093 §3): /guess/stats и /guess/history —
-            auth-only, гейт через ProtectedRoute (backend под JwtAuthGuard).
+        {/* KS-3510 (ADR-093 §3): /guess/stats и /guess/history.
+            KS-4158 / ADR-128 §5.13: открыты гостю — сами страницы
+            показывают guest-CTA блок вместо контента (см. GuessStatsPage,
+            GuessHistoryPage). Backend-эндпоинты остаются под JwtAuthGuard
+            и для гостя не дёргаются (компоненты сами обрезают вызовы).
             Тот же `GUESS_ENTRY_ENABLED` гейт по проду, что и у лендинга. */}
         {GUESS_ENTRY_ENABLED && (
           <>
             <Route
               path="/guess/stats"
               element={
-                <ProtectedRoute>
-                  <Suspense fallback={<LazyFallback />}>
-                    <GuessStatsPage />
-                  </Suspense>
-                </ProtectedRoute>
+                <Suspense fallback={<LazyFallback />}>
+                  <GuessStatsPage />
+                </Suspense>
               }
             />
             <Route
               path="/guess/history"
               element={
-                <ProtectedRoute>
-                  <Suspense fallback={<LazyFallback />}>
-                    <GuessHistoryPage />
-                  </Suspense>
-                </ProtectedRoute>
+                <Suspense fallback={<LazyFallback />}>
+                  <GuessHistoryPage />
+                </Suspense>
               }
             />
             {/* KS-3514: review страница конкретной сессии. */}
