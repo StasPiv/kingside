@@ -129,7 +129,10 @@ export class LecturesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     await this.access.assertAccess(id, req.user?.id ?? null);
-    return this.service.getById(id);
+    const result = await this.service.getById(id);
+    // KS-4134: гость не должен видеть email/phone/lastSeenAt автора и
+    // приглашённых участников. Маппер режет nested-приватные поля.
+    return toPublicDto(result, req.user ?? null);
   }
 
   /**
@@ -151,7 +154,10 @@ export class LecturesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     await this.access.assertAccess(id, req.user?.id ?? null);
-    return this.service.getRecordingByLectureId(id);
+    const result = await this.service.getRecordingByLectureId(id);
+    // KS-4134: даже у записи в метаданных может быть автор —
+    // выкидываем приватные поля для гостя.
+    return toPublicDto(result, req.user ?? null);
   }
 
   /**
