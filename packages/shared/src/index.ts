@@ -23,6 +23,8 @@ export * from './types/positional-trace.js';
 // на 7 групп `metrics` LLM-комментария (формула tapered, состав групп,
 // знаковая конвенция white-signed / owner-signed).
 export * from './review/metrics-comment.js';
+// KS-4194 (ADR-128 §7.3 + §10 KS-9): контракт задачи prerender-воркера.
+export * from './types/prerender-task.js';
 export * from './synthetic-chat-phrases.js';
 export * from './constants.js';
 export * from './constants/archive.js';
