@@ -60,6 +60,8 @@ import { TournamentsPage } from './pages/TournamentsPage';
 import { TournamentLobbyPage } from './pages/TournamentLobbyPage';
 import { DevBypassPage } from './pages/DevBypassPage';
 import { PlayPage } from './pages/PlayPage';
+// KS-4144: чистая клиентская партия гостя с ботом (Stockfish WASM).
+import { LocalBotGamePage } from './pages/LocalBotGamePage';
 import { FeedbackBoardPage } from './pages/FeedbackBoardPage';
 import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
 import { LessonsPage } from './pages/LessonsPage';
@@ -487,6 +489,9 @@ export function App() {
             действия (matchmaking / challenge / Play vs Bot) обёрнуты
             через useRequireAuth в самом PlayPage. */}
         <Route path="/play" element={<PlayPage />} />
+        {/* KS-4144: чистая клиентская игра гостя с ботом. Без сервера
+            и WebSocket'а — Stockfish WASM. Маршрут открыт. */}
+        <Route path="/play/local-bot" element={<LocalBotGamePage />} />
         {/* KS-2796 / KS-2797 (ADR-058 §6.1 T3): лобби-страницы
             тренировочной и аналитической групп. Без ProtectedRoute —
             видимы и гостям; gating отдельных модулей — внутри страниц

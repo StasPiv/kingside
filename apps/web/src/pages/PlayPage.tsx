@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { useRequireAuth } from '../context/RequireAuthContext';
@@ -29,6 +29,7 @@ export function PlayPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const requireAuth = useRequireAuth();
+  const navigate = useNavigate();
 
   const tc = useTimeControl();
   const matchmaking = useMatchmaking();
@@ -321,18 +322,18 @@ export function PlayPage() {
               </div>
               <button
                 className="play-btn"
-                onClick={() =>
-                  // KS-4142: POST /games/bot создаёт серверную партию,
-                  // для гостя 401 → модалка. До появления чисто-
-                  // локальной игры с ботом (отдельный тикет) гостю
-                  // показываем requireAuth.
-                  requireAuth(() => setShowBotTCModal(true), {
-                    description: t(
-                      'auth.loginRequired.playBot',
-                      'Sign in to start a game vs bot.',
-                    ),
-                  })
-                }
+                onClick={() => {
+                  // KS-4144 / ADR-128 §4: гость играет с ботом локально
+                  // (Stockfish WASM, без сервера и WebSocket'а).
+                  // Авторизованный — серверная партия через TC-модалку.
+                  if (!user) {
+                    navigate('/play/local-bot', {
+                      state: { level: botLevel, color: botColor },
+                    });
+                    return;
+                  }
+                  setShowBotTCModal(true);
+                }}
                 disabled={startingBot}
               >
                 {t('lobby.playBot')}
