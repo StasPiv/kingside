@@ -33,43 +33,56 @@ describe('<PromotionPicker> — KS-3395 piece style matches board', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('рендерит 4 кнопки Q/R/B/N с SVG-картинками', () => {
-    renderWithProviders(
-      <PromotionPicker
-        pending={pending}
-        color="w"
-        onChoice={() => {}}
-        onCancel={() => {}}
-      />,
-    );
+  it('рендерит 4 кнопки Q/R/B/N с SVG-картинками (chessnut)', () => {
+    // KS-4179: после KS-4155 дефолт BoardSettings — `standard` (встроенные
+    // фигуры react-chessboard), и для standard `/pieces/...img` не
+    // рендерится. Этот тест проверяет именно кастомные SVG — ставим
+    // chessnut явно через localStorage до рендера.
+    localStorage.setItem('pieceSet', 'chessnut');
+    try {
+      renderWithProviders(
+        <PromotionPicker
+          pending={pending}
+          color="w"
+          onChoice={() => {}}
+          onCancel={() => {}}
+        />,
+      );
 
-    for (const piece of ['q', 'r', 'b', 'n'] as const) {
-      const btn = screen.getByTestId(`promotion-choice-${piece}`);
-      const img = btn.querySelector('img.promotion-piece__svg');
-      expect(img).not.toBeNull();
-      const src = img!.getAttribute('src') ?? '';
-      expect(src).toMatch(/^\/pieces\/[\w-]+\/[wb][QRBN]\.svg$/);
-      // KS-3383: cburnett удалён в KS-3320, fallback не должен туда вести.
-      expect(src).not.toContain('/cburnett/');
+      for (const piece of ['q', 'r', 'b', 'n'] as const) {
+        const btn = screen.getByTestId(`promotion-choice-${piece}`);
+        const img = btn.querySelector('img.promotion-piece__svg');
+        expect(img).not.toBeNull();
+        const src = img!.getAttribute('src') ?? '';
+        expect(src).toMatch(/^\/pieces\/[\w-]+\/[wb][QRBN]\.svg$/);
+        // KS-3383: cburnett удалён в KS-3320, fallback не должен туда вести.
+        expect(src).not.toContain('/cburnett/');
+      }
+    } finally {
+      localStorage.removeItem('pieceSet');
     }
   });
 
-  it('src фигуры использует именно chessnut при дефолтных настройках', () => {
-    // BoardSettingsProvider дефолтит pieceSet → 'chessnut' (KS-3320).
-    // Здесь проверяем, что путь к SVG корректно формируется для штатного
-    // пользовательского состояния (а не падает на удалённый cburnett).
-    renderWithProviders(
-      <PromotionPicker
-        pending={pending}
-        color="w"
-        onChoice={() => {}}
-        onCancel={() => {}}
-      />,
-    );
+  it('src фигуры использует именно chessnut, когда pieceSet=chessnut', () => {
+    // KS-4179: после KS-4155 дефолт сменился на `standard`. Тест явно
+    // выставляет `chessnut`, чтобы проверить путь к SVG.
+    localStorage.setItem('pieceSet', 'chessnut');
+    try {
+      renderWithProviders(
+        <PromotionPicker
+          pending={pending}
+          color="w"
+          onChoice={() => {}}
+          onCancel={() => {}}
+        />,
+      );
 
-    const btn = screen.getByTestId('promotion-choice-q');
-    const img = btn.querySelector('img.promotion-piece__svg');
-    expect(img?.getAttribute('src')).toBe('/pieces/chessnut/wQ.svg');
+      const btn = screen.getByTestId('promotion-choice-q');
+      const img = btn.querySelector('img.promotion-piece__svg');
+      expect(img?.getAttribute('src')).toBe('/pieces/chessnut/wQ.svg');
+    } finally {
+      localStorage.removeItem('pieceSet');
+    }
   });
 
   it('standard: рендерит встроенную фигуру react-chessboard (defaultPieces), без /pieces/ img', () => {
@@ -102,19 +115,25 @@ describe('<PromotionPicker> — KS-3395 piece style matches board', () => {
 
   it('кастомный набор: data-piece-style == pieceSet, src из того же /pieces/<set>/, что доска', () => {
     // KS-3395: picker и доска (buildCustomPieces) берут один путь
-    // /pieces/<set>/<code>.svg. Дефолт — chessnut.
-    renderWithProviders(
-      <PromotionPicker
-        pending={pending}
-        color="w"
-        onChoice={() => {}}
-        onCancel={() => {}}
-      />,
-    );
-    const btn = screen.getByTestId('promotion-choice-b');
-    expect(btn.getAttribute('data-piece-style')).toBe('chessnut');
-    const img = btn.querySelector('img.promotion-piece__svg');
-    expect(img?.getAttribute('src')).toBe('/pieces/chessnut/wB.svg');
+    // /pieces/<set>/<code>.svg. KS-4179: дефолт BoardSettings после
+    // KS-4155 — `standard`, явно выставляем chessnut.
+    localStorage.setItem('pieceSet', 'chessnut');
+    try {
+      renderWithProviders(
+        <PromotionPicker
+          pending={pending}
+          color="w"
+          onChoice={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      const btn = screen.getByTestId('promotion-choice-b');
+      expect(btn.getAttribute('data-piece-style')).toBe('chessnut');
+      const img = btn.querySelector('img.promotion-piece__svg');
+      expect(img?.getAttribute('src')).toBe('/pieces/chessnut/wB.svg');
+    } finally {
+      localStorage.removeItem('pieceSet');
+    }
   });
 
   it('клик по фигуре вызывает onChoice с правильной буквой', async () => {

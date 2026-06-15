@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderWithProviders, screen, waitFor } from '../../test/test-utils';
+import { renderWithAuth, screen, waitFor } from '../../test/test-utils-auth';
 import { OpeningTrainerLobbyPage } from './OpeningTrainerLobbyPage';
 import { openingTrainerApi } from '../../api/openingTrainerApi';
 
 vi.mock('../../api/openingTrainerApi', () => ({
   openingTrainerApi: {
     listRepertoires: vi.fn(),
+    // KS-4179: после KS-4161 компонент дополнительно зовёт публичный
+    // эндпоинт демо-репертуаров. Без этого mock'а — TypeError на
+    // первом же рендере (listDemoRepertoires is not a function).
+    listDemoRepertoires: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -18,13 +22,13 @@ describe('OpeningTrainerLobbyPage', () => {
 
   it('shows loading state initially', () => {
     mockedApi.listRepertoires.mockReturnValue(new Promise(() => {}));
-    renderWithProviders(<OpeningTrainerLobbyPage />);
+    renderWithAuth(<OpeningTrainerLobbyPage />, { user: { id: 'u1', username: 'tester' } });
     expect(screen.getByTestId('opening-trainer-lobby')).toBeInTheDocument();
   });
 
   it('renders empty state when no repertoires', async () => {
     mockedApi.listRepertoires.mockResolvedValue({ repertoires: [] });
-    renderWithProviders(<OpeningTrainerLobbyPage />);
+    renderWithAuth(<OpeningTrainerLobbyPage />, { user: { id: 'u1', username: 'tester' } });
     await waitFor(() =>
       expect(screen.getByTestId('opening-trainer-lobby-empty')).toBeInTheDocument(),
     );
@@ -48,7 +52,7 @@ describe('OpeningTrainerLobbyPage', () => {
         },
       ],
     });
-    renderWithProviders(<OpeningTrainerLobbyPage />);
+    renderWithAuth(<OpeningTrainerLobbyPage />, { user: { id: 'u1', username: 'tester' } });
     await waitFor(() =>
       expect(screen.getByTestId('opening-trainer-card-r1')).toBeInTheDocument(),
     );
@@ -58,7 +62,7 @@ describe('OpeningTrainerLobbyPage', () => {
 
   it('renders error when API throws', async () => {
     mockedApi.listRepertoires.mockRejectedValue(new Error('boom'));
-    renderWithProviders(<OpeningTrainerLobbyPage />);
+    renderWithAuth(<OpeningTrainerLobbyPage />, { user: { id: 'u1', username: 'tester' } });
     await waitFor(() =>
       expect(screen.getByTestId('opening-trainer-lobby-error')).toBeInTheDocument(),
     );

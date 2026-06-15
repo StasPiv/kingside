@@ -33,6 +33,20 @@ beforeEach(() => {
         }),
     ),
   );
+
+  // KS-4179: после ADR-128 §6 (KS-4137) хелперы и страницы решают
+  // «гость / авторизованный» по наличию `localStorage.token`. В тестах
+  // у нас нет авто-флоу логина — без явного токена все компоненты
+  // считают сценарий гостевым и не зовут API (`openAnalysis`,
+  // `SavedFilters`, archive-flow и т.д.). Чтобы по умолчанию тесты
+  // прогонялись от лица «авторизованного» (как и было до KS-4137),
+  // подсовываем фиктивный токен. Тесты, которым нужен именно гость,
+  // явно делают `localStorage.removeItem('token')`.
+  try {
+    localStorage.setItem('token', 'test-token');
+  } catch {
+    /* localStorage недоступен — happy-dom не успел инициализироваться */
+  }
 });
 
 /**
@@ -44,4 +58,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  try {
+    localStorage.clear();
+  } catch {
+    /* ignore */
+  }
 });

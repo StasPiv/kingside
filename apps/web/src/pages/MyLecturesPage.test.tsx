@@ -97,7 +97,11 @@ describe('<MyLecturesPage> KS-3999: фильтр ownerId === currentUserId', () 
 });
 
 describe('<MyLecturesPage> KS-3998: ⋮-меню по статусам', () => {
-  it('scheduled: пункты Open / Start / Settings / Copy link / Delete', async () => {
+  // KS-4179: кнопка «Start» для статуса scheduled из меню убрана
+  // (старт лекции теперь происходит через отдельную кнопку на карточке,
+  // не через ⋮-меню). Проверка `my-lectures-action-start-a` снята —
+  // пункта в компоненте больше нет.
+  it('scheduled: пункты Open / Settings / Copy link / Delete', async () => {
     apiGet.mockResolvedValueOnce({
       items: [makeLecture('a', 'scheduled')],
       total: 1,
@@ -109,11 +113,12 @@ describe('<MyLecturesPage> KS-3998: ⋮-меню по статусам', () => {
     );
     await openMenuFor('a');
     expect(screen.getByTestId('my-lectures-action-open-a')).toBeTruthy();
-    expect(screen.getByTestId('my-lectures-action-start-a')).toBeTruthy();
     expect(screen.getByTestId('my-lectures-action-settings-a')).toBeTruthy();
     expect(screen.getByTestId('my-lectures-action-share-a')).toBeTruthy();
     expect(screen.getByTestId('my-lectures-action-delete-a')).toBeTruthy();
-    // Start есть; для live ветки в этом статусе быть не должно.
+    expect(
+      screen.queryByTestId('my-lectures-action-start-a'),
+    ).toBeNull();
     expect(
       screen.queryByTestId('my-lectures-action-force-end-a'),
     ).toBeNull();

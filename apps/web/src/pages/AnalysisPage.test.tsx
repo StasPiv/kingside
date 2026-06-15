@@ -158,6 +158,15 @@ vi.mock('../api', () => ({
       if (url.endsWith('/moves')) return Promise.resolve(mockMoves);
       return Promise.resolve(mockGameData);
     }),
+    // KS-4179: автосейв и прочие вызовы AnalysisPage используют
+    // put/post/patch/delete. До KS-4137 в тестах токена в localStorage
+    // не было — autosave-эффект сразу отбрасывался через `if (!user)`.
+    // Теперь setup ставит токен по умолчанию, и компонент пытается
+    // дернуть put/post/patch — без mock'а валится `is not a function`.
+    put: vi.fn(() => Promise.resolve({})),
+    post: vi.fn(() => Promise.resolve({})),
+    patch: vi.fn(() => Promise.resolve({})),
+    delete: vi.fn(() => Promise.resolve({})),
   },
 }));
 

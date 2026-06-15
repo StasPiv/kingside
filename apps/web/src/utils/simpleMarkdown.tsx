@@ -29,12 +29,27 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const INTERNAL_HOSTS = [window.location.host, 'kingside.site', 'www.kingside.site', 'chess-analyze.online'];
+// KS-4179: `window` может быть недоступен в момент top-level
+// инициализации модуля (vitest подгружает через цепочку импортов до
+// happy-dom; SSR/prerender в Node). Перенесли лукап в функцию,
+// чтобы не падать на module-load.
+const STATIC_INTERNAL_HOSTS = ['kingside.site', 'www.kingside.site', 'chess-analyze.online'];
+
+function getInternalHosts(): string[] {
+  if (typeof window !== 'undefined' && window.location?.host) {
+    return [window.location.host, ...STATIC_INTERNAL_HOSTS];
+  }
+  return STATIC_INTERNAL_HOSTS;
+}
 
 function isInternal(url: string): boolean {
   try {
-    const u = new URL(url, window.location.origin);
-    return INTERNAL_HOSTS.includes(u.host);
+    const base =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://kingside.site';
+    const u = new URL(url, base);
+    return getInternalHosts().includes(u.host);
   } catch {
     return url.startsWith('/');
   }

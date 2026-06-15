@@ -176,8 +176,20 @@ describe('LessonsPage', () => {
   // ─── L-22 (KS-1799) «К повторению сегодня» ───────────────────────────
 
   it('блок «К повторению сегодня» рендерится с уроками из /reviews/due', async () => {
+    // KS-4146: SRS-ревью гостю недоступны (backend требует JWT), поэтому
+    // компонент вообще не зовёт `getReviewsDue` если user=null. Тест
+    // должен авторизовать пользователя через authMock.
+    //
+    // KS-4179: `useAuth` мок возвращает каждый раз НОВЫЙ объект `user`
+    // (см. vi.mock выше) — useEffect в LessonsPage с зависимостью
+    // `[user]` триггерится при каждом ре-рендере и зовёт
+    // `getReviewsDue` повторно. После первой mockResolvedValueOnce
+    // дальше отрабатывает default (items=[]) и блок скрывается, что
+    // вызывало flake. Используем `mockResolvedValue` (без Once), чтобы
+    // все повторные вызовы возвращали тот же набор.
+    authMock.user = { id: 'u1', username: 'tester' };
     mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
-    mockLessonsApi.getReviewsDue.mockResolvedValueOnce({
+    mockLessonsApi.getReviewsDue.mockResolvedValue({
       items: [
         {
           courseSlug: 'beginner-basics',

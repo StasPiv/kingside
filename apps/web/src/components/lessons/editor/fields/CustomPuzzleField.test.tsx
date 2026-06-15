@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/react';
 import type { CustomPuzzle } from '@kingside/shared';
 
-import { renderWithProviders } from '../../../../test/test-utils';
+import { renderWithAuth } from '../../../../test/test-utils-auth';
 import { CustomPuzzleField, MAX_SOLUTION_MOVES } from './CustomPuzzleField';
 
 /**
@@ -32,6 +32,12 @@ vi.mock('react-chessboard', () => ({
       data-drop={props.options?.onPieceDrop ? 'has-drop' : 'no-drop'}
     />
   ),
+  // KS-4179: SetPositionModal (открываемый из CustomPuzzleField через
+  // «Edit on board») зовёт `defaultPieces` для рендера встроенных
+  // фигур (KS-3395 / KS-4155, дефолт pieceSet=`standard`). Без
+  // экспорта mock падает «No defaultPieces export». Пустой Record
+  // достаточен — реальные SVG в тестах не валидируем.
+  defaultPieces: {} as Record<string, () => null>,
 }));
 
 const SCHOLAR_FEN = 'r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4';
@@ -48,7 +54,7 @@ function mkPuzzle(over: Partial<CustomPuzzle> = {}): CustomPuzzle {
 function renderField(over: Partial<CustomPuzzle> = {}, idx = 0) {
   const onChange = vi.fn();
   const onDelete = vi.fn();
-  const utils = renderWithProviders(
+  const utils = renderWithAuth(
     <CustomPuzzleField
       index={idx}
       puzzle={mkPuzzle(over)}

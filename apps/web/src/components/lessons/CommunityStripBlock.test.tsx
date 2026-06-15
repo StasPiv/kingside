@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { UserCourseDto } from '@kingside/shared';
 import { Route, Routes } from 'react-router-dom';
 
-import { renderWithProviders, screen, waitFor } from '../../test/test-utils';
+import { renderWithAuth, screen, waitFor } from '../../test/test-utils-auth';
 import { CommunityStripBlock } from './CommunityStripBlock';
 
 /**
@@ -21,22 +21,36 @@ vi.mock('../../api/lessonsApi', () => ({
   lessonsApi: apiMock,
 }));
 
+// KS-4179: мемоизируем «расширенного» user — иначе каждый вызов
+// useAuth() возвращает новый объект, useEffect на `[user]` триггерится
+// повторно, mockResolvedValueOnce истощается → `undefined.then()`.
+let cachedUser: object | null = null;
 vi.mock('../../context/AuthContext', () => ({
-  useAuth: () => ({
-    user: authMock.user
-      ? {
-          ...authMock.user,
-          email: 'm@x',
-          ratingBullet: 1500,
-          ratingBlitz: 1500,
-          ratingRapid: 1500,
-          ratingClassical: 1500,
-          createdAt: '2026-01-01',
-        }
-      : null,
-    loading: false,
-  }),
+  useAuth: () => {
+    if (!authMock.user) {
+      cachedUser = null;
+      return { user: null, loading: false };
+    }
+    if (
+      !cachedUser ||
+      (cachedUser as { id?: string }).id !== authMock.user.id
+    ) {
+      cachedUser = {
+        ...authMock.user,
+        email: 'm@x',
+        ratingBullet: 1500,
+        ratingBlitz: 1500,
+        ratingRapid: 1500,
+        ratingClassical: 1500,
+        createdAt: '2026-01-01',
+      };
+    }
+    return { user: cachedUser, loading: false };
+  },
   AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  AuthContext: {
+    Provider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  },
 }));
 
 function mkCourse(over: Partial<UserCourseDto> = {}): UserCourseDto {
@@ -56,7 +70,7 @@ function mkCourse(over: Partial<UserCourseDto> = {}): UserCourseDto {
 }
 
 function renderRouter() {
-  return renderWithProviders(
+  return renderWithAuth(
     <Routes>
       <Route path="/" element={<CommunityStripBlock />} />
     </Routes>,

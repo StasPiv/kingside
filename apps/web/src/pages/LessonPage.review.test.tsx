@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent } from '@testing-library/react';
-import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+import { renderWithAuth, screen, waitFor } from '../test/test-utils-auth';
 
 /**
  * Тесты экрана результата повтора (L-22, KS-1799).
@@ -162,7 +162,7 @@ describe('LessonPage review result screen', () => {
       easeFactor: 2.6,
     };
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces?mode=review',
     });
 
@@ -206,7 +206,7 @@ describe('LessonPage review result screen', () => {
       intervalDays: 3,
     };
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces?mode=review',
     });
     await waitFor(() =>
@@ -237,7 +237,7 @@ describe('LessonPage review result screen', () => {
       intervalDays: 1,
     };
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces?mode=review',
     });
     await waitFor(() =>
@@ -275,7 +275,7 @@ describe('LessonPage review result screen', () => {
       stepsState: {},
     };
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     await waitFor(() =>

@@ -17,7 +17,10 @@ type AuthContextType = AuthState & {
   refreshUser: () => Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextType | null>(null);
+// KS-4179: Контекст экспортируется, чтобы тестовое окружение могло
+// подсунуть фиксированное значение через `<AuthContext.Provider>`,
+// минуя реальный `<AuthProvider>` с его сетевым `fetchMe`.
+export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({

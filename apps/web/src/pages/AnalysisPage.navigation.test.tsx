@@ -135,6 +135,12 @@ vi.mock('../api', () => ({
       if (url.endsWith('/moves')) return Promise.resolve(mockMoves);
       return Promise.resolve(mockGameData);
     }),
+    // KS-4179: см. AnalysisPage.test.tsx — autosave-эффект теперь зовёт
+    // put/post/patch/delete, токен в setup установлен по умолчанию.
+    put: vi.fn(() => Promise.resolve({})),
+    post: vi.fn(() => Promise.resolve({})),
+    patch: vi.fn(() => Promise.resolve({})),
+    delete: vi.fn(() => Promise.resolve({})),
   },
 }));
 

@@ -30,10 +30,17 @@ describe('openAnalysis (KS-2603)', () => {
     navigate = vi.fn() as unknown as NavigateFunction &
       ReturnType<typeof vi.fn>;
     vi.clearAllMocks();
+    // KS-4179 / KS-4137: после ADR-128 §6 `openAnalysis` для гостя не
+    // зовёт `POST /analyses`, а сразу `navigate('/analysis')` с PGN в
+    // state. В тестах хелпера нас интересует «авторизованный» путь
+    // (POST + переход на /analysis/:id) — кладём токен в localStorage,
+    // чтобы `isGuest === false`.
+    localStorage.setItem('token', 'test-token');
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    localStorage.removeItem('token');
   });
 
   it('режим 1 (existingId): navigate без POST', async () => {

@@ -4,9 +4,15 @@ import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import { testI18n } from './test/test-utils';
 import { App } from './App';
+import { RequireAuthProvider } from './context/RequireAuthContext';
 
 const mockUseAuth = vi.fn();
 vi.mock('./context/AuthContext', () => ({
+  // KS-4124: RequireAuthProvider зовёт useAuth — реальный AuthProvider
+  // через сетевой fetchMe здесь не нужен, поэтому мокаем сам хук, а
+  // провайдер `RequireAuthProvider` оборачиваем настоящий (он внутри
+  // ходит к useAuth, useNavigate, useTranslation, всё доступно).
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useAuth: (...args: unknown[]) => mockUseAuth(...args),
 }));
 
@@ -131,10 +137,16 @@ vi.mock('./pages/PlayerProfilePage', () => ({
 }));
 
 function renderApp(route: string) {
+  // KS-4179: KS-4124 ввёл `<RequireAuthProvider>` поверх `<App />`
+  // в main.tsx. Сами компоненты страниц теперь зовут
+  // `useRequireAuth()`; без обёртки рендер падает с
+  // «useRequireAuth must be used within RequireAuthProvider».
   return render(
     <I18nextProvider i18n={testI18n}>
       <MemoryRouter initialEntries={[route]}>
-        <App />
+        <RequireAuthProvider>
+          <App />
+        </RequireAuthProvider>
       </MemoryRouter>
     </I18nextProvider>,
   );
@@ -212,10 +224,13 @@ describe('App routing', () => {
     expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
   });
 
-  // KS-260: Scenario 2b — /puzzle-rush redirects to login when not authenticated
-  it('redirects /puzzle-rush to /login when not authenticated', () => {
+  // KS-4157 / ADR-128 §5.13: /puzzle-rush открыт гостю (раунд считается
+  // и предлагается сохранить через логин уже после прохождения). Раньше
+  // KS-260 завязывался на редирект гостя на /login — после открытия
+  // маршрута гостям корректно проверять, что страница рендерится.
+  it('renders /puzzle-rush for unauthenticated user (KS-4157 / ADR-128 §5.13)', async () => {
     renderApp('/puzzle-rush');
-    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+    expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
   });
 
   // KS-260: Scenario 4 — /puzzle-rush/leaderboard accessible without auth
@@ -257,9 +272,12 @@ describe('App routing', () => {
       expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
     });
 
-    it('redirects /puzzles/rush to /puzzle-rush then to /login when not authenticated', () => {
+    // KS-4157 / ADR-128 §5.13: /puzzle-rush открыт гостю, поэтому
+    // редирект /puzzles/rush → /puzzle-rush у гостя приземляется на
+    // саму страницу, а не на /login.
+    it('redirects /puzzles/rush to /puzzle-rush for unauthenticated user (KS-4157)', async () => {
       renderApp('/puzzles/rush');
-      expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+      expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
     });
 
     it('/puzzle-rush still works directly (not broken by redirect)', async () => {

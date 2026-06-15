@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+import { renderWithAuth, screen, waitFor } from '../test/test-utils-auth';
 import { LessonPage, reviewScoreToQuality } from './LessonPage';
 
 const mockLessonsApi = {
@@ -107,7 +107,7 @@ const lessonFixture = {
 describe('LessonPage', () => {
   it('показывает индикатор загрузки до получения данных', () => {
     mockLessonsApi.getCourse.mockReturnValue(new Promise(() => {}));
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     expect(screen.getByTestId('lesson-loading')).toBeInTheDocument();
@@ -121,7 +121,7 @@ describe('LessonPage', () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
 
@@ -170,7 +170,7 @@ describe('LessonPage', () => {
     );
     const user = userEventLib.setup();
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     await waitFor(() =>
@@ -213,7 +213,7 @@ describe('LessonPage', () => {
     );
     const user = userEventLib.setup();
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces?step=1',
     });
     await waitFor(() =>
@@ -249,7 +249,7 @@ describe('LessonPage', () => {
       },
     });
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces?step=2',
     });
     await waitFor(() =>
@@ -279,7 +279,7 @@ describe('LessonPage', () => {
       },
     });
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     const btn = await screen.findByTestId('lesson-complete-btn');
@@ -309,7 +309,7 @@ describe('LessonPage', () => {
     );
     const user = userEventLib.setup();
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     const btn = await screen.findByTestId('lesson-complete-btn');
@@ -334,7 +334,7 @@ describe('LessonPage', () => {
         stepsState: { s1: 'done', s2: 'done' },
       },
     });
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     const btn = await screen.findByTestId('lesson-complete-btn');
@@ -359,7 +359,7 @@ describe('LessonPage', () => {
       },
     });
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     const btn = await screen.findByTestId('lesson-complete-btn');
@@ -390,7 +390,7 @@ describe('LessonPage', () => {
       await import('@testing-library/user-event')
     ).default.setup();
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     const btn = await screen.findByTestId('lesson-complete-btn');
@@ -413,7 +413,7 @@ describe('LessonPage', () => {
         stepsState: { s1: 'done', s2: 'done' },
       },
     });
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     const btn = await screen.findByTestId('lesson-complete-btn');
@@ -427,7 +427,7 @@ describe('LessonPage', () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces?step=1',
     });
     await waitFor(() =>
@@ -443,7 +443,7 @@ describe('LessonPage', () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces?step=2',
     });
     await waitFor(() =>
@@ -458,7 +458,7 @@ describe('LessonPage', () => {
       lessons: [],
     });
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
 
@@ -497,7 +497,7 @@ describe('LessonPage', () => {
       },
     });
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces?mode=review',
     });
 
@@ -535,7 +535,7 @@ describe('LessonPage', () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     await waitFor(() =>
@@ -563,7 +563,7 @@ describe('LessonPage', () => {
       },
     });
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     await waitFor(() =>
@@ -576,7 +576,7 @@ describe('LessonPage', () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     await waitFor(() =>
@@ -629,7 +629,7 @@ describe('LessonPage', () => {
     );
     const user = userEventLib.setup();
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     await waitFor(() =>
@@ -691,7 +691,7 @@ describe('LessonPage', () => {
     );
     const user = userEventLib.setup();
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     await waitFor(() =>
@@ -724,7 +724,7 @@ describe('LessonPage', () => {
       },
     });
 
-    renderWithProviders(<LessonPage />, {
+    renderWithAuth(<LessonPage />, {
       route: '/lessons/beginner-basics/pieces',
     });
     await waitFor(() =>
