@@ -35,9 +35,29 @@ export interface GuestPgnGame {
 }
 
 const LS_KEY = 'kingside.workshop.guest.pgn-files';
+const LS_ANALYSES_KEY = 'kingside.workshop.guest.analyses';
 const DB_NAME = 'kingside-workshop-guest';
-const DB_VERSION = 1;
+// KS-4167: version 2 — добавлен store `analyses` для гостевых анализов.
+const DB_VERSION = 2;
 const STORE_PGN = 'pgn-files';
+const STORE_ANALYSES = 'analyses';
+
+export type GuestAnalysisCategory = 'analysis' | 'game_review' | 'puzzle';
+
+export interface GuestAnalysisMeta {
+  id: string;
+  title: string;
+  category: GuestAnalysisCategory;
+  /** Заголовок-подсказка для UI (например, имена игроков из PGN). */
+  headline: string | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GuestAnalysisRecord extends GuestAnalysisMeta {
+  pgn: string;
+}
 
 // ─── localStorage helpers ────────────────────────────────────────────
 
@@ -79,10 +99,93 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_PGN)) {
         db.createObjectStore(STORE_PGN);
       }
+      // KS-4167: store для содержимого гостевых анализов.
+      if (!db.objectStoreNames.contains(STORE_ANALYSES)) {
+        db.createObjectStore(STORE_ANALYSES);
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function idbPutAnalysis(id: string, pgn: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_ANALYSES, 'readwrite');
+    tx.objectStore(STORE_ANALYSES).put(pgn, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function idbGetAnalysis(id: string): Promise<string | null> {
+  const db = await openDb();
+  try {
+    return await new Promise<string | null>((resolve, reject) => {
+      const tx = db.transaction(STORE_ANALYSES, 'readonly');
+      const req = tx.objectStore(STORE_ANALYSES).get(id);
+      req.onsuccess = () =>
+        resolve(typeof req.result === 'string' ? req.result : null);
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function idbDeleteAnalysis(id: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_ANALYSES, 'readwrite');
+    tx.objectStore(STORE_ANALYSES).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+// ─── Guest analyses metadata ─────────────────────────────────────────
+
+function readAnalysesList(): GuestAnalysisMeta[] {
+  try {
+    const raw = localStorage.getItem(LS_ANALYSES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((it: unknown) => normalizeAnalysis(it))
+      .filter((it): it is GuestAnalysisMeta => it !== null);
+  } catch {
+    return [];
+  }
+}
+
+function writeAnalysesList(list: GuestAnalysisMeta[]): void {
+  try {
+    localStorage.setItem(LS_ANALYSES_KEY, JSON.stringify(list));
+  } catch {
+    /* quota — ignore */
+  }
+}
+
+function normalizeAnalysis(it: unknown): GuestAnalysisMeta | null {
+  if (!it || typeof it !== 'object') return null;
+  const r = it as Record<string, unknown>;
+  if (typeof r.id !== 'string' || typeof r.title !== 'string') return null;
+  const cat = (r.category === 'game_review' || r.category === 'puzzle')
+    ? (r.category as GuestAnalysisCategory)
+    : 'analysis';
+  return {
+    id: r.id,
+    title: r.title,
+    category: cat,
+    headline: typeof r.headline === 'string' ? r.headline : null,
+    tags: Array.isArray(r.tags) ? r.tags.filter((t): t is string => typeof t === 'string') : [],
+    createdAt: typeof r.createdAt === 'string' ? r.createdAt : new Date().toISOString(),
+    updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : new Date().toISOString(),
+  };
 }
 
 async function idbPut(id: string, pgn: string): Promise<void> {
@@ -255,5 +358,78 @@ export const guestWorkshopStore = {
     );
     writeList(list);
     return remaining;
+  },
+
+  // ── KS-4167: гостевые анализы (My Analyses) ─────────────────────────
+
+  listAnalyses(): GuestAnalysisMeta[] {
+    return readAnalysesList().sort((a, b) =>
+      a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0,
+    );
+  },
+
+  async createAnalysis(
+    title: string,
+    pgn: string = '',
+    category: GuestAnalysisCategory = 'analysis',
+  ): Promise<GuestAnalysisMeta> {
+    const now = new Date().toISOString();
+    const id = `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const meta: GuestAnalysisMeta = {
+      id,
+      title,
+      category,
+      headline: null,
+      tags: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await idbPutAnalysis(id, pgn);
+    writeAnalysesList([meta, ...readAnalysesList()]);
+    return meta;
+  },
+
+  async getAnalysis(id: string): Promise<GuestAnalysisRecord | null> {
+    const meta = readAnalysesList().find((a) => a.id === id);
+    if (!meta) return null;
+    const pgn = (await idbGetAnalysis(id)) ?? '';
+    return { ...meta, pgn };
+  },
+
+  async updateAnalysis(
+    id: string,
+    patch: { title?: string; tags?: string[]; pgn?: string; headline?: string | null; category?: GuestAnalysisCategory },
+  ): Promise<GuestAnalysisMeta | null> {
+    const list = readAnalysesList();
+    const idx = list.findIndex((a) => a.id === id);
+    if (idx < 0) return null;
+    const now = new Date().toISOString();
+    const next: GuestAnalysisMeta = {
+      ...list[idx],
+      ...(patch.title !== undefined && { title: patch.title }),
+      ...(patch.tags !== undefined && { tags: patch.tags }),
+      ...(patch.headline !== undefined && { headline: patch.headline }),
+      ...(patch.category !== undefined && { category: patch.category }),
+      updatedAt: now,
+    };
+    list[idx] = next;
+    writeAnalysesList(list);
+    if (patch.pgn !== undefined) {
+      try {
+        await idbPutAnalysis(id, patch.pgn);
+      } catch {
+        /* ignore */
+      }
+    }
+    return next;
+  },
+
+  async deleteAnalysis(id: string): Promise<void> {
+    writeAnalysesList(readAnalysesList().filter((a) => a.id !== id));
+    try {
+      await idbDeleteAnalysis(id);
+    } catch {
+      /* ignore */
+    }
   },
 };

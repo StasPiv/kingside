@@ -9,6 +9,7 @@ import type {
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
 import { openAnalysis } from '../../utils/openAnalysis';
+import { guestWorkshopStore } from '../../utils/guestWorkshopStore';
 import { SavedFiltersDropdown } from '../savedFilters/SavedFiltersDropdown';
 
 // KS-2948: backend дефолтный limit=20, max 100. KS-2950: фронт грузит
@@ -289,8 +290,36 @@ export function WorkshopAnalysisList() {
   // — кнопка «Повторить» в error-state.
   const [retryNonce, setRetryNonce] = useState(0);
 
+  // KS-4167: для гостя список анализов читается из guestWorkshopStore.
+  const isGuest = !user;
+
+  const reloadGuestAnalyses = useCallback(() => {
+    const local = guestWorkshopStore.listAnalyses();
+    const mapped: AnalysisListItem[] = local.map((a) => ({
+      id: a.id,
+      title: a.title,
+      headline: a.headline,
+      opening: null,
+      event: null,
+      white: null,
+      black: null,
+      result: null,
+      category: a.category,
+      tags: a.tags,
+      createdAt: a.createdAt,
+      originalAnalysisId: null,
+    }));
+    setAllAnalyses(mapped);
+    setServerHasMore(false);
+    setLoading(false);
+    setError('');
+  }, []);
+
   useEffect(() => {
-    if (!user) return;
+    if (isGuest) {
+      reloadGuestAnalyses();
+      return;
+    }
     setLoading(true);
     setError('');
     // KS-2948/KS-2950: backend дефолт limit=20, max 100. Тянем 100 разом;
@@ -313,7 +342,7 @@ export function WorkshopAnalysisList() {
     // KS-2933 (B3): загрузка saved-filters и миграция legacy
     // `localStorage['workshopSavedFilters']` теперь — забота
     // `useSavedFilters('workshop')` внутри SavedFiltersDropdown.
-  }, [user, t, retryNonce]);
+  }, [isGuest, t, retryNonce, reloadGuestAnalyses]);
 
   /**
    * KS-2950: догрузить следующую серверную страницу анализов. Используется
@@ -406,6 +435,23 @@ export function WorkshopAnalysisList() {
   }, [hasMore, loadingMore, loadMoreFromServer]);
 
   const handleOpen = (analysis: AnalysisListItem) => {
+    // KS-4167: гостю передаём PGN из локального хранилища через
+    // state — на /analysis нет id, AnalysisPage рендерит из state.pgn.
+    if (isGuest) {
+      void guestWorkshopStore.getAnalysis(analysis.id).then((rec) => {
+        if (!rec) return;
+        navigate('/analysis', {
+          state: {
+            pgn: rec.pgn,
+            title: rec.title,
+            breadcrumbRootTitle: t('workshop.myAnalyses.title'),
+            breadcrumbRootUrl: '/workshop',
+            guestAnalysisId: rec.id,
+          },
+        });
+      });
+      return;
+    }
     navigate('/analysis/' + analysis.id, {
       state: {
         breadcrumbRootTitle: t('workshop.myAnalyses.title'),
@@ -416,6 +462,12 @@ export function WorkshopAnalysisList() {
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    if (isGuest) {
+      void guestWorkshopStore.deleteAnalysis(id).then(() => {
+        setAllAnalyses((prev) => prev.filter((a) => a.id !== id));
+      });
+      return;
+    }
     api.delete(`/analyses/${id}`)
       .then(() => setAllAnalyses((prev) => prev.filter((a) => a.id !== id)))
       .catch(() => {});
@@ -604,6 +656,25 @@ export function WorkshopAnalysisList() {
         <button
           className="workshop-analyses-new-btn"
           onClick={() => {
+            // KS-4167: гостю создаём запись в локальном хранилище и
+            // открываем анализ из state.pgn. Серверный POST /analyses
+            // не вызывается.
+            if (isGuest) {
+              const title = t('workshop.myAnalyses.newAnalysis', 'New Analysis');
+              void guestWorkshopStore.createAnalysis(title, '').then((meta) => {
+                reloadGuestAnalyses();
+                navigate('/analysis', {
+                  state: {
+                    pgn: '',
+                    title: meta.title,
+                    breadcrumbRootTitle: t('workshop.myAnalyses.title'),
+                    breadcrumbRootUrl: '/workshop',
+                    guestAnalysisId: meta.id,
+                  },
+                });
+              });
+              return;
+            }
             // KS-2604 (ADR-051 §4 B2): создаём пустой анализ через
             // helper из B1 — он сделает POST /analyses {pgn:''} и
             // navigate(/analysis/<id>) с уникальным id. До этого
@@ -659,11 +730,21 @@ export function WorkshopAnalysisList() {
               </>
             )}
       </div>
-      {!user ? (
-        <p className="workshop-section-block__empty">
-          {t('workshop.myAnalyses.loginRequired', 'Sign in to save your analyses')}
-        </p>
-      ) : loading ? (
+      {isGuest && (
+        // KS-4167: гость работает с локальным списком — баннер вместо
+        // «Sign in to save your analyses».
+        <div
+          className="workshop-section-block__guest-banner"
+          data-testid="workshop-analyses-guest-banner"
+          style={{ marginBottom: 12, fontSize: 14, opacity: 0.85 }}
+        >
+          {t(
+            'workshop.myAnalyses.guest.banner',
+            'Analyses are stored locally in this browser. Sign in to keep them across devices.',
+          )}
+        </div>
+      )}
+      {loading ? (
         <p className="workshop-section-block__empty">{t('common.loading')}</p>
       ) : error ? (
         // KS-3259: добавлена кнопка «Повторить» (раньше был просто
