@@ -43,4 +43,15 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   { path: '/feedback', priority: 0.5, changefreq: 'weekly' },
   { path: '/features', priority: 0.4, changefreq: 'monthly' },
   { path: '/login', priority: 0.3, changefreq: 'monthly' },
+  // KS-4222: PF-тренажёры и продуктовые лендинги — открыты гостям,
+  // имеют per-page SeoHelmet (см. PageSeo и i18n seo.<ns>.*).
+  // prerender кладёт статичные snapshot'ы в `dist/<route>/index.html`
+  // — Telegram/Google читают их без выполнения JS.
+  { path: '/blind-board', priority: 0.6, changefreq: 'weekly' },
+  { path: '/guess', priority: 0.5, changefreq: 'weekly' },
+  { path: '/opening-trainer', priority: 0.6, changefreq: 'weekly' },
+  { path: '/drills', priority: 0.5, changefreq: 'weekly' },
+  { path: '/lessons', priority: 0.7, changefreq: 'daily' },
+  { path: '/precision', priority: 0.6, changefreq: 'weekly' },
+  { path: '/games/live', priority: 0.5, changefreq: 'daily' },
 ];
