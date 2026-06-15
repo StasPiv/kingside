@@ -7,6 +7,7 @@ import { ApiError } from '../ApiError';
 import { useAuth } from '../context/AuthContext';
 import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
 import { ScheduleLectureModal } from '../components/profile/ScheduleLectureModal';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 /**
  * KS-3787 / ADR-113 §4 эпик 1. Публичная страница тренера.
@@ -540,8 +541,46 @@ export function CoachProfilePage() {
   const isOwnPage =
     !!currentUser && currentUser.username === profile.username;
 
+  // KS-4186 / ADR-128 §7.6.1.2 C1. Coach profile-SEO. bestRating/
+  // bestType — лучший шахматный контроль (puzzle отдельно).
+  // lecturesCount — суммарное число публичных лекций (live + scheduled
+  // + recorded; cancelled не считаем — отменённые не продают курс).
+  // JSON-LD type=Person с jobTitle="Chess Coach".
+  const seoRatings = [
+    { type: 'bullet', rating: profile.ratingBullet },
+    { type: 'blitz', rating: profile.ratingBlitz },
+    { type: 'rapid', rating: profile.ratingRapid },
+    { type: 'classical', rating: profile.ratingClassical },
+  ];
+  const seoBest = seoRatings.reduce((a, b) => (b.rating > a.rating ? b : a));
+  const seoLecturesCount =
+    liveLectures.length + scheduledLectures.length + recordedLectures.length;
+  const seoTitle = t('seo.coach.profile.title', { username: profile.username });
+  const seoDescription = t('seo.coach.profile.description', {
+    username: profile.username,
+    bestRating: seoBest.rating,
+    bestType: seoBest.type,
+    lecturesCount: seoLecturesCount,
+  });
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Person',
+    name: profile.username,
+    alternateName: profile.username,
+    description: seoDescription,
+    jobTitle: 'Chess Coach',
+    nationality: profile.country ?? undefined,
+  };
+
   return (
     <div className="coach-profile-page" data-testid="coach-profile-page">
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        ogType="profile"
+        ogImage="/og/coach.png"
+        jsonLd={seoJsonLd}
+      />
       <Link to="/players" className="player-profile-back">
         {t('playerProfile.backToPlayers', 'Back to players')}
       </Link>
