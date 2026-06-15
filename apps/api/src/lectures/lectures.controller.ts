@@ -120,6 +120,33 @@ export class LecturesController {
   }
 
   /**
+   * KS-4188 / ADR-128 §7.6.1.6. Публичный агрегат опубликованных
+   * лекций (`visibility='public'`, `status≠cancelled`) для SEO-индексации
+   * `/lectures`. Без class-guard'а (ADR-128 §6.8.2): `OptionalJwtGuard`
+   * +  `RedisRateLimitGuard` 60/min на сам метод.
+   *
+   * `toPublicDto` вырезает приватные поля тренера (email/phone/lastSeenAt)
+   * из вложенных объектов согласно §6.8.3.
+   *
+   * Внимание: маршрут объявлен ПЕРЕД `lectures/:id` — Nest резолвит роуты
+   * в порядке регистрации, иначе `/lectures/public` уходит в getById
+   * (`ParseUUIDPipe` → 400 "uuid is expected").
+   */
+  @UseGuards(OptionalJwtGuard, RedisRateLimitGuard)
+  @RateLimit(60, 60)
+  @Get('lectures/public')
+  async listPublic(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: PublicLecturesQueryDto,
+  ) {
+    const result = await this.service.listPublic({
+      limit: query.limit,
+      offset: query.offset,
+    });
+    return toPublicDto(result, req.user ?? null);
+  }
+
+  /**
    * KS-3932 / ADR-118 §2.4.1. Опциональный JWT + резолвер доступа.
    * Поведение:
    *   - `public` / `unlisted` → отдаём как и раньше;
@@ -162,29 +189,6 @@ export class LecturesController {
     const result = await this.service.getRecordingByLectureId(id);
     // KS-4134: даже у записи в метаданных может быть автор —
     // выкидываем приватные поля для гостя.
-    return toPublicDto(result, req.user ?? null);
-  }
-
-  /**
-   * KS-4188 / ADR-128 §7.6.1.6. Публичный агрегат опубликованных
-   * лекций (`visibility='public'`, `status≠cancelled`) для SEO-индексации
-   * `/lectures`. Без class-guard'а (ADR-128 §6.8.2): `OptionalJwtGuard`
-   * +  `RedisRateLimitGuard` 60/min на сам метод.
-   *
-   * `toPublicDto` вырезает приватные поля тренера (email/phone/lastSeenAt)
-   * из вложенных объектов согласно §6.8.3.
-   */
-  @UseGuards(OptionalJwtGuard, RedisRateLimitGuard)
-  @RateLimit(60, 60)
-  @Get('lectures/public')
-  async listPublic(
-    @Request() req: AuthenticatedRequest,
-    @Query() query: PublicLecturesQueryDto,
-  ) {
-    const result = await this.service.listPublic({
-      limit: query.limit,
-      offset: query.offset,
-    });
     return toPublicDto(result, req.user ?? null);
   }
 
