@@ -132,6 +132,14 @@ export function RequireAuthProvider({ children }: { children: ReactNode }) {
   // Растущий счётчик для уникальности toast'а — каждое новое сообщение
   // отменяет предыдущий setTimeout, чтобы старый dismiss не убил новый.
   const toastSeqRef = useRef(0);
+  // KS-4131 follow-up. Ref на актуальное состояние модалки для event-
+  // обработчика (он создаётся один раз на mount, через closure не видит
+  // последующих setModal). Используется для подавления toast'а пока
+  // модалка открыта — модалка приоритетнее.
+  const modalRef = useRef<ModalState | null>(null);
+  useEffect(() => {
+    modalRef.current = modal;
+  }, [modal]);
 
   const requireAuth = useCallback<RequireAuthFn>(
     (action, options) => {
@@ -148,6 +156,10 @@ export function RequireAuthProvider({ children }: { children: ReactNode }) {
           'auth.loginRequired.descriptionDefault',
           'Sign in to your Kingside account to continue.',
         );
+      // KS-4131 follow-up. Открывающаяся модалка имеет приоритет —
+      // снимаем любой висящий API-toast, иначе они отображаются
+      // одновременно (модалка по центру + toast в углу).
+      setToast(null);
       setModal({ description, returnUrl });
     },
     [user, t],
@@ -195,6 +207,13 @@ export function RequireAuthProvider({ children }: { children: ReactNode }) {
       console.warn(
         `[api:guest-401] ${detail.method} ${detail.path} — guest hit auth-required endpoint`,
       );
+      // KS-4131 follow-up. Модалка приоритетнее любого API-уведомления.
+      // Пока она открыта — глотаем guest-401 целиком: ни toast поверх
+      // не показываем, ни вторую модалку не открываем (это покрывает
+      // и кейс «несколько 401 подряд» — пользователь видит одно
+      // уведомление за раз). Лог выше всё равно остаётся, чтобы факт
+      // 401 не потерялся для расследования.
+      if (modalRef.current) return;
       const write = isWriteMethod(detail.method);
       if (!write) {
         // Read (GET/HEAD) — для гостя backend ещё не открыл этот
@@ -220,7 +239,10 @@ export function RequireAuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       // Write PR/PV — авторизация требуется, открываем модалку.
+      // KS-4131 follow-up: модалка приоритетнее toast — снимаем
+      // висящий API-toast, чтобы они не показывались одновременно.
       const returnUrl = `${window.location.pathname}${window.location.search}`;
+      setToast(null);
       setModal({
         description: t(
           'auth.loginRequired.descriptionDefault',
