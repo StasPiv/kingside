@@ -10,6 +10,8 @@ import { ChessResultsModule } from './chess-results/chess-results.module';
 // KS-4205 / ADR-128 §10 #11 §7.3.7. Глобальная шина postановки
 // prerender-задач (mutation hooks в sync- и watchdog-сервисах).
 import { PrerenderModule } from './prerender/prerender.module';
+// KS-4221. Admin-эндпоинты (разовая переиндексация трансляций).
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -20,6 +22,7 @@ import { PrerenderModule } from './prerender/prerender.module';
     PrismaModule,
     RedisModule,
     PrerenderModule,
+    AdminModule,
     MetricsModule,
     HealthModule,
     BroadcastModule,
