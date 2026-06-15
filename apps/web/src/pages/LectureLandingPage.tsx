@@ -156,10 +156,24 @@ export function LectureLandingPage() {
     name: lecture.title,
     description: lecture.description ?? undefined,
     courseMode: 'online',
+    // KS-4217: provider — либо реальный coach (когда KS-4172-BE-
+    // LECTURE-COACH расширит `LectureDetail` полем `coach`), либо
+    // fallback на Organization (Kingside) — иначе Google не
+    // показывает provider в SERP, что для Course-карточки плохо.
     provider: seoCoach
       ? { '@type': 'Person', name: seoCoach }
-      : undefined,
+      : {
+          '@type': 'Organization',
+          name: 'Kingside',
+          url: 'https://kingside.site',
+        },
+    url: `https://kingside.site/lectures/${encodeURIComponent(lecture.id)}`,
   };
+
+  // KS-4217 / ADR-128 §7.6.1.2 L2. Явный canonical: страницы лекции
+  // открываются по динамическому id, prerender'а нет (только client-
+  // side render для бота → нужен явный URL).
+  const seoCanonical = `https://kingside.site/lectures/${encodeURIComponent(lecture.id)}`;
 
   return (
     <div
@@ -170,6 +184,7 @@ export function LectureLandingPage() {
       <SeoHelmet
         title={seoTitle}
         description={seoDescription}
+        canonical={seoCanonical}
         ogType="article"
         ogImage="/og/lecture.png"
         jsonLd={seoJsonLd}

@@ -33,6 +33,7 @@ import { MyLecturesPage } from './MyLecturesPage';
 import { StudentLecturesPage } from './StudentLecturesPage';
 import { PublicLecturesCatalog } from '../components/lectures/PublicLecturesCatalog';
 import { SeoHelmet } from '../components/seo/SeoHelmet';
+import { usePublicLectures } from '../hooks/usePublicLectures';
 
 const SECTION_HEADING_STYLE: React.CSSProperties = {
   margin: '24px 0 12px',
@@ -49,10 +50,19 @@ export function LecturesIndexPage() {
   const [searchParams] = useSearchParams();
   const forceDiscover = searchParams.get('view') === 'discover';
 
+  // KS-4217 / ADR-128 §7.6.1.2 L1. Лёгкий probe-запрос за публичным
+  // списком лекций для JSON-LD `ItemList`. `limit=20` достаточно для
+  // SEO-среза (Google всё равно ограничит вывод первой страницы).
+  // Этот запрос дублирует то, что внутри делает `PublicLecturesCatalog`
+  // (`limit=24`); вынос общего state — отдельная задача (см. README в
+  // `PublicLecturesCatalog`). Здесь — приоритет SEO-контракта.
+  const probe = usePublicLectures({ limit: 20 });
+
   const seoBlock = (
     <SeoHelmet
       title={t('seo.lectures.list.title')}
       description={t('seo.lectures.list.description')}
+      canonical="https://kingside.site/lectures"
       ogType="website"
       ogImage="/og/lecture.png"
       jsonLd={{
@@ -60,6 +70,16 @@ export function LecturesIndexPage() {
         '@type': 'CollectionPage',
         name: t('seo.lectures.list.title'),
         description: t('seo.lectures.list.description'),
+        mainEntity: {
+          '@type': 'ItemList',
+          numberOfItems: probe.total || probe.items.length,
+          itemListElement: probe.items.slice(0, 20).map((l, idx) => ({
+            '@type': 'ListItem',
+            position: idx + 1,
+            url: `https://kingside.site/lectures/${encodeURIComponent(l.id)}`,
+            name: l.title,
+          })),
+        },
       }}
     />
   );
