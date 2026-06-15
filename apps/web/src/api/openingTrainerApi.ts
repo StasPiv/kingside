@@ -216,4 +216,40 @@ export const openingTrainerApi = {
       {},
     );
   },
+
+  // ── KS-4160 / KS-4161 (ADR-128 §5): публичные демо-репертуары ─────
+  /** GET /opening-trainer/demo — список демо-репертуаров (доступен гостю). */
+  listDemoRepertoires(): Promise<DemoRepertoireSummary[]> {
+    return api.get<DemoRepertoireSummary[]>(`${BASE}/demo`);
+  },
+  /** GET /opening-trainer/demo/:id — детали демо-репертуара (доступен гостю). */
+  getDemoRepertoire(id: string): Promise<DemoRepertoireDetail> {
+    return api.get<DemoRepertoireDetail>(
+      `${BASE}/demo/${encodeURIComponent(id)}`,
+    );
+  },
+};
+
+/**
+ * KS-4161: минимальный тип карточки демо-репертуара. Контракт детально
+ * формализуется на стороне backend (KS-4160) — пока пакет shared его не
+ * экспортирует, поэтому держим локально и читаем optionally.
+ */
+export type DemoRepertoireSummary = {
+  id: string;
+  title: string;
+  description?: string;
+  nodeCount?: number;
+  edgeCount?: number;
+  maxDepth?: number;
+};
+
+/**
+ * KS-4161: тип детального ответа `/opening-trainer/demo/:id`. Гость
+ * проигрывает SRS-сессию полностью локально, поэтому достаточно базовых
+ * полей репертуара. До появления seed-контента ответ — 404.
+ */
+export type DemoRepertoireDetail = DemoRepertoireSummary & {
+  /** Цвет, за который тренируется пользователь в этом репертуаре. */
+  trainColor?: 'white' | 'black';
 };

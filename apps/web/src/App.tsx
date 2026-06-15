@@ -110,6 +110,8 @@ import { OpeningTrainerReviewsPage } from './pages/openingTrainer/OpeningTrainer
 // KS-3320: страница атрибуции открытых ассетов (piece-sets).
 import { CreditsPage } from './pages/CreditsPage';
 import { OpeningTrainerStatsPage } from './pages/openingTrainer/OpeningTrainerStatsPage';
+// KS-4161 / ADR-128 §5: публичная демо-страница тренажёра дебютов.
+import { OpeningTrainerDemoPage } from './pages/openingTrainer/OpeningTrainerDemoPage';
 // KS-3737 (ADR-110 §3, §6): публичная страница зрителя live-трансляции
 // анализа. Lazy-чанк — страница содержит chess.js + react-chessboard,
 // которые уже подгружены на смежных маршрутах (анализ/архив), но при
@@ -826,11 +828,23 @@ export function App() {
         <Route path="/analysis/:id" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         {/* KS-4027 / ADR-122: отдельная страница позиционной аналитики. */}
         <Route path="/analyses/:analysisId/metrics" element={<AnalysisMetricsPage />} />
-        {/* KS-3273 (ADR-077): Opening Trainer. ProtectedRoute — все
-            операции требуют user-id на бэке. */}
+        {/* KS-3273 (ADR-077): Opening Trainer.
+            KS-4161 / ADR-128 §5: главная `/opening-trainer` открыта
+            гостю — лобби показывает секцию демо-репертуаров и CTA на
+            «Мои репертуары». Демо-маршрут `/opening-trainer/demo/:id`
+            тоже публичный, sessions/new/детали/stats остаются под
+            ProtectedRoute (личные репертуары — PV). */}
         <Route
           path="/opening-trainer"
-          element={<ProtectedRoute><OpeningTrainerLobbyPage /></ProtectedRoute>}
+          element={<OpeningTrainerLobbyPage />}
+        />
+        <Route
+          path="/opening-trainer/demo/:id"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <OpeningTrainerDemoPage />
+            </Suspense>
+          }
         />
         <Route
           path="/opening-trainer/new"
