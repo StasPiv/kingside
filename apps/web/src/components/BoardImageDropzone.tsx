@@ -18,6 +18,8 @@ import {
   type BoardRecognitionCell,
   type BoardRecognitionResponse,
 } from '../api/boardRecognition';
+import { useAuth } from '../context/AuthContext';
+import { useRequireAuth } from '../context/RequireAuthContext';
 import { cropImageToBlob, type CropArea } from './boardImageCrop';
 import {
   InlineBoardEditor,
@@ -267,6 +269,13 @@ export function BoardImageDropzone({
   onRecognized,
 }: BoardImageDropzoneProps) {
   const { t } = useTranslation();
+  // KS-4182 / ADR-128 §6.8.2 + §11.13. `POST /board-recognition` —
+  // private (JwtAuthGuard, ML-прокси). Гостю не должно прилетать 401
+  // в консоль и красная плашка — перед стартом recognize-flow зовём
+  // `requireAuth`: авторизованного пропускаем дальше, гостю
+  // показываем LoginRequiredModal.
+  const { user } = useAuth();
+  const requireAuth = useRequireAuth();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -385,6 +394,19 @@ export function BoardImageDropzone({
 
   const handleFile = useCallback(
     async (file: File | Blob) => {
+      // KS-4182 / ADR-128 §6.8.2. Гость → LoginRequiredModal без
+      // фактического запроса на бэк. Дальше handleFile НЕ идёт:
+      // ни blob-URL, ни setBusy, ни recognizer-вызова — чтобы не
+      // оставить «загрузочное» состояние в UI после показа модалки.
+      if (!user) {
+        requireAuth(() => {}, {
+          description: t(
+            'boardImage.loginRequired',
+            'Sign in to recognize a board from image.',
+          ),
+        });
+        return;
+      }
       setError(null);
       setWarnings([]);
       setSanityIssues([]);
@@ -499,7 +521,7 @@ export function BoardImageDropzone({
         setBusy(false);
       }
     },
-    [recognizer, t, onRecognized],
+    [recognizer, t, onRecognized, user, requireAuth],
   );
 
   // Drag & drop через `dataTransfer.files`.

@@ -11,7 +11,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { cleanup } from '@testing-library/react';
 import { useEffect } from 'react';
-import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+import { renderWithAuth as renderWithProviders, screen, waitFor } from '../test/test-utils-auth';
+
+// KS-4182: компонент теперь зовёт `useAuth` (см. guard перед recognize-
+// flow). Тестам нужен авторизованный сценарий — иначе handleFile
+// сразу открывает LoginRequiredModal и до recognizer'а дело не доходит.
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user', username: 'tester' },
+    loading: false,
+  }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  AuthContext: {
+    Provider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  },
+}));
 
 // KS-3094: мок `react-easy-crop`, чтобы lazy-Suspense быстро отдал
 // заглушку, которая моментально дёргает `onCropComplete` с фейковой
