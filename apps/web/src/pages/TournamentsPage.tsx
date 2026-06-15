@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { CreateTournamentModal } from '../components/CreateTournamentModal';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 type Tournament = {
   id: string;
@@ -100,8 +101,16 @@ export function TournamentsPage() {
     return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
+  // KS-4184 / ADR-128 §7.6.1.2 T1. List-страница: фиксированные
+  // title/description из i18n, ogType=event, ogImage=/og/tournament.png.
   return (
     <div className="tournaments-page">
+      <SeoHelmet
+        title={t('seo.tournaments.list.title')}
+        description={t('seo.tournaments.list.description')}
+        ogType="event"
+        ogImage="/og/tournament.png"
+      />
       <div className="tnr-header">
         <h1>{t('tournaments.title', 'Tournaments')}</h1>
         {user && (

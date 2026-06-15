@@ -11,6 +11,7 @@ import { TournamentRoundView } from '../components/TournamentRoundView';
 import { CrossTable } from '../components/CrossTable';
 import { TournamentSchedule } from '../components/TournamentSchedule';
 import { SwissStandingsTable } from '../components/SwissStandingsTable';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 type Tournament = {
   id: string;
@@ -539,8 +540,41 @@ export function TournamentLobbyPage() {
     { id: 'players', label: t('tournaments.tabPlayers', 'Players') },
   ];
 
+  // KS-4184 / ADR-128 §7.6.1.2 T2. Tournament-level SEO. participantsCount
+  // = standings.length (фронт уже их подгружает); timeControl —
+  // форматтер `formatTc` уже есть; startsAt — ISO как раз для тегов.
+  // JSON-LD type=SportsEvent.
+  const seoTitle = t('seo.tournaments.detail.title', { name: tournament.name });
+  const seoTimeControl = formatTc(
+    tournament.timeInitialSec,
+    tournament.timeIncrementSec,
+  );
+  const seoDescription = t('seo.tournaments.detail.description', {
+    name: tournament.name,
+    type: tournament.type,
+    timeControl: seoTimeControl,
+    participantsCount: standings.length,
+    startsAt: tournament.startsAt,
+  });
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'SportsEvent',
+    name: tournament.name,
+    description: seoDescription,
+    startDate: tournament.startsAt,
+    endDate: tournament.endsAt ?? undefined,
+    sport: 'Chess',
+  };
+
   return (
     <div className="tournament-lobby-page">
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        ogType="event"
+        ogImage="/og/tournament.png"
+        jsonLd={seoJsonLd}
+      />
       {serverBusy && <ServerBusyBanner />}
       {/* ===== HEADER ===== */}
       <div className="tournament-header">
