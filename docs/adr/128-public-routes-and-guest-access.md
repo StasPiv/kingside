@@ -1,14 +1,17 @@
 # ADR-128 — Политика публичных маршрутов и модель «гость пользуется функционалом / логин для записи в БД»
 
 - Статус: **Proposed** (2026-06-14: основа + ревизии по KS-4121,
-  KS-4125, KS-4126; 2026-06-15: фиксация решений §11.2 и §11.3 по
-  KS-4127)
+  KS-4125, KS-4126; 2026-06-15: фиксация §11.2/§11.3 по KS-4127,
+  системная фиксация §6.8/§6.9 + per-namespace чек-лист по KS-4129)
 - Задача: KS-4120 (исходный), KS-4121 (§7), KS-4125 (отказ от
   PM-лендингов, кодификация inline guest-CTA), KS-4126 (закрытие
   §11.12–§11.14, KS-31/32 на seed-контент, запрет привлекать
   chess-expert — контент даёт пользователь), KS-4127 (закрытие
   §11.2 — `/lessons` открыт гостю как PF — и §11.3 — onboarding
-  оставлен как текущий `UsernameSetupModal` + return)
+  оставлен как текущий `UsernameSetupModal` + return), KS-4129
+  (правило «GET по умолчанию открыт через `OptionalJwtGuard`» в §6.8,
+  per-namespace чек-лист backend'у в §6.8.2, фронт-перехватчик 401
+  в §6.9, тикеты KS-33/KS-34 в §10)
 - Связанные ADR / задачи:
   - KS-4116 — внедрение prerender (frontend, `apps/web/scripts/prerender.mjs`),
     реестр `apps/web/src/config/publicRoutes.ts`.
@@ -697,6 +700,178 @@ interface GuestCTAProps {
 постепенно (KS-23 декомпозиции). Это снимает риск визуального
 расхождения CTA по разделам.
 
+### 6.8. Контракт backend — GET по умолчанию открыт для гостя
+
+> **Системная фиксация (KS-4129, 2026-06-15).** Жалоба пользователя:
+> часть PR/PF-маршрутов фронта снимают `ProtectedRoute`, но backend
+> возвращает 401, глобальный перехватчик `apps/web/src/api.ts`
+> отправляет гостя на `/login`. Эффективно — закрыто, хотя в роутере
+> открыто. Эта секция формализует системное правило, чтобы прекратить
+> точечные ad-hoc-открытия эндпоинтов.
+
+**Правило (P-GET):** все GET-эндпоинты backend по умолчанию открыты
+для анонимного запроса через `OptionalJwtGuard`. При `user==null`
+эндпоинт возвращает публичные данные (или их подмножество — см. §6.8.3).
+
+**Исключения** — явный whitelist эндпоинтов, обслуживающих PV-данные.
+Этот whitelist кодифицирован в §6.8.2.
+
+**Принципы:**
+
+- P-GET.1 — `@UseGuards(JwtAuthGuard)` на классе контроллера для
+  смешанных PF/PR/PV эндпоинтов **запрещён**. Если в одном контроллере
+  есть и публичные, и личные ручки — guard ставится на каждый метод
+  отдельно (`OptionalJwtGuard` для публичных, `JwtAuthGuard` для
+  личных). Если контроллер обслуживает чисто PV — class-guard
+  допустим, но контроллер тогда должен быть отдельным
+  (`MessageController`, `FriendController`, и т. п.).
+- P-GET.2 — write-эндпоинты (POST/PUT/PATCH/DELETE) контракт описан
+  в §11.13 и не пересматривается: no-op 204 для гостя на PF write,
+  401 на PR write.
+- P-GET.3 — для каждого открываемого GET'а DTO должен явно скрывать
+  для анонима поля §6.8.3.
+- P-GET.4 — все open GET-эндпоинты обязательно под rate-limit
+  (`RedisRateLimitGuard` или throttler), 60 req/min на IP по умолчанию.
+  Throttler можно вешать на класс рядом с `OptionalJwtGuard`.
+
+#### 6.8.1. Категории GET-эндпоинтов
+
+| Категория | Guard | Когда |
+|---|---|---|
+| **GET-public** (PR/PF контент) | `OptionalJwtGuard` + rate-limit | Каталог задач, список трансляций, профиль игрока, лекция, демо-репертуар/демо-партия, лидерборд |
+| **GET-personal** (PV) | `JwtAuthGuard` | Мои попытки, мой прогресс, мои сообщения, мои друзья, мои настройки |
+| **GET-owner** | `JwtAuthGuard` + ownership-guard (`UserCourseOwnerGuard` и т. п.) | Edit-эндпоинты курсов, личные анализы пользователя |
+| **GET-admin** | `JwtAuthGuard` + `AdminUserGuard` | Админка |
+
+#### 6.8.2. Per-namespace чек-лист (источник правды для backend)
+
+Сводная таблица на 2026-06-15. Колонки:
+- **Текущее** — снимок состояния класс-guard / метод-guard;
+- **Нужно** — целевое состояние по этому ADR;
+- **Skip-fields** — поля DTO, которые backend обязан вырезать при
+  `user==null`.
+
+Снимки `grep "@UseGuards|@Get" *.controller.ts` от 2026-06-15.
+
+**OK (открыто, изменений не требуется):**
+
+| Namespace | Эндпоинты | Текущее = нужно |
+|---|---|---|
+| archive-service | `GET /tree`, `/games`, `/games/by-position`, `/games/:id`, `/players/search`, `/players/:slug`, `/players/:slug/games`, `/events/search` | open, ОК |
+| broadcast-service | все read-эндпоинты | open, ОК |
+| config | `GET /config` | open, ОК |
+| feedback | `GET /feedback`, `/feedback/:id` | `OptionalJwtGuard`, ОК |
+| live-analysis | `GET /live-analyses/:slug` | `OptionalJwtGuard`, ОК |
+| analysis-public | `GET /analyses/public/:id` | open, ОК |
+| precision | `GET /precision/theme-counts`, `/precision/next` | `OptionalJwtGuard`, ОК |
+| puzzles | `GET /puzzles`, `/themes`, `/next`, `/next/:theme`, `/browse`, `/browse/count`, `/:id` | open/`OptionalJwtGuard`, ОК |
+| daily-puzzle | `GET /puzzles/daily` | open, ОК |
+| tactic-drill | `GET /tactic-drill*` | open, ОК |
+| puzzle-rush | `GET /puzzle-rush/leaderboard` | open, ОК |
+| blind-board | `GET /blind-board/leaderboard` | open, ОК |
+| players | `GET /players/top`, `/online`, `/search`, `/:username`, `/:username/courses` | open + rate-limit, ОК |
+| tournament | `GET /tournaments/top-active`, `/live` | open + rate-limit, ОК |
+| arena | `GET /arena`, `/:id`, `/:id/standings`, `/:id/rounds`, `/:id/rounds/:n`, `/:id/schedule`, `/:id/crosstable`, `/invite/:code` | open, ОК |
+| game | `GET /games/live`, `/games/live/count`, `/games/:id`, `/games/:id/moves` | open + rate-limit, ОК |
+| lectures | `GET /lectures/:id`, `/lectures/:id/recording`, `/coaches/:u/lectures`, `/coaches/:u/schedule` | `OptionalJwtGuard`/open, ОК |
+| lessons (publication) | `GET /lessons/courses/authors` | open, ОК |
+
+**Закрыто, но должно быть открыто (требует правки backend):**
+
+| Namespace | Эндпоинты | Текущее | Нужно | Skip-fields для гостя |
+|---|---|---|---|---|
+| **guess** | `GET /guess/sessions/:id` | class-`JwtAuthGuard` → 401 | убрать class-guard, на этот метод — `OptionalJwtGuard`; если гость без сессии — 404 не 401 | — |
+| **opening-trainer (demo)** | новый `GET /opening-trainer/demo`, `GET /opening-trainer/demo/:id` (KS-31) | не существует | новые open-эндпоинты в отдельном `OpeningTrainerPublicController` (без class-guard); основной `OpeningTrainerController` оставляет `@UseGuards(JwtAuthGuard)` для personal-репертуаров | — |
+| **workshop (demo)** | новый `GET /workshop/demo-games`, `GET /workshop/demo-games/featured` (KS-32) | не существует | новые open-эндпоинты в отдельном `WorkshopPublicController`; основной `WorkshopController` оставляет `JwtAuthGuard` для personal-анализов | — |
+| **lessons (system courses)** | `GET /lessons/courses?published=true`, `GET /lessons/courses/:slug`, `GET /lessons/lessons/:id` | class-`JwtAuthGuard` → 401 | расщепить на: `LessonsCoursesPublicController` (open: list opublikovanных + `:slug` + `lessons/:id`) и `LessonsCoursesPrivateController` (class-`JwtAuthGuard`: `enrolled`, write, ownership); либо method-level guards | `email`, `ownerEmail`, `privateNotes`, `draftSteps` (только опубликованные); прогресс — не отдавать гостю |
+| **lessons (progress)** | `GET /lessons/progress/courses/:id`, `/lessons/progress/lessons/:id` | class-`JwtAuthGuard` | оставить **`JwtAuthGuard`** (личный прогресс — PV). Для гостя: фронт **не вызывает** эти ручки при `user==null` (проверка на стороне SPA), либо они отвечают 200 с пустым прогрессом без 401 (на усмотрение backend в KS-…) | — |
+| **lessons (legacy /lessons/lessons)** | `GET /lessons/lessons/:id` | class-`JwtAuthGuard` | через unified-public-controller сделать open (см. строку выше) | — |
+| **analysis** (`/analyses`) | `GET /analyses/me`, `/analyses/:id` | class-`JwtAuthGuard` | оставить как есть — это **личные анализы**. Гостю доступен только `/analyses/public/:id`; AnalysisPage сам переключается в publicMode при отсутствии user (KS-2666/KS-2672) | — |
+| **analysis-review** | `GET /analyses/review/...` | проверить | если эти GET-ы относятся к публичному анализу — `OptionalJwtGuard`; если только к owner-у — `JwtAuthGuard` | проверить с backend |
+| **analyses/positional-trace** | `GET /analyses/:analysisId/positional-trace/...` | проверить | то же, что review — зависит от публичности parent-анализа | — |
+| **position-comment** | `GET /analyses/position/...` | проверить | если относится к публичному анализу — `OptionalJwtGuard` | — |
+| **knowledge** | `GET /knowledge/...` | class-`JwtAuthGuard` | если контент — публичный справочник, открыть через `OptionalJwtGuard`; если personal — оставить JWT. **Уточнить с backend, тип контента не очевиден из имени.** | проверить |
+| **lecture-audio** | `POST /lecture-audio/peer-failed` | `OptionalJwtGuard` (уже) | ОК для write-side по §11.13 | — |
+
+**Остаётся закрытым (PV, не менять):**
+
+| Namespace | Эндпоинты | Обоснование |
+|---|---|---|
+| messages | `GET /messages*` | личная переписка |
+| friend | `GET /friends*` | список друзей пользователя |
+| notification | `GET /notifications*` | личные уведомления |
+| profile | `GET /profile*` | личный профиль (settings, личные данные) |
+| user/saved-filters | `GET /user/saved-filters*` | личные сохранённые фильтры |
+| user/nav-stats | `GET /user/nav-stats` | личная аналитика навигации |
+| user/preferences | `GET /user/preferences` | личные настройки |
+| user/time-controls | `GET /users/me/time-controls` | личные настройки |
+| puzzle/mistakes | `GET /puzzle/mistakes*` | личный дневник ошибок (PV по ADR-032) |
+| puzzles/stats/me, /attempts | `GET /puzzles/stats/me`, `/puzzles/stats/rating-history`, `/puzzles/stats/themes`, `/puzzles/attempts` | личная статистика |
+| precision/me/* | `GET /precision/stats/me`, `/trends/me`, `/breakdowns/me`, `/me/rating`, `/attempts/me`, `/attempts/:attemptId`, `/scope-counts` | личная статистика precision |
+| guess/me/* | `GET /guess/history`, `/stats/me`, `/trends/me`, `/breakdowns/me` | личная статистика guess |
+| blind-board/me/* | `GET /blind-board/stats/me`, `/trends/me`, `/breakdowns/me`, `/history`, `/sessions/:id` | личная статистика blind-board |
+| opening-trainer/me | `GET /opening-trainer/repertoires*`, `/sessions/:sid`, `/reviews/due`, и т. п. | личные репертуары и SRS-очередь |
+| lectures/my | `GET /my/lectures`, `/lectures/:id/access` | мои купленные лекции, мой доступ |
+| game/active, /games/my, /games/:id/analysis | те, что под `JwtAuthGuard` в `game.controller` | личные активные партии и личный анализ |
+| board-recognition | весь | служебная фича распознавания доски (proxy на ML), требует JWT |
+| live-analysis personal | `GET /live-analyses/me`, `/by-analysis/:analysisId` | свои онлайн-сессии |
+| lessons/active-courses | `GET /lessons/active*` | мои активные курсы |
+| lessons/admin/* | весь | админка |
+| admin | весь | админка |
+| chat | весь | AI-чат личный |
+| mcp/discovery | `_mcp/*` | служебный internal |
+| internal/* | `auth/internal-*`, `users/internal-*`, `broadcast-internal`, `internal-games` | service-to-service, не для браузера |
+| metrics | `/metrics` | Prometheus scrape |
+| health | `/health` | LB |
+
+#### 6.8.3. Поля DTO для скрытия при `user==null`
+
+Любой open GET-эндпоинт, отдавая объект user/coach/player/comment/lecture,
+обязан **резать в DTO** для гостя:
+
+- `email`, `emailVerified`, `phone`, `phoneVerified` — личные контакты;
+- `oauthIds`, `googleId`, `facebookId`, `telegramId` — связи аккаунтов;
+- `privateNotes`, `internalNotes` — модераторские пометки;
+- `subscription`, `paymentMethod`, `lastInvoice` — платёжная информация;
+- `lastSeenAt`, `lastIp`, `userAgent` — telemetry;
+- `privacyFlags` — настройки приватности;
+- `friends[]`, `blockedUsers[]` — социальный граф (если private);
+- `email`-поля внутри nested-объектов (комментарий → автор → email).
+
+Реализация — отдельный DTO-маппер `toPublicDto(entity, viewer?)` на
+backend, единый для всех таких сущностей. Это часть KS-33 (см. §10).
+
+#### 6.8.4. Rate-limit на open GET-эндпоинтах
+
+Все open GET (PR/PF) обязаны быть под:
+
+- `@nestjs/throttler` (60 req/min по IP по умолчанию), или
+- `RedisRateLimitGuard` (как уже у `player`, `tournament`).
+
+Цель — защита от случайного бот-краулинга, не от DDoS. Полноценный
+WAF — вне scope (§11.6).
+
+### 6.9. Контракт фронт-перехватчика 401
+
+`apps/web/src/api.ts` сейчас глобально ловит 401 и редиректит на
+`/login`. Контракт по этому ADR:
+
+| Тип запроса | Источник запроса | Ответ 401 | Действие перехватчика |
+|---|---|---|---|
+| **GET PF/PR** | гость | **не должно случиться** | если случилось — это баг backend'а или роутинга. Залогировать в Sentry, **НЕ редиректить**. На UI показать toast «не удалось загрузить, попробуйте позже». |
+| **GET PV** | гость | не должно случиться, т. к. PV-маршруты под `ProtectedRoute` редиректят на /login до запроса | если случилось — то же что выше (баг роутинга). |
+| **GET** | авторизованный (JWT истёк) | штатно | refresh-token flow → retry; при провале — redirect на `/login` с `setAuthReturnUrl` |
+| **POST/PUT/PATCH/DELETE PF** | гость | не должно случиться (контракт §11.13 → 204) | баг backend'а. Лог + toast. |
+| **POST/PUT/PATCH/DELETE PR** | гость | штатно (модалка не сработала) | **не редирект**; открыть `<LoginRequiredModal>` через тот же `useRequireAuth`-механизм; на закрытие модалки — отменить originating request |
+| **POST/PUT/PATCH/DELETE PV** | гость | штатно (тот же кейс что PR) | как PR |
+
+То есть **глобальный 401-перехватчик больше не редиректит гостя на
+`/login` автоматически**. Редирект остаётся только в одном кейсе —
+expired-JWT у авторизованного с проваленным refresh. Это устраняет
+основную причину UX-регресса, описанную в KS-4129.
+
+Реализация перехватчика — KS-34 (см. §10).
+
 ---
 
 ## 7. SEO-следствия
@@ -1260,6 +1435,12 @@ flowchart TD
 > под §11.3 (onboarding) не вводится — текущее поведение
 > `OAuthCallbackPage` + `UsernameSetupModal` + `returnUrl` остаётся
 > финальным.
+>
+> **Ревизия 2026-06-15 (KS-4129).** Добавлены тикеты KS-33 (массовое
+> приведение GET-эндпоинтов к контракту §6.8 по per-namespace
+> чек-листу) и KS-34 (фронт-перехватчик 401 по §6.9). Эти два тикета
+> закрывают системную проблему «фронт открыл маршрут, бэк возвращает
+> 401, перехватчик кидает гостя на /login».
 
 | # | Тикет | Что | Исполнитель | Размер | Зависит от |
 |---|-------|-----|-------------|--------|------------|
@@ -1297,6 +1478,9 @@ flowchart TD
 | 30 | KS-новый | Frontend+backend: открыть `/opening-trainer` гостю (PF, §11.12). Главная раздела с секцией «Демо-репертуары» (KS-31). `GET /opening-trainer/demo` + `GET /opening-trainer/demo/:id` open-эндпоинты. Сессия по демо: `POST /opening-trainer/sessions` → 204 для гостя (no-op). Прогресс по узлам — localStorage. Auth-private маршруты (`/opening-trainer/new`, `:id`, `reviews`) остаются `ProtectedRoute` | frontend + backend | M | 1, 22, 31 |
 | 31 | KS-новый | Backend: seed-данные демо-репертуаров для `/opening-trainer` (§11.12). Несколько содержательных репертуаров от пользователя (примеры: Найдорф, Дебют ферзевых пешек, Английское начало). Формат: JSON-seed файлы в `apps/api/src/opening-trainer/seeds/demo-repertoires/*.json` (или эквивалентная таблица — выбор за backend). **Контент даёт пользователь, не chess-expert.** Backend задаёт только структуру и загрузчик | backend (контент — пользователь) | M | 30 |
 | 32 | KS-новый | Backend: seed-данные демо-партий для сайдбара `/workshop` (§11.14). Несколько классических партий с аннотациями от пользователя (примеры: Капабланка, Алехин, Карлсен). Формат: PGN-файлы + sidecar `meta.json` (title, white/black, event, date, tags) в `apps/api/src/workshop/seeds/demo-games/`. Эндпоинты: `GET /workshop/demo-games`, `GET /workshop/demo-games/featured` (детерминированная ротация дня/недели). **Контент даёт пользователь, не chess-expert** | backend (контент — пользователь) | M | 29 |
+| **СИСТЕМНЫЕ ПРАВКИ AUTH-КОНТРАКТА (KS-4129)** | | | | | |
+| 33 | KS-новый | Backend: массовое приведение GET-эндпоинтов к контракту §6.8 по чек-листу §6.8.2. Закрытые → `OptionalJwtGuard` для PR/PF, либо переезд на новый `*PublicController` (`OpeningTrainerPublic`, `WorkshopPublic`, `LessonsCoursesPublic`). Для каждой смешанной таблицы — снять class-`@UseGuards(JwtAuthGuard)` (см. P-GET.1), вешать method-level. Throttler/rate-limit на все open-GET (60 req/min). Единый DTO-маппер `toPublicDto(entity, viewer?)` (§6.8.3) для скрытия email/phone/oauthIds/privateNotes/payment/lastSeen на анонимных запросах. Проверить и уточнить тип для **knowledge**, **analysis-review**, **analyses/positional-trace**, **position-comment** (см. строки «проверить» в §6.8.2) | backend | L | этот ADR (§6.8 чек-лист) |
+| 34 | KS-новый | Frontend: переписать глобальный 401-перехватчик в `apps/web/src/api.ts` под контракт §6.9. Убрать автоматический редирект на `/login` для гостя; вместо этого: GET 401 для гостя → Sentry-лог + toast; write PR-401 для гостя → открыть `<LoginRequiredModal>` через `useRequireAuth`-механизм. Сохранить refresh-token flow для авторизованного с expired-JWT (текущее поведение) | frontend | M | 33, 22 |
 
 ---
 
@@ -1414,6 +1598,10 @@ ADR-128.
 WebSocket-handshake (live-партия, чат трансляции) — после логина
 форсируем `socket.io disconnect → reconnect` с новым JWT в handshake.
 KS-3 + KS-6.
+
+Глобальный 401-flow REST'а — закрыт §6.9 (KS-4129): перехватчик
+больше не редиректит гостя на `/login` автоматически, а открывает
+`<LoginRequiredModal>` для PR-write или логирует для PF/GET.
 
 ### 11.8. Policy top-N для players и archive (новый, KS-4121)
 
