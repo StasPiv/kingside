@@ -746,26 +746,25 @@ export function App() {
             </Suspense>
           }
         />
-        {/* KS-3511 (ADR-093 §4): /blind-board/stats и /history —
-            auth-only (JwtAuthGuard на backend). */}
+        {/* KS-3511 (ADR-093 §4): /blind-board/stats и /history.
+            KS-4159 / ADR-128 §5.13: открыты гостю — страницы сами
+            показывают guest-CTA (см. BlindBoardStatsPage,
+            BlindBoardHistoryPage), серверные `/me`-эндпоинты гость не
+            дёргает. */}
         <Route
           path="/blind-board/stats"
           element={
-            <ProtectedRoute>
-              <Suspense fallback={<LazyFallback />}>
-                <BlindBoardStatsPage />
-              </Suspense>
-            </ProtectedRoute>
+            <Suspense fallback={<LazyFallback />}>
+              <BlindBoardStatsPage />
+            </Suspense>
           }
         />
         <Route
           path="/blind-board/history"
           element={
-            <ProtectedRoute>
-              <Suspense fallback={<LazyFallback />}>
-                <BlindBoardHistoryPage />
-              </Suspense>
-            </ProtectedRoute>
+            <Suspense fallback={<LazyFallback />}>
+              <BlindBoardHistoryPage />
+            </Suspense>
           }
         />
         {/* KS-3517: review одной blind-board сессии. */}
