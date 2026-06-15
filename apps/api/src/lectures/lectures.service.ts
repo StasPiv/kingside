@@ -634,15 +634,32 @@ export class LecturesService {
             select: { id: true, slug: true, startingFen: true },
           },
           recording: { select: { startingFen: true } },
+          // KS-4197. Каталог `/lectures` агрегирует лекции разных
+          // тренеров — фронт-карточка обязана знать имя владельца.
+          // Берём минимум (id + username): `displayName/avatarUrl` в
+          // User-модели нет; приватные поля (email/phone/lastSeenAt)
+          // в выдачу не попадают (`toPublicDto` дочищает, см. контроллер).
+          owner: { select: { id: true, username: true } },
         },
       }),
       this.prisma.lecture.count({ where }),
     ]);
 
     return {
-      items: items.map((row) =>
-        this.withPreviewFen(this.withLiveAnalysisBinding(row), row),
-      ),
+      items: items.map((row) => {
+        const { owner, ...rest } = row;
+        // KS-4197. Переименовываем `owner → coach` на границе DTO —
+        // shared-контракт `PublicLecture` использует именно `coach`.
+        // `owner` теоретически не может быть null (Lecture.ownerId NOT NULL),
+        // но защищаемся для будущих системных лекций.
+        const coach = owner
+          ? { id: owner.id, username: owner.username ?? null }
+          : null;
+        return {
+          ...this.withPreviewFen(this.withLiveAnalysisBinding(rest), rest),
+          coach,
+        };
+      }),
       total,
       limit,
       offset,

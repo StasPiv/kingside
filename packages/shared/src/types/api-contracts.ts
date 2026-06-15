@@ -3598,6 +3598,19 @@ export const ALL_LECTURE_DISABLED_TOOLS: readonly LectureDisabledTool[] = [
 ] as const;
 
 /**
+ * KS-4197. Публичный профиль тренера лекции — минимальный набор,
+ * нужный карточке каталога `/lectures` (имя + аватар-плейсхолдер).
+ *
+ * `username` может быть `null`, если у User'а ещё не задано имя
+ * (`requiresUsernameSetup=true`) — фронт в этом случае показывает
+ * fallback (id-маска или «Без имени»).
+ */
+export interface PublicLectureCoach {
+  id: string;
+  username: string | null;
+}
+
+/**
  * Сводный вид лекции — то, что прилетает в списочных эндпоинтах
  * (`GET /coaches/:username/lectures`, `.../schedule`). DateTime'ы как
  * ISO-строки.
@@ -3671,6 +3684,30 @@ export interface LectureSummary {
    * раскрытии плитки.
    */
   viewerCount?: number;
+}
+
+/**
+ * KS-4188 / KS-4197. Элемент ответа `GET /lectures/public`. В отличие от
+ * `LectureSummary` (его отдают `/coaches/:username/lectures` и
+ * `/coaches/:username/schedule`, где имя тренера известно из URL) каталог
+ * `/lectures` агрегирует лекции разных тренеров — поэтому контракт обязан
+ * включать `coach` явно. Поле всегда присутствует: лекция в БД всегда
+ * имеет владельца (`Lecture.ownerId` NOT NULL). Тип допускает `null` как
+ * задел на будущее (например, системные лекции без owner).
+ */
+export interface PublicLecture extends LectureSummary {
+  coach: PublicLectureCoach | null;
+}
+
+/**
+ * KS-4188 / KS-4197. Ответ `GET /lectures/public`.
+ */
+export interface PublicLecturesResponse {
+  items: PublicLecture[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
 }
 
 /**

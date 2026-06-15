@@ -1114,6 +1114,7 @@ describe('LecturesService', () => {
           liveAnalysisId: 'la-1',
           liveAnalysis: { id: 'la-1', slug: 'SLUG000099', startingFen: 'fen' },
           recording: null,
+          owner: { id: 'owner', username: 'coach1' },
         },
       ]);
       prisma.lecture.count.mockResolvedValueOnce(1);
@@ -1125,6 +1126,49 @@ describe('LecturesService', () => {
       expect(r.items[0].liveAnalysis?.url).toContain('/live/SLUG000099');
       // previewFen для live из liveAnalysis.startingFen.
       expect((r.items[0] as { previewFen?: string }).previewFen).toBe('fen');
+    });
+
+    // KS-4197. Контракт `/lectures/public` обязан включать `coach`:
+    // фронт-карточка `PublicLectureCard` показывает имя тренера как
+    // основной маркер. Падение KS-4195 — фронт читал `coach.username`,
+    // а поле отсутствовало в ответе.
+    it('каждый элемент содержит coach { id, username } (KS-4197)', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([
+        {
+          id: 'lec-1',
+          status: 'scheduled',
+          ownerId: 'u-1',
+          liveAnalysisId: null,
+          liveAnalysis: null,
+          recording: null,
+          owner: { id: 'u-1', username: 'alice' },
+        },
+        {
+          id: 'lec-2',
+          status: 'recorded',
+          ownerId: 'u-2',
+          liveAnalysisId: null,
+          liveAnalysis: null,
+          recording: { startingFen: 'fen2' },
+          owner: { id: 'u-2', username: null },
+        },
+      ]);
+      prisma.lecture.count.mockResolvedValueOnce(2);
+      const r = await service.listPublic();
+      expect(r.items[0].coach).toEqual({ id: 'u-1', username: 'alice' });
+      // username=null допустим (User.requiresUsernameSetup): coach всё
+      // равно отдаём, фронт сам решит, как показать.
+      expect(r.items[1].coach).toEqual({ id: 'u-2', username: null });
+    });
+
+    it('include содержит owner { id, username } (KS-4197)', async () => {
+      prisma.lecture.findMany.mockResolvedValueOnce([]);
+      prisma.lecture.count.mockResolvedValueOnce(0);
+      await service.listPublic();
+      const findArgs = prisma.lecture.findMany.mock.calls[0][0];
+      expect(findArgs.include.owner).toEqual({
+        select: { id: true, username: true },
+      });
     });
   });
 
