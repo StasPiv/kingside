@@ -30,16 +30,29 @@ describe('LessonsController', () => {
     );
   });
 
-  it('GET /lessons/lessons/:id → lessonsService.getLessonWithSteps(id, userId)', async () => {
+  it('GET /lessons/lessons/:id → lessonsService.getLessonWithSteps(id, userId, undefined)', async () => {
     const payload = { lesson: {} as any, steps: [], progress: null };
     lessonsService.getLessonWithSteps.mockResolvedValue(payload as any);
     const res = await controller.getOne(req, '00000000-0000-0000-0000-000000000001');
+    // KS-4145: 3-й параметр — query `?locale=`; без него undefined.
     expect(lessonsService.getLessonWithSteps).toHaveBeenCalledWith(
       '00000000-0000-0000-0000-000000000001',
       'user-1',
+      undefined,
     );
     expect(res).toBe(payload);
     expect(userLessonsService.getWithSteps).not.toHaveBeenCalled();
+  });
+
+  it('GET /lessons/lessons/:id?locale=en → locale пробрасывается', async () => {
+    const payload = { lesson: {} as any, steps: [], progress: null };
+    lessonsService.getLessonWithSteps.mockResolvedValue(payload as any);
+    await controller.getOne(req, '00000000-0000-0000-0000-000000000001', 'en');
+    expect(lessonsService.getLessonWithSteps).toHaveBeenCalledWith(
+      '00000000-0000-0000-0000-000000000001',
+      'user-1',
+      'en',
+    );
   });
 
   // ─── KS-2646 / ADR-054 Phase D fix — fallback на пользовательский урок ─

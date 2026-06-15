@@ -59,6 +59,7 @@ export class CoursesController {
   list(
     @Request() req: AuthenticatedRequest,
     @Query() query: ListUserCoursesQueryDto,
+    @Query('locale') locale?: string,
   ) {
     if (query.mine !== undefined) {
       if (!req.user?.id) {
@@ -71,7 +72,8 @@ export class CoursesController {
         offset: query.offset,
       });
     }
-    return this.coursesService.listCourses(req.user?.id ?? null);
+    // KS-4145: query `?locale=` имеет приоритет над `User.locale`.
+    return this.coursesService.listCourses(req.user?.id ?? null, locale);
   }
 
   /**
@@ -101,10 +103,12 @@ export class CoursesController {
   async getBySlug(
     @Request() req: AuthenticatedRequest,
     @Param('slug') slug: string,
+    @Query('locale') locale?: string,
   ) {
     const userId = req.user?.id ?? null;
     try {
-      return await this.coursesService.getCourseBySlug(slug, userId);
+      // KS-4145: query locale побеждает User.locale.
+      return await this.coursesService.getCourseBySlug(slug, userId, locale);
     } catch (e) {
       if (!(e instanceof NotFoundException) || userId === null) {
         throw e;

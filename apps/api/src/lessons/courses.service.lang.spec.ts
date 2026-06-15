@@ -275,12 +275,30 @@ describe('CoursesService — KS-2095 lang filter', () => {
   // listCourses/getCourseBySlug. В тестах подменяем `userLocale` через
   // фабрику mock-prisma. Anonymous (userId=null) → 'ru' fallback.
 
-  it('listCourses() для anonymous → RU (fallback)', async () => {
+  it('listCourses() для anonymous → EN (default, KS-4145)', async () => {
     const prisma = makePrisma(setupTwoLangCourses());
     const svc = new CoursesService(prisma);
+    // KS-4145: default сменился с 'ru' на 'en'; для анонимного запроса
+    // без query-параметра возвращается EN-вариант.
     const res = await svc.listCourses(null);
     expect(res.data).toHaveLength(1);
+    expect(res.data[0].id).toBe(CHILD_ID);
+  });
+
+  it('listCourses(null, "ru") → query locale побеждает default EN', async () => {
+    const prisma = makePrisma(setupTwoLangCourses());
+    const svc = new CoursesService(prisma);
+    const res = await svc.listCourses(null, 'ru');
+    expect(res.data).toHaveLength(1);
     expect(res.data[0].id).toBe(ROOT_ID);
+  });
+
+  it('listCourses("u1", "en") с User.locale=ru → query EN побеждает', async () => {
+    const prisma = makePrisma({ ...setupTwoLangCourses(), userLocale: 'ru' });
+    const svc = new CoursesService(prisma);
+    const res = await svc.listCourses('u1', 'en');
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].id).toBe(CHILD_ID);
   });
 
   it('listCourses() для пользователя с locale=en → только EN-курс', async () => {
@@ -299,12 +317,13 @@ describe('CoursesService — KS-2095 lang filter', () => {
     expect(res.data[0].id).toBe(ROOT_ID);
   });
 
-  it('listCourses() с locale="fr" в профиле → fallback на RU (whitelist)', async () => {
+  it('listCourses() с locale="fr" в профиле → fallback на EN (default)', async () => {
     const prisma = makePrisma({ ...setupTwoLangCourses(), userLocale: 'fr' });
     const svc = new CoursesService(prisma);
+    // KS-4145: невалидный User.locale ('fr') откатывается на default 'en'.
     const res = await svc.listCourses('u1');
     expect(res.data).toHaveLength(1);
-    expect(res.data[0].id).toBe(ROOT_ID);
+    expect(res.data[0].id).toBe(CHILD_ID);
   });
 
   it('getCourseBySlug → 404 если на языке профиля курса нет', async () => {

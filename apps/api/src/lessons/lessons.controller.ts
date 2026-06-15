@@ -4,6 +4,7 @@ import {
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -51,10 +52,13 @@ export class LessonsController {
   async getOne(
     @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
+    @Query('locale') locale?: string,
   ) {
     const userId = req.user?.id ?? null;
     try {
-      return await this.lessonsService.getLessonWithSteps(id, userId);
+      // KS-4145: query locale побеждает User.locale, lessons.service
+      // подменяет lesson на sibling-перевод при необходимости.
+      return await this.lessonsService.getLessonWithSteps(id, userId, locale);
     } catch (e) {
       if (!(e instanceof NotFoundException) || userId === null) {
         throw e;

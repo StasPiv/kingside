@@ -34,8 +34,11 @@ export class CoursesService {
    * Прогресс хранится по `parentCourseId` (root) — переключение языка
    * не сбрасывает прогресс пользователя.
    */
-  async listCourses(userId: string | null): Promise<CourseListResponse> {
-    const lang = await this.resolveUserLocale(userId);
+  async listCourses(
+    userId: string | null,
+    queryLocale?: string | null,
+  ): Promise<CourseListResponse> {
+    const lang = await this.resolveUserLocale(userId, queryLocale);
     const courses = await this.prisma.course.findMany({
       where: { isPublished: true, lang },
       orderBy: [{ level: 'asc' }, { order: 'asc' }],
@@ -210,8 +213,9 @@ export class CoursesService {
   async getCourseBySlug(
     slug: string,
     userId: string | null,
+    queryLocale?: string | null,
   ): Promise<CourseWithLessonsResponse> {
-    const lang = await this.resolveUserLocale(userId);
+    const lang = await this.resolveUserLocale(userId, queryLocale);
     // KS-2639 / ADR-054 §3.1 п.5. После Phase A уникальность `(slug, lang)`
     // обеспечена partial-unique индексом `WHERE owner_id IS NULL` —
     // compound `slug_lang` в Prisma-типе больше нет. Через `findFirst`
@@ -450,19 +454,40 @@ export class CoursesService {
   }
 
   /**
-   * KS-2101: язык курсов берётся из настроек профиля (`User.locale`,
-   * меняется через `PATCH /users/me/settings`). Whitelist 'ru' | 'en';
-   * любое другое значение → 'ru' (защита, чтобы случайно не показать
-   * пустой список курсов из-за чужого locale). Anonymous (userId=null)
-   * → 'ru'.
+   * KS-4145: приоритет источника locale —
+   *   1. query `?locale=` (если валидное значение),
+   *   2. `User.locale` (если userId задан),
+   *   3. default `'en'`.
+   *
+   * Whitelist 'ru' | 'en'; любое другое значение откатывается на
+   * следующий уровень приоритета (защита, чтобы случайно не показать
+   * пустой список курсов из-за чужого locale). До KS-4145 default'ом
+   * был 'ru' и query-параметр игнорировался (KS-2101); фронт KS-4143
+   * теперь шлёт locale на каждом запросе включая гостя — поэтому
+   * учитываем его явно.
    */
-  private async resolveUserLocale(userId: string | null): Promise<'ru' | 'en'> {
-    if (!userId) return 'ru';
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { locale: true },
-    });
-    const raw = user?.locale ?? 'ru';
-    return raw === 'en' ? 'en' : 'ru';
+  private async resolveUserLocale(
+    userId: string | null,
+    queryLocale?: string | null,
+  ): Promise<'ru' | 'en'> {
+    const fromQuery = normalizeLocale(queryLocale);
+    if (fromQuery) return fromQuery;
+    if (userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { locale: true },
+      });
+      const fromUser = normalizeLocale(user?.locale);
+      if (fromUser) return fromUser;
+    }
+    return 'en';
   }
+}
+
+function normalizeLocale(raw?: string | null): 'ru' | 'en' | null {
+  if (!raw) return null;
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === 'ru') return 'ru';
+  if (trimmed === 'en') return 'en';
+  return null;
 }
