@@ -744,14 +744,25 @@ function ArchiveMetadataMode() {
   }, []);
 
   // KS-2210: дебаунс 1 сек → PUT на сервер.
-  // Не проверяем auth-состояние: polling-запросы (/games/active,
-  // /messages/unread-count) могут давать 401 и временно сбрасывать user → null,
-  // хотя пользователь реально залогинен (WebSocket JWT активен).
-  // При любой ошибке PUT (401/403/сеть) — сохраняем в localStorage как fallback.
+  // Не проверяем auth-состояние через user из контекста: polling-запросы
+  // (/games/active, /messages/unread-count) могут давать 401 и временно
+  // сбрасывать user → null, хотя пользователь реально залогинен
+  // (WebSocket JWT активен). Поэтому опираемся на наличие токена в
+  // localStorage — он стабильнее context-state.
+  //
+  // KS-4136. Если токена нет — это настоящий гость, PUT
+  // /user/preferences/archive-filters даст 401 и (по ADR-128 §6.9
+  // write PV-ветке) откроет LoginRequiredModal поверх страницы. Для
+  // фонового автосохранения фильтров модалка лишняя — гостю фильтры
+  // храним только в localStorage.
   const scheduleSaveFilters = useCallback(
     (values: ArchiveMetadataFilterValues) => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
+        if (!localStorage.getItem('token')) {
+          saveFiltersToStorage(values);
+          return;
+        }
         archivePreferencesApi
           .putFilters(filtersToApiPayload(values))
           .catch(() => {
@@ -806,6 +817,19 @@ function ArchiveMetadataMode() {
     };
 
     let cancelled = false;
+    // KS-4136. Гостю (нет токена) GET /user/preferences/archive-filters
+    // даст 401 — раньше перехватчик показывал toast «Could not load».
+    // PV-эндпоинт в принципе бессмыслен без сессии, поэтому не зовём
+    // его вовсе и сразу идём в localStorage fallback. Авторизованному
+    // — путь как был. Опираемся на токен, не на user-state, чтобы не
+    // ловить временный context-null от 401-polling'а смежных запросов.
+    if (!localStorage.getItem('token')) {
+      const stored = readFiltersFromStorage();
+      if (stored) applyPartial(stored);
+      return () => {
+        cancelled = true;
+      };
+    }
     archivePreferencesApi
       .getFilters()
       .then((res) => {

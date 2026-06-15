@@ -92,10 +92,15 @@ const WRITE_PF_PATTERNS: readonly RegExp[] = [
  * актуальным private-маршрутам frontend'а; новые PV-эндпоинты
  * сводятся к одному из паттернов ниже.
  *
- * Не используется напрямую (на текущем этапе любая POST вне
- * WRITE_PF_PATTERNS трактуется как «нужен логин» → модалка), но
- * оставлен в коде как явный реестр для будущего различения
- * UI-формулировок PR vs PV.
+ * Используется в handler'е:
+ *   - GET PV у гостя → SILENT (ни toast, ни модалка). Страница
+ *     должна работать без этих данных (использовать localStorage
+ *     fallback / показывать guest-state).
+ *   - POST/PUT/PATCH/DELETE PV у гостя → модалка (UI-инициированная
+ *     запись личного действия требует логина).
+ *
+ * Также служит явным реестром для будущего различения UI-формулировок
+ * PR vs PV в описании модалки.
  */
 export const PV_PATTERNS: readonly RegExp[] = [
   /^\/messages(\/|$)/,
@@ -105,6 +110,20 @@ export const PV_PATTERNS: readonly RegExp[] = [
   /^\/admin(\/|$)/,
   /^\/my\//,
   /^\/users\/blocked(\/|$)/,
+  // KS-4131 follow-up: extra PV-паттерны по баг-репорту координатора.
+  // Личные настройки/предпочтения/уведомления/saved-filters/«мои X»:
+  // 401 для гостя у них — нормальное состояние, гостю не нужны.
+  /^\/user\/preferences(\/|$)/,
+  /^\/user\/saved-filters(\/|$)/,
+  /^\/user\/time-controls(\/|$)/,
+  /^\/user\/nav-stats\/me(\/|$)/,
+  /^\/notifications(\/|$)/,
+  /^\/lessons\/my(\/|$)/,
+  /^\/lectures\/my(\/|$)/,
+  /^\/precision\/me(\/|$)/,
+  /^\/guess\/me(\/|$)/,
+  /^\/blind-board\/me(\/|$)/,
+  /^\/opening-trainer\/me(\/|$)/,
 ];
 
 function isWriteMethod(method: string): boolean {
@@ -119,6 +138,11 @@ function isWriteMethod(method: string): boolean {
 function isWritePfPath(path: string): boolean {
   const clean = path.split('?')[0];
   return WRITE_PF_PATTERNS.some((re) => re.test(clean));
+}
+
+function isPvPath(path: string): boolean {
+  const clean = path.split('?')[0];
+  return PV_PATTERNS.some((re) => re.test(clean));
 }
 
 const TOAST_AUTO_DISMISS_MS = 5000;
@@ -216,8 +240,14 @@ export function RequireAuthProvider({ children }: { children: ReactNode }) {
       if (modalRef.current) return;
       const write = isWriteMethod(detail.method);
       if (!write) {
-        // Read (GET/HEAD) — для гостя backend ещё не открыл этот
-        // endpoint или он PV. UI не должен ломаться, страница уже
+        // KS-4131 follow-up. GET PV у гостя — нормальное состояние
+        // (личные настройки / предпочтения / saved-filters / «мои X»),
+        // страница работает через localStorage fallback или просто
+        // не показывает personal-state. Никакого UI: ни toast, ни
+        // модалка. Лог выше остаётся для расследования.
+        if (isPvPath(detail.path)) return;
+        // Read (GET/HEAD) на PF/PR — для гостя backend ещё не открыл
+        // этот endpoint. UI не должен ломаться, страница уже
         // отрисована (или отрисуется без данных). Показываем toast.
         showToast(
           t(
