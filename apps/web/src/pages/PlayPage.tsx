@@ -4,7 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { useRequireAuth } from '../context/RequireAuthContext';
 import { api } from '../api';
-import { useTimeControl, CATEGORIES, presetKey } from '../hooks/useTimeControl';
+import {
+  useTimeControl,
+  CATEGORIES,
+  PRESETS,
+  presetKey,
+} from '../hooks/useTimeControl';
 import { useMatchmaking } from '../hooks/useMatchmaking';
 import { useBotGame } from '../hooks/useBotGame';
 import { useChallenge } from '../hooks/useChallenge';
@@ -60,8 +65,39 @@ export function PlayPage() {
   const {
     botLevel, setBotLevel, botColor, setBotColor,
     botTC, setBotTC, startingBot, showBotTCModal, setShowBotTCModal,
+    localBotTC, setLocalBotTC,
     handlePlayBot, botError, setBotError,
   } = bot;
+
+  // KS-4153: пресеты контроля времени для локальной партии с ботом.
+  // Минимальный набор по описанию задачи: Bullet 1+0/1+1/2+1,
+  // Blitz 3+0/3+2/5+0/5+3, Rapid 10+0/15+10, Classical 30+0.
+  // Источник — общий PRESETS, отфильтрован под заявленный набор.
+  const LOCAL_BOT_PRESETS = PRESETS.filter(({ minutes, increment }) => {
+    const k = `${minutes}+${increment}`;
+    return [
+      '1+0', '1+1', '2+1',
+      '3+0', '3+2', '5+0', '5+3',
+      '10+0', '15+10',
+      '30+0',
+    ].includes(k);
+  });
+  type LocalBotTab = TimeControlCategory | 'noClock';
+  const [localBotTab, setLocalBotTab] = useState<LocalBotTab>(() => {
+    if (localBotTC.noClock) return 'noClock';
+    const found = PRESETS.find(
+      (p) => p.minutes === localBotTC.minutes && p.increment === localBotTC.increment,
+    );
+    return found?.category ?? 'rapid';
+  });
+  const localBotFiltered =
+    localBotTab === 'noClock'
+      ? []
+      : LOCAL_BOT_PRESETS.filter((p) => p.category === localBotTab);
+  const isLocalBotPresetActive = (m: number, i: number) =>
+    !localBotTC.noClock &&
+    localBotTC.minutes === m &&
+    localBotTC.increment === i;
 
   // Load online friends
   const fetchFriends = useCallback(async () => {
@@ -320,6 +356,72 @@ export function PlayPage() {
                   })}
                 </div>
               </div>
+              {/* KS-4153: выбор контроля времени для локальной партии
+                  с ботом. Только для гостя — авторизованный идёт через
+                  серверную модалку с категориями. */}
+              {!user && (
+                <div className="bot-option bot-option--tc">
+                  <label>{t('lobby.timeControl', 'Time control')}</label>
+                  <div className="play-tc-tabs">
+                    {CATEGORIES.map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        className={`tc-tab ${localBotTab === cat ? 'active' : ''}`}
+                        onClick={() => setLocalBotTab(cat)}
+                      >
+                        {t(`lobby.categories.${cat}`)}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className={`tc-tab ${localBotTab === 'noClock' ? 'active' : ''}`}
+                      onClick={() => {
+                        setLocalBotTab('noClock');
+                        setLocalBotTC({ minutes: 0, increment: 0, noClock: true });
+                      }}
+                      data-testid="local-bot-tc-noclock"
+                    >
+                      {t('lobby.noClock', 'No clock')}
+                    </button>
+                  </div>
+                  {localBotTab !== 'noClock' && (
+                    <div className="play-tc-grid">
+                      {localBotFiltered.map((p) => {
+                        const key = presetKey(p.minutes, p.increment);
+                        const label =
+                          p.increment > 0
+                            ? `${p.minutes}+${p.increment}`
+                            : `${p.minutes} min`;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            className={`play-tc-btn ${isLocalBotPresetActive(p.minutes, p.increment) ? 'active' : ''}`}
+                            onClick={() =>
+                              setLocalBotTC({
+                                minutes: p.minutes,
+                                increment: p.increment,
+                                noClock: false,
+                              })
+                            }
+                            data-testid={`local-bot-tc-${key}`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="play-selected-tc" data-testid="local-bot-tc-selected">
+                    {localBotTC.noClock
+                      ? t('lobby.noClock', 'No clock')
+                      : localBotTC.increment > 0
+                        ? `${localBotTC.minutes} + ${localBotTC.increment}`
+                        : `${localBotTC.minutes} min`}
+                  </div>
+                </div>
+              )}
               <button
                 className="play-btn"
                 onClick={() => {
@@ -327,8 +429,20 @@ export function PlayPage() {
                   // (Stockfish WASM, без сервера и WebSocket'а).
                   // Авторизованный — серверная партия через TC-модалку.
                   if (!user) {
+                    // KS-4153: пробрасываем выбранный контроль времени
+                    // в источник данных партии через state.tc.
                     navigate('/play/local-bot', {
-                      state: { level: botLevel, color: botColor },
+                      state: {
+                        level: botLevel,
+                        color: botColor,
+                        tc: {
+                          initialSec: localBotTC.noClock
+                            ? 0
+                            : Math.round(localBotTC.minutes * 60),
+                          incrementSec: localBotTC.increment,
+                          noClock: localBotTC.noClock,
+                        },
+                      },
                     });
                     return;
                   }

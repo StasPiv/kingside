@@ -94,6 +94,7 @@ export function LocalBotGamePage() {
       onCloseResultModal={() => setShowResultModal(false)}
       backLink={{ to: '/play', label: t('game.backToLobby', 'Back to lobby') }}
       forceStandardPieces={forceStandardPieces}
+      hideClocks={game.noClock}
       belowBoardBlock={
         // KS-4151: блок отрисовывается ВСЕГДА с фиксированной высотой.
         // Раньше div появлялся/исчезал при botThinking → менялось число

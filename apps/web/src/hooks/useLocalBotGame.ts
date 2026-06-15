@@ -33,6 +33,11 @@ export type LocalBotTimeControl = {
   initialSec?: number;
   /** Прибавка за ход в секундах. По умолчанию 0. */
   incrementSec?: number;
+  /**
+   * KS-4153: режим «Без часов». Таймер не запускается, технического
+   * поражения по времени не бывает, доска показывает прочерк.
+   */
+  noClock?: boolean;
 };
 
 export interface UseLocalBotGameOptions {
@@ -65,6 +70,8 @@ export interface LocalBotGameState {
   botThinking: boolean;
   /** Ошибка инициализации Stockfish, если есть. */
   botError: string | null;
+  /** KS-4153: партия без часов — UI должен скрыть таймер или показать прочерк. */
+  noClock: boolean;
   /** Применить ход игрока. Возвращает true, если ход легален. */
   onMove: (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') => boolean;
   /** Сдаться: засчитать поражение, статус → finished. */
@@ -94,8 +101,11 @@ export function useLocalBotGame(
     timeControl,
   } = options;
 
-  const initialSec = Math.max(10, timeControl?.initialSec ?? 600);
-  const incrementSec = Math.max(0, timeControl?.incrementSec ?? 0);
+  const noClock = !!timeControl?.noClock;
+  const initialSec = noClock
+    ? 0
+    : Math.max(10, timeControl?.initialSec ?? 600);
+  const incrementSec = noClock ? 0 : Math.max(0, timeControl?.incrementSec ?? 0);
 
   const [playerColor] = useState<GameColor>(() => resolveColor(color));
   const [botLevel] = useState<number>(() => clampLevel(level));
@@ -153,7 +163,9 @@ export function useLocalBotGame(
   );
 
   // Часы: уменьшаем счётчик активного цвета каждые 250 мс.
+  // KS-4153: в режиме «Без часов» таймер не запускается вообще.
   useEffect(() => {
+    if (noClock) return;
     if (status !== 'active') return;
     const turn: GameColor = chess.turn() === 'w' ? 'white' : 'black';
     const id = setInterval(() => {
@@ -163,16 +175,18 @@ export function useLocalBotGame(
       });
     }, 250);
     return () => clearInterval(id);
-  }, [status, fen, chess]);
+  }, [status, fen, chess, noClock]);
 
   // Если у кого-то ноль на часах — техническое поражение по времени.
+  // KS-4153: в режиме «Без часов» проверка отключена.
   useEffect(() => {
+    if (noClock) return;
     if (status !== 'active') return;
     if (clocks.white > 0 && clocks.black > 0) return;
     const loser: GameColor = clocks.white <= 0 ? 'white' : 'black';
     setStatus('finished');
     setResult(loser === 'white' ? 'black' : 'white');
-  }, [clocks.white, clocks.black, status]);
+  }, [clocks.white, clocks.black, status, noClock]);
 
   // Ход бота — когда сейчас ход не наш и партия идёт.
   useEffect(() => {
@@ -287,6 +301,7 @@ export function useLocalBotGame(
     lastMove,
     botThinking,
     botError,
+    noClock,
     onMove,
     onResign,
     onNewGame,

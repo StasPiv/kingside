@@ -140,6 +140,11 @@ export interface GameShellProps {
    * проекта (chessnut) не перебивал ожидание «классический стаунтон».
    */
   forceStandardPieces?: boolean;
+  /**
+   * KS-4153: партия без часов. Блок часов остаётся в разметке (чтобы
+   * не дёргать layout), но вместо времени показывается прочерк «—».
+   */
+  hideClocks?: boolean;
 }
 
 function formatTime(seconds: number): string {
@@ -205,6 +210,7 @@ export function GameShell(props: GameShellProps) {
     showHelpButton = false,
     belowBoardBlock,
     forceStandardPieces = false,
+    hideClocks = false,
   } = props;
 
   const { t } = useTranslation();
@@ -616,7 +622,9 @@ export function GameShell(props: GameShellProps) {
               <span className="bot-level"> (Lv. {botLevel})</span>
             )}
           </span>
-          <span className="clock">{formatTime(clocks[opponentColor])}</span>
+          <span className="clock">
+            {hideClocks ? '—' : formatTime(clocks[opponentColor])}
+          </span>
         </div>
 
         <div
@@ -641,7 +649,9 @@ export function GameShell(props: GameShellProps) {
             {selfBerserk && <span title="Berserk">⚡</span>}
             {players[playerColor] || playerColor}
           </span>
-          <span className="clock">{formatTime(clocks[playerColor])}</span>
+          <span className="clock">
+            {hideClocks ? '—' : formatTime(clocks[playerColor])}
+          </span>
         </div>
 
         {belowBoardBlock}
