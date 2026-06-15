@@ -562,6 +562,7 @@ export function CoachProfilePage() {
     bestType: seoBest.type,
     lecturesCount: seoLecturesCount,
   });
+  const seoCanonical = `https://kingside.site/coach/${encodeURIComponent(profile.username)}`;
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'Person',
@@ -570,6 +571,16 @@ export function CoachProfilePage() {
     description: seoDescription,
     jobTitle: 'Chess Coach',
     nationality: profile.country ?? undefined,
+    url: seoCanonical,
+    // KS-4216 / ADR-128 §7.6.1.2 C1. Тренер — провайдер курса
+    // (Schema.org Course/Person связь). Кладём как `worksFor`
+    // самоссылочно — у нас нет отдельной Organization-сущности,
+    // но Google любит явное указание профессии + платформы.
+    worksFor: {
+      '@type': 'Organization',
+      name: 'Kingside',
+      url: 'https://kingside.site',
+    },
   };
 
   return (
@@ -577,6 +588,7 @@ export function CoachProfilePage() {
       <SeoHelmet
         title={seoTitle}
         description={seoDescription}
+        canonical={seoCanonical}
         ogType="profile"
         ogImage="/og/coach.png"
         jsonLd={seoJsonLd}
