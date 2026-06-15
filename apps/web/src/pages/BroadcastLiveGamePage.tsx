@@ -18,6 +18,7 @@ import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 // `[Termination "Unplayed"]` PGN'ов из lichess.
 import { ForfeitPlaceholder } from '../components/ForfeitPlaceholder';
 import { isForfeitGame } from '../utils/forfeitTermination';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 /**
  * KS-2448: live-режим просмотра партии трансляции.
@@ -359,8 +360,65 @@ export function BroadcastLiveGamePage() {
 
   const result = game.result && game.result !== '*' ? game.result : null;
 
+  // KS-4213 / ADR-128 §7.6.1.2 B4. SEO для live-режима партии.
+  // Canonical намеренно БЕЗ `/live` — это runtime-режим, а индексной
+  // версией остаётся `/broadcasts/:tid/:rid/:gid`. Иначе у одной
+  // партии получаются два URL'а с одинаковым содержанием — дубль в
+  // глазах Google. `ogType=article`, JSON-LD type=Article с
+  // `author=[white, black]`, `articleBody=pgn`, `isPartOf={round}`.
+  const seoWhite = game.whitePlayer ?? '';
+  const seoBlack = game.blackPlayer ?? '';
+  const seoTournamentTitle = broadcast.title;
+  const seoRoundName = round?.name ?? '';
+  const seoTitle = result
+    ? t('seo.broadcasts.game.title', {
+        white: seoWhite,
+        black: seoBlack,
+        result,
+      })
+    : t('seo.broadcasts.game.titleNoResult', {
+        white: seoWhite,
+        black: seoBlack,
+        tournament: seoTournamentTitle,
+      });
+  // KS-4213: для live-партии `whiteElo`/`blackElo`/`opening` в payload
+  // могут отсутствовать — используем `descriptionNoElo`, чтобы не
+  // вставлять пустые числа в meta.
+  const seoDescription = t('seo.broadcasts.game.descriptionNoElo', {
+    white: seoWhite,
+    black: seoBlack,
+    tournament: seoTournamentTitle,
+    round: seoRoundName,
+    opening: '',
+  });
+  const seoCanonical = `https://kingside.site/broadcasts/${tournamentId}/${roundId}/${gameId}`;
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: `${seoWhite} vs ${seoBlack}`,
+    description: seoDescription,
+    author: [
+      { '@type': 'Person', name: seoWhite },
+      { '@type': 'Person', name: seoBlack },
+    ],
+    ...(game.pgn && { articleBody: game.pgn }),
+    isPartOf: {
+      '@type': 'SportsEvent',
+      name: `${seoTournamentTitle} — ${seoRoundName}`.trim(),
+      url: `https://kingside.site/broadcasts/${tournamentId}/${roundId}`,
+    },
+  };
+
   return (
     <div className="broadcast-live-game-page">
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        canonical={seoCanonical}
+        ogType="article"
+        ogImage="/og/broadcast.png"
+        jsonLd={seoJsonLd}
+      />
       <nav className="broadcast-breadcrumbs">
         <Link to="/broadcasts">{t('broadcasts.title')}</Link>
         <span className="broadcast-breadcrumb-sep">/</span>

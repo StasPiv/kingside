@@ -472,14 +472,19 @@ export function BroadcastRoundPage() {
         tournament: broadcast.title,
         round: seoRoundName,
       });
+  const seoCanonical = `https://kingside.site/broadcasts/${tournamentId}/${roundId}`;
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'SportsEvent',
     name: `${broadcast.title} — ${seoRoundName}`,
     description: seoDescription,
+    url: seoCanonical,
+    // KS-4213 / ADR-128 §7.6.1.2 B3: раунд — часть турнира; URL
+    // турнира кладём явно, чтобы боты могли подняться по иерархии.
     superEvent: {
       '@type': 'SportsEvent',
       name: broadcast.title,
+      url: `https://kingside.site/broadcasts/${tournamentId}`,
     },
   };
 
@@ -488,6 +493,7 @@ export function BroadcastRoundPage() {
       <SeoHelmet
         title={seoTitle}
         description={seoDescription}
+        canonical={seoCanonical}
         ogType="event"
         ogImage="/og/broadcast.png"
         jsonLd={seoJsonLd}

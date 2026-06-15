@@ -91,6 +91,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
         title: broadcast.title,
         roundCount: rounds.length,
       });
+  const seoCanonical = `https://kingside.site/broadcasts/${tournamentId}`;
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'SportsEvent',
@@ -99,6 +100,19 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
     startDate: broadcast.startDate ?? undefined,
     endDate: broadcast.endDate ?? undefined,
     image: broadcast.imageUrl ?? undefined,
+    url: seoCanonical,
+    // KS-4213 / ADR-128 §7.6.1.2 B2: подсобытия — раунды турнира.
+    // Schema.org допускает массив SportsEvent в subEvent; имени
+    // достаточно (URL раунда подставится через `superEvent.url` в
+    // KS-4213 B3, см. BroadcastRoundPage).
+    ...(rounds.length > 0 && {
+      subEvent: rounds.map((r) => ({
+        '@type': 'SportsEvent',
+        name: r.name,
+        url: `${seoCanonical}/${r.id}`,
+        ...(r.startsAt && { startDate: r.startsAt }),
+      })),
+    }),
   };
 
   const playerNames = broadcast.players?.split(', ') ?? [];
@@ -108,6 +122,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
       <SeoHelmet
         title={seoTitle}
         description={seoDescription}
+        canonical={seoCanonical}
         ogType="event"
         ogImage={broadcast.imageUrl ?? '/og/broadcast.png'}
         jsonLd={seoJsonLd}

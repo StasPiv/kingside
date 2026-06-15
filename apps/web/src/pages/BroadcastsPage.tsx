@@ -185,8 +185,28 @@ export function BroadcastsPage() {
       <SeoHelmet
         title={t('seo.broadcasts.list.title')}
         description={t('seo.broadcasts.list.description')}
+        canonical="https://kingside.site/broadcasts"
         ogType="website"
         ogImage="/og/broadcast.png"
+        jsonLd={{
+          // KS-4213 / ADR-128 §7.6.1.2 B1: CollectionPage с ItemList
+          // live-секции. Используем именно live broadcasts (featured —
+          // их подмножество) как самый ценный для индексации список.
+          '@context': 'https://schema.org',
+          '@type': 'CollectionPage',
+          name: t('seo.broadcasts.list.title'),
+          description: t('seo.broadcasts.list.description'),
+          mainEntity: {
+            '@type': 'ItemList',
+            numberOfItems: live.length,
+            itemListElement: live.slice(0, 20).map((b, idx) => ({
+              '@type': 'ListItem',
+              position: idx + 1,
+              url: `https://kingside.site/broadcasts/${b.id}`,
+              name: b.title,
+            })),
+          },
+        }}
       />
       <h1>{t('broadcasts.title')}<HelpButton section="broadcasts" /></h1>
 
