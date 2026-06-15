@@ -11,7 +11,7 @@
 # Зафиксирована версия playwright — должна совпадать с зависимостью
 # в package.json. При апгрейде менять оба места и пересобирать.
 
-ARG PLAYWRIGHT_VERSION=v1.47.0-jammy
+ARG PLAYWRIGHT_VERSION=v1.60.0-jammy
 FROM mcr.microsoft.com/playwright:${PLAYWRIGHT_VERSION} AS base
 WORKDIR /app
 
