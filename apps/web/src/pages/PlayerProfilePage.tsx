@@ -11,6 +11,7 @@ import { DrillStatsPanel } from '../components/drills';
 // KS-3738 (ADR-110 §8): секция «Мои live-трансляции» на собственном профиле.
 import { useFeatureFlag } from '../context/FeatureFlagsContext';
 import type { PlayerProfileResponse } from '@kingside/shared';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 /**
  * KS-2169 (F3): расширение `PlayerProfileResponse` опциональными полями,
@@ -219,8 +220,47 @@ export function PlayerProfilePage() {
   const { stats } = profile;
   const winRate = stats.totalGames > 0 ? Math.round((stats.wins / stats.totalGames) * 100) : 0;
 
+  // KS-4185 / ADR-128 §7.6.1.2 P2. Profile-level SEO. `bestType`/
+  // `bestRating` — максимум по 4 контролям (puzzle не считаем как
+  // «лучший шахматный контроль»). JSON-LD type=Person.
+  const ratingPairs: { type: string; rating: number }[] = [
+    { type: 'bullet', rating: profile.ratingBullet },
+    { type: 'blitz', rating: profile.ratingBlitz },
+    { type: 'rapid', rating: profile.ratingRapid },
+    { type: 'classical', rating: profile.ratingClassical },
+  ];
+  const best = ratingPairs.reduce((a, b) => (b.rating > a.rating ? b : a));
+  const seoTitle = t('seo.players.profile.title', {
+    username: profile.username,
+    bestRating: best.rating,
+    bestType: best.type,
+  });
+  const seoDescription = t('seo.players.profile.description', {
+    username: profile.username,
+    bullet: profile.ratingBullet,
+    blitz: profile.ratingBlitz,
+    rapid: profile.ratingRapid,
+    classical: profile.ratingClassical,
+    totalGames: stats.totalGames,
+  });
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Person',
+    name: profile.username,
+    alternateName: profile.username,
+    description: seoDescription,
+    nationality: profile.country ?? undefined,
+  };
+
   return (
     <div className="player-profile-page">
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        ogType="profile"
+        ogImage="/og/player.png"
+        jsonLd={seoJsonLd}
+      />
       <Link to="/players" className="player-profile-back">{t('playerProfile.backToPlayers')}</Link>
 
       {/* Header */}

@@ -13,6 +13,7 @@ import type {
 } from '@kingside/shared';
 
 import { PlayersAuthorsTab } from './PlayersAuthorsTab';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 type Tab = 'top' | 'online' | 'search' | 'authors';
 
@@ -191,8 +192,23 @@ export function PlayersPage() {
     return () => clearTimeout(timeout);
   }, [tab, searchQuery]);
 
+  // KS-4185 / ADR-128 §7.6.1.2 P1. Список игроков — фиксированные
+  // title/description, JSON-LD CollectionPage.
+  const seoJsonLd: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: t('seo.players.list.title'),
+    description: t('seo.players.list.description'),
+  };
   return (
     <div className="players-page">
+      <SeoHelmet
+        title={t('seo.players.list.title')}
+        description={t('seo.players.list.description')}
+        ogType="website"
+        ogImage="/og/player.png"
+        jsonLd={seoJsonLd}
+      />
       <h1>{t('players.title')}</h1>
 
       <div className="players-tabs">
