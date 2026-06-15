@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 // Логично держать её рядом с результатом — generated пазлы попадают
 // именно в `/precision`.
 import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
+import { PageSeo } from '../components/seo/PageSeo';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import {
   useInfinitePuzzles,
@@ -612,6 +613,7 @@ export function PrecisionPage() {
       data-mine={mineParam ? 'true' : 'false'}
       data-visibility={visibility ?? 'all'}
     >
+      <PageSeo ns="precision.list" path="/precision" />
       {/* KS-2746 / ADR-057 §3: SubNav сверху для всех 3 precision-страниц.
           Активный пункт «Тренировка» вычисляется внутри SubNav по
           useLocation. */}

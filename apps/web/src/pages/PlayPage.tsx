@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { useRequireAuth } from '../context/RequireAuthContext';
 import { api } from '../api';
+import { PageSeo } from '../components/seo/PageSeo';
 import {
   useTimeControl,
   CATEGORIES,
@@ -121,6 +122,7 @@ export function PlayPage() {
 
   return (
     <div className="play-page">
+      <PageSeo ns="play" path="/play" />
       <h1 className="play-page__title">{t('play.title', 'Play')}</h1>
 
       <div className="play-page__grid">

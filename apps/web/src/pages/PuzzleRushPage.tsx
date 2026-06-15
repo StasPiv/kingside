@@ -6,6 +6,7 @@ import type { Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { ApiError } from '../ApiError';
 import { PuzzleBoard } from '../components/PuzzleBoard';
+import { PageSeo } from '../components/seo/PageSeo';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useAuth } from '../context/AuthContext';
 
@@ -493,6 +494,7 @@ export function PuzzleRushPage() {
         className="puzzle-rush-page"
         data-auth={isGuest ? 'guest' : 'user'}
       >
+        <PageSeo ns="puzzleRush" path="/puzzle-rush" />
         <h1>{t('puzzle.rush.title')}</h1>
         <p className="puzzle-rush-description">
           {t('puzzleRush.description')}

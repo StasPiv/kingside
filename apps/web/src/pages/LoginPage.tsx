@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import { PageSeo } from '../components/seo/PageSeo';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 import {
   consumeAuthReturnUrl,
@@ -119,6 +120,7 @@ export function LoginPage() {
 
   return (
     <div className="auth-page">
+      <PageSeo ns="login" path="/login" />
       <div className="auth-form">
         <h1>{t('auth.login.title')}</h1>
         {error && <div className="error">{error}</div>}

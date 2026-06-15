@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { BlindBoardSubNav } from '../components/blindBoard/BlindBoardSubNav';
 import { BlindBoardHistoryList } from '../components/blindBoard/BlindBoardHistoryList';
+import { PageSeo } from '../components/seo/PageSeo';
 
 /**
  * KS-3511 (ADR-093 §4.4) — `/blind-board/history`. Список finished-
@@ -19,6 +20,7 @@ export function BlindBoardHistoryPage() {
       data-testid="blind-board-history-page"
       data-auth={isGuest ? 'guest' : 'user'}
     >
+      <PageSeo ns="blindBoard.history" path="/blind-board/history" noindex />
       <BlindBoardSubNav />
 
       <header className="blind-board-history-page__header">

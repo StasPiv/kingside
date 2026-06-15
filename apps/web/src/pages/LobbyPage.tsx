@@ -5,6 +5,7 @@ import type { FeatureFlags } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { useFeatureFlags } from '../context/FeatureFlagsContext';
 import { api } from '../api';
+import { PageSeo } from '../components/seo/PageSeo';
 import { useTimeControl, CATEGORIES, presetKey, TC_LABEL_KEYS } from '../hooks/useTimeControl';
 import { useMatchmaking } from '../hooks/useMatchmaking';
 import { useBotGame } from '../hooks/useBotGame';
@@ -509,6 +510,7 @@ export function LobbyPage() {
 
   return (
     <div className="lobby-page">
+      <PageSeo ns="lobby" path="/lobby" />
       <h1>{t('lobby.title')}<HelpButton section="play" /></h1>
       {user ? (
         <p className="user-info">

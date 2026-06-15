@@ -6,6 +6,7 @@ import { WorkshopPgnList } from '../components/workshop/WorkshopPgnList';
 import type { PgnFile } from '../components/workshop/WorkshopPgnList';
 import { HelpButton } from '../components/HelpButton';
 import { useAuth } from '../context/AuthContext';
+import { PageSeo } from '../components/seo/PageSeo';
 import { guestWorkshopStore } from '../utils/guestWorkshopStore';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -105,6 +106,7 @@ export function WorkshopPage() {
 
   return (
     <div className="workshop-page">
+      <PageSeo ns="workshop" path="/workshop" />
       <nav className="workshop-breadcrumbs">
         <button
           className="workshop-breadcrumbs__link"

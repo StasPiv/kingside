@@ -5,6 +5,7 @@ import { BlindBoardSubNav } from '../components/blindBoard/BlindBoardSubNav';
 import { BlindBoardStatsCards } from '../components/blindBoard/BlindBoardStatsCards';
 import { BlindBoardTrendsChart } from '../components/blindBoard/BlindBoardTrendsChart';
 import { BlindBoardBreakdowns } from '../components/blindBoard/BlindBoardBreakdowns';
+import { PageSeo } from '../components/seo/PageSeo';
 
 /**
  * KS-3511 (ADR-093 §4) — `/blind-board/stats`. SubNav + Cards + Trends
@@ -21,6 +22,7 @@ export function BlindBoardStatsPage() {
       data-testid="blind-board-stats-page"
       data-auth={isGuest ? 'guest' : 'user'}
     >
+      <PageSeo ns="blindBoard.stats" path="/blind-board/stats" noindex />
       <BlindBoardSubNav />
 
       <header className="blind-board-stats-page__header">

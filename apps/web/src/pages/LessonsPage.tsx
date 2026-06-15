@@ -17,6 +17,7 @@ import { CreateCourseCta } from '../components/lessons/CreateCourseCta';
 import { MyCoursesView } from '../components/lessons/views/MyCoursesView';
 import { LazySection } from '../components/lessons/LazySection';
 import { useAuth } from '../context/AuthContext';
+import { PageSeo } from '../components/seo/PageSeo';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -142,6 +143,7 @@ export function LessonsPage() {
       data-testid="lessons-page"
       data-tab={tab}
     >
+      <PageSeo ns="lessons.list" path="/lessons" />
       <header className="lessons-header">
         <h1>{t('lessons.title', 'Lessons')}</h1>
         <p className="lessons-subtitle">

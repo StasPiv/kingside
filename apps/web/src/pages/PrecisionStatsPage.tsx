@@ -5,6 +5,7 @@ import { PrecisionSubNav } from '../components/precision/PrecisionSubNav';
 import { PrecisionStatsCards } from '../components/precision/PrecisionStatsCards';
 import { PrecisionTrendsChart } from '../components/precision/PrecisionTrendsChart';
 import { PrecisionBreakdowns } from '../components/precision/PrecisionBreakdowns';
+import { PageSeo } from '../components/seo/PageSeo';
 
 /**
  * KS-2744 / ADR-057 §3 — страница `/precision/stats`. Подробная
@@ -58,6 +59,7 @@ export function PrecisionStatsPage() {
       data-testid="precision-stats-page"
       data-auth={isGuest ? 'guest' : 'user'}
     >
+      <PageSeo ns="precision.stats" path="/precision/stats" noindex />
       <PrecisionSubNav />
 
       <header className="precision-stats-page__header">

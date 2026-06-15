@@ -11,6 +11,7 @@ import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import type { GameMetaInfo } from '../components/GameMetaBar';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
+import { PageSeo } from '../components/seo/PageSeo';
 import { SetPositionModal } from '../components/SetPositionModal';
 import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
@@ -3932,6 +3933,7 @@ function AnalysisPageInner({
       data-analysis-context={ctx.kind}
       ref={analysisPageRef}
     >
+      <PageSeo ns="analysis.detail" path="/analysis" />
       <div className="analysis-board-area">
         {/* KS-3182: в embedded-режиме шапка не нужна — шаг урока сам
             подписан, breadcrumb/title-edit/Share — это не контекст

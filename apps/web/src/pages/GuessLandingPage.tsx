@@ -7,6 +7,7 @@ import type { GuessGameSource, GuessSide } from '@kingside/shared';
 import { GuessSessionRunner } from '../components/guess';
 import { GuessSubNav } from '../components/guess/GuessSubNav';
 import { useAuth } from '../context/AuthContext';
+import { PageSeo } from '../components/seo/PageSeo';
 
 /**
  * KS-3412 (ADR-086 §9, F3) — точка входа «угадай ход».
@@ -188,6 +189,7 @@ export function GuessLandingPage() {
 
   return (
     <div className="guess-page" data-testid="guess-page" data-state="setup">
+      <PageSeo ns="guess.list" path="/guess" />
       {/* KS-3510: общая sub-nav (Training / Progress / History). */}
       <GuessSubNav />
       <h1>{t('guess.setup.title', 'Guess the move')}</h1>

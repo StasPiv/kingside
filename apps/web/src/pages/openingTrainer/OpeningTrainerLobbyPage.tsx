@@ -20,6 +20,7 @@ import {
 } from '../../api/openingTrainerApi';
 import { useAuth } from '../../context/AuthContext';
 import type { OpeningRepertoireDto } from '@kingside/shared';
+import { PageSeo } from '../../components/seo/PageSeo';
 
 export function OpeningTrainerLobbyPage() {
   const { t } = useTranslation();
@@ -96,6 +97,7 @@ export function OpeningTrainerLobbyPage() {
       data-testid="opening-trainer-lobby"
       data-auth={isGuest ? 'guest' : 'user'}
     >
+      <PageSeo ns="openingTrainer.list" path="/opening-trainer" />
       <header className="opening-trainer-lobby__header">
         <h1>{t('openingTrainer.lobby.title', 'Opening Trainer')}</h1>
         <p className="opening-trainer-lobby__subtitle">

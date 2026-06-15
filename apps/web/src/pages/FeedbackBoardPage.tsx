@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { FeedbackModal } from '../components/FeedbackModal';
+import { PageSeo } from '../components/seo/PageSeo';
 
 type FeedbackPost = {
   id: string;
@@ -67,6 +68,7 @@ export function FeedbackBoardPage() {
 
   return (
     <div className="fb-board-page">
+      <PageSeo ns="feedback.list" path="/feedback" />
       <div className="fb-board-header">
         <h1>{t('feedbackBoard.title', 'Feedback & Ideas')}</h1>
         {user && <button className="fb-new-btn" onClick={() => setShowModal(true)}>+ {t('feedbackBoard.newPost', 'New Post')}</button>}

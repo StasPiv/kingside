@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { PrecisionSubNav } from '../components/precision/PrecisionSubNav';
 import { PrecisionAttemptsList } from '../components/precision/PrecisionAttemptsList';
+import { PageSeo } from '../components/seo/PageSeo';
 
 /**
  * KS-2745 / ADR-057 §4 — страница `/precision/history`. История попыток
@@ -64,6 +65,7 @@ export function PrecisionHistoryPage() {
       data-testid="precision-history-page"
       data-auth={isGuest ? 'guest' : 'user'}
     >
+      <PageSeo ns="precision.history" path="/precision/history" noindex />
       <PrecisionSubNav />
 
       <header className="precision-history-page__header">

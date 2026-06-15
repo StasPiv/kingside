@@ -26,6 +26,7 @@ import { useAuth } from '../context/AuthContext';
 import { BlindBoardSessionRunner } from '../components/blindBoard/BlindBoardSessionRunner';
 import { BlindBoardConfigForm } from '../components/blindBoard/BlindBoardConfigForm';
 import { BlindBoardSubNav } from '../components/blindBoard/BlindBoardSubNav';
+import { PageSeo } from '../components/seo/PageSeo';
 import {
   isValidBlindBoardConfig,
   validateBlindBoardConfig,
@@ -165,6 +166,7 @@ export function BlindBoardLandingPage() {
       data-testid="blind-board-page"
       data-state="setup"
     >
+      <PageSeo ns="blindBoard.list" path="/blind-board" />
       {/* KS-3511: общая sub-nav. */}
       <BlindBoardSubNav />
       {/* KS-4139 / ADR-128 §4: гостю — inline-CTA по образцу

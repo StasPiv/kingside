@@ -9,6 +9,7 @@ import type {
 
 import { api } from '../api';
 import { DrillTypeCard } from '../components/drills';
+import { PageSeo } from '../components/seo/PageSeo';
 import {
   DRILL_PREVIEWS,
   SPRINT_PREVIEW,
@@ -130,6 +131,7 @@ export function DrillsLobbyPage() {
 
   return (
     <div className="drills-lobby" data-testid="drills-lobby">
+      <PageSeo ns="drills.list" path="/drills" />
       <header className="drills-lobby__header">
         <h1 className="drills-lobby__title">
           {t('drills.lobbyHeading', 'Pick a drill')}

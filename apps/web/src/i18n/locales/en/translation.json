@@ -4184,6 +4184,170 @@
         "description": "{{name}}: {{gamesCount}} archived games, peak {{peakElo}}. {{wins}}W / {{draws}}D / {{losses}}L on Kingside.",
         "descriptionNoPeak": "{{name}}: {{gamesCount}} archived games. {{wins}}W / {{draws}}D / {{losses}}L on Kingside."
       }
+    },
+    "home": {
+      "title": "Kingside — Play chess online, analyze, improve",
+      "description": "Play chess online for free. Live games, puzzles, AI analysis, opening trainer, broadcasts and chess coaches on Kingside."
+    },
+    "features": {
+      "title": "Kingside features — what you can do",
+      "description": "Overview of Kingside: live play, puzzles, precision and blindfold trainers, deep analysis, broadcasts and coaches."
+    },
+    "about": {
+      "title": "About Kingside",
+      "description": "Kingside is a free chess platform: play, train, analyze and follow live tournaments in one place."
+    },
+    "login": {
+      "title": "Sign in — Kingside",
+      "description": "Sign in to Kingside to play rated games, save analyses and access lessons and broadcasts."
+    },
+    "register": {
+      "title": "Create a free account — Kingside",
+      "description": "Create a free Kingside account to play chess online, track rating and save puzzles and analyses."
+    },
+    "puzzles": {
+      "list": {
+        "title": "Chess puzzles — Kingside",
+        "description": "Free unlimited chess puzzles. Solve and improve tactical vision on Kingside."
+      },
+      "detail": {
+        "title": "Chess puzzle #{{id}} — Kingside",
+        "description": "Solve chess puzzle #{{id}} with rating-based ranking and instant feedback on Kingside."
+      },
+      "stats": {
+        "title": "Your puzzle stats — Kingside",
+        "description": "Personal puzzle stats on Kingside."
+      },
+      "daily": {
+        "title": "Daily chess puzzle — Kingside",
+        "description": "A new chess puzzle every day. Build your tactical streak on Kingside."
+      }
+    },
+    "precision": {
+      "list": {
+        "title": "Chess precision trainer — Kingside",
+        "description": "Train precise calculation: solve positions to a fixed accuracy threshold on Kingside."
+      },
+      "stats": {
+        "title": "Your precision stats — Kingside",
+        "description": "Personal precision-training stats on Kingside."
+      },
+      "history": {
+        "title": "Precision history — Kingside",
+        "description": "Your precision-training history on Kingside."
+      }
+    },
+    "puzzleRush": {
+      "title": "Chess Puzzle Rush — Kingside",
+      "description": "How many chess puzzles can you solve in 5 minutes? Try Puzzle Rush on Kingside."
+    },
+    "drills": {
+      "list": {
+        "title": "Chess drills — Kingside",
+        "description": "Endgame and opening chess drills with adaptive spacing on Kingside."
+      },
+      "type": {
+        "title": "Chess drills — {{type}} — Kingside",
+        "description": "{{type}} chess drills with adaptive repetition on Kingside."
+      },
+      "sprint": {
+        "title": "Chess drill sprint — Kingside",
+        "description": "Timed chess drill sprint on Kingside."
+      }
+    },
+    "blindBoard": {
+      "list": {
+        "title": "Blindfold chess trainer — Kingside",
+        "description": "Train your blindfold visualisation: recall positions from move sequences on Kingside."
+      },
+      "stats": {
+        "title": "Blindfold stats — Kingside",
+        "description": "Personal blindfold-training stats on Kingside."
+      },
+      "history": {
+        "title": "Blindfold history — Kingside",
+        "description": "Your blindfold-training history on Kingside."
+      }
+    },
+    "guess": {
+      "list": {
+        "title": "Guess the move — chess game on Kingside",
+        "description": "Guess the next move in a master game and compare with the engine on Kingside."
+      },
+      "stats": {
+        "title": "Guess the move — stats — Kingside",
+        "description": "Personal guess-the-move stats on Kingside."
+      },
+      "history": {
+        "title": "Guess the move — history — Kingside",
+        "description": "Your guess-the-move history on Kingside."
+      }
+    },
+    "workshop": {
+      "title": "Chess workshop — Kingside",
+      "description": "Set up positions, drop a PGN and analyze chess games in your personal workshop on Kingside."
+    },
+    "analysis": {
+      "list": {
+        "title": "Chess game analysis — Kingside",
+        "description": "Analyze chess games with Stockfish and AI commentary on Kingside."
+      },
+      "detail": {
+        "title": "Chess analysis — Kingside",
+        "description": "Deep chess analysis with engine evaluation and move classification on Kingside."
+      }
+    },
+    "play": {
+      "title": "Play chess online — Kingside",
+      "description": "Play chess online for free: bullet, blitz, rapid and classical with rating on Kingside."
+    },
+    "lobby": {
+      "title": "Chess lobby — Kingside",
+      "description": "Find a chess game: bullet, blitz, rapid and classical pools on Kingside."
+    },
+    "openingTrainer": {
+      "list": {
+        "title": "Chess opening trainer — Kingside",
+        "description": "Drill chess openings move by move with spaced repetition on Kingside."
+      },
+      "demo": {
+        "title": "Chess opening trainer — demo — Kingside",
+        "description": "Try the chess opening trainer without an account on Kingside."
+      }
+    },
+    "lessons": {
+      "list": {
+        "title": "Chess lessons and courses — Kingside",
+        "description": "Structured chess courses by titled coaches with quizzes and drills on Kingside."
+      },
+      "course": {
+        "title": "{{title}} — chess course on Kingside",
+        "description": "{{title}}: structured chess course on Kingside."
+      },
+      "lesson": {
+        "title": "{{title}} — chess lesson on Kingside",
+        "description": "{{title}}: chess lesson with interactive board on Kingside."
+      }
+    },
+    "feedback": {
+      "list": {
+        "title": "Feedback and feature requests — Kingside",
+        "description": "Suggest features and report issues for Kingside."
+      },
+      "detail": {
+        "title": "Feedback — Kingside",
+        "description": "Feedback discussion on Kingside."
+      }
+    },
+    "games": {
+      "live": {
+        "title": "Live chess games — Kingside",
+        "description": "Watch live chess games on Kingside."
+      },
+      "watch": {
+        "title": "Watch chess game — Kingside",
+        "description": "Watch a chess game live on Kingside."
+      }
     }
   }
 }

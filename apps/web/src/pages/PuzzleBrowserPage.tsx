@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import { PageSeo } from '../components/seo/PageSeo';
 // KS-2661: «Generate from PGN» переехала в `/precision` (рядом с
 // результатом генерации). Импорт `PuzzleGeneratorModal` отсюда удалён.
 import { HelpButton } from '../components/HelpButton';
@@ -260,6 +261,18 @@ export function PuzzleBrowserPage() {
       data-testid="puzzle-browser-page"
       data-state={loading ? 'loading' : error ? 'error' : 'ready'}
     >
+      <PageSeo
+        ns="puzzles.list"
+        path="/puzzles"
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'WebApplication',
+          name: 'Chess puzzles — Kingside',
+          applicationCategory: 'GameApplication',
+          operatingSystem: 'Web',
+          url: 'https://kingside.site/puzzles',
+        }}
+      />
       <h1>
         {t('puzzleBrowser.title')}
         <HelpButton section="puzzles" />

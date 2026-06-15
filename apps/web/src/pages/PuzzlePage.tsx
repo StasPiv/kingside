@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom';
 import { Chess, type Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
+import { PageSeo } from '../components/seo/PageSeo';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { PromotionPicker, type PromotionPiece } from '../components/PromotionPicker';
 import { HelpButton } from '../components/HelpButton';
@@ -964,6 +965,13 @@ export function PuzzlePage() {
 
   return (
     <div className="puzzle-page">
+      {/* KS-4222: SEO для конкретного puzzle. canonical=/puzzle/:id,
+          title через i18n-шаблон с подстановкой id. */}
+      <PageSeo
+        ns="puzzles.detail"
+        path={`/puzzle/${encodeURIComponent(puzzleId ?? '')}`}
+        vars={{ id: puzzleId ?? '' }}
+      />
       {renderHeader('puzzles')}
 
       {!user && (

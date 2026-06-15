@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import type { LiveGamesResponse, LiveGameItem } from '@kingside/shared';
+import { PageSeo } from '../components/seo/PageSeo';
 
 const TC_FILTERS = ['all', 'bullet', 'blitz', 'rapid', 'classical'] as const;
 
@@ -68,6 +69,7 @@ export function LiveGamesPage() {
 
   return (
     <div className="live-games-page">
+      <PageSeo ns="games.live" path="/games/live" />
       <h1>{t('liveGames.title')}</h1>
 
       <div className="live-games-filters">

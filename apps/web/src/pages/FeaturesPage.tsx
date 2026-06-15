@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router-dom';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 
 const SECTIONS = ['play', 'analyze', 'puzzles', 'workshop', 'broadcasts', 'social', 'customize', 'rating'] as const;
 const ICONS: Record<string, string> = {
@@ -34,8 +35,54 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
       ? t('features.hero.subtitle')
       : t('features.page.subtitle', 'Everything Kingside has to offer');
 
+  // KS-4222 / ADR-129 §7. SEO главной и /features. На главной — самый
+  // ценный URL: title с ключевыми словами, JSON-LD WebSite +
+  // Organization. На /features — отдельные ключи, чтобы prerender
+  // отдавал per-page title (не дубль-контент с главной).
+  const isHome = variant === 'home';
+  const seoTitle = t(isHome ? 'seo.home.title' : 'seo.features.title');
+  const seoDescription = t(
+    isHome ? 'seo.home.description' : 'seo.features.description',
+  );
+  const seoCanonical = isHome
+    ? 'https://kingside.site/'
+    : 'https://kingside.site/features';
+  const seoJsonLd = isHome
+    ? [
+        {
+          '@context': 'https://schema.org',
+          '@type': 'WebSite',
+          name: 'Kingside',
+          url: 'https://kingside.site/',
+          description: seoDescription,
+          inLanguage: ['en', 'ru'],
+          potentialAction: {
+            '@type': 'SearchAction',
+            target:
+              'https://kingside.site/players?search={search_term_string}',
+            'query-input': 'required name=search_term_string',
+          },
+        },
+        {
+          '@context': 'https://schema.org',
+          '@type': 'Organization',
+          name: 'Kingside',
+          url: 'https://kingside.site/',
+          logo: 'https://kingside.site/icon.svg',
+        },
+      ]
+    : undefined;
+
   return (
     <div className="features-page">
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        canonical={seoCanonical}
+        ogType="website"
+        ogImage="/og/default.png"
+        jsonLd={seoJsonLd}
+      />
       {/* HERO */}
       <section className="features-hero">
         <h1 className="features-hero__title">{heroTitle}</h1>
