@@ -299,13 +299,13 @@ function readTheme(): BoardThemeId {
 function readPieceSet(): PieceSetId {
   const stored = localStorage.getItem(LS_PIECE_SET_KEY) as PieceSetId | null;
   if (stored && PIECE_SETS.some((s) => s.id === stored)) return stored;
-  // KS-3320: default — chessnut (Apache 2.0, классический Staunton-look).
-  // Раньше дефолт был 'standard' — internal react-chessboard default,
-  // но у нас теперь есть полноценный open-license набор.
-  // Старые `cburnett` (GPL) / `alpha` (NC) / `merida` (GPL) / `standard`
-  // в localStorage остаются проигнорированными (нет в PIECE_SETS) —
-  // пользователь получит chessnut автоматически.
-  return 'chessnut';
+  // KS-4155: дефолт — `standard` (встроенный набор react-chessboard,
+  // классический стаунтон). Пользователи жаловались, что chessnut
+  // (KS-3320) выглядит непривычно по сравнению с привычным стаунтоном.
+  // Лицензионные соображения KS-3320 остаются в силе для тех, кто
+  // выберет `chessnut` явно через настройки. Дефолт меняется только
+  // для пользователей без сохранённого выбора.
+  return 'standard';
 }
 
 function readShowNotation(): boolean {
