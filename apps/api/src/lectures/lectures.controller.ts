@@ -25,6 +25,7 @@ import {
 } from './dto/create-lecture.dto';
 import { LecturesService } from './lectures.service';
 import { LecturesAccessService } from './lectures-access.service';
+import { toPublicDto } from '../common/public-dto.mapper';
 
 /**
  * KS-3784 / ADR-113 §4 эпик 1: REST-эндпоинты лекций.
@@ -153,13 +154,21 @@ export class LecturesController {
     return this.service.getRecordingByLectureId(id);
   }
 
+  /**
+   * KS-4133 / ADR-128 §6.8.3. OptionalJwtGuard + toPublicDto: для гостя
+   * вырезаются `email`, `phone`, `lastSeenAt` и прочие приватные поля
+   * тренера / приглашённых, если они вдруг попадут в DTO лекции.
+   */
+  @UseGuards(OptionalJwtGuard)
   @Get('coaches/:username/lectures')
-  listByCoach(
+  async listByCoach(
+    @Request() req: AuthenticatedRequest,
     @Param('username') username: string,
     @Query('status')
     status?: 'scheduled' | 'live' | 'recorded' | 'cancelled',
   ) {
-    return this.service.listByCoach(username, status);
+    const result = await this.service.listByCoach(username, status);
+    return toPublicDto(result, req.user ?? null);
   }
 
   /**
@@ -188,12 +197,22 @@ export class LecturesController {
    * KS-3801 / ADR-113 §4 крупная задача 3. Публичное расписание
    * тренера: предстоящие и идущие сейчас лекции с visibility=public
    * в окне `from`–`to` (обе границы опциональные).
+   *
+   * KS-4133: OptionalJwtGuard + toPublicDto — гость не видит приватных
+   * полей тренера в каждой записи расписания.
    */
+  @UseGuards(OptionalJwtGuard)
   @Get('coaches/:username/schedule')
-  scheduleByCoach(
+  async scheduleByCoach(
+    @Request() req: AuthenticatedRequest,
     @Param('username') username: string,
     @Query() query: ScheduleQueryDto,
   ) {
-    return this.service.scheduleByCoach(username, query.from, query.to);
+    const result = await this.service.scheduleByCoach(
+      username,
+      query.from,
+      query.to,
+    );
+    return toPublicDto(result, req.user ?? null);
   }
 }
