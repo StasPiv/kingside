@@ -1,22 +1,21 @@
 /**
- * KS-4130 / ADR-128 §6.8.2. Публичный sub-контроллер Opening Trainer'а.
- *
- * Основной `OpeningTrainerController` остаётся под class-`JwtAuthGuard`
- * (личные репертуары и SRS-очередь). Этот контроллер обслуживает
- * витринные эндпоинты для гостя:
+ * KS-4160 / ADR-128 §6.8.2 + §11.13. Публичный sub-контроллер
+ * Opening Trainer'а. Основной `OpeningTrainerController` остаётся под
+ * class-`JwtAuthGuard` (личные репертуары и SRS-очередь). Этот
+ * контроллер обслуживает витринные эндпоинты для гостя:
  *
  *  - `GET /opening-trainer/demo` — список demo-репертуаров (KS-31).
  *  - `GET /opening-trainer/demo/:id` — конкретный demo-репертуар.
- *  - `POST /opening-trainer/sessions` — старт демо-сессии: для гостя
- *    no-op 204 (ADR-128 §11.13), для авторизованного — делегируется в
- *    основной flow (создание сессии через `OpeningTrainerService`).
+ *  - `POST /opening-trainer/sessions` — 204 no-op (ADR-128 §11.13).
  *
- * KS-31 ещё не наполнен реальными demo-репертуарами — контроллер
- * возвращает пустой список / 404 на детали. Front-end должен корректно
- * отрендерить «демо ещё не готово», но не падать с 401.
+ * По §6.8.2 контроллер без class-guard — `JwtAuthGuard`/`OptionalJwtGuard`
+ * не вешаются (это публичные данные, не зависят от user-id, ADR-128 §11.12).
+ * Class-level guard оставлен только для rate-limit: 60 req/min на IP
+ * (§6.8.4).
  *
- * Все open-GET под `OptionalJwtGuard` + `RedisRateLimitGuard` 60/min
- * (ADR-128 §6.8.4).
+ * KS-31 (контент демо-репертуаров) ещё не выполнен — `/demo` возвращает
+ * пустой массив, `/demo/:id` — 404. Фронт (KS-4161) должен отрендерить
+ * «демо ещё не готово», не падая с 401.
  */
 import {
   Body,
@@ -26,41 +25,44 @@ import {
   NotFoundException,
   Param,
   Post,
-  Request,
   UseGuards,
 } from '@nestjs/common';
-import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import {
   RateLimit,
   RedisRateLimitGuard,
 } from '../common/redis-rate-limit.guard';
-import { AuthenticatedRequest } from '../common/authenticated-request';
 
-type OptionalAuthRequest = AuthenticatedRequest & {
-  user?: AuthenticatedRequest['user'] | null;
-};
-
-function isGuest(req: OptionalAuthRequest): boolean {
-  return !req.user || !req.user.id;
+/**
+ * Карточка демо-репертуара для list-эндпоинта.
+ * Поля соответствуют требованиям KS-4160 (id, title, description,
+ * языки, длина дерева) и совместимы с публичной выдачей.
+ */
+export interface DemoRepertoireSummary {
+  id: string;
+  title: string;
+  description: string;
+  languages: string[];
+  /** Количество узлов в дереве. */
+  treeSize: number;
 }
 
 @Controller('opening-trainer')
-@UseGuards(OptionalJwtGuard, RedisRateLimitGuard)
+@UseGuards(RedisRateLimitGuard)
 @RateLimit(60, 60)
 export class OpeningTrainerPublicController {
   /**
    * GET /opening-trainer/demo — список demo-репертуаров.
-   * KS-31 наполнит реальный контент; до этого — пустой массив,
-   * чтобы фронт-витрина не падала с 401.
+   * До KS-31 (seed-контент) — пустой массив (200 OK).
+   * Контракт: массив, не `{ data: [...] }` (ADR-128 §6.8.2).
    */
   @Get('demo')
-  listDemoRepertoires(): { data: never[] } {
-    return { data: [] };
+  listDemoRepertoires(): DemoRepertoireSummary[] {
+    return [];
   }
 
   /**
    * GET /opening-trainer/demo/:id — конкретный demo-репертуар.
-   * До наполнения (KS-31) — 404 без записи в БД.
+   * До KS-31 — 404 на любой id (записи в БД нет, seed-файлов нет).
    */
   @Get('demo/:id')
   getDemoRepertoire(@Param('id') id: string): never {
@@ -68,24 +70,17 @@ export class OpeningTrainerPublicController {
   }
 
   /**
-   * POST /opening-trainer/sessions — старт сессии (демо-flow).
-   *  - Гость → 204 no-op (ADR-128 §11.13).
-   *  - Авторизованный пользователь старт сессии делает через
-   *    основной `POST /opening-trainer/repertoires/:id/sessions`;
-   *    этот плоский путь для гостя — стартовая точка, через которую
-   *    фронт может «попробовать» тренажёр без логина.
+   * POST /opening-trainer/sessions — старт демо-сессии.
+   * Гость → 204 no-op (ADR-128 §11.13). Авторизованный flow личных
+   * репертуаров идёт через `POST /opening-trainer/repertoires/:id/sessions`
+   * (основной контроллер под JwtAuthGuard); этот плоский путь — точка
+   * входа для гостя, чтобы «попробовать» тренажёр без логина.
    */
   @Post('sessions')
   @HttpCode(204)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  startSession(@Request() req: OptionalAuthRequest, @Body() _body: unknown): void {
-    if (isGuest(req)) {
-      // 204 — принято, ничего не записали.
-      return;
-    }
-    // Для авторизованного пользователя без указания репертуара тоже
-    // 204: персональный путь идёт через `repertoires/:id/sessions`,
-    // этот эндпоинт без `repertoireId` — фронт-витрина демо.
+  startSession(@Body() _body: unknown): void {
+    // 204 No Content — ничего не записываем, сессии для гостей
+    // живут в localStorage (см. ADR-128 §11.12).
     return;
   }
 }
