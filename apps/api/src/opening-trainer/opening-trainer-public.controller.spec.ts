@@ -231,6 +231,48 @@ describe('OpeningTrainerPublicController (KS-4160 / KS-4162)', () => {
     });
   });
 
+  // ── BOM-страйп (KS-4165): UTF-8 BOM от ChessBase/Notepad ─────────
+
+  describe('PGN с UTF-8 BOM', () => {
+    let dir: string;
+    let controller: OpeningTrainerPublicController;
+    beforeEach(() => {
+      const pgn = '﻿[Event "BOM Test"]\n\n1. e4 e5 *';
+      dir = tmpSeedDir();
+      fs.writeFileSync(path.join(dir, 'bom.pgn'), pgn, 'utf8');
+      controller = new OpeningTrainerPublicController(makeService(dir));
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    it('BOM убран, title из [Event], дерево не пустое', () => {
+      const list = controller.listDemoRepertoires();
+      expect(list).toHaveLength(1);
+      expect(list[0].title).toBe('BOM Test');
+      expect(list[0].treeSize).toBeGreaterThan(1);
+    });
+  });
+
+  // ── PGN-тег "?" (KS-4165): placeholder, fallback на slug ─────────
+
+  describe('PGN-тег [Event "?"]: placeholder игнорируется', () => {
+    let dir: string;
+    let controller: OpeningTrainerPublicController;
+    beforeEach(() => {
+      const pgn = '[Event "?"]\n[Annotator "?"]\n\n1. d4 d5 *';
+      dir = tmpSeedDir();
+      fs.writeFileSync(path.join(dir, 'london-black.pgn'), pgn, 'utf8');
+      controller = new OpeningTrainerPublicController(makeService(dir));
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    it('title из slug (Title Case), description пустая, не "?"', () => {
+      const list = controller.listDemoRepertoires();
+      expect(list).toHaveLength(1);
+      expect(list[0].title).toBe('London Black');
+      expect(list[0].description).toBe('');
+    });
+  });
+
   // ── POST /sessions: 204 no-op (KS-4160 / §11.13) ─────────────────
 
   it('POST /sessions: 204 no-op, без рантайм-ошибок', () => {

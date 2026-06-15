@@ -168,7 +168,11 @@ export class DemoRepertoireSeedService implements OnModuleInit {
 
   private loadOne(dir: string, slug: string, file: string): LoadedDemo | null {
     const pgnPath = path.join(dir, file);
-    const pgn = fs.readFileSync(pgnPath, 'utf8');
+    // BOM-стрип: ChessBase / Windows Notepad сохраняют PGN в UTF-8 с BOM
+    // (`﻿`). Без стрипа `^\[Event ...\]`-regex'ы builder'а и
+    // `extractTagFromPgn` не сматчатся — header'ы попадут в movetext и
+    // парсер упадёт на "illegal move".
+    const pgn = fs.readFileSync(pgnPath, 'utf8').replace(/^﻿/, '');
 
     const meta = this.readMeta(dir, slug);
     let tree: RepertoireTree;
@@ -276,13 +280,18 @@ function sanitizeMeta(raw: unknown): MetaFile {
   return out;
 }
 
-/** Достаёт значение PGN-тега из заголовка (первая партия). */
+/**
+ * Достаёт значение PGN-тега из заголовка (первая партия).
+ * Возвращает null, если тега нет, пустой строки, либо PGN-стандартного
+ * placeholder'а `?` (стандарт §8.1.1: «unknown» / «not applicable»).
+ */
 function extractTagFromPgn(pgn: string, tag: string): string | null {
   const re = new RegExp(`^\\[${tag}\\s+"([^"]*)"\\]`, 'm');
   const m = re.exec(pgn);
   if (!m) return null;
   const v = m[1].trim();
-  return v.length > 0 ? v : null;
+  if (v.length === 0 || v === '?') return null;
+  return v;
 }
 
 function extractTitleFromPgn(pgn: string): string | null {
