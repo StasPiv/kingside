@@ -3,63 +3,20 @@
  * (KS-4188 backend) — публичный каталог лекций для гостевого
  * `/lectures` и блока «Discover public lectures» у авторизованных.
  *
- * Типы `PublicLecture`/`PublicLecturesResponse` по контракту должны
- * жить в `packages/shared/src/types/api-contracts.ts`, но текущий
- * scope frontend-агента RO для shared. Держим типы здесь — backend
- * перенесёт в shared отдельной правкой, после чего этот файл можно
- * переключить на импорт из `@kingside/shared`.
+ * KS-4199: после KS-4197 backend контракт `PublicLecture` /
+ * `PublicLectureCoach` / `PublicLecturesResponse` живёт в
+ * `packages/shared/src/types/api-contracts.ts`. Локальные дубликаты
+ * удалены — единый источник истины.
  */
 
-import type { LectureStatus } from '@kingside/shared';
+import type {
+  PublicLecture,
+  PublicLectureCoach,
+  PublicLecturesResponse,
+} from '@kingside/shared';
 import { api } from '../api';
 
-export interface PublicLectureCoach {
-  /** Username тренера. Используется для ссылки `/coach/:username`. */
-  username: string;
-  /** ISO-2 страна — для флага рядом с именем. */
-  country?: string | null;
-}
-
-/**
- * Публичная карточка лекции. Без `priceCents`, без приватных полей
- * (visibility, hideMetricsTab, mediaUrl и т.п.) — это публичная
- * витрина.
- */
-export interface PublicLecture {
-  id: string;
-  title: string;
-  description: string | null;
-  status: Extract<LectureStatus, 'live' | 'scheduled' | 'recorded'>;
-  scheduledAt: string | null;
-  startedAt: string | null;
-  endedAt: string | null;
-  /** Длительность записи в миллисекундах (для `recorded`). */
-  durationMs: number | null;
-  /** FEN стартовой позиции для preview-доски; fallback на `/og/lecture.png`. */
-  previewFen?: string | null;
-  /**
-   * Информация о тренере. KS-4195: фактически backend `/lectures/public`
-   * (KS-4188) пока не отдаёт `coach` — это поле появится при расширении
-   * контракта. Поэтому делаем его опциональным и в UI guard'им через
-   * `lecture.coach?.username`, иначе старые/orphan-лекции крашат
-   * рендер `PublicLectureCard` и валят всю страницу `/lectures` для
-   * гостя.
-   */
-  coach?: PublicLectureCoach | null;
-}
-
-/**
- * Ответ `GET /lectures/public?limit=&offset=&status=`.
- *
- * `total` — общее число публичных лекций (для пагинации и
- * `numberOfItems` в JSON-LD ItemList).
- * `hasMore` — есть ли следующая страница при текущем `limit/offset`.
- */
-export interface PublicLecturesResponse {
-  items: PublicLecture[];
-  total: number;
-  hasMore: boolean;
-}
+export type { PublicLecture, PublicLectureCoach, PublicLecturesResponse };
 
 /**
  * Поддерживаемые фильтры статусов. `'all'` — без фильтра, остальные

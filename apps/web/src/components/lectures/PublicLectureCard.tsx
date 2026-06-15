@@ -22,6 +22,17 @@ import { Chessboard } from 'react-chessboard';
 
 import type { PublicLecture } from '../../api/publicLectures';
 
+/**
+ * KS-4199. Карточка обрабатывает три варианта тренера:
+ *   1) `coach: { username: 'magnus' }` — рендерим ссылку `/coach/magnus`
+ *      и имя «magnus».
+ *   2) `coach: { username: null }` — имя ещё не задано
+ *      (`requiresUsernameSetup=true`), показываем fallback-имя без
+ *      ссылки.
+ *   3) `coach: null` — лекция без тренера (системная / orphan), не
+ *      рендерим строку тренера совсем.
+ */
+
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -54,13 +65,19 @@ export function PublicLectureCard({ lecture }: PublicLectureCardProps) {
   const { t, i18n } = useTranslation();
   const fen = lecture.previewFen ?? STARTING_FEN;
   const lectureHref = `/lectures/${encodeURIComponent(lecture.id)}`;
-  // KS-4195: `coach` опционален в реальном ответе backend'а — guard
-  // обязателен, иначе `encodeURIComponent(undefined.username)` валит
-  // весь рендер каталога (для гостей это пустая страница на проде).
-  const coachUsername = lecture.coach?.username ?? null;
+  // KS-4195/KS-4199: backend `/lectures/public` (KS-4197) возвращает
+  // `coach: { id, username } | null`. `username` тоже nullable —
+  // ученик ещё не задал имя. Карточка различает три сценария
+  // (см. блок в шапке файла).
+  const coach = lecture.coach;
+  const coachUsername = coach?.username ?? null;
   const coachHref = coachUsername
     ? `/coach/${encodeURIComponent(coachUsername)}`
     : null;
+  const coachFallbackName = t(
+    'lecturesPublic.coachNameless',
+    'Unnamed coach',
+  );
 
   const statusLabel = (() => {
     if (lecture.status === 'live') {
@@ -111,10 +128,19 @@ export function PublicLectureCard({ lecture }: PublicLectureCardProps) {
           <h3 className="public-lecture-card__title">{lecture.title}</h3>
         </Link>
 
-        {coachHref && coachUsername && (
-          <Link to={coachHref} className="public-lecture-card__coach">
-            {coachUsername}
-          </Link>
+        {coach && (
+          coachHref && coachUsername ? (
+            <Link to={coachHref} className="public-lecture-card__coach">
+              {coachUsername}
+            </Link>
+          ) : (
+            <span
+              className="public-lecture-card__coach public-lecture-card__coach--nameless"
+              data-testid="public-lecture-card-coach-nameless"
+            >
+              {coachFallbackName}
+            </span>
+          )
         )}
 
         {lecture.description && (
