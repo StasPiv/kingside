@@ -120,13 +120,15 @@ export function LectureLandingPage() {
   const slug = lecture.liveAnalysis?.slug ?? null;
   const scheduledAtFormatted = formatScheduledAt(lecture.scheduledAt);
 
-  // KS-4192 / ADR-128 §7.6.1.2 L2. SEO на лендинге лекции. В текущей
-  // версии `LectureDetail` нет `coachUsername` — используем
-  // `'coach'` как нейтральное значение в шаблоне до расширения
-  // контракта backend'ом (после этого подставим реальное имя).
+  // KS-4192 / KS-4220 / ADR-128 §7.6.1.2 L2. SEO на лендинге лекции.
+  // С KS-4219 `LectureDetail` отдаёт `coach: { id, username } | null`,
+  // поэтому `seoCoach` теперь реальный username (или пустая строка для
+  // системных лекций без owner). i18n-шаблоны `seo.lectures.detail.*`
+  // умеют склеить «{title} — by {coach} — Kingside»: если coach пустой,
+  // строка деградирует естественно (см. truncate в SeoHelmet).
   // durationMin для `recorded`: ms → min. description обрезается
   // SeoHelmet'ом через truncateByWord. ogType=article.
-  const seoCoach = '';
+  const seoCoach = lecture.coach?.username ?? '';
   const seoDescriptionText = lecture.description ?? '';
   const seoDurationMin =
     lecture.durationMs && lecture.durationMs > 0
@@ -156,12 +158,16 @@ export function LectureLandingPage() {
     name: lecture.title,
     description: lecture.description ?? undefined,
     courseMode: 'online',
-    // KS-4217: provider — либо реальный coach (когда KS-4172-BE-
-    // LECTURE-COACH расширит `LectureDetail` полем `coach`), либо
-    // fallback на Organization (Kingside) — иначе Google не
-    // показывает provider в SERP, что для Course-карточки плохо.
+    // KS-4220: provider — реальный тренер (`coach.username` из
+    // `LectureDetail`, KS-4219). Для системных лекций без owner
+    // остаётся fallback на Organization(Kingside) — без него Google
+    // не показывает provider в SERP, что для Course-карточки плохо.
     provider: seoCoach
-      ? { '@type': 'Person', name: seoCoach }
+      ? {
+          '@type': 'Person',
+          name: seoCoach,
+          url: `https://kingside.site/coach/${encodeURIComponent(seoCoach)}`,
+        }
       : {
           '@type': 'Organization',
           name: 'Kingside',
