@@ -1,0 +1,45 @@
+{
+  "family": "kingside-prerender-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "taskRoleArn": "arn:aws:iam::342946498289:role/kingside-prerender-worker-role",
+  "executionRoleArn": "arn:aws:iam::342946498289:role/ecsTaskExecutionRole",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "containerDefinitions": [
+    {
+      "name": "prerender",
+      "image": "342946498289.dkr.ecr.eu-central-1.amazonaws.com/kingside-prerender-service:latest",
+      "essential": true,
+      "environment": [
+        { "name": "AWS_REGION", "value": "eu-central-1" },
+        {
+          "name": "SQS_QUEUE_URL",
+          "value": "https://sqs.eu-central-1.amazonaws.com/342946498289/kingside-prerender-tasks"
+        },
+        {
+          "name": "S3_PRERENDER_BUCKET",
+          "value": "kingside-prerender-store"
+        },
+        {
+          "name": "PRERENDER_BASE_URL",
+          "value": "https://kingside.site"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/kingside-prerender-service",
+          "awslogs-region": "eu-central-1",
+          "awslogs-stream-prefix": "prerender",
+          "awslogs-create-group": "true"
+        }
+      },
+      "stopTimeout": 30
+    }
+  ]
+}
