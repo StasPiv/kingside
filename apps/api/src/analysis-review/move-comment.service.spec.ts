@@ -449,7 +449,7 @@ describe('MoveCommentService', () => {
       expect(result).toEqual({ comment: '', highlights: [], arrows: [] });
     });
 
-    it('webhook невалидный JSON в comment → fallback на raw в comment', async () => {
+    it('webhook невалидный JSON в comment → пустой шейп (ADR-108b §9 Q1)', async () => {
       const svc = new MoveCommentService(
         makeConfigService({ AI_CHAT_WEBHOOK_URL: 'http://wh.test' }),
         makeRedisStub(),
@@ -462,10 +462,11 @@ describe('MoveCommentService', () => {
       })) as any;
 
       const result = await svc.comment('user-1', makeDto());
-      // parseModelOutput пускает raw в comment, если JSON.parse упал.
-      expect(result.comment).toBe('просто текстовый ответ');
-      expect(result.highlights).toEqual([]);
-      expect(result.arrows).toEqual([]);
+      // KS-3690 / ADR-108b §9 Q1: при не-JSON ответе в HTTP 200 parser
+      // возвращает пустой шейп (state=error на фронте), сырой текст
+      // модели наружу не утекает. См. шапку
+      // `position-comment/parse-model-output.ts`.
+      expect(result).toEqual({ comment: '', highlights: [], arrows: [] });
     });
   });
 
