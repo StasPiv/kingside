@@ -64,6 +64,7 @@ export function LocalBotGamePage() {
   const [result, setResult] = useState<GameResult | null>(null);
   const [selected, setSelected] = useState<Square | null>(null);
   const [botThinking, setBotThinking] = useState(false);
+  const [botError, setBotError] = useState<string | null>(null);
   const [resetSeq, setResetSeq] = useState(0);
 
   // useBotEngine принимает gameId только для логов; для локальной
@@ -122,10 +123,9 @@ export function LocalBotGamePage() {
         if (next.isGameOver()) finalize(next);
       } catch (e) {
         if (!cancelled) {
-          sendClientLog(
-            'error',
-            `[local-bot] engine error: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          const msg = e instanceof Error ? e.message : String(e);
+          sendClientLog('error', `[local-bot] engine error: ${msg}`);
+          setBotError(msg);
         }
       } finally {
         if (!cancelled) setBotThinking(false);
@@ -199,6 +199,7 @@ export function LocalBotGamePage() {
     setStatus('playing');
     setResult(null);
     setSelected(null);
+    setBotError(null);
     setResetSeq((s) => s + 1);
   }, []);
 
@@ -246,6 +247,18 @@ export function LocalBotGamePage() {
           <span className="player-name">{t('game.you', 'You')}</span>
         </div>
 
+        {botError && (
+          <div
+            className="local-bot-error"
+            data-testid="local-bot-error"
+            style={{ marginTop: 12, color: '#ef4444' }}
+            role="alert"
+          >
+            {t('game.botEngineError', 'Bot engine could not start: {{msg}}', {
+              msg: botError,
+            })}
+          </div>
+        )}
         <div
           className="local-bot-status"
           data-testid="local-bot-status"

@@ -45,7 +45,15 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
     if (!isActive || botLevel == null) return;
     sendClientLog('info', `[bot] worker start: game=${gameId?.slice(0, 8)} level=${botLevel}`);
 
-    const worker = new Worker('/stockfish/stockfish-18-single.js');
+    // KS-4147: `/stockfish/stockfish-18-single.js` больше не выкладывается
+    // на S3 (см. useStockfish.ts комментарий — Single-thread fallback
+    // снят, lite требует COOP/COEP, которые уже включены на CloudFront).
+    // Старый путь приводил к зависанию: Worker создавался, но `uciok`
+    // не приходил, getBotMove ждал 10с readyTimeout → промис
+    // отклонялся, в LocalBotGamePage оставалось «Bot is thinking…».
+    // Используем lite-воркер — тот же файл, что и в /analysis,
+    // /game-review и других местах.
+    const worker = new Worker('/stockfish/stockfish-18-lite.js');
     workerRef.current = worker;
     readyRef.current = false;
 
