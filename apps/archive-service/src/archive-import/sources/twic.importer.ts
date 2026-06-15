@@ -11,6 +11,15 @@ import {
 import { filterAlreadyImported } from '../dedup';
 import { ArchiveImportMetricsService } from '../archive-import-metrics.service';
 import { isPrismaTransientNetworkError, retryWithBackoff } from '../retry';
+// KS-4205 / ADR-128 §10 #11 §7.3.7. Mutation hook на запись партии
+// в архив (постановка `{kind:'archive-game', id}` в SQS). Завёрнут
+// в env-флаг `ARCHIVE_PRERENDER_ENABLED` — TWIC weekly даёт ~7K
+// сообщений за один tick, без policy-фильтра (#13) флудить SQS не
+// стоит. Включится после реализации фильтра.
+import {
+  createPrerenderClient,
+  type PrerenderClient,
+} from '@kingside/shared/dist/prerender-client';
 
 const DEFAULT_BUCKET = 'master';
 
@@ -119,6 +128,12 @@ export interface ArchiveSourceRow {
  */
 export class TwicImporter {
   private readonly logger = new Logger(TwicImporter.name);
+  /**
+   * KS-4205. SQS-постановщик задач prerender — `null` если флаг
+   * `ARCHIVE_PRERENDER_ENABLED` не выставлен в `true` (default) или
+   * `PRERENDER_SQS_QUEUE_URL` не задан. На дефолте hook — no-op.
+   */
+  private readonly prerender: PrerenderClient | null;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -126,7 +141,42 @@ export class TwicImporter {
     private readonly positionWriter: ArchivePositionWriterService | null,
     private readonly indexer: PositionIndexerService,
     private readonly metrics: ArchiveImportMetricsService,
-  ) {}
+    /**
+     * KS-4205. Опционально — клиент prerender, для тестов. Если не
+     * передан, читаем env'ы и решаем сами (default — null = no-op).
+     */
+    prerender?: PrerenderClient | null,
+  ) {
+    if (prerender !== undefined) {
+      this.prerender = prerender;
+    } else {
+      this.prerender = TwicImporter.tryCreatePrerenderClient(this.logger);
+    }
+  }
+
+  private static tryCreatePrerenderClient(
+    logger: Logger,
+  ): PrerenderClient | null {
+    const enabled = (process.env.ARCHIVE_PRERENDER_ENABLED ?? '').toLowerCase();
+    if (enabled !== 'true' && enabled !== '1') {
+      logger.log(
+        '[twic] ARCHIVE_PRERENDER_ENABLED is not true — prerender enqueue disabled',
+      );
+      return null;
+    }
+    const queueUrl = process.env.PRERENDER_SQS_QUEUE_URL;
+    if (!queueUrl || !queueUrl.trim()) {
+      logger.warn(
+        '[twic] ARCHIVE_PRERENDER_ENABLED=true но PRERENDER_SQS_QUEUE_URL не задан — prerender enqueue disabled',
+      );
+      return null;
+    }
+    const region = process.env.AWS_REGION?.trim() || 'eu-central-1';
+    logger.log(
+      `[twic] prerender enqueue enabled — queueUrl=${queueUrl} region=${region}`,
+    );
+    return createPrerenderClient({ queueUrl, region });
+  }
 
   /** Формирует URL для указанного номера выпуска. */
   private static urlFor(issue: number): string {
@@ -525,6 +575,16 @@ export class TwicImporter {
             );
             added++;
             chunkAddedGames.push(game);
+            // KS-4205 / ADR-128 §10 #11 §7.3.7. Постановка prerender
+            // для карточки `/archive/games/:id`. Завёрнуто в env-флаг
+            // (см. tryCreatePrerenderClient), policy-фильтр (#13) ещё
+            // не реализован — без флага hook молчит.
+            if (this.prerender) {
+              void this.prerender.enqueueFireAndForget({
+                kind: 'archive-game',
+                id: created.id,
+              });
+            }
             // KS-1626: метрики классификации.
             this.metrics.archiveGamesByCategoryTotal.inc({
               source: this.source.code,
