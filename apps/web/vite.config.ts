@@ -268,7 +268,24 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-dom/client', 'react-router-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+    // KS-4289: `onnxruntime-web` добавлен явно. Без include Vite
+    // обнаруживает зависимость лениво — в момент, когда `maia.worker.ts`
+    // запрашивает её через `import * as ort from 'onnxruntime-web'`.
+    // Параллельно Vite уходит в optimizeDeps-пересборку и прерывает
+    // открытый запрос воркера с `net::ERR_ABORTED`. Воркер падает
+    // на module-load без отправки `ready`/`error`, главный поток
+    // зависает в `ensureReady`, и колонка MAIA% остаётся `(--)`.
+    // С `include` Vite пре-бандлит зависимость на старте dev-сервера,
+    // воркер получает готовый файл первым же запросом.
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react-router-dom',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'onnxruntime-web',
+    ],
     force: false,
   },
   envDir: path.resolve(__dirname, '../..'),

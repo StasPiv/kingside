@@ -29,6 +29,18 @@ import {
 } from '@kingside/maia-core/browser';
 
 const DEFAULT_MODEL_URL = '/maia3/maia3_simplified.onnx';
+/**
+ * KS-4289: тайм-аут `init`-фазы воркера. Если воркер не присылает
+ * `ready` за это время — считаем, что он молча умер (типичный сценарий
+ * dev-режима: Vite optimizeDeps прерывает запрос модуля воркера с
+ * `ERR_ABORTED`, воркер падает на `import 'onnxruntime-web'` и не
+ * посылает ни `ready`, ни `error`). Без таймаута `ensureReady`-промис
+ * висит навечно, хук остаётся в `status='loading'`, колонка MAIA%
+ * показывает `(--)` бесконечно. С таймаутом — переключаемся в
+ * `status='error'`, UI отрисует placeholder, пользователь увидит
+ * проблему.
+ */
+const WORKER_INIT_TIMEOUT_MS = 15_000;
 
 interface PendingInference {
   resolve: (value: {
@@ -76,9 +88,29 @@ export class MaiaWorkerEngine {
   ensureReady(): Promise<void> {
     if (this.readyPromise) return this.readyPromise;
 
-    this.readyPromise = new Promise<void>((resolve, reject) => {
+    // KS-4289: оборачиваем в локальную переменную и сразу подключаем
+    // `.then(undefined, …)` в той же синхронной операции, чтобы не было
+    // окна, в которое Node может пометить промис как unhandled
+    // rejection (актуально для теста таймаута, где reject летит из
+    // setTimeout до того, как catch успеет привязаться через несколько
+    // microtask hop'ов).
+    const initPromise = new Promise<void>((resolve, reject) => {
       const worker = this.createWorker();
       this.worker = worker;
+
+      // KS-4289: страховка от молчаливой смерти воркера. Если
+      // module-load воркера упал из-за прерванного запроса
+      // (`net::ERR_ABORTED` от Vite optimizeDeps), event 'error' на
+      // worker'е не всегда срабатывает — воркер просто закрывается.
+      // Без таймаута readyPromise висит навсегда, состояние хука
+      // useMaiaAnalysis остаётся в 'loading'.
+      const initTimeout = setTimeout(() => {
+        reject(
+          new Error(
+            `Maia worker init timeout after ${WORKER_INIT_TIMEOUT_MS}ms`,
+          ),
+        );
+      }, WORKER_INIT_TIMEOUT_MS);
 
       const onMessage = (event: MessageEvent) => {
         const msg = event.data as
@@ -87,6 +119,7 @@ export class MaiaWorkerEngine {
           | { type: 'error'; id?: number; message: string };
 
         if (msg.type === 'ready') {
+          clearTimeout(initTimeout);
           resolve();
           return;
         }
@@ -109,12 +142,14 @@ export class MaiaWorkerEngine {
               pending.reject(new Error(msg.message));
             }
           } else {
+            clearTimeout(initTimeout);
             reject(new Error(msg.message));
           }
         }
       };
 
       const onError = (err: ErrorEvent) => {
+        clearTimeout(initTimeout);
         reject(new Error(err.message || 'Maia worker crashed'));
       };
 
@@ -122,7 +157,16 @@ export class MaiaWorkerEngine {
       worker.addEventListener('error', onError);
 
       worker.postMessage({ type: 'init', modelUrl: this.modelUrl });
-    }).catch((err) => {
+    });
+    // KS-4289: ставим «поглотитель» на исходный promise. Без него, при
+    // отклонении из setTimeout, Node/Vitest успевают зафиксировать
+    // unhandled rejection до того, как microtask-цепочка `.then` ниже
+    // подключит свой обработчик — даже несмотря на то, что обе подписки
+    // создаются синхронно. Поглотитель ничего не делает, но снимает
+    // флаг unhandled на исходном promise; реальная обработка ошибки —
+    // в `this.readyPromise = initPromise.then(...)` ниже.
+    initPromise.catch(() => {});
+    this.readyPromise = initPromise.then(undefined, (err) => {
       // Если init упал, обнуляем promise — следующий вызов попробует заново.
       this.readyPromise = null;
       this.terminate();
