@@ -34,6 +34,7 @@ import type {
 import { MemoChessboard } from '../MemoChessboard';
 import { PromotionPicker } from '../PromotionPicker';
 import { HelpButton } from '../HelpButton';
+import { GameResultSheet } from './GameResultSheet';
 import { useBoardSettings } from '../../hooks/useBoardSettings';
 import { useBoardHighlights } from '../../hooks/useBoardHighlights';
 import { useResponsiveBoardSize } from '../../hooks/useResponsiveBoardSize';
@@ -833,6 +834,67 @@ export function GameShell(props: GameShellProps) {
           </div>
         )}
       </div>
+
+      {/* KS-4288 / ADR-134 §1: bottom-sheet результата на mobile.
+          Рендерим параллельно с модальным окном при `status === 'finished'`;
+          видимость разделена CSS: на `max-width: 899px` модальное
+          окно и встроенный `.game-result` скрыты, sheet виден; на
+          desktop — наоборот. Источник набора действий
+          (`renderResultActions`) общий — кнопки не дублируются.
+          Свёрнутая полоска временно живёт отдельно — после KS-4289
+          её место переедет внутрь нижней панели действий. */}
+      {status === 'finished' && result && (
+        <div className="game-result-sheet-wrapper" aria-hidden={!showResultModal}>
+          <GameResultSheet
+            outcome={
+              result === 'draw'
+                ? 'draw'
+                : (result === 'white' && playerColor === 'white') ||
+                    (result === 'black' && playerColor === 'black')
+                  ? 'win'
+                  : 'loss'
+            }
+            title={
+              result === 'draw'
+                ? t('game.draw')
+                : (result === 'white' && playerColor === 'white') ||
+                    (result === 'black' && playerColor === 'black')
+                  ? t('gameResult.victory')
+                  : t('gameResult.defeat')
+            }
+            detail={
+              result === 'draw'
+                ? t('game.draw')
+                : result === 'white'
+                  ? t('game.whiteWins')
+                  : t('game.blackWins')
+            }
+            ratingBlock={
+              ratingChange ? (
+                <div className="rating-change-display">
+                  <span className="rating-before">{playerRatingBefore}</span>
+                  <span className="rating-arrow">&rarr;</span>
+                  <span className="rating-after">{playerRatingAfter}</span>
+                  <span
+                    className={`rating-diff ${
+                      ratingDiff! > 0
+                        ? 'positive'
+                        : ratingDiff! < 0
+                          ? 'negative'
+                          : ''
+                    }`}
+                  >
+                    {ratingDiff! > 0 ? '+' : ''}
+                    {ratingDiff}
+                  </span>
+                </div>
+              ) : null
+            }
+            actions={renderResultActions('modal')}
+            onCloseOverlay={onCloseResultModal}
+          />
+        </div>
+      )}
 
       {showResultModal && status === 'finished' && result && (
         <div

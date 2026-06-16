@@ -658,6 +658,153 @@ body:has(.game-page),
   align-items: stretch;
 }
 
+/* KS-4288 / ADR-134 §1: bottom-sheet результата партии на mobile.
+   На desktop wrapper скрыт через `display: none` (см. правило ниже без
+   media-query). На `max-width: 899px` правило перекрывается значением
+   `display: contents`, плюс там же скрываются конкурирующие UI
+   результата — модальное окно `.game-result-modal-overlay` и
+   встроенный блок `.game-result` в `.game-sidebar`. Десктоп ≥900px
+   получает только модальное окно как раньше. */
+.game-result-sheet-wrapper {
+  display: none;
+}
+
+.game-result-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--ov-black-60);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: game-result-sheet-fade 180ms ease-out;
+}
+
+.game-result-sheet {
+  width: 100%;
+  max-width: 560px;
+  background: var(--c-1e2a4a);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 32px var(--ov-black-50);
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: game-result-sheet-slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 120ms ease-out;
+  will-change: transform;
+}
+
+@keyframes game-result-sheet-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes game-result-sheet-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.game-result-sheet__handle-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 10px 0 6px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.game-result-sheet__handle {
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-a0a0c0);
+  opacity: 0.6;
+}
+
+.game-result-sheet__header {
+  text-align: center;
+  padding: 0 8px;
+}
+
+.game-result-sheet__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--c-fff);
+}
+
+.game-result-sheet--win .game-result-sheet__title {
+  color: var(--c-22c55e);
+}
+
+.game-result-sheet--loss .game-result-sheet__title {
+  color: var(--c-ef4444);
+}
+
+.game-result-sheet--draw .game-result-sheet__title {
+  color: var(--c-7c83ff);
+}
+
+.game-result-sheet__detail {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--c-a0a0c0);
+}
+
+.game-result-sheet__rating {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+}
+
+.game-result-sheet__actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.game-result-sheet__actions > * {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (min-width: 414px) {
+  /* На устройствах от iPhone 11 и шире — четыре кнопки в ряд, если
+     помещаются (см. ADR-134 §1). При 4+ элементах CSS-grid сам
+     перенесёт лишние во второй ряд. */
+  .game-result-sheet__actions {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.game-result-pill {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 1999;
+  padding: 10px 20px;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
+  border: none;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 6px 16px var(--ov-black-50);
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Analysis page rating rows */
 .analysis-ratings {
   display: flex;
@@ -909,6 +1056,23 @@ body:has(.game-page),
 
   .player-info {
     max-width: 100%;
+  }
+
+  /* KS-4288 / ADR-134 §1: на mobile единственный UI результата — это
+     bottom-sheet. Прячем модальное окно и встроенный блок результата
+     в боковой панели; wrapper sheet'а переключаем с `display: none` на
+     `display: contents`, чтобы дочерний overlay/pill могли позиционировать
+     `position: fixed` от viewport. */
+  .game-result-modal-overlay {
+    display: none;
+  }
+
+  .game-sidebar .game-result {
+    display: none;
+  }
+
+  .game-result-sheet-wrapper {
+    display: contents;
   }
 }
 
