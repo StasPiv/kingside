@@ -996,19 +996,12 @@ body:has(.game-page),
   color: var(--c-a0a0c0);
 }
 
-/* KS-4298: тонкая строка с последним ходом над верхним player-bar
-   на мобильной ширине. Стиль chess.com: мелкий приглушённый текст
-   без подложки/рамки. По умолчанию скрыта (desktop ≥900px), в @media
-   `max-width: 899px` включается как блочный элемент. */
-.game-last-move-line {
-  display: none;
-}
-
-/* KS-4291 / ADR-134 §3: компактная горизонтальная полоска ходов под
-   доской на mobile. По умолчанию (desktop ≥900px) скрыта; включается
-   в @media `max-width: 899px`. На desktop пользователь продолжает
-   видеть полную `.move-list` в `.game-sidebar`. Высота — 32px, без
-   фона/border, с горизонтальным скроллом без видимого scrollbar'а. */
+/* KS-4291 / KS-4302: компактная горизонтальная лента всех ходов
+   партии над верхним player-bar на mobile (стиль chess.com).
+   По умолчанию (desktop ≥900px) скрыта — на десктопе используется
+   полная вертикальная `.move-list` в `.game-sidebar`. Включается
+   в @media `max-width: 899px`. Высота — 32px, без фона/рамки,
+   с горизонтальным скроллом без видимого scrollbar'а. */
 .game-move-strip {
   display: none;
 }
@@ -1366,15 +1359,14 @@ body:has(.game-page),
     flex-direction: column;
     flex-wrap: nowrap;
     align-items: center;
-    /* KS-4299: центрируем содержимое по вертикали — на портретных
-       телефонах доска квадратная и ограничена шириной экрана, после
-       чего над и под ней неизбежно остаётся свободное место. Раньше
-       (`flex-start`) всё пустое место копилось под нижним player-bar
-       — пользователь видел доску прижатой к шапке, а ниже — большое
-       «пустое пространство». Сейчас доска оказывается по центру
-       свободной области между шапкой и панелью действий, симметрично
-       сверху и снизу. */
-    justify-content: center;
+    /* KS-4302: прижимаем содержимое к нижней панели действий
+       (`flex-end`). На портретных телефонах доска квадратная и
+       ограничена шириной экрана, лишняя вертикаль неизбежна — её
+       уводим НАД лентой ходов (между шапкой и `.game-move-strip`),
+       чтобы зазор между нижним player-bar и `.game-action-bar` был
+       минимальным (≤8 px по критерию приёмки). Так выглядит mobile
+       chess.com / lichess. */
+    justify-content: flex-end;
     /* KS-4299: единый малый зазор между блоками страницы. Сайдбар
        полностью убран из потока (`display: none` ниже), панель
        действий прижата к низу через `position: fixed` — зазор влияет
@@ -1384,7 +1376,7 @@ body:has(.game-page),
        экрана. Снизу резервируем место под `position: fixed`
        `.game-action-bar` (56px + safe-area) плюс 8px на «дыхание»,
        чтобы нижний player-bar не подъезжал к самой кнопке. Сверху
-       8px — отступ под `.game-last-move-line`. */
+       8px — отступ под `.game-move-strip` (KS-4302). */
     padding: 8px 0 calc(64px + env(safe-area-inset-bottom, 0px));
     overflow-y: auto;
     height: auto;
@@ -1569,9 +1561,10 @@ body:has(.game-page),
     white-space: nowrap;
   }
 
-  /* KS-4298: `<GameMoveStrip>` больше не рендерится в `GameShell`.
-     Правило `display: flex` оставлено на случай, что компонент
-     переиспользуется в других сценариях; по умолчанию рендера нет. */
+  /* KS-4291 / KS-4302: лента всех ходов партии над верхним player-
+     bar (стиль chess.com). Видна только на mobile. Горизонтальный
+     скролл без видимой полосы, текущий ход подсвечен (`.current`),
+     автопрокрутка к новому ходу — в `GameMoveStrip.tsx`. */
   .game-move-strip {
     display: flex;
     flex-direction: row;
@@ -1588,20 +1581,6 @@ body:has(.game-page),
 
   .game-move-strip::-webkit-scrollbar {
     display: none;
-  }
-
-  /* KS-4298: тонкая строка «последний ход» над `.opponent-info`. */
-  .game-last-move-line {
-    display: block;
-    width: 100%;
-    max-width: 560px;
-    margin: 0 auto;
-    padding: 0 4px;
-    font-size: 12px;
-    line-height: 16px;
-    color: var(--c-a0a0c0);
-    text-align: left;
-    font-variant-numeric: tabular-nums;
   }
 
   .game-action-bar {
@@ -1788,9 +1767,10 @@ body:has(.game-page),
     align-self: start;
   }
 
-  /* KS-4298: тонкая строка с последним ходом в landscape избыточна
-     (вертикали мало, доска уже сжата). Прячем. */
-  .game-last-move-line {
+  /* KS-4302: лента ходов в landscape избыточна (вертикали мало,
+     доска уже сжата, action-bar справа). Прячем — список ходов в
+     landscape не показываем. */
+  .game-move-strip {
     display: none;
   }
 

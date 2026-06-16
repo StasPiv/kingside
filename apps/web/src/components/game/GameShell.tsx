@@ -39,6 +39,7 @@ import { GameActionBar } from './GameActionBar';
 import { GameWaitingOverlay } from './GameWaitingOverlay';
 import { GameChatSheet } from './GameChatSheet';
 import { GameChatToast } from './GameChatToast';
+import { GameMoveStrip } from './GameMoveStrip';
 import { useBoardSettings } from '../../hooks/useBoardSettings';
 import { useBoardHighlights } from '../../hooks/useBoardHighlights';
 import { useResponsiveBoardSize } from '../../hooks/useResponsiveBoardSize';
@@ -388,10 +389,10 @@ export function GameShell(props: GameShellProps) {
     // desktop ≥900px компонент CSS-правилом скрыт, и `calculateBoardSize`
     // игнорирует `hasActionBar` (см. `isMobile && options.hasActionBar`).
     hasActionBar: true,
-    // KS-4298: вместо полоски ходов (KS-4291) над opponent-info
-    // отображается тонкая строка с последним ходом (~20px). Учитываем
-    // её в расчёте доски на mobile; на desktop игнорируется.
-    hasLastMoveLine: true,
+    // KS-4302: лента всех ходов (`<GameMoveStrip>`) над верхним
+    // player-bar — заменяет тонкую строку «последний ход» из KS-4298.
+    // Высота ленты ≈32 px учитывается через `hasMoveStrip` (KS-4291).
+    hasMoveStrip: true,
   });
   const [chatInput, setChatInput] = useState('');
   const [pendingPromotion, setPendingPromotion] = useState<
@@ -772,27 +773,15 @@ export function GameShell(props: GameShellProps) {
           </div>
         )}
 
-        {/* KS-4298: тонкая строка с последним ходом в нотации над
-            opponent-info (стиль chess.com). Видна только на mobile
-            (CSS: `.game-last-move-line` `display: none` по умолчанию,
-            `display: block` в @media `max-width: 899px`). Формат
-            «1. e4» / «1... c5» — последний полу-ход. Если ходов нет,
-            строка не рендерится, чтобы не оставлять пустую высоту. */}
-        {moves.length > 0 && (
-          <div
-            className="game-last-move-line"
-            data-testid="game-last-move-line"
-            aria-live="polite"
-          >
-            {(() => {
-              const idx = moves.length - 1;
-              const isWhite = idx % 2 === 0;
-              const num = Math.floor(idx / 2) + 1;
-              const prefix = isWhite ? `${num}.` : `${num}…`;
-              return `${prefix} ${moves[idx]}`;
-            })()}
-          </div>
-        )}
+        {/* KS-4302: полноценная горизонтальная лента ходов над
+            opponent-info (стиль chess.com). Заменяет тонкую строку
+            «последний ход» из KS-4298 — теперь видны все ходы партии,
+            текущий подсвечен, автопрокрутка к новому. Видна только на
+            mobile (CSS-правило `.game-move-strip` `display: none` по
+            умолчанию, `display: flex` в @media `max-width: 899px`).
+            До первого хода лента не отрисована — пустую высоту не
+            резервирует. */}
+        {moves.length > 0 && <GameMoveStrip moves={moves} />}
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
           <span className="player-name">

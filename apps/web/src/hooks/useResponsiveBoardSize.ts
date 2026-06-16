@@ -34,14 +34,15 @@ const BOARD_AREA_GAP = 12; // 2 × 6px gaps between player-info and board
 // держим синхронно.
 const GAME_PAGE_GAP_MOBILE = 8;
 // KS-4299: было 200 — резервировалось под `.game-sidebar` (move-list /
-// actions / chat) под доской на mobile. После KS-4290..4298 содержимое
-// сайдбара на ≤899px полностью скрыто CSS: move-list заменена строкой
-// «последний ход» (учитывается отдельно через `hasLastMoveLine`), actions
-// переехали в `.game-action-bar` (учитываются через `hasActionBar`), chat
-// — в `<GameChatSheet>` (position: fixed, в потоке высоту не занимает).
-// Резерв 200px превращался в пустой блок под нижним player-bar и не давал
-// доске занять доступную высоту. Сейчас 0 — реальные блоки под доской
-// учитываются отдельными опциями.
+// actions / chat) под доской на mobile. После KS-4290..4302 содержимое
+// сайдбара на ≤899px полностью скрыто CSS: вертикальная move-list
+// заменена горизонтальной лентой `<GameMoveStrip>` над верхним player-
+// bar (учитывается отдельно через `hasMoveStrip`), actions переехали
+// в `.game-action-bar` (учитываются через `hasActionBar`), chat —
+// в `<GameChatSheet>` (position: fixed, в потоке высоту не занимает).
+// Резерв 200px превращался в пустой блок под нижним player-bar и не
+// давал доске занять доступную высоту. Сейчас 0 — реальные блоки под
+// доской учитываются отдельными опциями.
 const SIDEBAR_MIN_HEIGHT_MOBILE = 0;
 // KS-4257: bot-banner — реально занимает ~28px (padding 4+4 + font 12*1.35 + border
 // 2) плюс gap 6 над ним. Округляем до 34, чтобы запас был и на bookmark-bar.
