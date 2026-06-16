@@ -12,10 +12,11 @@ import { ConfigModule } from '@nestjs/config';
 import { SitemapService } from './sitemap.service';
 import { SitemapScheduler } from './sitemap.scheduler';
 import { SitemapController } from './sitemap.controller';
+import { SitemapAdminController } from './sitemap-admin.controller';
 
 @Module({
   imports: [ConfigModule],
-  controllers: [SitemapController],
+  controllers: [SitemapController, SitemapAdminController],
   providers: [SitemapService, SitemapScheduler],
   exports: [SitemapService],
 })
