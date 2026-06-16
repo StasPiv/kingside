@@ -181,8 +181,9 @@ export class SitemapService {
 
   async generatePlayersXml(): Promise<string> {
     // Top-1000 по рейтингу blitz (как доминирующий категории). Гостям
-    // публичная страница `/players/:username` показывает профиль —
-    // имеет смысл индексировать только верх лидерборда.
+    // публичная страница `/player/:username` показывает профиль
+    // (KS-4232: единственное число, в соответствии с frontend
+    // canonical) — имеет смысл индексировать только верх лидерборда.
     const rows = await this.prisma.user.findMany({
       where: {
         username: { not: null },
@@ -198,7 +199,7 @@ export class SitemapService {
     const entries: SitemapUrlEntry[] = rows
       .filter((r): r is { username: string; lastSeenAt: Date } => !!r.username)
       .map((r) => ({
-        loc: `${base}/players/${encodeURIComponent(r.username)}`,
+        loc: `${base}/player/${encodeURIComponent(r.username)}`,
         lastmod: r.lastSeenAt,
         changefreq: 'weekly',
         priority: 0.5,
@@ -223,7 +224,7 @@ export class SitemapService {
     )) ?? [];
     const base = this.baseUrl();
     const entries: SitemapUrlEntry[] = rows.map((r) => ({
-      loc: `${base}/coaches/${encodeURIComponent(r.username)}`,
+      loc: `${base}/coach/${encodeURIComponent(r.username)}`,
       lastmod: r.lastSeenAt,
       changefreq: 'weekly',
       priority: 0.6,

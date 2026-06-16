@@ -38,11 +38,11 @@ describe('resolvePrerenderRoute', () => {
     });
   });
 
-  it('coach', () => {
+  it('coach (KS-4232: single /coach/, не /coaches/)', () => {
     expect(
       resolvePrerenderRoute({ kind: 'coach', username: 'alice' }, base),
     ).toEqual({
-      url: 'https://kingside.site/coaches/alice',
+      url: 'https://kingside.site/coach/alice',
       s3Key: 'coach/alice.html',
     });
   });
@@ -56,12 +56,12 @@ describe('resolvePrerenderRoute', () => {
     });
   });
 
-  it('player', () => {
+  it('player (KS-4232: single /player/, не /players/)', () => {
     expect(
       resolvePrerenderRoute({ kind: 'player', username: 'bob' }, base),
     ).toEqual({
-      url: 'https://kingside.site/players/bob',
-      s3Key: 'players/bob.html',
+      url: 'https://kingside.site/player/bob',
+      s3Key: 'player/bob.html',
     });
   });
 

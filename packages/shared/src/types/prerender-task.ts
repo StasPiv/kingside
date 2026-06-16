@@ -73,8 +73,14 @@ export function resolvePrerenderRoute(
         s3Key: `tournaments/${task.id}.html`,
       };
     case 'coach':
+      // KS-4232. Frontend canonical (`CoachProfilePage`, KS-4231)
+      // использует единственное число `/coach/:username`; CloudFront
+      // behavior настроен на `/coach/*` → S3-ключ `coach/<u>.html`.
+      // До фикса resolver писал URL `/coaches/...` (множественное),
+      // воркер рендерил несуществующий роут фронта и клал в S3 пустой
+      // SPA-shell.
       return {
-        url: `${base}/coaches/${task.username}`,
+        url: `${base}/coach/${task.username}`,
         s3Key: `coach/${task.username}.html`,
       };
     case 'lecture':
@@ -83,9 +89,14 @@ export function resolvePrerenderRoute(
         s3Key: `lectures/${task.id}.html`,
       };
     case 'player':
+      // KS-4232. Frontend canonical (`PlayerProfilePage`) использует
+      // единственное число `/player/:username`; CloudFront behavior
+      // настроен на `/player/*` → S3-ключ `player/<u>.html` (KS-4225).
+      // До фикса resolver писал в `players/` (множественное), и CDN
+      // не находил файл — отдавался SPA-fallback.
       return {
-        url: `${base}/players/${task.username}`,
-        s3Key: `players/${task.username}.html`,
+        url: `${base}/player/${task.username}`,
+        s3Key: `player/${task.username}.html`,
       };
     case 'archive-game':
       return {

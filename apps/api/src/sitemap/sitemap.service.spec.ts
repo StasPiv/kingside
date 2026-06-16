@@ -115,8 +115,8 @@ describe('SitemapService.generatePlayersXml', () => {
       { username: 'bob', lastSeenAt: new Date('2026-06-13T00:00:00Z') },
     ]);
     const xml = await service.generatePlayersXml();
-    expect(xml).toContain('/players/alice');
-    expect(xml).toContain('/players/bob');
+    expect(xml).toContain('/player/alice');
+    expect(xml).toContain('/player/bob');
     // null-username не попадает.
     expect(xml.match(/<url>/g)?.length).toBe(2);
   });
@@ -127,7 +127,7 @@ describe('SitemapService.generatePlayersXml', () => {
       { username: 'alice space', lastSeenAt: new Date() },
     ]);
     const xml = await service.generatePlayersXml();
-    expect(xml).toContain('/players/alice%20space');
+    expect(xml).toContain('/player/alice%20space');
   });
 });
 
