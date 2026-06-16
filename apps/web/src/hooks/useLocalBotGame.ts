@@ -211,9 +211,45 @@ export function useLocalBotGame(
     let cancelled = false;
     setBotThinking(true);
     (async () => {
-      try {
-        const uci = await getBotMove(chess.fen());
+      // KS-4305: запрашиваем ход бота с повторными попытками, как это
+      // делает резервный (fallback) бот в общем вызове игры —
+      // `GamePage.triggerBotMove` (см. `apps/web/src/pages/GamePage.tsx`).
+      // Первый запрос после старта `useBotEngine` иногда падает на
+      // мобильной сети, пока wasm-Stockfish ещё проходит uci-handshake
+      // и `waitForReady` отдаёт промежуточный таймаут. Одной попытки
+      // не хватало — игра вставала «через раз». Три попытки с
+      // нарастающей задержкой (500 / 1000 мс) совпадают с настройкой
+      // общего вызова и закрывают эту гонку без перемонтирования
+      // компонента.
+      const MAX_ATTEMPTS = 3;
+      let uci: string | null = null;
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         if (cancelled) return;
+        try {
+          uci = await getBotMove(chess.fen());
+          break;
+        } catch (e) {
+          lastErr = e;
+          const msg = e instanceof Error ? e.message : String(e);
+          sendClientLog(
+            'error',
+            `[local-bot] getBotMove attempt ${attempt}/${MAX_ATTEMPTS} failed: ${msg}`,
+          );
+          if (attempt < MAX_ATTEMPTS && !cancelled) {
+            await new Promise((r) => setTimeout(r, 500 * attempt));
+          }
+        }
+      }
+      if (cancelled) return;
+      if (uci === null) {
+        const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+        sendClientLog('error', `[local-bot] engine error after retries: ${msg}`);
+        setBotError(msg);
+        setBotThinking(false);
+        return;
+      }
+      try {
         const from = uci.slice(0, 2) as Square;
         const to = uci.slice(2, 4) as Square;
         const promotion = uci.length >= 5 ? uci[4] : undefined;
