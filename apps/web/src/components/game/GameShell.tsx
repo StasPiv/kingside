@@ -22,7 +22,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -169,6 +169,15 @@ export interface GameShellProps {
    * spacer'ом (например, `/play/local-bot`, где поиска нет).
    */
   onCancelSearch?: () => void;
+  /**
+   * KS-4295 (ADR-134 §9). Коллбэк «Помощь» в меню «⋮ Ещё»
+   * action-bar'а. Если не передан явно, но `showHelpButton=true`,
+   * GameShell генерирует дефолтный обработчик, открывающий тот же
+   * URL, что и старая `<HelpButton section="play">` —
+   * `/features#play`. Передача собственного `onHelp` позволяет
+   * вызывающему открыть, например, контекстный гайд по урокам.
+   */
+  onHelp?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -241,6 +250,7 @@ export function GameShell(props: GameShellProps) {
     mode,
     timeControl,
     onCancelSearch,
+    onHelp,
   } = props;
 
   const { t } = useTranslation();
@@ -359,6 +369,12 @@ export function GameShell(props: GameShellProps) {
   // остаётся и забирает 56px+safe-area внизу — передаём в хук, чтобы
   // он вычел эту высоту из расчёта доски.
   const location = useLocation();
+  const navigate = useNavigate();
+  // KS-4295: если родитель явно не задал `onHelp`, но help-кнопка
+  // включена (`showHelpButton=true`), используем тот же URL, что
+  // и старая desktop-кнопка `<HelpButton section="play">`.
+  const effectiveOnHelp =
+    onHelp ?? (showHelpButton ? () => navigate('/features#play') : undefined);
   const hideMobileBottomBar = location.pathname.startsWith('/game/');
   const boardWidth = useResponsiveBoardSize({
     hasBotBanner,
@@ -1080,6 +1096,7 @@ export function GameShell(props: GameShellProps) {
         onCancelSearch={onCancelSearch}
         onChatClick={chat ? () => setChatSheetOpen(true) : undefined}
         chatUnreadCount={chatUnreadCount}
+        onHelp={effectiveOnHelp}
       />
 
       {/* KS-4293 / ADR-134 §4: нижняя панель чата на mobile. Рендерим

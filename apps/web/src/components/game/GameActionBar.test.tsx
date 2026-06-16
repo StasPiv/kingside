@@ -133,6 +133,32 @@ describe('KS-4290 / ADR-134 §2: GameActionBar', () => {
         screen.queryByTestId('game-action-bar-lobby'),
       ).not.toBeInTheDocument();
     });
+
+    it('KS-4295: пункт «Помощь» виден при onHelp, скрыт без него', async () => {
+      const onHelp = vi.fn();
+      const { rerender } = renderWithProviders(
+        <GameActionBar {...defaults} onHelp={onHelp} />,
+      );
+      await userEvent.click(screen.getByTestId('game-action-bar-more'));
+      expect(screen.getByTestId('game-action-bar-help')).toBeInTheDocument();
+      // Без onHelp пункт отсутствует.
+      rerender(<GameActionBar {...defaults} onHelp={undefined} />);
+      await userEvent.click(screen.getByTestId('game-action-bar-more'));
+      expect(
+        screen.queryByTestId('game-action-bar-help'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('KS-4295: клик по «Помощь» вызывает onHelp и закрывает меню', async () => {
+      const onHelp = vi.fn();
+      renderWithProviders(<GameActionBar {...defaults} onHelp={onHelp} />);
+      await userEvent.click(screen.getByTestId('game-action-bar-more'));
+      await userEvent.click(screen.getByTestId('game-action-bar-help'));
+      expect(onHelp).toHaveBeenCalledTimes(1);
+      expect(
+        screen.queryByTestId('game-action-bar-more-menu'),
+      ).not.toBeInTheDocument();
+    });
   });
 
   describe('KS-4294: двухтаповое подтверждение «Сдаться»', () => {

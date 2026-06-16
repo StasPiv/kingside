@@ -1469,6 +1469,14 @@ body:has(.game-page),
     display: none;
   }
 
+  /* KS-4295 / ADR-134 §9: настольная fixed `.help-btn` (?-кружок
+     справа сверху) на mobile скрывается — её место занимает пункт
+     «Помощь» в меню «⋮ Ещё» внутри `<GameActionBar>`. */
+  .help-btn,
+  .game-page > .help-btn {
+    display: none;
+  }
+
   .game-chat-sheet-overlay {
     display: flex;
     position: fixed;

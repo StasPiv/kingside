@@ -56,6 +56,12 @@ export interface GameActionBarProps {
   /** Возврат в лобби — пункт меню «Ещё». */
   onBackToLobby?: () => void;
   /**
+   * KS-4295 (ADR-134 §9). Пункт «Помощь» в меню «⋮ Ещё». Если не
+   * передан — пункт не рендерится. На mobile это единственный путь
+   * к справке: настольная `.help-btn` скрыта CSS-правилом.
+   */
+  onHelp?: () => void;
+  /**
    * KS-4288 интеграция: pill свёрнутого `<GameResultSheet>`. Если в момент
    * `status='finished'` родитель хочет показать в action-bar полоску
    * «Партия завершена ▲» — он передаёт `resultPillLabel` и
@@ -89,6 +95,7 @@ export function GameActionBar({
   onExpandResult,
   onCancelSearch,
   chatUnreadCount = 0,
+  onHelp,
 }: GameActionBarProps) {
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -278,6 +285,21 @@ export function GameActionBar({
                 {muted ? t('game.unmute', 'Unmute') : t('game.mute', 'Mute')}
               </span>
             </button>
+            {onHelp && (
+              <button
+                type="button"
+                role="menuitem"
+                className="game-action-bar__more-item"
+                data-testid="game-action-bar-help"
+                onClick={() => {
+                  onHelp();
+                  setMoreOpen(false);
+                }}
+              >
+                <span aria-hidden="true">?</span>
+                <span>{t('common.help', 'Help')}</span>
+              </button>
+            )}
             {onBackToLobby && (
               <button
                 type="button"
