@@ -18,12 +18,16 @@
 import {
   Injectable,
   Logger,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type {
   ArchiveGamesByPositionRequest,
   ArchiveGamesByPositionResponse,
 } from '@kingside/shared';
+// KS-4247 / ADR-131 A1. In-process переключение под env-флагом
+// ARCHIVE_USE_LOCAL=true (контракт DTO не меняется).
+import { ArchiveService } from '../archive/archive.service';
 
 /**
  * Дефолт — продовский поддомен archive-service (ADR-018 §2.7).
@@ -45,8 +49,17 @@ const FETCH_TIMEOUT_MS = 10_000;
 export class ArchivePositionProxyService {
   private readonly logger = new Logger(ArchivePositionProxyService.name);
 
+  constructor(@Optional() private readonly archive?: ArchiveService) {}
+
   private get baseUrl(): string {
     return process.env.ARCHIVE_SERVICE_URL ?? ARCHIVE_BASE_URL_DEFAULT;
+  }
+
+  private get useLocal(): boolean {
+    return (
+      (process.env.ARCHIVE_USE_LOCAL ?? '').toLowerCase() === 'true' &&
+      this.archive !== undefined
+    );
   }
 
   /**
@@ -63,6 +76,44 @@ export class ArchivePositionProxyService {
     if (!query.fen || query.fen.trim() === '') {
       // Контракт: fen обязателен. Защита от пустого запроса со стороны фронта.
       throw new ServiceUnavailableException('fen is required');
+    }
+
+    // KS-4247 / ADR-131 A1. In-process путь — без HTTP, прямой вызов
+    // ArchiveService.getGamesByPosition с тем же контрактом DTO.
+    if (this.useLocal && this.archive) {
+      const merged: ArchiveGamesByPositionRequest = {
+        fen: query.fen,
+        bucket: query.bucket ?? 'master',
+        sort: query.sort ?? 'topElo',
+        minElo: query.minElo ?? 2400,
+        timeControlCategory: query.timeControlCategory ?? 'classical',
+        ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
+        ...(query.limit !== undefined ? { limit: query.limit } : {}),
+        ...(query.color !== undefined ? { color: query.color } : {}),
+        ...(query.result !== undefined ? { result: query.result } : {}),
+        ...(query.since !== undefined ? { since: query.since } : {}),
+        ...(query.move !== undefined ? { move: query.move } : {}),
+        ...(query.player !== undefined ? { player: query.player } : {}),
+        ...(query.eco !== undefined ? { eco: query.eco } : {}),
+      };
+      try {
+        const startedAt = Date.now();
+        const body = await this.archive.getGamesByPosition(
+          merged as never,
+        );
+        this.logger.log(
+          `archive-position proxy in-process ${Date.now() - startedAt}ms items=${
+            body.items?.length ?? 0
+          } hasMore=${body.hasMore ?? false}`,
+        );
+        return body;
+      } catch (err: unknown) {
+        const msg = (err as Error).message ?? String(err);
+        this.logger.error(
+          `archive-position in-process call failed: ${msg}`,
+        );
+        throw new ServiceUnavailableException('archive in-process unavailable');
+      }
     }
 
     const merged: ArchiveGamesByPositionRequest = {

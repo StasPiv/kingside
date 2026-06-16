@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { AnalysisController } from './analysis.controller';
 import { AnalysisPublicController } from './analysis-public.controller';
 import { AnalysisService } from './analysis.service';
+// KS-4247 / ADR-131 A1. ArchiveModule даёт ArchiveService для
+// in-process резолва партии по ARCHIVE_USE_LOCAL=true.
+import { ArchiveModule } from '../archive/archive.module';
 import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 
 /**
@@ -21,6 +24,7 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
   defaultAuth: 'optional',
 })
 @Module({
+  imports: [ArchiveModule],
   controllers: [AnalysisController, AnalysisPublicController],
   providers: [AnalysisService],
   // KS-3224 / ADR-075 §7 B4: AnalysisService используется

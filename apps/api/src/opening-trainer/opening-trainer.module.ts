@@ -10,6 +10,9 @@ import { OpeningLineProgressService } from './opening-line-progress.service';
 import { ArchivePositionProxyService } from './archive-position-proxy.service';
 import { DemoRepertoireSeedService } from './demo-repertoire-seed.service';
 import { Sm2Service } from '../lessons/sm2.service';
+// KS-4247 / ADR-131 A1. ArchiveModule даёт ArchiveService для
+// in-process замены HTTP-вызова под ARCHIVE_USE_LOCAL=true.
+import { ArchiveModule } from '../archive/archive.module';
 
 /**
  * KS-3272 (ADR-077). Backend-модуль Opening Trainer'а.
@@ -18,7 +21,7 @@ import { Sm2Service } from '../lessons/sm2.service';
  * `JwtAuthGuard` через @nestjs/passport).
  */
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, ArchiveModule],
   // KS-4130: PublicController объявлен ПЕРВЫМ, чтобы Nest зарегистрировал
   // `GET /opening-trainer/demo` и `POST /opening-trainer/sessions` без
   // конфликта с основным контроллером (тот идёт под class-JwtAuthGuard

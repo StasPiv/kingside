@@ -41,6 +41,9 @@ import { MessageModule } from './message/message.module';
 import { FriendModule } from './friend/friend.module';
 import { NotificationModule } from './notification/notification.module';
 import { ArenaModule } from './arena/arena.module';
+// KS-4247 / ADR-131 A1. Archive HTTP-эндпоинты под /archive/* со
+// своим Prisma-клиентом на @kingside/archive-db.
+import { ArchiveModule } from './archive/archive.module';
 import { AiChatModule } from './ai-chat/ai-chat.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { AdminModule } from './admin/admin.module';
@@ -98,6 +101,7 @@ import { HealthController } from './health.controller';
     PositionalTraceModule,
     PuzzleRushModule,
     ArenaModule,
+    ArchiveModule,
     PuzzleModule,
     PrecisionModule,
     GuessModule,

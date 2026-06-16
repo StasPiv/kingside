@@ -6,9 +6,13 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+// KS-4247 / ADR-131 A1. ArchiveService для in-process резолва партии,
+// под env-флагом ARCHIVE_USE_LOCAL=true.
+import { ArchiveService } from '../archive/archive.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { DuplicateAnnotatedDto } from './dto/duplicate-annotated.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
@@ -30,7 +34,13 @@ interface ResolvedSourceGame {
 export class AnalysisService implements OnModuleInit {
   private readonly logger = new Logger(AnalysisService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // KS-4247 / ADR-131. Опциональная in-process замена HTTP-вызова
+    // к archive-service. Включается env-флагом ARCHIVE_USE_LOCAL=true.
+    // По дефолту undefined → старый HTTP-путь.
+    @Optional() private readonly archive?: ArchiveService,
+  ) {}
 
   // KS-3059: backfill — одноразовая миграция метаданных PGN для старых
   // записей. На каждом холодном старте перебирает stale записи (могут
@@ -307,6 +317,39 @@ export class AnalysisService implements OnModuleInit {
   private async resolveArchiveGameViaHttp(
     archiveGameId: string,
   ): Promise<ResolvedSourceGame | null> {
+    // KS-4247 / ADR-131 A1. In-process путь через ArchiveService под
+    // env-флагом ARCHIVE_USE_LOCAL=true. По дефолту флаг выключен,
+    // вызов идёт по старому HTTP-пути.
+    if (
+      (process.env.ARCHIVE_USE_LOCAL ?? '').toLowerCase() === 'true' &&
+      this.archive
+    ) {
+      try {
+        const game = await this.archive.getGameById(archiveGameId);
+        if (!game?.pgn) {
+          this.logger.warn(
+            `KS-4247: in-process archive game ${archiveGameId} has empty pgn`,
+          );
+          return null;
+        }
+        this.logger.log(
+          `KS-4247 PGN resolved via in-process ArchiveService: archive:${archiveGameId} → pgnLen=${game.pgn.length}`,
+        );
+        return {
+          pgn: game.pgn,
+          white: game.white?.name ?? null,
+          black: game.black?.name ?? null,
+          whiteElo: game.white?.elo ?? null,
+          blackElo: game.black?.elo ?? null,
+          result: game.result ?? null,
+        };
+      } catch (e: unknown) {
+        this.logger.warn(
+          `KS-4247: in-process archive resolve error for ${archiveGameId}: ${(e as Error).message}`,
+        );
+        return null;
+      }
+    }
     try {
       const url = new URL(
         `/games/${encodeURIComponent(archiveGameId)}`,
