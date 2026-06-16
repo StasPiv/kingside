@@ -41,35 +41,10 @@ body:has(.game-page),
   overflow: hidden !important;
 }
 
-/* back-link — pill в левом верхнем углу страницы (fixed относительно
-   viewport, чтобы не зависеть от scroll'а внутреннего контента). */
-.game-page > .back-nav-link {
-  position: fixed;
-  top: 56px;
-  left: 16px;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: auto;
-  flex-basis: auto;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-mid);
-  color: var(--accent-primary, var(--c-7c83ff));
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  max-width: 280px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-}
-
-.game-page > .back-nav-link:hover {
-  background: var(--c-1e2d50);
-  text-decoration: none;
-}
+/* KS-4259: блок `.game-page > .back-nav-link` удалён вместе с
+   рендером ссылки в `GameShell` — обрезанная плашка «← в лобби»
+   перекрывалась основной sidebar навигацией. Возврат в лобби
+   доступен через sidebar / settings dropdown. */
 
 /* HelpButton — fixed в правом верхнем углу. */
 .game-page > .help-btn {
@@ -894,10 +869,8 @@ body:has(.game-page),
     right: 12px;
   }
 
-  .game-page > .back-nav-link {
-    top: 10px;
-    left: 12px;
-  }
+  /* KS-4259: mobile-override `.back-nav-link` удалён вместе с
+     рендером (см. блок выше). */
 
   .game-board-area {
     width: 100%;

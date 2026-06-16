@@ -206,7 +206,10 @@ export function GameShell(props: GameShellProps) {
     homeLink,
     tournamentReturn,
     chat,
-    backLink,
+    // KS-4259: `backLink` остался в GameShellProps для обратной
+    // совместимости вызывающих страниц, но рендера у него больше нет
+    // (см. блок `return` ниже) — основной sidebar навигации достаточно.
+    // Поэтому не деструктурируем сюда.
     showHelpButton = false,
     belowBoardBlock,
     forceStandardPieces = false,
@@ -601,9 +604,12 @@ export function GameShell(props: GameShellProps) {
 
   return (
     <div className="game-page" ref={gamePageRef}>
-      <Link to={backLink.to} className="back-nav-link">
-        &larr; {backLink.label}
-      </Link>
+      {/* KS-4259: убран рендер `.back-nav-link` — обрезанная плашка
+          «← в лобби» в левом верхнем углу перекрывалась основной
+          sidebar навигацией. Возврат в лобби доступен через
+          основной sidebar / settings dropdown. Prop `backLink`
+          оставлен в типах для обратной совместимости вызывающих
+          компонентов (GamePage и др.) — рендер просто опущен. */}
       {showHelpButton && <HelpButton section="play" />}
 
       <div className="game-board-area" ref={boardAreaRef}>
