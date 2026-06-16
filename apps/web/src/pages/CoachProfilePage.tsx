@@ -489,9 +489,33 @@ export function CoachProfilePage() {
     };
   }, [username, t]);
 
+  // KS-4231 / ADR-128 §7.6.1.2 C1. Базовый SeoHelmet, который
+  // рендерится ДО ранних return-ветвей (loading/notFound/error/non-coach).
+  // Без него предварительный генератор пишет snapshot loading-state,
+  // и в head не попадает per-entity title — карточка тренера в S3
+  // выглядит как общая страница. Username берём из useParams (он
+  // доступен сразу), title — короткий i18n-шаблон. Когда данные
+  // загрузятся, основной SeoHelmet ниже перетрёт значения через
+  // дедуп в SeoHelmet'е (см. KS-4211).
+  const fallbackUsername = username ?? '';
+  const fallbackSeo = fallbackUsername ? (
+    <SeoHelmet
+      title={t('seo.coach.profile.title', { username: fallbackUsername })}
+      description={t('seo.coach.profile.descriptionFallback', {
+        username: fallbackUsername,
+        defaultValue:
+          '{{username}} — chess coach on Kingside. Lessons, lectures and rating.',
+      })}
+      canonical={`https://kingside.site/coach/${encodeURIComponent(fallbackUsername)}`}
+      ogType="profile"
+      ogImage="/og/coach.png"
+    />
+  ) : null;
+
   if (loading) {
     return (
       <div className="coach-profile-page">
+        {fallbackSeo}
         <div className="loading">{t('common.loading', 'Loading...')}</div>
       </div>
     );
@@ -502,6 +526,7 @@ export function CoachProfilePage() {
     // куда отправляет PlayerProfilePage в not-found ветке).
     return (
       <div className="coach-profile-page">
+        {fallbackSeo}
         <div className="player-profile-not-found">
           <h2>{t('playerProfile.notFound', 'Player not found')}</h2>
           <Link to="/players" className="players-link">
@@ -515,6 +540,7 @@ export function CoachProfilePage() {
   if (error || !profile) {
     return (
       <div className="coach-profile-page">
+        {fallbackSeo}
         <div className="error">
           {error || t('coachProfile.loadError', 'Failed to load coach profile.')}
         </div>
