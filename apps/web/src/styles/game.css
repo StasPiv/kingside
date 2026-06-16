@@ -805,6 +805,50 @@ body:has(.game-page),
   gap: 8px;
 }
 
+/* KS-4292 / ADR-134 §6: pre-game placeholder поверх доски при
+   `status='waiting'`. По умолчанию (desktop ≥900px) скрыт; включается
+   на mobile в @media `max-width: 899px`. Внутри `.board-container`,
+   `position: absolute; inset: 0` — занимает весь квадрат доски. */
+.game-waiting-overlay {
+  display: none;
+}
+
+.game-waiting-overlay__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 16px;
+  color: var(--c-fff);
+}
+
+.game-waiting-overlay__spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid var(--ov-white-20, rgba(255, 255, 255, 0.2));
+  border-top-color: var(--c-7c83ff);
+  animation: game-waiting-spin 900ms linear infinite;
+}
+
+@keyframes game-waiting-spin {
+  to { transform: rotate(360deg); }
+}
+
+.game-waiting-overlay__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.game-waiting-overlay__subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-a0a0c0);
+}
+
 /* KS-4291 / ADR-134 §3: компактная горизонтальная полоска ходов под
    доской на mobile. По умолчанию (desktop ≥900px) скрыта; включается
    в @media `max-width: 899px`. На desktop пользователь продолжает
@@ -941,6 +985,12 @@ body:has(.game-page),
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* KS-4292: красный вариант pill для «Отменить поиск». Каскадно ниже
+   базового `.game-action-bar__pill`, чтобы перебить фон. */
+.game-action-bar__pill--danger {
+  background: var(--c-ef4444);
 }
 
 /* Analysis page rating rows */
@@ -1226,6 +1276,29 @@ body:has(.game-page),
      под доской. */
   .game-sidebar .move-list {
     display: none;
+  }
+
+  /* KS-4292 / ADR-134 §6: pre-game overlay поверх доски. Включается
+     только если родитель смонтировал компонент (показывается через
+     1.5 с после входа в `status='waiting'`). */
+  .game-waiting-overlay {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    background: var(--ov-black-60);
+    backdrop-filter: blur(2px);
+    z-index: 10;
+    border-radius: inherit;
+  }
+
+  /* Доска под overlay'ем бледнеет. Используем `:has()` где поддержано
+     (Chrome/Safari актуальные); для остальных overlay сам по себе
+     достаточно акцентирует ожидание — доска просто перекрыта
+     полупрозрачным слоем. */
+  .board-container:has(.game-waiting-overlay) > :not(.game-waiting-overlay) {
+    filter: grayscale(0.8) opacity(0.6);
   }
 
   .game-move-strip {

@@ -154,12 +154,30 @@ describe('KS-4290 / ADR-134 §2: GameActionBar', () => {
   });
 
   describe('status="waiting"', () => {
-    it('рендерит контейнер-резерв без действий', () => {
+    it('рендерит контейнер-резерв без действий (без onCancelSearch)', () => {
       renderWithProviders(<GameActionBar {...defaults} status="waiting" />);
       expect(screen.getByTestId('game-action-bar')).toBeInTheDocument();
       expect(
         screen.queryByTestId('game-action-bar-resign'),
       ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('game-action-bar-cancel-search'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('рендерит primary-кнопку «Отменить поиск», если onCancelSearch передан', async () => {
+      const onCancel = vi.fn();
+      renderWithProviders(
+        <GameActionBar
+          {...defaults}
+          status="waiting"
+          onCancelSearch={onCancel}
+        />,
+      );
+      const btn = screen.getByTestId('game-action-bar-cancel-search');
+      expect(btn).toBeInTheDocument();
+      await userEvent.click(btn);
+      expect(onCancel).toHaveBeenCalledTimes(1);
     });
   });
 });

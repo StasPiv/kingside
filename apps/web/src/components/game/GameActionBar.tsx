@@ -58,6 +58,13 @@ export interface GameActionBarProps {
    */
   resultPillLabel?: string;
   onExpandResult?: () => void;
+  /**
+   * KS-4292 (ADR-134 §6). В ветке `status='waiting'` рендерится
+   * primary-кнопка «Отменить поиск». Если коллбэк не передан —
+   * waiting-ветка остаётся пустым spacer'ом (как было заложено в
+   * KS-4290).
+   */
+  onCancelSearch?: () => void;
 }
 
 export function GameActionBar({
@@ -72,6 +79,7 @@ export function GameActionBar({
   onBackToLobby,
   resultPillLabel,
   onExpandResult,
+  onCancelSearch,
 }: GameActionBarProps) {
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -105,17 +113,27 @@ export function GameActionBar({
   }
 
   if (status === 'waiting') {
-    // KS-4290: pre-game пока без действий — место зарезервировано под
-    // KS-4293 «Отменить поиск». Чтобы action-bar не схлопывался по высоте
-    // (доска уже посчитана с учётом GAME_ACTION_BAR_HEIGHT в
-    // useResponsiveBoardSize), рендерим пустой spacer фиксированной
-    // высоты.
+    // KS-4292 / ADR-134 §6: primary-кнопка «Отменить поиск» во всю
+    // ширину. Если коллбэк не передан — остаёмся пустым spacer'ом,
+    // как было заложено в KS-4290 (например, страница `/play/local-bot`,
+    // где «поиска соперника» нет).
     return (
       <div
         className="game-action-bar game-action-bar--waiting"
         data-testid="game-action-bar"
-        aria-hidden="true"
-      />
+        aria-hidden={!onCancelSearch}
+      >
+        {onCancelSearch && (
+          <button
+            type="button"
+            className="game-action-bar__pill game-action-bar__pill--danger"
+            data-testid="game-action-bar-cancel-search"
+            onClick={onCancelSearch}
+          >
+            {t('game.cancelSearch', 'Cancel search')}
+          </button>
+        )}
+      </div>
     );
   }
 

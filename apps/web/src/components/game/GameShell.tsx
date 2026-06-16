@@ -37,6 +37,7 @@ import { HelpButton } from '../HelpButton';
 import { GameResultSheet } from './GameResultSheet';
 import { GameActionBar } from './GameActionBar';
 import { GameMoveStrip } from './GameMoveStrip';
+import { GameWaitingOverlay } from './GameWaitingOverlay';
 import { useBoardSettings } from '../../hooks/useBoardSettings';
 import { useBoardHighlights } from '../../hooks/useBoardHighlights';
 import { useResponsiveBoardSize } from '../../hooks/useResponsiveBoardSize';
@@ -148,6 +149,24 @@ export interface GameShellProps {
    * не дёргать layout), но вместо времени показывается прочерк «—».
    */
   hideClocks?: boolean;
+  /**
+   * KS-4292 (ADR-134 §6): отображаемое название режима — «Blitz»,
+   * «Rapid» и т. п. Используется в pre-game placeholder поверх доски
+   * при `status='waiting'`. Если не передано — pre-game подпись
+   * сокращается до значения `timeControl` или скрывается совсем.
+   */
+  mode?: string;
+  /**
+   * KS-4292: контроль времени в формате «5+0», «3+2». Та же
+   * pre-game подпись.
+   */
+  timeControl?: string;
+  /**
+   * KS-4292: коллбэк «Отменить поиск» в action-bar при `status='waiting'`.
+   * Если не передан — кнопка отсутствует, action-bar остаётся
+   * spacer'ом (например, `/play/local-bot`, где поиска нет).
+   */
+  onCancelSearch?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -217,6 +236,9 @@ export function GameShell(props: GameShellProps) {
     belowBoardBlock,
     forceStandardPieces = false,
     hideClocks = false,
+    mode,
+    timeControl,
+    onCancelSearch,
   } = props;
 
   const { t } = useTranslation();
@@ -247,6 +269,19 @@ export function GameShell(props: GameShellProps) {
   // GameActionBar (post-game pill). На desktop модальное окно
   // показывается отдельно — это состояние на него не влияет.
   const [resultSheetExpanded, setResultSheetExpanded] = useState(true);
+  // KS-4292 (ADR-134 §6): pre-game placeholder появляется через 1.5 с
+  // после входа в `status='waiting'` — чтобы при быстром нахождении
+  // соперника overlay не моргнул. Переход в любой другой статус
+  // мгновенно снимает overlay.
+  const [showWaitingOverlay, setShowWaitingOverlay] = useState(false);
+  useEffect(() => {
+    if (status !== 'waiting') {
+      setShowWaitingOverlay(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowWaitingOverlay(true), 1500);
+    return () => clearTimeout(timer);
+  }, [status]);
   // Сбрасываем в expanded при появлении нового результата (новая
   // партия завершилась после реванша/новой игры).
   useEffect(() => {
@@ -685,6 +720,16 @@ export function GameShell(props: GameShellProps) {
             onCancel={handlePromotionCancel}
             testId="game-promotion-overlay"
           />
+          {/* KS-4292 / ADR-134 §6: pre-game placeholder поверх доски.
+              Показывается только на mobile (CSS-правило прячет на
+              desktop), и только после 1.5 с в `status='waiting'`. CSS
+              также бледнит саму доску через `.board-container:has(...)`
+              для браузеров с поддержкой `:has()`; на остальных доска
+              остаётся как есть (overlay сам по себе достаточно
+              акцентирует ожидание). */}
+          {showWaitingOverlay && (
+            <GameWaitingOverlay mode={mode} timeControl={timeControl} />
+          )}
         </div>
 
         <div className="player-info player-info-self">
@@ -962,6 +1007,7 @@ export function GameShell(props: GameShellProps) {
             ? () => setResultSheetExpanded(true)
             : undefined
         }
+        onCancelSearch={onCancelSearch}
       />
 
       {showResultModal && status === 'finished' && result && (
