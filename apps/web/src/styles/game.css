@@ -12,10 +12,17 @@
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: stretch;
-  justify-content: center;
+  /* KS-4256: было `justify-content: center` + большой gap → доска
+     отъезжала к центру с заметным пустым пространством слева
+     (между sidebar навигацией и колонкой доски). Прижимаем
+     контент к левому краю; центрирование доски в своей колонке
+     обеспечивает `.game-board-area { justify-content: center }`. */
+  justify-content: flex-start;
   gap: 16px;
   height: 100%;
-  padding: 16px;
+  /* KS-4256: вертикальный padding 16 → 6 — раньше съедал ~30px
+     суммарной высоты, доска была заметно меньше lichess. */
+  padding: 6px 16px;
   position: relative;
   overflow: hidden;
 }
@@ -79,24 +86,30 @@ body:has(.game-page),
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  /* KS-4256: gap 12 → 6 между player-bar и доской — освобождает место
+     для самой доски. */
+  gap: 6px;
   contain: layout style;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* Поднимаем над back-link верхней зоной */
-  padding-top: 32px;
+  /* KS-4256: back-link и help-btn — `position: fixed`, в потоке колонки
+     не занимают высоту. Раньше `padding-top: 32px` оставлял место «под
+     back-link», но это резало доску на ~32px впустую. */
+  padding-top: 0;
 }
 
 .player-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   background: var(--bg-elevated, var(--c-16213e));
   border: 1px solid var(--border-mid);
-  padding: 10px 16px;
-  border-radius: 10px;
+  /* KS-4256: компактный player-bar — 10/16 → 6/12 даёт высоту ≈40px
+     (соответствует lichess), при этом часы и имя читаются. */
+  padding: 6px 12px;
+  border-radius: 8px;
   width: 100%;
   max-width: var(--board-area-height, 560px);
   min-width: 0;
@@ -127,7 +140,9 @@ body:has(.game-page),
 }
 
 .clock {
-  font-size: 24px;
+  /* KS-4256: 24 → 20 — компактнее под уменьшенный player-bar,
+     остаётся читаемым. */
+  font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   /* KS-4151: фиксированная ширина под пять моноширинных символов
@@ -148,13 +163,13 @@ body:has(.game-page),
   user-select: none;
   will-change: transform;
   position: relative;
-  /* KS-2695: inline style={{width,height}} из useResponsiveBoardSize
-     рассчитан под flex-row с back-link сверху (~30px). У нас back-link
-     fixed (0px высоты в потоке), поэтому в фактическую колонку
-     opponent(50)+gap(12)+board+gap(12)+self(50) board занимает на
-     ~80px меньше vh. Жёстко лимитируем через max-height. */
+  /* KS-2695 / KS-4256: расчёт max-height синхронизирован с
+     useResponsiveBoardSize. Колонка с доской содержит:
+       opponent-bar (≈40) + gap (6) + board + gap (6) + self-bar (≈40)
+       + page padding-top/bottom (6+6) + header (48) = ~152px.
+     Берём с запасом 140px (без back-link, он fixed). */
   max-width: 100%;
-  max-height: calc(100dvh - 200px);
+  max-height: calc(100dvh - 140px);
   flex-shrink: 1;
 }
 
@@ -283,15 +298,18 @@ body:has(.game-page),
 .game-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  /* Фиксированная ширина sidebar — переопределяем inline style из TSX. */
-  width: 300px !important;
+  gap: 10px;
+  /* KS-4256: 300 → 280 — синхрон с useResponsiveBoardSize.SIDEBAR_WIDTH,
+     даёт +20px колонке доски. */
+  width: 280px !important;
   flex-shrink: 0;
   min-width: 0;
   overflow: hidden;
   height: 100%;
   min-height: 0;
-  padding-top: 32px;
+  /* KS-4256: было 32px «под back-link» — back-link fixed, не занимает
+     место. Освобождаем верхушку sidebar'а. */
+  padding-top: 0;
 }
 
 /* KS-2695: ручной resizer убран — ширина sidebar управляется grid'ом. */
@@ -857,6 +875,9 @@ body:has(.game-page),
     flex-direction: column;
     flex-wrap: nowrap;
     align-items: center;
+    /* KS-4256: восстанавливаем нормальное центрирование на мобильном,
+     где десктопный `flex-start` сместил бы доску влево. */
+    justify-content: flex-start;
     gap: 12px;
     padding: 48px 12px 12px;
     overflow-y: auto;
@@ -922,29 +943,52 @@ body:has(.game-page),
 }
 
 
-/* Bot fallback banner */
+/* Bot fallback banner.
+ * KS-4256: компактная одна тонкая полоса под player-bar, не «крадёт»
+ * заметную высоту. Padding 4/10, font 12, без margin-bottom (gap у
+ * .game-board-area уже даёт отступ). */
 .bot-fallback-banner {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 6px 14px;
+  gap: 8px;
+  padding: 4px 10px;
   background: var(--c-f59e0b);
   color: var(--c-1a1a2e);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.35;
   border-radius: 6px;
-  margin-bottom: 8px;
+  width: 100%;
+  max-width: var(--board-area-height, 560px);
+  box-sizing: border-box;
+}
+.bot-fallback-banner span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bot-fallback-banner button {
   background: none;
   border: none;
   color: var(--c-1a1a2e);
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
   opacity: 0.7;
   line-height: 1;
+  padding: 0 4px;
+  flex-shrink: 0;
 }
 .bot-fallback-banner button:hover { opacity: 1; }
+
+/* На узких экранах разрешаем перенос текста — не обрезаем по ellipsis,
+   чтобы пользователь видел полный смысл предупреждения. */
+@media (max-width: 480px) {
+  .bot-fallback-banner span {
+    white-space: normal;
+  }
+}
 
 .bot-debug-panel {
   position: fixed;
