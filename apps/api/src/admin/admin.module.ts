@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { PrecisionModule } from '../precision/precision.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminApiKeyGuard } from './admin-api-key.guard';
@@ -14,7 +15,7 @@ import { McpExclude } from '../mcp/decorators';
 // дополнительная страховка как явный сигнал намерения.
 @McpExclude()
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, PrecisionModule],
   controllers: [
     AdminController,
     ReindexBroadcastsProxyController,
