@@ -25,6 +25,7 @@
 .opening-trainer-new,
 .opening-trainer-detail,
 .opening-trainer-session,
+.opening-trainer-demo-page,
 .opening-trainer-result {
   max-width: 1040px;
   margin: 0 auto;
@@ -40,6 +41,7 @@
 .opening-trainer-new h1,
 .opening-trainer-detail h1,
 .opening-trainer-session h1,
+.opening-trainer-demo-page h1,
 .opening-trainer-result h1 {
   margin: 0 0 6px;
   font-size: 28px;
@@ -771,6 +773,163 @@
   opacity: 0.9;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+/* ─────────────────── /opening-trainer/demo/:id ──────────────── *
+ * KS-4276: демо-страница использует ту же визуальную сетку, что и
+ * `/opening-trainer/:id/session/:sid`. Раньше у `.opening-trainer-
+ * demo-page__*` стилей не было — `<div className="…__board">` без
+ * ограничений раскрывался на всю ширину контейнера, доска уходила
+ * за нижний край viewport, а кнопки управления исчезали под ним.
+ *
+ * Применяем тот же набор правил, что у `.opening-trainer-session__*`,
+ * плюс жёсткий потолок `max-height` для доски — чтобы при низком
+ * viewport (1280×800, 1024×768) она ужималась.
+ * ============================================================== */
+.opening-trainer-demo-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.opening-trainer-demo-page__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--accent-primary);
+  text-decoration: none;
+  align-self: flex-start;
+}
+.opening-trainer-demo-page__back:hover,
+.opening-trainer-demo-page__back:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+.opening-trainer-demo-page__header h1 {
+  font-size: 22px;
+  margin: 4px 0 0;
+}
+
+.opening-trainer-demo-page__description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  /* Длинное описание репертуара не должно растягиваться больше
+     визуально читаемой ширины. */
+  max-width: 800px;
+}
+
+.opening-trainer-demo-page__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+.opening-trainer-demo-page__counters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
+}
+.opening-trainer-demo-page__counters > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.opening-trainer-demo-page__counters b {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* Контейнер доски: квадрат, ограниченный И по ширине, И по высоте
+   viewport. Запас 280px учитывает header (~80-120px на 2-3 строки
+   описания), счёт, gap, padding страницы, futter, мобильную
+   bottom-bar (на ≤768 — отдельный media-query). */
+.opening-trainer-demo-page__board {
+  width: 100%;
+  max-width: min(560px, calc(100dvh - 280px));
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  position: relative;
+}
+
+.opening-trainer-demo-page__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 14px;
+  /* На очень коротком viewport боковую панель прокручиваем
+     внутренне, чтобы кнопки управления оставались доступны. */
+  max-height: calc(100dvh - 200px);
+  overflow-y: auto;
+}
+
+.opening-trainer-demo-page__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+.opening-trainer-demo-page__controls .btn {
+  width: 100%;
+  min-height: 42px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.opening-trainer-demo-page__guest {
+  padding: 12px 14px;
+  border: 1px dashed var(--border-mid);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.opening-trainer-demo-page__guest p {
+  margin: 0;
+  line-height: 1.45;
+}
+.opening-trainer-demo-page__guest .btn {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 6px 18px;
+}
+
+/* Mobile ≤768: однокол. layout, sidebar под доской, MobileBottomBar
+   в учёте `max-width` доски (доп. 56px + safe-area). */
+@media (max-width: 768px) {
+  .opening-trainer-demo-page__body {
+    grid-template-columns: 1fr;
+  }
+  .opening-trainer-demo-page__board {
+    max-width: min(
+      560px,
+      calc(100dvh - 320px - env(safe-area-inset-bottom, 0px))
+    );
+  }
+  .opening-trainer-demo-page__sidebar {
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 /* KS-3305: окраска ходов репертуара через ReviewMoveList.
