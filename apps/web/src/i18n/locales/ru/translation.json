@@ -4427,7 +4427,9 @@
       "detail": {
         "title": "{{title}} — {{coach}} — Kingside",
         "description": "{{title}} от {{coach}}. Старт {{scheduledAt}}, {{duration}} мин. {{description}}. Запись на Kingside.",
-        "descriptionRecorded": "{{title}} от {{coach}}. {{description}}. Запись лекции на Kingside."
+        "description_noDescription": "{{title}} от {{coach}}. Старт {{scheduledAt}}, {{duration}} мин. Запись на Kingside.",
+        "descriptionRecorded": "{{title}} от {{coach}}. {{description}}. Запись лекции на Kingside.",
+        "descriptionRecorded_noDescription": "{{title}} от {{coach}}. Запись лекции на Kingside."
       }
     },
     "archive": {

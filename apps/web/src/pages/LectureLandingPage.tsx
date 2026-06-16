@@ -129,7 +129,20 @@ export function LectureLandingPage() {
   // durationMin для `recorded`: ms → min. description обрезается
   // SeoHelmet'ом через truncateByWord. ogType=article.
   const seoCoach = lecture.coach?.username ?? '';
-  const seoDescriptionText = lecture.description ?? '';
+  // KS-4283: для лекции-recording поле description может быть пустым
+  // или, наоборот, заканчиваться точкой. Шаблон «… by {coach}.
+  // {description}. Watch …» в первом случае оставляет двойную точку
+  // («. . »), во втором — тоже («.. »). Оба варианта попадают в meta
+  // description и в превью при шаринге. Чистим trailing dots/whitespace
+  // и переключаем i18n-context на `_noDescription`-вариант шаблона,
+  // если после очистки строка пуста.
+  const seoDescriptionText = (lecture.description ?? '')
+    .trim()
+    .replace(/\.+$/, '')
+    .trimEnd();
+  const seoDescriptionContext = seoDescriptionText
+    ? undefined
+    : 'noDescription';
   const seoDurationMin =
     lecture.durationMs && lecture.durationMs > 0
       ? Math.round(lecture.durationMs / 60000)
@@ -144,6 +157,7 @@ export function LectureLandingPage() {
           title: lecture.title,
           coach: seoCoach,
           description: seoDescriptionText,
+          context: seoDescriptionContext,
         })
       : t('seo.lectures.detail.description', {
           title: lecture.title,
@@ -151,6 +165,7 @@ export function LectureLandingPage() {
           scheduledAt: scheduledAtFormatted,
           duration: seoDurationMin,
           description: seoDescriptionText,
+          context: seoDescriptionContext,
         });
   const seoJsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',

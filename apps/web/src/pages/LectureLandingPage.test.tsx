@@ -58,6 +58,14 @@ function makeLecture(overrides: Partial<LectureDetail> = {}): LectureDetail {
   };
 }
 
+function findMetaDescription(): string | null {
+  const tags = document.head.querySelectorAll('meta[name="description"]');
+  // React 19 поднимает meta из JSX последним — берём именно последний,
+  // как делает дедупликатор в SeoHelmet.
+  const last = tags[tags.length - 1] as HTMLMetaElement | undefined;
+  return last?.getAttribute('content') ?? null;
+}
+
 function findCourseJsonLd(): Record<string, unknown> | null {
   const scripts = document.querySelectorAll(
     'script[type="application/ld+json"]',
@@ -125,3 +133,77 @@ describe('LectureLandingPage JSON-LD provider (KS-4220)', () => {
     });
   });
 });
+
+describe('LectureLandingPage SEO description recorded (KS-4283)', () => {
+  beforeEach(() => {
+    document.head
+      .querySelectorAll('meta[name="description"]')
+      .forEach((n) => n.remove());
+  });
+  afterEach(() => {
+    cleanup();
+    useLectureDetailMock.mockReset();
+  });
+
+  it('renders full description when lecture.description is present', () => {
+    useLectureDetailMock.mockReturnValue({
+      loading: false,
+      lecture: makeLecture({
+        title: 'Endgame fundamentals',
+        description: 'Pawn endings and king activity.',
+        coach: { id: 'c-1', username: 'magnus' },
+        status: 'recorded',
+      }),
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    renderWithProviders(<LectureLandingPage />);
+    const desc = findMetaDescription();
+    expect(desc).toBe(
+      'Endgame fundamentals by magnus. Pawn endings and king activity. Watch the recording on Kingside.',
+    );
+    expect(desc).not.toContain('. .');
+  });
+
+  it('omits empty description segment without double dot', () => {
+    useLectureDetailMock.mockReturnValue({
+      loading: false,
+      lecture: makeLecture({
+        title: 'Vykouk, Jan vs Samarth Sreeni Warrier',
+        description: '',
+        coach: { id: 'c-1', username: 'Stanislav' },
+        status: 'recorded',
+      }),
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    renderWithProviders(<LectureLandingPage />);
+    const desc = findMetaDescription();
+    expect(desc).toBe(
+      'Vykouk, Jan vs Samarth Sreeni Warrier by Stanislav. Watch the recording on Kingside.',
+    );
+    expect(desc).not.toContain('. .');
+  });
+
+  it('treats whitespace-only description as empty', () => {
+    useLectureDetailMock.mockReturnValue({
+      loading: false,
+      lecture: makeLecture({
+        title: 'A vs B',
+        description: '   ',
+        coach: { id: 'c-1', username: 'tester' },
+        status: 'recorded',
+      }),
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    renderWithProviders(<LectureLandingPage />);
+    const desc = findMetaDescription();
+    expect(desc).toBe('A vs B by tester. Watch the recording on Kingside.');
+    expect(desc).not.toContain('. .');
+  });
+});
+
