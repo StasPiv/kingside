@@ -138,15 +138,28 @@ broadcast'а в `/broadcasts` (ломает фронт-контракт и кэ�
 
 **RDS layout — 2 instance, 3 БД:**
 
-| Instance | Class | Storage | Databases |
-|----------|-------|---------|-----------|
-| `kingside-db` | db.t3.micro | 20 GB | `kingside` (main) + `broadcasts_kingside` |
-| `kingside-archive-db` | db.t3.micro | 20 GB | `archive_kingside` |
+| Instance | Class | Allocated | Used (факт) | Growth/мес | Peak CPU | Peak conn | Databases |
+|----------|-------|-----------|-------------|------------|----------|-----------|-----------|
+| `kingside-db` | db.t3.micro | 20 GB | 6.44 GB | +0.62 GB | 8.8% | 19 | `kingside` (main) + `broadcasts_kingside` |
+| `kingside-archive-db` | db.t3.micro | 20 GB | 8.08 GB | 0 (backfill окончен) | 32.0% | 14 | `archive_kingside` |
 
 `api` и `broadcast-service` уже на одном RDS instance (разные БД, один
 compute). По БД-стороне сценарий «api+broadcast» уже реализован — выигрыш
 там был получен ранее. `archive-service` — отдельный RDS instance
 ($15.62/мес сам по себе).
+
+**Перенос `archive_kingside` на `kingside-db` — db.t3.micro выдержит
+(подтверждено devops):**
+- Used после слияния: 14.52 GB / 20 GB allocated, free 5.48 GB,
+  growth ~0.6 GB/мес → ~9 месяцев до 100%, потом storage можно
+  увеличить на лету без даунтайма.
+- Peak CPU суммарно: 8.8% + 32% ≈ 30-40% (с учётом частичной
+  корреляции). На 2 vCPU — запас.
+- Peak connections суммарно: 33. Default max на db.t3.micro = 87.
+  Запас 2.5×.
+- Upgrade класса до `db.t3.small` **НЕ требуется**.
+- Полная экономия: $15.62 instance + $2 backup + $2.5 storage ≈
+  **$20/мес RDS**.
 
 **Cost breakdown — май 2026, $317.42 total:**
 
@@ -348,10 +361,12 @@ archive-образ. Расширение паттерна на api + broadcast +
 
 | Критерий | (А) полное | (Б1) api+broadcast | (В) optimize-as-is | (Г) one-image |
 |----------|-----------|--------------------|--------------------|----------------|
-| Экономия ECS | ~$18/мес | ~$9/мес | ~$14/мес (archive 0.5→0.25, game 0.5→0.25) | ~$0 |
+| Экономия ECS | ~$18/мес | ~$9/мес | ~$14/мес (archive 0.5→0.25, game 0.5→0.375) | ~$0 |
 | Экономия Public IPv4 | +$7.30 (−2 IP) | +$3.65 (−1 IP) | $0 | $0 |
-| Экономия RDS (если archive_kingside → kingside-db) | +$15 | $0 | $0 (или $15 параллельно, не зависит от А/Б/В) | $0 |
-| **Итоговая экономия / % бюджета** | **~$40/мес ≈ 12.6%** | **~$12/мес ≈ 3.8%** | **~$14/мес ≈ 4.4%** (или $29 c RDS) | **$0 / 0%** |
+| Экономия RDS (перенос archive_kingside → kingside-db) | +$20 | $0 | $0 (или $20 параллельно, не зависит от А/Б/В) | $0 |
+| **Итоговая экономия / % бюджета** | **~$45/мес ≈ 14%** | **~$13/мес ≈ 4%** | **~$14/мес ≈ 4.4%** (или $34/мес ≈ 11% с RDS) | **$0 / 0%** |
+| Доп. экономия от отключения Container Insights | +$25-30/мес — **не зависит от выбора**, см. §7 |||||
+| **Итог с Container Insights** | **~$70-75/мес ≈ 22-24%** | **~$40/мес ≈ 13%** | **~$60/мес ≈ 19%** | **~$25-30/мес ≈ 8-9%** |
 | Риск изоляции падений | 🟡 средний (archive peak 34.7% — не критичный; api/broadcast/prerender peak 100% — будут душить друг друга) | 🟡 средний (api+broadcast оба peak 100%) | 🟢 нулевой | 🟢 нулевой |
 | WS-namespace `/` конфликт | 🟡 ломает контракт KS-1702 | 🟡 то же | 🟢 нет | 🟢 нет |
 | Deploy-rolling impact | 🔴 любой коммит → restart всего | 🟡 deploy api ≠ deploy archive | 🟢 нет изменений | 🟡 один digest → restart всех |
@@ -363,11 +378,15 @@ archive-образ. Расширение паттерна на api + broadcast +
 
 ## 5. Рекомендация
 
-🎯 **Сценарий В (optimize-as-is) обязательно как первый шаг.**
-**Сценарий А — открытый вопрос для пользователя:** даёт ~$40/мес (с RDS),
-но ценой операционных рисков. **Сценарий Б1 — не рекомендуется**
-(экономия $12 не оправдывает WS-конфликт). **Сценарий Г — отдельная
-DX-задача**, не отвечает на cost-вопрос.
+🎯 **Сценарий В (optimize-as-is) обязательно как первый шаг + параллельно
+отключить Container Insights + параллельно перенести `archive_kingside`
+на `kingside-db` — даёт ~$60/мес ≈ 19% бюджета без архитектурного риска.**
+
+**Сценарий А — открытый вопрос для пользователя:** даёт ~$70-75/мес
+(22-24% с Container Insights) ценой операционных рисков. **Сценарий Б1
+— не рекомендуется** (экономия $13/мес не оправдывает конфликт
+WS-namespace). **Сценарий Г — отдельная DX-задача**, не отвечает на
+cost-вопрос.
 
 ### Обоснование
 
@@ -433,26 +452,42 @@ DX-задача**, не отвечает на cost-вопрос.
 
 ### Если выбран сценарий В (рекомендуемый минимум)
 
-1. **devops:** активировать Cost Allocation Tag `aws:ecs:serviceName`
-   в Billing Console. Через 24-48 ч проверить per-service breakdown,
-   приложить в трекер — это baseline для замера экономии.
+1. **devops (уже сделано в KS-4237):** активирован Cost Allocation Tag
+   `Service` + включён `enableECSManagedTags=true`,
+   `propagateTags=SERVICE`. Через 24-48 ч после появления тегов в
+   billing-индексе активировать `Service` и `aws:ecs:serviceName` в
+   Cost Explorer → per-service breakdown как baseline для замера
+   экономии. (devops пингнёт цифрами; architect обновит §2.3 ADR.)
 2. **devops:** снизить `archive-service` 0.5 vCPU → 0.25 vCPU + 0.5 GB.
    Мониторить 1 неделю: TWIC weekly burst укладывается. Откат — если
-   peak >85% устойчиво.
+   peak >85% устойчиво. Экономия ~$7/мес.
 3. **devops:** снизить `game-service` 0.5 vCPU → 0.375 vCPU.
-   Осторожно (peak 54.9% бывает). Мониторить.
-4. **backend (или architect → backend):** перенести `archive_kingside`
-   с `kingside-archive-db` на `kingside-db` (отдельная database на том
-   же RDS instance). Этап:
-   - схема: `pg_dump` + `pg_restore` на ту же RDS.
-   - изменить `DATABASE_URL` для `@kingside/archive-db` на
+   Осторожно (peak 54.9% бывает). Мониторить. Экономия ~$3-5/мес.
+4. **devops:** отключить Container Insights на кластере `kingside`:
+   `aws ecs update-cluster-settings --cluster kingside --settings
+   name=containerInsights,value=disabled`. Service-уровневые метрики
+   `AWS/ECS` (CPUUtilization, MemoryUtilization) сохраняются —
+   пропадут только per-container Network/Storage. Экономия
+   **~$25-30/мес**. Если в будущем нужны per-container метрики —
+   AWS Distro for OpenTelemetry → собственный Prometheus.
+5. **backend (миграция БД) + devops (RDS):** перенести
+   `archive_kingside` с `kingside-archive-db` на `kingside-db`
+   (отдельная database на том же RDS instance). Этапы:
+   - `pg_dump` archive_kingside + `pg_restore` на `kingside-db`.
+   - Изменить `DATABASE_URL` для `@kingside/archive-db` на
      `kingside-db.../archive_kingside`.
-   - проверить storage capacity (+10-20 GB), при необходимости
-     увеличить storage `kingside-db`.
-   - после успешного переключения и 1 недели мониторинга —
-     остановить `kingside-archive-db` instance.
-5. **architect:** обновить этот ADR результатами шагов 1-4,
-   перевести Proposed → Accepted.
+   - Storage `kingside-db` — текущие 20 GB хватает (used после
+     слияния 14.52 GB, growth 0.6 GB/мес = ~9 месяцев до 100%).
+     Через год — `modify-db-instance --allocated-storage 30` без
+     даунтайма.
+   - После 1 недели мониторинга — остановить `kingside-archive-db`
+     instance. Экономия **~$20/мес RDS** (instance + backup +
+     storage минус прирост на основном).
+6. **architect:** обновить этот ADR результатами шагов 1-5,
+   перевести Proposed → Accepted, добавить факт-замеры до/после.
+
+**Итог сценария В целиком: ~$60/мес ≈ 19% бюджета без архитектурного
+риска.**
 
 Если позже выбирается Г как DX-улучшение — отдельный ADR.
 
@@ -485,6 +520,9 @@ DX-задача**, не отвечает на cost-вопрос.
 
 Effort: backend 2-4 недели + devops 1 неделя + frontend ≤1 неделя.
 
+**Итог сценария А целиком (с Container Insights и RDS-консолидацией):
+~$70-75/мес ≈ 22-24% бюджета.**
+
 ---
 
 ## 7. Открытые вопросы / не в scope
@@ -498,8 +536,16 @@ Effort: backend 2-4 недели + devops 1 неделя + frontend ≤1 нед�
 - **`apps/archive-importer` / `apps/broadcast-worker`** — пустые папки
   (свёрнуты по ADR-022, KS-1676). Техдолг, нужно зачистить уборкой
   (вне scope этого ADR).
-- **CloudWatch $32.54/мес** — отдельная задача аудита custom-metric'ов
-  (вне scope).
+- **CloudWatch $32.54/мес — корень найден (devops, KS-4237):**
+  на кластере `kingside` включён Container Insights, генерирует ~228
+  custom-метрик (по 5-7 на task/service: CPU/Memory/Network/Storage).
+  Отключение через `aws ecs update-cluster-settings --cluster kingside
+  --settings name=containerInsights,value=disabled` даёт **~$25-30/мес
+  экономии**. Service-уровневые метрики `AWS/ECS` (CPUUtilization,
+  MemoryUtilization) остаются — пропадают только per-container
+  Network/Storage. Это **отдельный шаг параллельно любому сценарию**
+  (В/А) — экономия не зависит от выбора по ECS. Оформляется как часть
+  декомпозиции, см. §6.
 - **`synthetic-bot-service`** — уже отсутствует как сервис (поправка
   по факту от devops).
 
