@@ -24,10 +24,13 @@ const SIDEBAR_MIN_HEIGHT_MOBILE = 200; // reserve space for moves/actions below 
 // KS-4257: bot-banner — реально занимает ~28px (padding 4+4 + font 12*1.35 + border
 // 2) плюс gap 6 над ним. Округляем до 34, чтобы запас был и на bookmark-bar.
 const BOT_BANNER_HEIGHT = 34;
-// KS-4257: общий «safety» резерв на нерасчитанные пиксели (border, focus-ring,
-// браузерные bookmark-bar/extension-bar на десктопе). Раньше доска лезла на
-// нижний player-bar — 12px резерва покрывают округление и отрисовку border'ов.
-const SAFETY_RESERVE = 12;
+// KS-4257 / KS-4275: общий «safety» резерв на нерасчитанные пиксели.
+// Источники: нижний padding .game-page (6px), border player-bar (1+1px),
+// фактический line-height clock (≈4-6px поверх font-size), округление aspect-ratio
+// доски, браузерные bookmark-bar/extension-bar. После KS-4274 на 1280×800
+// нижний ряд клеток ещё обрезался на ~5% — поднимаем с 12 до 28, чтобы запас
+// был с гарантией. Лучше отдать 16 лишних px высоты, чем срезать фигуры.
+const SAFETY_RESERVE = 28;
 // KS-4274: MobileBottomBar (layout.css `.mobile-bottom-bar`) — `position: fixed`,
 // `height: 56px + env(safe-area-inset-bottom, 0)`. Видна при `(max-width: 768px)`
 // и на не-game-страницах. На `/play/local-bot` тот же GameShell, но bar остаётся
