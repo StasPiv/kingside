@@ -1,7 +1,9 @@
 # ADR-131 — Перенос HTTP-эндпоинтов archive-service в apps/api
 
-- Статус: **Proposed** (2026-06-16)
-- Задача: KS-4246
+- Статус: **Accepted** (Proposed 2026-06-16 → Accepted 2026-06-16)
+- Реализация: KS-4246 (ADR), KS-4247 (A1 backend), KS-4248 (A2b devops),
+  KS-4249 (A3 devops), KS-4250 (A5 финализация), KS-4251 (A2a backend
+  middleware — добавлено после выявления ограничения ALB)
 - Связанные ADR / задачи:
   - ADR-130 — основа решения (сценарий А, частичное объединение).
   - ADR-018 — изначальное выделение `apps/archive-service` (поддомен
@@ -302,55 +304,63 @@ NE трогает ECS service archive-service.
 
 ---
 
-### Задача A2 — DevOps: переключение CloudFront `archive.kingside.site` на api-origin
+### Задача A2 — DevOps + Backend: переключение `archive.kingside.site` на api-origin
 
-**Scope:** только CloudFront + ALB. НЕ трогает код, НЕ трогает ECS
-service (он пока работает).
+> **Реализация разошлась с исходной рекомендацией ADR.** При попытке
+> настроить path-rewrite на ALB выяснилось: **AWS Application Load
+> Balancer не поддерживает path-rewrite** — listener rule action
+> ограничен `forward`, `redirect` (с фиксированным path-pattern) и
+> `fixed-response`. Рекомендация (b) из исходного текста ADR была
+> технически некорректной. CloudFront Function (вариант a) — работает,
+> но команда выбрала третий путь.
+>
+> **Реальная реализация — Backend middleware (KS-4251, коммит
+> `d39a0d16`):** `apps/api/src/archive/archive-host-prefix.middleware.ts`
+> читает `Host`-заголовок и для запросов с `Host:
+> archive.kingside.site` дописывает префикс `/archive` к `req.url` до
+> Nest RouterExplorer'а. На ALB — простой `forward` action для host
+> `archive.kingside.site` → api target group, без path-rewrite.
+>
+> **Урок для будущих ADR:** capabilities AWS-компонентов нужно
+> проверять документацией ДО публикации рекомендации, не полагаться на
+> «наверняка должно быть». См. §8 «Уроки».
 
-**Что сделать:**
-1. Дождаться завершения A1 (smoke-тест `api.kingside.site/archive/*`
-   проходит).
-2. CloudFront distribution `archive.kingside.site`:
-   - Сохранить snapshot текущей конфигурации (`describe-distribution`
-     → файл) — для отката.
-   - Переключить origin: с ALB `kingside-archive-service` на ALB
-     `kingside-api`.
-   - Добавить path-rewrite: один из двух способов:
-     - (a) CloudFront Function (viewer-request) — `request.uri =
-       '/archive' + request.uri`. Применить к default behavior `/*`.
-     - (b) ALB listener rule на api-ALB: host
-       `archive.kingside.site` → action: redirect/forward с
-       rewrite path-prefix `/archive`.
-   - Рекомендуется (b) — чище, без новой CloudFront Function.
-3. Cache invalidation: `/*` на distribution `archive.kingside.site`.
-4. `aws cloudfront wait distribution-deployed` — exit 0.
-5. Smoke-тест:
-   - `curl -s https://archive.kingside.site/games?limit=1` → 200,
-     content тот же что раньше.
-   - `curl -s https://archive.kingside.site/tree?...` → 200.
-   - Все 8 endpoint'ов из §2.1.
-   - Сравнить с `api.kingside.site/archive/games?limit=1` —
-     payload-байт-в-байт.
-6. Мониторинг 1 час: CloudWatch alarms на 5xx error rate, latency
-   p95 — без аномалий.
+**Scope:** CloudFront/ALB (devops) + backend middleware (backend) —
+по факту разделено на две подзадачи (A2a backend, A2b devops).
 
-**DoD:**
-- `archive.kingside.site/*` отвечает с api-origin.
-- Все 8 endpoint'ов работают через старый поддомен.
-- `kingside-archive-service` ECS — **продолжает работать** (не
-  трогаем в этой задаче), но трафик на него не идёт.
-- Snapshot конфигурации сохранён для отката.
+**Что сделано фактически:**
 
-**Не входит:**
-- Остановка ECS service — задача A3.
-- Изменения кода — A1 уже сделана.
-- Изменения frontend — НЕ требуются.
+A2a (backend, KS-4251, коммит `d39a0d16`):
+- `apps/api/src/archive/archive-host-prefix.middleware.ts` — Express
+  middleware. Условие: `req.headers.host === 'archive.kingside.site'`
+  и `!req.url.startsWith('/archive')` → `req.url = '/archive' +
+  req.url`.
+- Зарегистрирован в `AppModule` через `configure(consumer)` —
+  применяется ко всем маршрутам, проверка по Host внутри.
+- Юнит-тесты на 4 случая: правильный host без префикса, правильный
+  host с префиксом (no-op), чужой host (no-op), отсутствующий host
+  (no-op).
 
-**Блокирует:** A3.
+A2b (devops, KS-4248):
+1. Сохранён snapshot текущей конфигурации CloudFront — для отката.
+2. CloudFront `archive.kingside.site`: origin переключён с
+   `kingside-archive-service` ALB на `kingside-api` ALB.
+3. ALB listener rule: host `archive.kingside.site` → forward на api
+   target group (БЕЗ path-rewrite — это делает middleware из A2a).
+4. Cache invalidation `/*`, `aws cloudfront wait distribution-deployed`
+   exit 0.
+5. Smoke-тест: все 8 публичных endpoint'ов из §2.1 отвечают, payload
+   совпадает с pre-A2 baseline.
 
-**Откат:** вернуть origin distribution на ALB
-`kingside-archive-service`, убрать path-rewrite, invalidation.
-Snapshot из шага 2 даёт точную конфигурацию.
+**DoD (выполнено):**
+- `archive.kingside.site/*` отвечает с api-origin через middleware.
+- Все 8 endpoint'ов работают.
+- `kingside-archive-service` ECS остался работать (отключение — A3).
+- Snapshot CloudFront конфигурации сохранён.
+
+**Откат (не понадобился):** вернуть CloudFront origin на
+`kingside-archive-service` ALB, snapshot из шага 1. Backend middleware
+безопасно остаётся (он no-op для чужого Host).
 
 ---
 
@@ -502,25 +512,55 @@ task-definition `kingside-archive-importer-once`. НЕ трогает код.
 
 ## 6. Экономия
 
-- ECS service `kingside-archive-service`: -$18/мес (0.5 vCPU + 1 GB).
-- Public IPv4: -$3.65/мес.
-- **Итог: ~$22/мес** (часть сценария А из ADR-130, который полностью
-  даёт ~$70-75/мес с Container Insights и RDS-консолидацией).
+**Плановая (на момент Proposed):** ~$22/мес (ECS service $18 + Public
+IPv4 $3.65), исходя из конфигурации 0.5 vCPU + 1 GB.
 
-Остаток сценария А — Container Insights ($25-30/мес) и
-RDS-консолидация ($20/мес) — могут идти параллельно или после, **они
-независимы от этого ADR**.
+**Фактическая (на момент Accepted):** **~$14/мес.** Расхождение
+объясняется тем, что между принятием ADR-130 и реализацией ADR-131 в
+рамках KS-4240 (devops sizing) `kingside-archive-service` уже был
+переведён с 0.5 vCPU + 1 GB на **0.25 vCPU + 0.5 GB**. После A3
+освободился именно этот минимальный sizing: $9/мес Fargate + $3.65/мес
+Public IPv4 + ~$1.5/мес связанных мелких статей = ~$14/мес.
+
+Это не регрессия плана — плановая экономия считалась от состояния «до
+ADR-130 и KS-4240», а KS-4240 «съел» часть потенциала ADR-131 раньше
+(оптимизация sizing — сценарий В из ADR-130, выполнен до этого ADR).
+Суммарная экономия ECS-направления от исходного baseline сохраняется
+(~$22-25/мес), просто часть зачтена в KS-4240.
+
+Остаток сценария А из ADR-130 — Container Insights (~$25-30/мес) и
+RDS-консолидация (~$20/мес) — независимы от этого ADR, могут идти
+параллельно или после.
 
 ---
 
 ## 7. Открытые вопросы
 
-- **Точный layout CloudFront для `archive.kingside.site`** — отдельная
-  distribution или behavior на основной? Уточняет devops перед A2.
-  Если behavior на основной distribution — задача A2 проще
-  (только origin + одна path-pattern).
-- **ALB rule vs CloudFront Function для path-rewrite** — devops
-  решает в рамках A2 (см. §3.2 вариант 1, рекомендован ALB rule).
 - **Удаление `archive_kingside` RDS instance** — НЕ в scope этого
   ADR. Если пользователь захочет — отдельный ADR (это §6 шаг 5
   ADR-130, отдельный путь).
+- **A4 (опциональная уборка кода `apps/archive-service/src/archive/*`)**
+  — на момент Accepted не выполнена. Не блокер, может быть запущена
+  отдельным тикетом когда понадобится.
+
+## 8. Уроки
+
+Для будущих ADR — выявленный пробел в исходных рекомендациях этого
+ADR:
+
+1. **AWS ALB path-rewrite не существует.** Listener rule action
+   ограничен `forward`, `redirect` (только с фиксированным
+   path-pattern), `fixed-response`, `authenticate-*`. Для динамической
+   подстановки префикса перед forward — варианты: CloudFront Function
+   (viewer-request), Lambda@Edge, или backend-side middleware на
+   приёме запроса. Backend middleware оказался простейшим (нет новых
+   AWS-компонентов, нет дополнительных edge-вызовов).
+
+2. **Capabilities AWS-компонентов проверять до публикации
+   рекомендации.** В §3.2 этого ADR была сделана уверенная
+   рекомендация «ALB listener rule … чище, без новой CloudFront
+   Function», основанная на ожидании, а не на проверенной возможности.
+   При реализации это обернулось дополнительной задачей (KS-4251) и
+   правкой scope A2 на лету. Для будущих ADR — раздел с
+   AWS-конфигурацией должен опираться на ссылку на документацию AWS
+   или на проверенный аналог в текущей инфраструктуре.

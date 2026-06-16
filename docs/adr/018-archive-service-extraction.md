@@ -1,9 +1,28 @@
 # ADR-018: Вынос API архива в отдельный сервис `archive.kingside.site` и снятие префикса `/api`
 
-**Статус:** Предложено
+**Статус:** Частично Superseded by [ADR-131](./131-archive-endpoints-consolidation.md) (2026-06-16)
 **Дата:** 2026-04-21
 **Задача:** KS-1654
-**Связанные ADR:** [ADR-013](./013-game-archive-and-tree.md), [ADR-014](./014-archive-games-by-position.md), [ADR-017](./017-service-subdomains.md), [ADR-012](./012-api-game-service-split.md)
+**Связанные ADR:** [ADR-013](./013-game-archive-and-tree.md), [ADR-014](./014-archive-games-by-position.md), [ADR-017](./017-service-subdomains.md), [ADR-012](./012-api-game-service-split.md), [ADR-130](./130-services-consolidation-analysis.md), [ADR-131](./131-archive-endpoints-consolidation.md)
+
+> **Что изменилось (2026-06-16, ADR-131):** HTTP-эндпоинты архива
+> (`/tree`, `/games`, `/games/by-position`, `/games/:id`,
+> `/players/*`, `/events/search`) перенесены обратно в `apps/api` под
+> внутренний префикс `@Controller('archive')`. Снаружи поддомен
+> `archive.kingside.site` сохранён — CloudFront-origin переключён на
+> `kingside-api` ALB, а backend-middleware
+> `apps/api/src/archive/archive-host-prefix.middleware.ts` дописывает
+> префикс `/archive` для запросов с этим Host. Контракт URL для
+> фронта и SEO не изменился.
+>
+> **Что осталось в `apps/archive-service`:** importer (`start:importer`
+> + `importer-once` на EventBridge — ADR-020) и CLI-команды. БД
+> `archive_kingside` остаётся отдельной (RDS instance
+> `kingside-archive-db`).
+>
+> **ECS service `kingside-archive-service` остановлен**
+> (`desiredCount=0`) с 2026-06-16. task-definition сохранена 30 дней
+> для отката. Экономия ~$14/мес.
 
 ## 1. Контекст
 

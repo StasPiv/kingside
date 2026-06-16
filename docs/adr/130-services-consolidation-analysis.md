@@ -1,7 +1,29 @@
 # ADR-130 — Консолидация ECS-сервисов api/broadcast-service/archive-service
 
-- Статус: **Proposed** (2026-06-16)
+- Статус: **Частично реализован** (Proposed 2026-06-16 → Partially
+  Implemented 2026-06-16)
 - Задача: KS-4237
+- Что реализовано:
+  - HTTP-эндпоинты `archive-service` перенесены в `apps/api` —
+    отдельный ADR-131, цепочка KS-4246 → KS-4247 → KS-4248 → KS-4249
+    → KS-4250 (+ KS-4251 на ALB-пробел). Экономия ~$14/мес фактически
+    (см. ADR-131 §6).
+  - Sizing `archive-service` уже снижен с 0.5 vCPU + 1 GB на 0.25
+    vCPU + 0.5 GB в рамках KS-4240 (сценарий В §6 шаг 2 этого ADR) —
+    выполнено до ADR-131.
+- Что отложено по решению пользователя:
+  - Перенос `broadcast-service` в `apps/api` (полный сценарий А) — не
+    запущен; broadcast-service остаётся отдельным ECS-сервисом
+    (контракт KS-1702, поддомен `broadcasts.kingside.site`,
+    WS-namespace `/`).
+  - Консолидация `archive_kingside` на `kingside-db` (§6 шаг 5) —
+    отложена; `kingside-archive-db` остаётся отдельным RDS instance,
+    importer пишет туда без изменений.
+  - Снижение `game-service` 0.5 → 0.375 vCPU (§6 шаг 3) — статус
+    уточнить у devops, на момент финализации не отмечено как
+    выполненное.
+  - Отключение Container Insights (§6 шаг 4) — статус уточнить у
+    devops.
 - Связанные ADR / задачи:
   - ADR-017 — изначальное выделение `apps/game-service` (WS-приоритет).
   - ADR-018 — деплой `apps/archive-service` как отдельного ECS-сервиса.
