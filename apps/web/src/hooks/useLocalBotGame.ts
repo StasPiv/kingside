@@ -203,20 +203,31 @@ export function useLocalBotGame(
     setResult(loser === 'white' ? 'black' : 'white');
   }, [clocks.white, clocks.black, status, noClock]);
 
-  // KS-4306: общая обвязка запроса хода бота с 3 попытками
-  // (`500 * attempt` мс задержки) — зеркало `GamePage.triggerBotMove`
-  // (`apps/web/src/pages/GamePage.tsx`). Вынесена из эффекта, чтобы
-  // её мог дёрнуть и отдельный эффект «бот ходит первым на mount».
-  const runBotMove = useCallback(
-    async (fenToPlay: string, isCancelled: () => boolean): Promise<void> => {
-      setBotThinking(true);
+  // Ход бота — когда сейчас ход не наш и партия идёт.
+  useEffect(() => {
+    if (status !== 'active') return;
+    const turnColor: GameColor = chess.turn() === 'w' ? 'white' : 'black';
+    if (turnColor === playerColor) return;
+    let cancelled = false;
+    setBotThinking(true);
+    (async () => {
+      // KS-4305: запрашиваем ход бота с повторными попытками, как это
+      // делает резервный (fallback) бот в общем вызове игры —
+      // `GamePage.triggerBotMove` (см. `apps/web/src/pages/GamePage.tsx`).
+      // Первый запрос после старта `useBotEngine` иногда падает на
+      // мобильной сети, пока wasm-Stockfish ещё проходит uci-handshake
+      // и `waitForReady` отдаёт промежуточный таймаут. Одной попытки
+      // не хватало — игра вставала «через раз». Три попытки с
+      // нарастающей задержкой (500 / 1000 мс) совпадают с настройкой
+      // общего вызова и закрывают эту гонку без перемонтирования
+      // компонента.
       const MAX_ATTEMPTS = 3;
       let uci: string | null = null;
       let lastErr: unknown = null;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (isCancelled()) return;
+        if (cancelled) return;
         try {
-          uci = await getBotMove(fenToPlay);
+          uci = await getBotMove(chess.fen());
           break;
         } catch (e) {
           lastErr = e;
@@ -225,12 +236,12 @@ export function useLocalBotGame(
             'error',
             `[local-bot] getBotMove attempt ${attempt}/${MAX_ATTEMPTS} failed: ${msg}`,
           );
-          if (attempt < MAX_ATTEMPTS && !isCancelled()) {
+          if (attempt < MAX_ATTEMPTS && !cancelled) {
             await new Promise((r) => setTimeout(r, 500 * attempt));
           }
         }
       }
-      if (isCancelled()) return;
+      if (cancelled) return;
       if (uci === null) {
         const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
         sendClientLog('error', `[local-bot] engine error after retries: ${msg}`);
@@ -239,16 +250,16 @@ export function useLocalBotGame(
         return;
       }
       try {
-        const turnColor: GameColor = chess.turn() === 'w' ? 'white' : 'black';
         const from = uci.slice(0, 2) as Square;
         const to = uci.slice(2, 4) as Square;
         const promotion = uci.length >= 5 ? uci[4] : undefined;
         const move = chess.move({ from, to, promotion });
         if (!move) {
           sendClientLog('error', `[local-bot] illegal uci from engine: ${uci}`);
-          setBotThinking(false);
           return;
         }
+        // Применяем ход и одновременно прибавляем инкремент тому, кто
+        // только что походил (бот).
         const ply = chess.history().length;
         setFen(chess.fen());
         setMoves((prev) => [...prev, move.san]);
@@ -261,59 +272,20 @@ export function useLocalBotGame(
         }
         if (chess.isGameOver()) finalize(chess);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        sendClientLog('error', `[local-bot] apply move error: ${msg}`);
-        setBotError(msg);
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : String(e);
+          sendClientLog('error', `[local-bot] engine error: ${msg}`);
+          setBotError(msg);
+        }
       } finally {
-        if (!isCancelled()) setBotThinking(false);
+        if (!cancelled) setBotThinking(false);
       }
-    },
-    [chess, getBotMove, incrementSec, finalize],
-  );
-
-  // KS-4306: явный триггер «бот ходит первым на старте партии». Зеркало
-  // `GamePage.onGameState` (см. `apps/web/src/pages/GamePage.tsx`):
-  //   if (isClientBot && state.moves.length === 0 && state.color === 'black')
-  //     triggerBotMoveRef.current(fen);
-  // Раньше всё было в одном эффекте с `[fen, status, playerColor,
-  // engineError]` — на холодной мобильной сети, если `useBotEngine` не
-  // успевал и `setEngineError` срабатывал до того, как эффект
-  // зацепился, первый ход бота пропадал. Отдельный mount-эффект
-  // гарантирует попытку именно для стартовой позиции с ботом-белыми,
-  // не зависит от engineError, а внутри `runBotMove` есть свои 3
-  // попытки. Срабатывает только при `playerColor !== белый цвет
-  // стартового хода`, т.е. ровно когда бот за белых.
-  useEffect(() => {
-    if (status !== 'active') return;
-    if (moves.length !== 0) return;
-    const turnColor: GameColor = chess.turn() === 'w' ? 'white' : 'black';
-    if (turnColor === playerColor) return;
-    let cancelled = false;
-    void runBotMove(chess.fen(), () => cancelled);
+    })();
     return () => {
       cancelled = true;
     };
-    // ОДИН раз на mount — реагирует только на `resetSeq`/`playerColor`/
-    // start-условия, не на каждый `fen` (тогда сработает второй эффект
-    // ниже).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetSeq, playerColor, status]);
-
-  // Ход бота после хода игрока — когда позиция обновилась и сейчас не
-  // наш ход. Этот эффект НЕ ловит стартовую позицию (для неё —
-  // mount-эффект выше); поэтому игнорируем `moves.length === 0`.
-  useEffect(() => {
-    if (status !== 'active') return;
-    if (moves.length === 0) return; // стартовая позиция — выше
-    const turnColor: GameColor = chess.turn() === 'w' ? 'white' : 'black';
-    if (turnColor === playerColor) return;
-    let cancelled = false;
-    void runBotMove(chess.fen(), () => cancelled);
-    return () => {
-      cancelled = true;
-    };
-    // KS-4303: `engineError` обнуляется при retry — даём эффекту шанс
-    // переиграть текущий fen после восстановления движка.
+    // KS-4303: добавлен `engineError` — при successful retry он
+    // обнуляется и эффект перезапускает getBotMove на текущей позиции.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fen, status, playerColor, engineError]);
 

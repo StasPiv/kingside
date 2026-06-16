@@ -16,7 +16,6 @@ import { useBotGame } from '../hooks/useBotGame';
 import { useChallenge } from '../hooks/useChallenge';
 import { useLazySocket } from '../hooks/useLazySocket';
 import { messagesSocket } from '../socket';
-import { prefetchStockfishWasm } from '../lib/stockfishLoader';
 import { ChallengeModal } from '../components/ChallengeModal';
 import { ServerBusyBanner } from '../components/ServerBusyBanner';
 import { NoOpponentsBlock } from '../components/NoOpponentsBlock';
@@ -42,24 +41,6 @@ export function PlayPage() {
   const matchmaking = useMatchmaking();
   const bot = useBotGame();
   const { sendChallenge, state: challengeState, error: challengeError, cancel: cancelChallenge } = useChallenge();
-
-  // KS-4305: фоновая предзагрузка Stockfish wasm пока пользователь
-  // выбирает контроль времени / уровень бота. К моменту перехода
-  // на `/play/local-bot` или `/game/<id>` (для авторизованного
-  // через `POST /games/bot`) wasm уже в HTTP-кэше браузера, и
-  // `useBotEngine` создаёт Worker почти моментально — нет окна
-  // «через раз», когда первый `getBotMove` обгонял `waitForReady`
-  // на мобильной сети. Прогрев тот же, что использует `useStockfish`
-  // на странице анализа.
-  useEffect(() => {
-    const abort = new AbortController();
-    void prefetchStockfishWasm(abort.signal).catch(() => {
-      // Тихо: если прогрев не удался, useBotEngine при заходе на
-      // партию сам сделает fetch и поднимет видимую ошибку. Не
-      // мешаем пользователю выбирать соперника.
-    });
-    return () => abort.abort();
-  }, []);
 
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [friendsLoading, setFriendsLoading] = useState(false);

@@ -20,7 +20,6 @@ import {
   useLocalBotGame,
   type LocalBotTimeControl,
 } from '../hooks/useLocalBotGame';
-import { prefetchStockfishWasm } from '../lib/stockfishLoader';
 
 /**
  * KS-4148: на `/play/local-bot` по умолчанию используем стандартный
@@ -47,22 +46,6 @@ export function LocalBotGamePage() {
   const { t } = useTranslation();
   const location = useLocation();
   const state = (location.state ?? {}) as LocationState;
-
-  // KS-4306: фоновая предзагрузка Stockfish wasm для тех, кто открыл
-  // `/play/local-bot` прямой ссылкой (без прохождения через `/play`,
-  // где уже стоит такой же предзагрузчик из KS-4305). Без этого на
-  // мобильной сети 7 МБ wasm грузится только после `new Worker(...)`
-  // внутри `useBotEngine`, и эффект первого хода бота ждёт до 30 с —
-  // пользователь видит «Bot is thinking…» без прогресса и думает, что
-  // партия зависла. Запрос идемпотентен: если на `/play` его уже
-  // отправили, второй раз браузер достанет ответ из HTTP-кэша.
-  useEffect(() => {
-    const abort = new AbortController();
-    void prefetchStockfishWasm(abort.signal).catch(() => {
-      // Тихо: `useBotEngine` сам поднимет видимую ошибку при провале.
-    });
-    return () => abort.abort();
-  }, []);
 
   const game = useLocalBotGame({
     color: state.color,
