@@ -128,6 +128,10 @@ export function MainLayout() {
 
   // Hide mobile bottom bar during active game (sidebar always visible)
   const hideBottomBar = location.pathname.startsWith('/game/');
+  // KS-4287 / ADR-134 §5: AI ChatWidget FAB перекрывает кнопки действий
+  // на странице партии и параллельный AI-чат во время игры не нужен —
+  // полностью убираем виджет из DOM на `/game/:id`.
+  const hideAssistantFab = location.pathname.startsWith('/game/');
 
   return (
     <div
@@ -343,7 +347,7 @@ export function MainLayout() {
       {/* KS-3070: NavOnboardingTooltip удалён — окно показа KS-2814
           закрылось, плюс плашка ломала Playwright-скриншоты на
           чистом localStorage. */}
-      <ChatWidget />
+      {!hideAssistantFab && <ChatWidget />}
     </div>
   );
 }

@@ -9,8 +9,11 @@ vi.mock('../context/AuthContext', () => ({
 
 // ChatWidget depends on ChatProvider (not mounted in this test harness) and
 // keeps an open SSE stream / setInterval that leaks past teardown.
+// KS-4287: рендерим маркер вместо `null`, чтобы можно было проверить
+// само наличие компонента в DOM на одних роутах и его отсутствие на
+// странице партии (`hideAssistantFab`).
 vi.mock('../components/ChatWidget', () => ({
-  ChatWidget: () => null,
+  ChatWidget: () => <div data-testid="chat-widget-mock" />,
 }));
 
 // Prevent MainLayout's polling `useEffect`s (`fetch('/version.json')`,
@@ -119,5 +122,25 @@ describe('KS-633: навигация — убрать Train, Login/Register, д�
       expect(screen.queryByLabelText('Facebook')).not.toBeInTheDocument();
       expect(screen.queryByLabelText('Telegram')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('KS-4287 / ADR-134 §5: AI ChatWidget скрыт на странице партии', () => {
+  beforeEach(() => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 'u1', username: 'TestUser', ratingBlitz: 1500 },
+      loading: false,
+      logout: vi.fn(),
+    });
+  });
+
+  it('на обычной странице ChatWidget смонтирован', () => {
+    renderWithProviders(<MainLayout />, { route: '/lobby' });
+    expect(screen.queryByTestId('chat-widget-mock')).toBeInTheDocument();
+  });
+
+  it('на /game/:id ChatWidget отсутствует в DOM', () => {
+    renderWithProviders(<MainLayout />, { route: '/game/abc-123' });
+    expect(screen.queryByTestId('chat-widget-mock')).not.toBeInTheDocument();
   });
 });
