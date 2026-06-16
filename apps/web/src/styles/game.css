@@ -1587,6 +1587,224 @@ body:has(.game-page),
 
 }
 
+/* ===========================================================
+ * KS-4296 / ADR-134 §8 — альбомная раскладка страницы игры на mobile.
+ *
+ * Базовый mobile-блок выше (`max-width: 899px`) даёт одну колонку.
+ * На коротких landscape-вьюпортах (типичный смартфон 700×400,
+ * iPhone landscape 844×390 и т.п.) одна колонка не помещается:
+ * доска уезжает в скролл, действия перекрывают часы.
+ *
+ * Здесь — двухколоночный CSS Grid:
+ *   ┌─────────────────────┬───────────────────────┐
+ *   │ ⚫ Opp           2:49 │  1. e4    c5          │
+ *   ├─────────────────────┤  2. Nf3   Nc6         │
+ *   │      BOARD          │  ...                  │
+ *   │      min(95vh,50vw) │                       │
+ *   ├─────────────────────┼───────────────────────┤
+ *   │ ⚪ You         3:00  │ ⚐ ½ 💬² ⋮             │
+ *   └─────────────────────┴───────────────────────┘
+ *
+ * Реализация чистым CSS:
+ *  - `.game-page` → display: grid с именованными областями.
+ *  - `.game-board-area` → `display: contents`, чтобы её дети
+ *    (opp-bar, board, self-bar, move-strip) поднялись прямо
+ *    в грид `.game-page` и распределились по колонкам без
+ *    изменений React-структуры.
+ *  - `.game-action-bar` — сибл `.game-board-area`, статичный
+ *    grid-item в правой нижней ячейке (не sticky к viewport).
+ *  - `.game-result-sheet-wrapper` / `.game-chat-sheet-overlay` —
+ *    `position: fixed`, не участвуют в гриде; ширина уже
+ *    ограничена `max-width: 560px` (см. выше).
+ *  - `.board-container` `width/height` форсируется `!important`,
+ *    т.к. `useResponsiveBoardSize` ставит inline-стили (хук НЕ
+ *    меняем — задача требует только CSS).
+ *  - `.player-info` компактнее (padding/font), иначе сумма
+ *    bar + board + bar превышает 400dvh.
+ *
+ * `max-height: 500px` отсекает планшеты и ноутбуки — у тех
+ * сохраняется обычная mobile/desktop-раскладка.
+ * =========================================================== */
+@media (orientation: landscape) and (max-height: 500px) {
+  .game-page {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    /* Три строки. self-bar и action-bar делят последнюю — мокап
+       ADR-134 §8 как раз показывает «You» слева и иконки действий
+       справа на одной горизонтали:
+         ┌────────────┬─────────────┐
+         │ ⚫ Opp 2:49 │ 1.e4    c5  │
+         │ board      │ ...         │
+         │ ⚪ You 3:00 │ ⚐ ½ 💬 ⋮    │
+         └────────────┴─────────────┘
+       Move-strip спанит первые две строки (opp+board), action-bar
+       стоит рядом с self в третьей. */
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "opp    moves"
+      "board  moves"
+      "self   actions";
+    column-gap: 8px;
+    row-gap: 2px;
+    padding: 4px 8px;
+    /* `.main:has(.game-page) { flex:1 }` — родитель уже даёт нам
+       (100dvh − header). Берём от него 100%, не 100dvh: иначе ушли
+       бы под header (он 48px над .main). */
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    align-items: start;
+    /* Перебивает `flex-direction: column` из mobile-блока выше. */
+    flex-direction: row;
+  }
+
+  /* Поднимаем детей в `.game-page`: только так move-strip может
+     оказаться в правой колонке без смены React-разметки. Стили
+     самого `.game-board-area` (overflow/contain/flex) обнуляются —
+     это норм: визуальной обёртки у блока нет (нет фона/рамки). */
+  .game-board-area {
+    display: contents;
+  }
+
+  /* Бот-баннер на 400dvh высоте съел бы место под доску. Скрываем —
+     при необходимости пользователь увидит его в портретной
+     ориентации (большинство мобильных landscape — игровая сессия,
+     ротация уже произошла). */
+  .bot-fallback-banner {
+    display: none;
+  }
+
+  /* `.local-bot-below` (LocalBotGamePage `belowBoardBlock`) — отладочная
+     строка статуса бота под доской, h≈36px. На /game/<id> такого блока
+     нет, на /play/local-bot он съедает критичную вертикаль в landscape.
+     Скрываем — статус ошибок бота не нужен на короткой landscape-сессии. */
+  .local-bot-below {
+    display: none;
+  }
+
+  /* Боковая sidebar (на mobile её дети `.move-list`, `.game-actions`,
+     `.chat` уже скрыты блоком max-width:899) в landscape создаёт
+     пустую ячейку — явно прячем. */
+  .game-sidebar {
+    display: none !important;
+  }
+
+  /* Player-bars компактнее: padding/font меньше, чтобы opp + self
+     суммарно занимали ≤60px вертикали (на 400dvh оставляем 340px
+     под доску). */
+  .player-info {
+    padding: 2px 8px;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .player-info .player-name {
+    font-size: 13px;
+  }
+
+  .player-info .clock {
+    font-size: 15px;
+  }
+
+  .player-info.opponent-info {
+    grid-area: opp;
+  }
+
+  .player-info.player-info-self {
+    grid-area: self;
+  }
+
+  /* Доска квадрат, фиксированный размер. `!important` нужен — иначе
+     inline `style={{ width: boardWidth, height: boardWidth }}` из
+     `useResponsiveBoardSize` побеждает по специфичности (inline > CSS).
+     Формула: меньшее из ширины колонки (`50vw`) и доступной высоты,
+     явно вычитая накладные расходы:
+       header(48) + opp-bar(~26) + (self|actions row, ~36) + gap/padding(~10)
+       ≈ 120 пикселей сверху/снизу.
+     Задача указывала `min(95vh, 50vw)` — но 95% высоты не оставляет
+     места под player-bars и app-header (48px), и нижний бар уезжает
+     за viewport. Здесь явный учёт служебной высоты даёт доску
+     максимального размера, при котором всё помещается без скролла.
+     На 700×400: min(350, 250) = 250. На 844×390: min(422, 240) = 240. */
+  .board-container {
+    grid-area: board;
+    width: min(50vw, calc(100dvh - 150px)) !important;
+    height: min(50vw, calc(100dvh - 150px)) !important;
+    max-width: none !important;
+    max-height: none !important;
+    /* Центрируем по горизонтали в левой колонке. */
+    justify-self: center;
+    align-self: start;
+  }
+
+  /* Move-strip — вертикальный список в правой колонке. Перебиваем
+     горизонтальную раскладку из max-width:899 блока. */
+  .game-move-strip {
+    display: flex;
+    grid-area: moves;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    /* В вертикальном режиме скроллим Y, не X. */
+    overflow-x: hidden;
+    overflow-y: auto;
+    white-space: normal;
+    /* Чуть отступ от верха и компактные padding'и для каждой
+       строки хода. */
+    padding: 4px 4px 8px;
+    gap: 1px;
+  }
+
+  .game-move-strip__item {
+    display: block;
+    padding: 3px 6px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  /* Action-bar — обычный grid-item в правой нижней ячейке.
+     Снимаем `position: sticky` и нижний safe-area, т.к. в
+     landscape место — в колонке, а не «во всю ширину снизу».
+     min-height 48 вместо 56 — экономит вертикаль для move-strip. */
+  .game-action-bar {
+    grid-area: actions;
+    position: static;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    align-self: end;
+    justify-self: stretch;
+    min-height: 48px;
+    padding: 4px 6px;
+    padding-bottom: 4px;
+    border-top: 1px solid var(--ov-white-08, rgba(255, 255, 255, 0.08));
+  }
+
+  .game-action-bar__btn {
+    min-height: 40px;
+    padding: 4px 2px;
+  }
+
+  /* Подпись под иконкой в action-bar в landscape часто не помещается
+     (4-5 кнопок в ~50vw ширины). Прячем — иконки достаточно
+     читаемы. */
+  .game-action-bar__label {
+    display: none;
+  }
+
+  .game-action-bar__btn {
+    gap: 0;
+  }
+
+  /* GameResultSheet / GameChatSheet — fixed-overlay'и. Их ширина
+     уже ограничена `max-width: 560px`, центрированы по горизонтали.
+     На 700-844px landscape это даёт ~80% ширины — «разумная
+     ширина» (требование задачи), не во всю ширину окна. */
+}
+
 /* KS-4290: узкие телефоны (320-359px) — режим icons-only в action-bar
    (без подписи под иконкой). Вынесено наружу из вложенной @media-
    секции для совместимости со старыми бандлерами/браузерами. */

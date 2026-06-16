@@ -64,46 +64,14 @@
   }
 }
 
-/* Landscape orientation on mobile — board + sidebar в одном flex-row. */
-@media (max-width: 899px) and (orientation: landscape) {
-  .game-page {
-    flex-direction: row;
-    flex-wrap: nowrap;
-    align-items: stretch;
-    gap: 8px;
-    padding: 36px 8px 8px;
-    overflow: hidden;
-    height: 100%;
-    min-height: 0;
-  }
-
-  .game-page > .game-sidebar {
-    width: 260px !important;
-    padding-top: 0;
-  }
-
-  .game-board-area {
-    gap: 4px;
-  }
-
-  .clock {
-    font-size: 16px;
-    min-width: 46px;
-  }
-
-  .player-name {
-    font-size: 12px;
-  }
-
-  .game-sidebar {
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .chat {
-    max-height: none;
-  }
-}
+/* KS-4296 / ADR-134 §8: предыдущая landscape-раскладка `(max-width:
+   899px) and (orientation: landscape)` использовала flex-row с
+   `.game-sidebar` шириной 260px. После KS-4290…4295 сайдбар на
+   mobile пуст (его содержимое переехало в `<GameActionBar>`,
+   `<GameMoveStrip>`, `<GameChatSheet>` — см. `game.css` mobile-блок).
+   Новая landscape-раскладка живёт в `game.css` под
+   `@media (orientation: landscape) and (max-height: 500px)` —
+   двухколоночный grid с move-strip и action-bar справа. */
 
 /* Responsive: tablets */
 @media (max-width: 768px) {
