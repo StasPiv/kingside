@@ -82,11 +82,57 @@ const DEFAULT_USER_AGENT =
 const DEFAULT_RECREATE_AFTER = 3;
 const DEFAULT_HARD_TIMEOUT_BUFFER_MS = 10_000;
 
+/**
+ * KS-4229 follow-up. Дефолтный logger пишет JSON-строки напрямую в
+ * stdout/stderr — формат совпадает с `log()` в `index.ts`, чтобы
+ * CloudWatch logs filter pattern `{ $.msg = "render timeout" }`
+ * находил оба источника. Через `console.error` пишет тоже stderr,
+ * но без гарантии полного контроля над буферизацией; явный
+ * `process.stderr.write` исключает edge-cases.
+ */
 const consoleLogger: RendererLogger = {
-  info: (m) => console.log(m),
-  warn: (m) => console.warn(m),
-  error: (m) => console.error(m),
+  info: (m) => process.stdout.write(`${m}\n`),
+  warn: (m) => process.stderr.write(`${m}\n`),
+  error: (m) => process.stderr.write(`${m}\n`),
 };
+
+/**
+ * KS-4229 follow-up. Унифицированная сериализация лога в формате
+ * `index.ts.log()`: всегда есть `level`, `ts`, `msg`, `service`.
+ * Координатор фильтрует CloudWatch по `msg="render timeout"` — это
+ * совпадает с JSON-полем при структурном фильтре.
+ */
+function logLine(
+  level: 'info' | 'warn' | 'error',
+  msg: string,
+  extra: Record<string, unknown> = {},
+): string {
+  return JSON.stringify({
+    level,
+    ts: new Date().toISOString(),
+    msg,
+    service: 'prerender-service',
+    ...extra,
+  });
+}
+
+/**
+ * KS-4229 follow-up. Определяет, является ли ошибка timeout'ом любого
+ * происхождения — наш `RenderTimeoutError` или Playwright'овский
+ * `TimeoutError` (name='TimeoutError' с словом 'Timeout' в сообщении).
+ * До этого fix'а только наш hardTimeout логировался как `render timeout`,
+ * а Playwright'овский внутренний timeout=15s (при `goto`/`waitForLoadState`)
+ * срабатывал раньше и логировался как обобщённый `render failed` —
+ * поиск по CloudWatch не находил.
+ */
+function isTimeoutLike(e: unknown): boolean {
+  if (e instanceof RenderTimeoutError) return true;
+  if (!(e instanceof Error)) return false;
+  if (e.name === 'TimeoutError') return true;
+  // Playwright иногда переименовывает в 'playwright.TimeoutError' /
+  // 'PlaywrightError' — ловим по сообщению как fallback.
+  return /timeout/i.test(e.message);
+}
 
 export async function createRenderer(
   opts: RendererOptions,
@@ -121,12 +167,7 @@ export async function createRenderer(
 
   async function ensureBrowser(): Promise<Browser> {
     if (browser) return browser;
-    logger.info(
-      JSON.stringify({
-        level: 'info',
-        msg: 'renderer: launching new browser after recreate',
-      }),
-    );
+    logger.info(logLine('info', 'renderer: launching new browser after recreate'));
     browser = await launchBrowser();
     return browser;
   }
@@ -213,24 +254,29 @@ export async function createRenderer(
       // Успех — сбрасываем счётчик зависаний.
       if (failureCount > 0) {
         logger.info(
-          JSON.stringify({
-            level: 'info',
-            msg: `renderer: success after ${failureCount} failures, counter reset`,
-          }),
+          logLine(
+            'info',
+            `renderer: success after ${failureCount} failures, counter reset`,
+          ),
         );
       }
       failureCount = 0;
       return html;
     } catch (e) {
       failureCount += 1;
-      const isTimeout = e instanceof RenderTimeoutError;
+      // KS-4229 follow-up. Любой timeout (наш RenderTimeoutError или
+      // Playwright'овский TimeoutError, который часто срабатывает
+      // раньше) попадает в одну категорию `render timeout` — иначе
+      // CloudWatch filter по `msg="render timeout"` пропускал бы
+      // случаи Playwright'ого внутреннего timeout'а.
+      const isTimeout = isTimeoutLike(e);
+      const errName = e instanceof Error ? e.name : 'unknown';
       logger.error(
-        JSON.stringify({
-          level: 'error',
-          msg: isTimeout ? 'render timeout' : 'render failed',
+        logLine('error', isTimeout ? 'render timeout' : 'render failed', {
           url,
           elapsedMs: Date.now() - started,
           failureCount,
+          errName,
           err: (e as Error).message,
         }),
       );
@@ -243,10 +289,10 @@ export async function createRenderer(
         browser = null;
         failureCount = 0;
         logger.warn(
-          JSON.stringify({
-            level: 'warn',
-            msg: `renderer: closing browser after ${recreateAfter} consecutive failures`,
-          }),
+          logLine(
+            'warn',
+            `renderer: closing browser after ${recreateAfter} consecutive failures`,
+          ),
         );
         if (dead) {
           // Fire-and-forget — на close() Playwright тоже может зависнуть;

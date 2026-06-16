@@ -218,3 +218,95 @@ describe('RenderTimeoutError', () => {
     expect(err.message).toContain('1234ms');
   });
 });
+
+describe('createRenderer — logging (KS-4229 follow-up)', () => {
+  it('Playwright TimeoutError логируется как "render timeout" (а не "render failed")', async () => {
+    // Симулируем Playwright TimeoutError: name='TimeoutError'.
+    const goto = vi.fn(async () => {
+      const err = new Error('page.goto: Timeout 15000ms exceeded');
+      err.name = 'TimeoutError';
+      throw err;
+    });
+    const page = {
+      goto,
+      waitForFunction: vi.fn(async () => undefined),
+      waitForLoadState: vi.fn(async () => undefined),
+      evaluate: vi.fn(async () => '<html></html>'),
+    } as unknown as Page;
+    const context = {
+      newPage: vi.fn(async () => page),
+      close: vi.fn(async () => undefined),
+    } as unknown as BrowserContext;
+    const browser = {
+      newContext: vi.fn(async () => context),
+      close: vi.fn(async () => undefined),
+    } as unknown as Browser;
+
+    const lines: string[] = [];
+    const renderer = await createRenderer({
+      timeoutMs: 1000,
+      hardTimeoutMs: 2000,
+      recreateAfterFailures: 999,
+      launchBrowser: async () => browser,
+      logger: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: (m) => lines.push(m),
+      },
+    });
+
+    await expect(renderer.render('https://x.test/pw-timeout')).rejects.toThrow(
+      /Timeout 15000ms/,
+    );
+    expect(lines.length).toBeGreaterThan(0);
+    const parsed = JSON.parse(lines[0]);
+    expect(parsed.level).toBe('error');
+    expect(parsed.msg).toBe('render timeout');
+    expect(parsed.errName).toBe('TimeoutError');
+    expect(parsed.url).toBe('https://x.test/pw-timeout');
+    await renderer.close();
+  });
+
+  it('обычная ошибка остаётся как "render failed"', async () => {
+    const { browser } = makeBrowserMock({ gotoBehavior: 'throw' });
+    const lines: string[] = [];
+    const renderer = await createRenderer({
+      timeoutMs: 1000,
+      hardTimeoutMs: 2000,
+      recreateAfterFailures: 999,
+      launchBrowser: async () => browser,
+      logger: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: (m) => lines.push(m),
+      },
+    });
+    await expect(renderer.render('https://x.test/err')).rejects.toThrow(
+      /synthetic goto failure/,
+    );
+    const parsed = JSON.parse(lines[0]);
+    expect(parsed.msg).toBe('render failed');
+    await renderer.close();
+  });
+
+  it('сообщение лога содержит ts и service (формат index.ts.log)', async () => {
+    const { browser } = makeBrowserMock({ gotoBehavior: 'throw' });
+    const lines: string[] = [];
+    const renderer = await createRenderer({
+      timeoutMs: 1000,
+      hardTimeoutMs: 2000,
+      recreateAfterFailures: 999,
+      launchBrowser: async () => browser,
+      logger: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: (m) => lines.push(m),
+      },
+    });
+    await renderer.render('https://x').catch(() => undefined);
+    const parsed = JSON.parse(lines[0]);
+    expect(typeof parsed.ts).toBe('string');
+    expect(parsed.service).toBe('prerender-service');
+    await renderer.close();
+  });
+});
