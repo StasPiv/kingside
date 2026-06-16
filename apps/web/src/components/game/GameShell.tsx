@@ -36,7 +36,6 @@ import { PromotionPicker } from '../PromotionPicker';
 import { HelpButton } from '../HelpButton';
 import { GameResultSheet } from './GameResultSheet';
 import { GameActionBar } from './GameActionBar';
-import { GameMoveStrip } from './GameMoveStrip';
 import { GameWaitingOverlay } from './GameWaitingOverlay';
 import { GameChatSheet } from './GameChatSheet';
 import { GameChatToast } from './GameChatToast';
@@ -385,9 +384,10 @@ export function GameShell(props: GameShellProps) {
     // desktop ≥900px компонент CSS-правилом скрыт, и `calculateBoardSize`
     // игнорирует `hasActionBar` (см. `isMobile && options.hasActionBar`).
     hasActionBar: true,
-    // KS-4291 / ADR-134 §3: на mobile под доской также рендерится
-    // компактная полоска ходов (32px). Аналогично — на desktop игнор.
-    hasMoveStrip: true,
+    // KS-4298: вместо полоски ходов (KS-4291) над opponent-info
+    // отображается тонкая строка с последним ходом (~20px). Учитываем
+    // её в расчёте доски на mobile; на desktop игнорируется.
+    hasLastMoveLine: true,
   });
   const [chatInput, setChatInput] = useState('');
   const [pendingPromotion, setPendingPromotion] = useState<
@@ -768,6 +768,27 @@ export function GameShell(props: GameShellProps) {
           </div>
         )}
 
+        {/* KS-4298: тонкая строка с последним ходом в нотации над
+            opponent-info (стиль chess.com). Видна только на mobile
+            (CSS: `.game-last-move-line` `display: none` по умолчанию,
+            `display: block` в @media `max-width: 899px`). Формат
+            «1. e4» / «1... c5» — последний полу-ход. Если ходов нет,
+            строка не рендерится, чтобы не оставлять пустую высоту. */}
+        {moves.length > 0 && (
+          <div
+            className="game-last-move-line"
+            data-testid="game-last-move-line"
+            aria-live="polite"
+          >
+            {(() => {
+              const idx = moves.length - 1;
+              const isWhite = idx % 2 === 0;
+              const num = Math.floor(idx / 2) + 1;
+              const prefix = isWhite ? `${num}.` : `${num}…`;
+              return `${prefix} ${moves[idx]}`;
+            })()}
+          </div>
+        )}
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
           <span className="player-name">
@@ -830,12 +851,11 @@ export function GameShell(props: GameShellProps) {
         </div>
 
         {belowBoardBlock}
-
-        {/* KS-4291 / ADR-134 §3: компактная горизонтальная полоска
-            ходов под доской, видна только на mobile (CSS-правило в
-            `game.css` скрывает её на ≥900px). На desktop пользователь
-            видит обычную `.move-list` в `.game-sidebar`. */}
-        <GameMoveStrip moves={moves} />
+        {/* KS-4298: `<GameMoveStrip>` (KS-4291) убран из mobile-
+            раскладки страницы игры. Его место занимает тонкая строка
+            с последним ходом над `.opponent-info` (см. выше). Сам
+            компонент сохранён в кодовой базе на случай повторного
+            использования. */}
       </div>
 
       <div className="game-h-resizer" onMouseDown={handleResizerMouseDown} />

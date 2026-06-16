@@ -48,7 +48,15 @@ const GAME_ACTION_BAR_HEIGHT = 56;
 // полоска ходов под доской на mobile. Высота 32px без safe-area
 // (полоска не прижата к нижнему краю, safe-area уже учтена в
 // action-bar). Синхронизировать с `game.css` .game-move-strip.
+// KS-4298 — полоска убрана из GameShell, константа оставлена для
+// обратной совместимости с тестами/потенциальным повторным
+// использованием.
 const GAME_MOVE_STRIP_HEIGHT = 32;
+// KS-4298: тонкая строка с последним ходом над `.opponent-info`.
+// Шрифт ≈12-13px + межстрочное расстояние = высота ≈20px. Учитывается
+// в расчёте доски, чтобы доска не уезжала за нижний край после
+// появления строки.
+const GAME_LAST_MOVE_LINE_HEIGHT = 20;
 
 function safeAreaInsetBottom(): number {
   // На iOS / Android — env(safe-area-inset-bottom). В headless / десктопе
@@ -100,8 +108,17 @@ export interface ResponsiveBoardSizeOptions {
    * полоска ходов высотой 32px между нижним player-bar'ом и action-
    * bar'ом. Параметр включает вычитание этой высоты на mobile; на
    * desktop ≥900px игнорируется (`isMobile && options.hasMoveStrip`).
+   * KS-4298 — `GameShell` больше не передаёт этот флаг, но параметр
+   * сохранён для совместимости.
    */
   hasMoveStrip?: boolean;
+  /**
+   * KS-4298. Тонкая строка «последний ход» над верхним player-bar
+   * (≈20px). На mobile вычитается из доступной высоты, чтобы доска
+   * заняла максимум; на desktop игнорируется
+   * (`isMobile && options.hasLastMoveLine`).
+   */
+  hasLastMoveLine?: boolean;
 }
 
 function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
@@ -132,9 +149,14 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
       : 0;
   // KS-4291 (ADR-134 §3): GameMoveStrip — компактная полоска ходов под
   // доской на mobile (≤899px). Высоту 32px вычитаем независимо от
-  // action-bar; на desktop игнорируется.
+  // action-bar; на desktop игнорируется. KS-4298: GameShell больше
+  // не передаёт hasMoveStrip — вычитание отрабатывает только если
+  // вызывающий код явно его выставил.
   const moveStrip =
     options.hasMoveStrip && isMobile ? GAME_MOVE_STRIP_HEIGHT : 0;
+  // KS-4298: тонкая строка «последний ход» над opponent-info.
+  const lastMoveLine =
+    options.hasLastMoveLine && isMobile ? GAME_LAST_MOVE_LINE_HEIGHT : 0;
 
   const extraVertical = isMobile
     ? BACK_LINK_HEIGHT +
@@ -145,6 +167,7 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
       mobileBar +
       actionBar +
       moveStrip +
+      lastMoveLine +
       extra +
       SAFETY_RESERVE
     : BACK_LINK_HEIGHT +
@@ -153,6 +176,7 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
       mobileBar +
       actionBar +
       moveStrip +
+      lastMoveLine +
       extra +
       SAFETY_RESERVE;
   const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding - extraVertical;
@@ -180,6 +204,7 @@ export function useResponsiveBoardSize(
     hideMobileBottomBar = false,
     hasActionBar = false,
     hasMoveStrip = false,
+    hasLastMoveLine = false,
   } = options;
   const [boardSize, setBoardSize] = useState(() =>
     calculateBoardSize({
@@ -188,6 +213,7 @@ export function useResponsiveBoardSize(
       hideMobileBottomBar,
       hasActionBar,
       hasMoveStrip,
+      hasLastMoveLine,
     }),
   );
 
@@ -200,6 +226,7 @@ export function useResponsiveBoardSize(
           hideMobileBottomBar,
           hasActionBar,
           hasMoveStrip,
+          hasLastMoveLine,
         }),
       );
 
@@ -218,6 +245,7 @@ export function useResponsiveBoardSize(
     hideMobileBottomBar,
     hasActionBar,
     hasMoveStrip,
+    hasLastMoveLine,
   ]);
 
   return boardSize;

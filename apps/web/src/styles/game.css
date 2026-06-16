@@ -996,6 +996,14 @@ body:has(.game-page),
   color: var(--c-a0a0c0);
 }
 
+/* KS-4298: тонкая строка с последним ходом над верхним player-bar
+   на мобильной ширине. Стиль chess.com: мелкий приглушённый текст
+   без подложки/рамки. По умолчанию скрыта (desktop ≥900px), в @media
+   `max-width: 899px` включается как блочный элемент. */
+.game-last-move-line {
+  display: none;
+}
+
 /* KS-4291 / ADR-134 §3: компактная горизонтальная полоска ходов под
    доской на mobile. По умолчанию (desktop ≥900px) скрыта; включается
    в @media `max-width: 899px`. На desktop пользователь продолжает
@@ -1537,6 +1545,9 @@ body:has(.game-page),
     white-space: nowrap;
   }
 
+  /* KS-4298: `<GameMoveStrip>` больше не рендерится в `GameShell`.
+     Правило `display: flex` оставлено на случай, что компонент
+     переиспользуется в других сценариях; по умолчанию рендера нет. */
   .game-move-strip {
     display: flex;
     flex-direction: row;
@@ -1547,13 +1558,26 @@ body:has(.game-page),
     overflow-x: auto;
     overflow-y: hidden;
     white-space: nowrap;
-    /* Скрываем scrollbar — навигация по жесту/тапу. */
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
 
   .game-move-strip::-webkit-scrollbar {
     display: none;
+  }
+
+  /* KS-4298: тонкая строка «последний ход» над `.opponent-info`. */
+  .game-last-move-line {
+    display: block;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 0 4px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--c-a0a0c0);
+    text-align: left;
+    font-variant-numeric: tabular-nums;
   }
 
   .game-action-bar {
@@ -1629,20 +1653,17 @@ body:has(.game-page),
   .game-page {
     display: grid;
     grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-    /* Три строки. self-bar и action-bar делят последнюю — мокап
-       ADR-134 §8 как раз показывает «You» слева и иконки действий
-       справа на одной горизонтали:
-         ┌────────────┬─────────────┐
-         │ ⚫ Opp 2:49 │ 1.e4    c5  │
-         │ board      │ ...         │
-         │ ⚪ You 3:00 │ ⚐ ½ 💬 ⋮    │
-         └────────────┴─────────────┘
-       Move-strip спанит первые две строки (opp+board), action-bar
-       стоит рядом с self в третьей. */
+    /* KS-4298: полоска ходов убрана, правая колонка теперь принадлежит
+       только action-bar (он тянется по всей высоте, иконки вертикально).
+         ┌────────────┬─────────┐
+         │ ⚫ Opp 2:49 │  ⚐      │
+         │ board      │  ½      │
+         │ ⚪ You 3:00 │ 💬 ⋮    │
+         └────────────┴─────────┘ */
     grid-template-rows: auto 1fr auto;
     grid-template-areas:
-      "opp    moves"
-      "board  moves"
+      "opp    actions"
+      "board  actions"
       "self   actions";
     column-gap: 8px;
     row-gap: 2px;
@@ -1737,50 +1758,31 @@ body:has(.game-page),
     align-self: start;
   }
 
-  /* Move-strip — вертикальный список в правой колонке. Перебиваем
-     горизонтальную раскладку из max-width:899 блока. */
-  .game-move-strip {
-    display: flex;
-    grid-area: moves;
-    flex-direction: column;
-    align-items: stretch;
-    width: 100%;
-    max-width: none;
-    height: 100%;
-    min-height: 0;
-    /* В вертикальном режиме скроллим Y, не X. */
-    overflow-x: hidden;
-    overflow-y: auto;
-    white-space: normal;
-    /* Чуть отступ от верха и компактные padding'и для каждой
-       строки хода. */
-    padding: 4px 4px 8px;
-    gap: 1px;
+  /* KS-4298: тонкая строка с последним ходом в landscape избыточна
+     (вертикали мало, доска уже сжата). Прячем. */
+  .game-last-move-line {
+    display: none;
   }
 
-  .game-move-strip__item {
-    display: block;
-    padding: 3px 6px;
-    font-size: 12px;
-    line-height: 1.2;
-  }
-
-  /* Action-bar — обычный grid-item в правой нижней ячейке.
-     Снимаем `position: sticky` и нижний safe-area, т.к. в
-     landscape место — в колонке, а не «во всю ширину снизу».
-     min-height 48 вместо 56 — экономит вертикаль для move-strip. */
+  /* Action-bar — занимает всю правую колонку по высоте. Иконки
+     раскладываются вертикально вместо горизонтальной полосы снизу.
+     Снимаем `position: sticky` и нижний safe-area — место теперь
+     в колонке, а не «во всю ширину снизу». */
   .game-action-bar {
     grid-area: actions;
     position: static;
     width: 100%;
     max-width: none;
+    height: 100%;
     margin: 0;
-    align-self: end;
+    align-self: stretch;
     justify-self: stretch;
-    min-height: 48px;
+    flex-direction: column;
+    min-height: 0;
     padding: 4px 6px;
     padding-bottom: 4px;
-    border-top: 1px solid var(--ov-white-08, rgba(255, 255, 255, 0.08));
+    border-top: none;
+    border-left: 1px solid var(--ov-white-08, rgba(255, 255, 255, 0.08));
   }
 
   .game-action-bar__btn {
