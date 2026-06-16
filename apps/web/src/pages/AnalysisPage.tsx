@@ -12,6 +12,7 @@ import type { Square } from 'chess.js';
 import type { GameMetaInfo } from '../components/GameMetaBar';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
 import { PageSeo } from '../components/seo/PageSeo';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 import { SetPositionModal } from '../components/SetPositionModal';
 import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
@@ -3873,8 +3874,105 @@ function AnalysisPageInner({
   const isAtStart = currentMove === null;
   const isAtEnd = currentMove !== null && !currentMove.next;
 
-  if (loading) return <div className="loading">{t('common.loading')}</div>;
-  if (error) return <div className="error">{error}</div>;
+  // KS-4254 / ADR-128 §7.6.1.2. SEO для публичной аналитики
+  // `/analysis/public/:id`. Сначала собираем `publicSeoBlock`, чтобы
+  // он попал в head ДО ранних return-ветвей (loading/error) —
+  // предварительный генератор иначе снимет HTML до загрузки данных,
+  // и в S3 окажется SPA-shell без per-entity title (см. KS-4231).
+  //
+  // Источник имён игроков по приоритету:
+  //   1) `gameData.white.username` / `gameData.black.username` — пришёл
+  //      реальный ответ `getPublicById(id)` (см. ниже useEffect).
+  //   2) PGN-заголовки `pgnHeaders['White']` / `pgnHeaders['Black']`
+  //      из location.state (если пришли через openAnalysisFromPgn).
+  //   3) Пусто — рендерим базовый fallback «Public game analysis —
+  //      Kingside» до получения данных.
+  //
+  // Динамический FEN-render og:image — отдельная задача (§17 ADR-128).
+  // Сейчас используем статичную заглушку `/og/analysis.png`.
+  const publicSeoBlock = (() => {
+    if (!publicMode) return null;
+    const publicId = params.id ?? '';
+    const canonical = publicId
+      ? `https://kingside.site/analysis/public/${encodeURIComponent(publicId)}`
+      : 'https://kingside.site/analysis';
+    const seoWhite =
+      (gameData && gameData.white?.username) || pgnHeaders['White'] || '';
+    const seoBlack =
+      (gameData && gameData.black?.username) || pgnHeaders['Black'] || '';
+    const seoOpening = pgnHeaders['Opening']
+      ? ` (${pgnHeaders['Opening']})`
+      : '';
+    const seoResult = pgnHeaders['Result'] && pgnHeaders['Result'] !== '*'
+      ? pgnHeaders['Result']
+      : '';
+    const hasPlayers = Boolean(seoWhite && seoBlack);
+    const seoTitle = hasPlayers
+      ? t('seo.analysis.public.title', {
+          white: seoWhite,
+          black: seoBlack,
+          opening: seoOpening,
+          result: seoResult,
+          defaultValue:
+            '{{white}} vs {{black}}{{opening}} — chess analysis on Kingside',
+        })
+      : t('seo.analysis.public.titleFallback', {
+          defaultValue: 'Public game analysis — Kingside',
+        });
+    const seoDescription = hasPlayers
+      ? t('seo.analysis.public.description', {
+          white: seoWhite,
+          black: seoBlack,
+          opening: seoOpening,
+          result: seoResult,
+          defaultValue:
+            '{{white}} vs {{black}}{{opening}}{{result}} — engine analysis with Stockfish on Kingside.',
+        })
+      : t('seo.analysis.public.descriptionFallback', {
+          defaultValue:
+            'Public chess game analysis with Stockfish engine and AI commentary on Kingside.',
+        });
+    const seoJsonLd: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'Article',
+      headline: hasPlayers ? `${seoWhite} vs ${seoBlack}` : 'Chess game analysis',
+      description: seoDescription,
+      url: canonical,
+      ...(hasPlayers && {
+        author: [
+          { '@type': 'Person', name: seoWhite },
+          { '@type': 'Person', name: seoBlack },
+        ],
+      }),
+    };
+    return (
+      <SeoHelmet
+        title={seoTitle}
+        description={seoDescription}
+        canonical={canonical}
+        ogType="article"
+        ogImage="/og/analysis.png"
+        jsonLd={seoJsonLd}
+      />
+    );
+  })();
+
+  if (loading) {
+    return (
+      <>
+        {publicSeoBlock}
+        <div className="loading">{t('common.loading')}</div>
+      </>
+    );
+  }
+  if (error) {
+    return (
+      <>
+        {publicSeoBlock}
+        <div className="error">{error}</div>
+      </>
+    );
+  }
   if (gameId && !gameData) return null;
 
   const resultPgn = gameData
@@ -3933,7 +4031,12 @@ function AnalysisPageInner({
       data-analysis-context={ctx.kind}
       ref={analysisPageRef}
     >
-      <PageSeo ns="analysis.detail" path="/analysis" />
+      {/* KS-4254: в publicMode используем динамический SeoHelmet с
+          именами игроков (см. `publicSeoBlock` выше). В приватном
+          режиме оставляем общий статичный PageSeo. */}
+      {publicMode ? publicSeoBlock : (
+        <PageSeo ns="analysis.detail" path="/analysis" />
+      )}
       <div className="analysis-board-area">
         {/* KS-3182: в embedded-режиме шапка не нужна — шаг урока сам
             подписан, breadcrumb/title-edit/Share — это не контекст
