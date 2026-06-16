@@ -5,6 +5,10 @@ import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { RedisIoAdapter } from './common/redis-io.adapter';
+// KS-4251 / ADR-131 A2a. Префикс /archive при Host=archive.kingside.site
+// для совместимости со старым фронтом (apps/web ходит на поддомен без
+// явного префикса; ALB не умеет path-rewrite).
+import { archiveHostPrefixMiddleware } from './archive/archive-host-prefix.middleware';
 
 /**
  * Determine whether to use Redis adapter for Socket.IO.
@@ -58,6 +62,9 @@ async function bootstrap() {
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
     credentials: true,
   });
+  // KS-4251 / ADR-131 A2a. Префикс /archive по Host'у — ДО body-parser'ов
+  // и controllers, иначе RouterExplorer уже сматчит маршрут.
+  app.use(archiveHostPrefixMiddleware);
   // KS-3629: подняли лимит body-parser с дефолтных 100KB до 1MB.
   // Под `/api/analyses/review/comments` приходит расширенный shape
   // FactsInput (MVP-2: ~325 байт/факт) × несколько десятков фактов
