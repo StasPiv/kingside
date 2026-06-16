@@ -278,6 +278,9 @@ class AgentDaemon:
         self._current_sender: str = ""
         self._current_reply_channel: str | None = None
         self._current_replied: bool = False
+        # Текст входящего сообщения, запустившего текущий turn — нужен валидатору
+        # для оценки уместности ответа в контексте запроса.
+        self._current_input_text: str = ""
         # Текущая активность для UI: kind in {idle,thinking,tool,writing,compacting,offline}
         self._activity: dict = {"kind": "offline", "detail": "", "ts": time.time()}
         # Буфер assistant-строк текущего turn'а для пост-валидации перед публикацией в agents.log.
@@ -478,7 +481,11 @@ class AgentDaemon:
                 # === result event: валидация накопленного текста ===
                 full_text = "".join(self._turn_text).strip()
                 if full_text:
-                    verdict = validate_outbound(full_text, tool_uses=list(self._turn_tool_uses))
+                    verdict = validate_outbound(
+                        full_text,
+                        tool_uses=list(self._turn_tool_uses),
+                        user_prompt=self._current_input_text,
+                    )
                 else:
                     verdict = {"ok": True}
 
@@ -506,6 +513,7 @@ class AgentDaemon:
                     self._current_sender = ""
                     self._current_reply_channel = None
                     self._current_replied = False
+                    self._current_input_text = ""
 
                     _set_idle(self.name)
                     self._emit_status("idle")
@@ -608,6 +616,7 @@ class AgentDaemon:
         self._current_sender = sender
         self._current_reply_channel = reply_channel
         self._current_replied = False
+        self._current_input_text = text
 
         stream = json.dumps({
             "type": "user",
@@ -1013,6 +1022,10 @@ AGENT_ROLES: dict[str, list[str]] = {
         # CLI-заливка уроков (npm run import:lesson). /tmp монтируется базово.
         # Без COMMIT — контент в git не идёт (copyright).
         "ROLE_GIT_READ", "ROLE_READ_PROJECT", "ROLE_NPM_RUN",
+        # Видеообзоры сайта (tools/video-overview/, Playwright + Silero/ElevenLabs):
+        # tools/ уже RW базово, нужен бинарь playwright из /project/node_modules
+        # и api_start чтобы поднять локальный сервер для записи сценариев.
+        "ROLE_READ_NODE_MODULES", "ROLE_API_START",
     ],
 }
 

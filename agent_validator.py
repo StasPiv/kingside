@@ -18,7 +18,7 @@ VALIDATOR_RULES_PATHS = [
 ]
 VALIDATOR_IDLE_TTL = 30 * 60
 VALIDATOR_TIMEOUT = 45
-VALIDATOR_MODEL = "opus"
+VALIDATOR_MODEL = "claude-opus-4-7"
 VALIDATOR_CONTAINER = "validator"
 
 AGENT_CLAUDE_DIR = os.environ.get("AGENT_CLAUDE_DIR", os.path.expanduser("~/.claude"))
@@ -35,6 +35,18 @@ SYSTEM_PROMPT_TEMPLATE = """Ты — пост-валидатор исходящ�
 === Правила из проекта /home/pivovartsev/work/kingside/CLAUDE.md ===
 {project_rules}
 
+=== Контекст запроса ===
+Вместе с ответом агента тебе передаётся `user_prompt` — текст входящего сообщения, на которое агент отвечает. Используй его как контекст: уместность ответа оценивай ПО ОТНОШЕНИЮ к запросу, а не в вакууме.
+
+Примеры:
+- user_prompt: «иду делать?» → ответ агента «иду делать» = прямой ответ, не нарушение.
+- user_prompt: «что планируешь?» → ответ агента с перечислением плана = по делу, не нарушение.
+- user_prompt: «как дела с задачей?» → ответ агента «Ты прав, всё сделано» = нарушение (одобрение в начале без причины).
+- user_prompt: «согласен ли ты с подходом?» → ответ агента «Согласен» = прямой ответ, не нарушение (одобрение есть, но это ответ на прямой вопрос).
+- user_prompt: «делать?» → ответ агента «Делать?» = нарушение (агент задал риторический вопрос обратно).
+
+Если поля `user_prompt` нет или пустое — оценивай в общем виде по правилам ниже.
+
 === Что проверять ===
 Только пункты CLAUDE.md, касающиеся ТОНА, СТИЛЯ и ФОРМЫ обращения к пользователю:
 - запрет начинать с одобрения («Ты прав», «Я ошибся», «Сейчас сделаю правильно», «Согласен» и их вариаций);
@@ -48,7 +60,7 @@ SYSTEM_PROMPT_TEMPLATE = """Ты — пост-валидатор исходящ�
 === Слова против дела ===
 К каждому сообщению вместе с текстом тебе передаётся список инструментов, которые агент реально вызвал в этом turn'е (`tool_uses`). Проверь:
 
-Если в тексте есть обещание действия в настоящем/ближайшем времени любой формулировки — «иду делать», «правлю прямо сейчас», «приступаю», «делаю», «сейчас сделаю», «коммичу», «исправлю сейчас», «приступил» и любые их вариации/синонимы — должен быть как минимум один tool_use вне набора {`agent_message`, `telegram_send`, `issue_add_comment`, `issue_comments`, `Read`, `Grep`, `Glob`, `ToolSearch`} в том же turn'е. Перечисленные исключения — это коммуникация и чтение, не «делание».
+Если в тексте есть обещание действия в настоящем/ближайшем времени любой формулировки — «иду делать», «правлю прямо сейчас», «приступаю», «делаю», «сейчас сделаю», «коммичу», «исправлю сейчас», «приступил» и любые их вариации/синонимы — должен быть как минимум один tool_use вне набора {{`agent_message`, `telegram_send`, `issue_add_comment`, `issue_comments`, `Read`, `Grep`, `Glob`, `ToolSearch`}} в том же turn'е. Перечисленные исключения — это коммуникация и чтение, не «делание».
 
 Если обещание есть, а ни одного реального tool_use нет — это нарушение «слова разошлись с делом»: агент после end-of-turn уйдёт в idle и не выполнит обещанного, пока не придёт следующий внешний triggering сигнал. Описание правила в violation: «слова разошлись с делом — обещание действия без tool_use».
 
@@ -188,7 +200,7 @@ class ValidatorDaemon:
                 pass
             self._response_ready.set()
 
-    def validate(self, text: str, tool_uses: list[str] | None = None, timeout: float = VALIDATOR_TIMEOUT) -> dict:
+    def validate(self, text: str, tool_uses: list[str] | None = None, user_prompt: str = "", timeout: float = VALIDATOR_TIMEOUT) -> dict:
         """Возвращает {"ok": bool, "violations": [...]} или {"ok": True, "error": "..."} при сбое.
 
         tool_uses — список имён MCP-/CLI-инструментов, реально вызванных агентом
@@ -215,13 +227,17 @@ class ValidatorDaemon:
             tools_block = (
                 f"\n\nИнструменты, вызванные в этом turn'е (`tool_uses`): {json.dumps(tool_uses or [], ensure_ascii=False)}"
             )
+            prompt_block = (
+                f"\n\nЗапрос, на который агент отвечает (`user_prompt`):\n```\n{user_prompt}\n```"
+                if user_prompt else ""
+            )
             user_msg = json.dumps({
                 "type": "user",
                 "message": {
                     "role": "user",
                     "content": (
-                        f"Проверь сообщение:\n\n```\n{text}\n```"
-                        f"{tools_block}\n\nВерни JSON-вердикт."
+                        f"Ответ агента на проверку:\n\n```\n{text}\n```"
+                        f"{prompt_block}{tools_block}\n\nВерни JSON-вердикт."
                     ),
                 },
             })
@@ -272,9 +288,9 @@ class ValidatorDaemon:
 _validator = ValidatorDaemon()
 
 
-def validate_outbound(text: str, tool_uses: list[str] | None = None) -> dict:
+def validate_outbound(text: str, tool_uses: list[str] | None = None, user_prompt: str = "") -> dict:
     """Точка входа из webhook-server.py."""
-    return _validator.validate(text, tool_uses=tool_uses)
+    return _validator.validate(text, tool_uses=tool_uses, user_prompt=user_prompt)
 
 
 def format_violations(result: dict) -> str:
