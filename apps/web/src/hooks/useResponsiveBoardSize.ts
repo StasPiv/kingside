@@ -3,10 +3,18 @@ import { useEffect, useState } from 'react';
 const HEADER_HEIGHT = 48;
 // KS-4256: компактнее player-bar (padding 6px+gap → 40-44px высоты).
 const CLOCKS_HEIGHT = 2 * 44;
-// KS-4256: меньше padding'а вокруг доски — освободить место для самой доски.
-const PADDING_DESKTOP = 16;
-const PADDING_MOBILE = 16;
-const PADDING_NARROW = 48; // extra padding on narrow phones (≤480px) to leave room for sidebar
+// KS-4256 / KS-4299: горизонтальный отступ `.game-page` (left + right
+// в сумме). На desktop оставляем по 8px с каждой стороны. На mobile
+// после KS-4299 доска edge-to-edge — горизонтальных отступов нет.
+const HORIZONTAL_PADDING_DESKTOP = 16;
+const HORIZONTAL_PADDING_MOBILE = 0;
+// KS-4256 / KS-4299: вертикальный отступ `.game-page` (top + bottom).
+// На desktop симметричные 6/6 = 12. На mobile сверху 8 («дыхание» до
+// верхнего player-bar) + 8 (зазор между нижним player-bar и
+// `position: fixed` action-bar; сам action-bar учитывается отдельно
+// через `hasActionBar`).
+const VERTICAL_PADDING_DESKTOP = 12;
+const VERTICAL_PADDING_MOBILE = 16;
 const SIDEBAR_WIDTH = 280;
 const SIDEBAR_GAP = 16;
 const MIN_BOARD_SIZE = 240;
@@ -19,8 +27,22 @@ const MOBILE_BREAKPOINT = 900;
 // высоту в потоке колонки с доской.
 const BACK_LINK_HEIGHT = 0;
 const BOARD_AREA_GAP = 12; // 2 × 6px gaps between player-info and board
-const GAME_PAGE_GAP_MOBILE = 12; // gap between flex children in .game-page on mobile
-const SIDEBAR_MIN_HEIGHT_MOBILE = 200; // reserve space for moves/actions below board on mobile
+// KS-4299: gap между детьми `.game-page` flex-column на mobile. После
+// KS-4299 `.game-sidebar` `display: none` на ≤899px, поэтому в потоке
+// между `.game-board-area` и `.game-action-bar` ровно один gap. Сейчас
+// CSS gap = 8px (см. game.css @media max-width: 899px / 414px) —
+// держим синхронно.
+const GAME_PAGE_GAP_MOBILE = 8;
+// KS-4299: было 200 — резервировалось под `.game-sidebar` (move-list /
+// actions / chat) под доской на mobile. После KS-4290..4298 содержимое
+// сайдбара на ≤899px полностью скрыто CSS: move-list заменена строкой
+// «последний ход» (учитывается отдельно через `hasLastMoveLine`), actions
+// переехали в `.game-action-bar` (учитываются через `hasActionBar`), chat
+// — в `<GameChatSheet>` (position: fixed, в потоке высоту не занимает).
+// Резерв 200px превращался в пустой блок под нижним player-bar и не давал
+// доске занять доступную высоту. Сейчас 0 — реальные блоки под доской
+// учитываются отдельными опциями.
+const SIDEBAR_MIN_HEIGHT_MOBILE = 0;
 // KS-4257: bot-banner — реально занимает ~28px (padding 4+4 + font 12*1.35 + border
 // 2) плюс gap 6 над ним. Округляем до 34, чтобы запас был и на bookmark-bar.
 const BOT_BANNER_HEIGHT = 34;
@@ -125,8 +147,12 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
   const vh = window.innerHeight;
   const vw = window.innerWidth;
   const isMobile = vw < MOBILE_BREAKPOINT;
-  const isNarrow = vw <= 480;
-  const padding = isNarrow ? PADDING_NARROW : isMobile ? PADDING_MOBILE : PADDING_DESKTOP;
+  const horizontalPadding = isMobile
+    ? HORIZONTAL_PADDING_MOBILE
+    : HORIZONTAL_PADDING_DESKTOP;
+  const verticalPadding = isMobile
+    ? VERTICAL_PADDING_MOBILE
+    : VERTICAL_PADDING_DESKTOP;
   const sidebarW = isMobile ? 0 : SIDEBAR_WIDTH + SIDEBAR_GAP;
 
   const botBanner = options.hasBotBanner ? BOT_BANNER_HEIGHT : 0;
@@ -179,8 +205,9 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
       lastMoveLine +
       extra +
       SAFETY_RESERVE;
-  const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding - extraVertical;
-  const maxByWidth = vw - sidebarW - padding;
+  const maxByHeight =
+    vh - HEADER_HEIGHT - CLOCKS_HEIGHT - verticalPadding - extraVertical;
+  const maxByWidth = vw - sidebarW - horizontalPadding;
   const size = Math.min(maxByHeight, maxByWidth, MAX_BOARD_SIZE);
   return Math.max(size, MIN_BOARD_SIZE);
 }

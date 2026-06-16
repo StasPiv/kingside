@@ -126,12 +126,21 @@ export function MainLayout() {
     setUserMenuOpen(false);
   };
 
-  // Hide mobile bottom bar during active game (sidebar always visible)
-  const hideBottomBar = location.pathname.startsWith('/game/');
+  // Hide mobile bottom bar during active game (sidebar always visible).
+  // KS-4299: `/play/local-bot` использует ту же `GameShell` с
+  // `<GameActionBar>` (Сдаться / Ничья / Чат / Ещё). Стационарное
+  // нижнее меню (Анализ / Тренировка / Играть / Ещё) перекрывало бы
+  // действия партии и удваивало нижнюю панель. Скрываем его и здесь,
+  // как уже скрыто на `/game/<id>`.
+  const hideBottomBar =
+    location.pathname.startsWith('/game/') ||
+    location.pathname.startsWith('/play/local-bot');
   // KS-4287 / ADR-134 §5: AI ChatWidget FAB перекрывает кнопки действий
   // на странице партии и параллельный AI-чат во время игры не нужен —
-  // полностью убираем виджет из DOM на `/game/:id`.
-  const hideAssistantFab = location.pathname.startsWith('/game/');
+  // полностью убираем виджет из DOM на `/game/:id` и `/play/local-bot`.
+  const hideAssistantFab =
+    location.pathname.startsWith('/game/') ||
+    location.pathname.startsWith('/play/local-bot');
 
   return (
     <div

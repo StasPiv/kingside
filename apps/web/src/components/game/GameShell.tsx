@@ -362,11 +362,13 @@ export function GameShell(props: GameShellProps) {
   // расчёт `maxByHeight` учёл это и нижний ряд клеток не уходил
   // под нижний player-bar.
   const hasBotBanner = isBot && showBotBanner && !botBannerDismissed;
-  // KS-4274: MobileBottomBar на ≤768px скрыт MainLayout'ом ТОЛЬКО на
-  // `/game/<id>` (hideBottomBar = pathname.startsWith('/game/')). На
-  // других страницах с GameShell (например `/play/local-bot`) bar
-  // остаётся и забирает 56px+safe-area внизу — передаём в хук, чтобы
-  // он вычел эту высоту из расчёта доски.
+  // KS-4274 / KS-4299: MobileBottomBar на ≤768px скрыт `MainLayout`-ом
+  // на `/game/<id>` и `/play/local-bot` (см. `MainLayout` —
+  // `hideBottomBar`). На обеих этих страницах GameShell даёт
+  // полноценный `<GameActionBar>`, и нижнее меню навигации поверх
+  // действий партии не нужно. Синхронизируем условие здесь — иначе
+  // расчёт `useResponsiveBoardSize` режет 56+safe-area из высоты
+  // доски «под несуществующее нижнее меню».
   const location = useLocation();
   const navigate = useNavigate();
   // KS-4295: если родитель явно не задал `onHelp`, но help-кнопка
@@ -374,7 +376,9 @@ export function GameShell(props: GameShellProps) {
   // и старая desktop-кнопка `<HelpButton section="play">`.
   const effectiveOnHelp =
     onHelp ?? (showHelpButton ? () => navigate('/features#play') : undefined);
-  const hideMobileBottomBar = location.pathname.startsWith('/game/');
+  const hideMobileBottomBar =
+    location.pathname.startsWith('/game/') ||
+    location.pathname.startsWith('/play/local-bot');
   const boardWidth = useResponsiveBoardSize({
     hasBotBanner,
     hideMobileBottomBar,

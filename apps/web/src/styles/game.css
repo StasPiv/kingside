@@ -1366,11 +1366,26 @@ body:has(.game-page),
     flex-direction: column;
     flex-wrap: nowrap;
     align-items: center;
-    /* KS-4256: восстанавливаем нормальное центрирование на мобильном,
-     где десктопный `flex-start` сместил бы доску влево. */
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 48px 12px 12px;
+    /* KS-4299: центрируем содержимое по вертикали — на портретных
+       телефонах доска квадратная и ограничена шириной экрана, после
+       чего над и под ней неизбежно остаётся свободное место. Раньше
+       (`flex-start`) всё пустое место копилось под нижним player-bar
+       — пользователь видел доску прижатой к шапке, а ниже — большое
+       «пустое пространство». Сейчас доска оказывается по центру
+       свободной области между шапкой и панелью действий, симметрично
+       сверху и снизу. */
+    justify-content: center;
+    /* KS-4299: единый малый зазор между блоками страницы. Сайдбар
+       полностью убран из потока (`display: none` ниже), панель
+       действий прижата к низу через `position: fixed` — зазор влияет
+       только на внутренние стыки `.game-board-area`. */
+    gap: 8px;
+    /* KS-4299: убираем боковые отступы — доска тянется на всю ширину
+       экрана. Снизу резервируем место под `position: fixed`
+       `.game-action-bar` (56px + safe-area) плюс 8px на «дыхание»,
+       чтобы нижний player-bar не подъезжал к самой кнопке. Сверху
+       8px — отступ под `.game-last-move-line`. */
+    padding: 8px 0 calc(64px + env(safe-area-inset-bottom, 0px));
     overflow-y: auto;
     height: auto;
     min-height: 100%;
@@ -1392,21 +1407,17 @@ body:has(.game-page),
     padding-top: 0;
   }
 
+  /* KS-4299: `.game-sidebar` на mobile полностью убран из потока —
+     все его дети (`.move-list`, `.game-actions`, `.game-actions-top`,
+     `.game-result`, `.chat`) уже `display: none` в этом же @media-
+     блоке (см. правила выше/ниже). Раньше пустая обёртка `flex: 1 1
+     auto` + два `gap: 12px` (board-area | sidebar | action-bar) давала
+     визуальный «пустой блок» ≥24px между нижним player-bar и
+     action-bar и выдавливала sticky action-bar к нижнему краю экрана.
+     Сейчас action-bar следует за `.game-board-area` напрямую через
+     один gap страницы. */
   .game-sidebar {
-    width: 100% !important;
-    max-width: 560px;
-    margin: 0 auto;
-    /* KS-4299: было `flex: 1 1 auto` — пустой сайдбар (move-list /
-       actions / chat скрыты `display:none` в этом @media-блоке)
-       растягивался по всей оставшейся высоте `.game-page` и выдавливал
-       sticky `.game-action-bar` к нижнему краю экрана, оставляя
-       визуальный пустой блок под нижним player-bar. Сейчас сайдбар не
-       растёт — action-bar сидит сразу под `.game-board-area`. */
-    flex: 0 0 auto;
-    height: auto;
-    overflow: visible;
-    gap: 12px;
-    padding-top: 0;
+    display: none;
   }
 
   /* Touch target ≥ 44px — Apple HIG / Material. */
@@ -1595,17 +1606,17 @@ body:has(.game-page),
 
   .game-action-bar {
     display: flex;
-    /* KS-4299: убран `position: sticky; bottom: 0` — на портретных
-       вьюпортах доска квадратная и ширина viewport ограничивает её
-       размер (~vw), из-за чего ниже self-bar образуется большой
-       вертикальный зазор. Sticky прижимал action-bar к нижнему краю
-       экрана и эта пустота визуально оказывалась между нижним
-       player-bar и action-bar. Сейчас action-bar следует за
-       `.game-board-area` в нормальном потоке flex-колонки `.game-page`
-       — зазор = game-page gap (12px), что соответствует требованию
-       «минимальный визуальный gap». Пустое место уходит ниже action-
-       bar (где привычно для chess.com / lichess mobile). */
-    position: static;
+    /* KS-4299: `position: fixed` — действия партии всегда у нижнего
+       края экрана, независимо от высоты доски. Старый `sticky` не
+       срабатывал в нескроллящемся `.game-page` и оставлял пустое
+       место ниже бара; новая фиксация плюс `padding-bottom` у страницы
+       (см. `.game-page` mobile) гарантирует, что доска вытягивается
+       до самого бара, а пустоты нет ни до, ни после. */
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
     width: 100%;
     max-width: 560px;
     margin: 0 auto;
@@ -1839,9 +1850,23 @@ body:has(.game-page),
 }
 
 @media (max-width: 414px) {
-  .game-page {
-    padding: 8px;
-    gap: 10px;
+  /* KS-4299: на узких телефонах оставляем тот же padding/gap, что и
+     базовый mobile-блок (см. `.game-page` `@media (max-width: 899px)`).
+     Старый override `padding: 8px; gap: 10px` отрезал лишние пиксели
+     от доски — сейчас он избыточен после edge-to-edge раскладки. */
+
+  /* KS-4299: на edge-to-edge ширине рамка/радиус доски выглядят
+     странно — клетки должны доходить до боковых краёв экрана. */
+  .board-container {
+    border-radius: 0;
+  }
+
+  /* KS-4299: верхний/нижний player-bar тоже растягиваем во всю
+     ширину экрана, чтобы доска и часы выровнялись по одной кромке. */
+  .player-info {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
   }
 }
 
