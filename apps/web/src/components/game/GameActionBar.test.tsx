@@ -59,6 +59,27 @@ describe('KS-4290 / ADR-134 §2: GameActionBar', () => {
       expect(screen.getByTestId('game-action-bar-chat')).toBeDisabled();
     });
 
+    it('бейдж непрочитанных скрыт при chatUnreadCount=0', () => {
+      renderWithProviders(<GameActionBar {...defaults} chatUnreadCount={0} />);
+      expect(
+        screen.queryByTestId('game-action-bar-chat-badge'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('бейдж непрочитанных показывает число при chatUnreadCount>0', () => {
+      renderWithProviders(<GameActionBar {...defaults} chatUnreadCount={5} />);
+      expect(
+        screen.getByTestId('game-action-bar-chat-badge'),
+      ).toHaveTextContent('5');
+    });
+
+    it('бейдж показывает «99+» при chatUnreadCount>99', () => {
+      renderWithProviders(<GameActionBar {...defaults} chatUnreadCount={150} />);
+      expect(
+        screen.getByTestId('game-action-bar-chat-badge'),
+      ).toHaveTextContent('99+');
+    });
+
     it('меню «Ещё» открывается по клику и содержит «Mute», «Lobby»', async () => {
       renderWithProviders(<GameActionBar {...defaults} />);
       expect(

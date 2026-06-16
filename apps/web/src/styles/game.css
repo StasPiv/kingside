@@ -89,6 +89,9 @@ body:has(.game-page),
   max-width: var(--board-area-height, 560px);
   min-width: 0;
   box-sizing: border-box;
+  /* KS-4293: точка отсчёта для `.game-chat-toast`, который позиционирован
+     `position: absolute` снизу `.opponent-info`. */
+  position: relative;
 }
 
 .color-indicator {
@@ -805,6 +808,150 @@ body:has(.game-page),
   gap: 8px;
 }
 
+/* KS-4293 / ADR-134 §4: bottom-sheet чата для мобильной вёрстки.
+   По умолчанию скрыт (desktop ≥900px); включается на mobile в
+   @media `max-width: 899px`. */
+.game-chat-sheet-overlay {
+  display: none;
+}
+
+.game-chat-sheet__handle-area {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 6px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.game-chat-sheet__handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-a0a0c0);
+  opacity: 0.6;
+}
+
+.game-chat-sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 6px;
+}
+
+.game-chat-sheet__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-fff);
+}
+
+.game-chat-sheet__close {
+  background: transparent;
+  color: var(--c-a0a0c0);
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.game-chat-sheet__messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-chat-sheet__msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--c-fff);
+}
+
+.game-chat-sheet__msg--own .game-chat-sheet__msg-author {
+  color: var(--c-7c83ff);
+}
+
+.game-chat-sheet__msg-author {
+  font-weight: 700;
+  color: var(--c-a0a0c0);
+  font-size: 12px;
+}
+
+.game-chat-sheet__input {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--ov-white-08, rgba(255, 255, 255, 0.08));
+}
+
+.game-chat-sheet__input input {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--ov-white-08, rgba(255, 255, 255, 0.08));
+  background: var(--c-16213e);
+  color: var(--c-fff);
+  font-size: 14px;
+}
+
+.game-chat-sheet__send {
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.game-chat-sheet__send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* KS-4293: уведомление о новом сообщении соперника. Дефолтно скрыто
+   (desktop); на mobile позиционируется у верхнего края opponent-info. */
+.game-chat-toast {
+  display: none;
+}
+
+/* KS-4293: бейдж непрочитанных на кнопке «💬» action-bar. Виден на
+   любой ширине — но кнопка-родитель сама показана только на mobile. */
+.game-action-bar__icon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-action-bar__badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--c-ef4444);
+  color: var(--c-fff);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* KS-4292 / ADR-134 §6: pre-game placeholder поверх доски при
    `status='waiting'`. По умолчанию (desktop ≥900px) скрыт; включается
    на mobile в @media `max-width: 899px`. Внутри `.board-container`,
@@ -1299,6 +1446,72 @@ body:has(.game-page),
      полупрозрачным слоем. */
   .board-container:has(.game-waiting-overlay) > :not(.game-waiting-overlay) {
     filter: grayscale(0.8) opacity(0.6);
+  }
+
+  /* KS-4293 / ADR-134 §4: настольная `.chat`-панель в `.game-sidebar`
+     на mobile скрыта — её заменяет `<GameChatSheet>`. */
+  .game-sidebar .chat {
+    display: none;
+  }
+
+  .game-chat-sheet-overlay {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    align-items: flex-end;
+    justify-content: center;
+    background: var(--ov-black-60);
+    backdrop-filter: blur(2px);
+    z-index: 2100;
+    animation: game-result-sheet-fade 180ms ease-out;
+  }
+
+  .game-chat-sheet {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 560px;
+    max-height: 70vh;
+    background: var(--c-1e2a4a);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 32px var(--ov-black-50);
+    animation: game-result-sheet-slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 120ms ease-out;
+    will-change: transform;
+  }
+
+  .game-chat-toast {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: calc(100% + 6px);
+    z-index: 60;
+    max-width: 92%;
+    padding: 8px 12px;
+    background: var(--c-1e2a4a);
+    color: var(--c-fff);
+    border: 1px solid var(--ov-white-08, rgba(255, 255, 255, 0.08));
+    border-radius: 999px;
+    font-size: 13px;
+    box-shadow: 0 6px 16px var(--ov-black-50);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .game-chat-toast__author {
+    font-weight: 700;
+    color: var(--c-7c83ff);
+    flex: 0 0 auto;
+  }
+
+  .game-chat-toast__text {
+    color: var(--c-fff);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .game-move-strip {

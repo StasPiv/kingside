@@ -44,6 +44,12 @@ export interface GameActionBarProps {
   onOfferDraw?: () => void;
   /** Открыть чат — bottom-sheet, KS-4292. Если не передан — кнопка disabled. */
   onChatClick?: () => void;
+  /**
+   * KS-4293 (ADR-134 §4): число непрочитанных сообщений; рисуется
+   * бейджем над иконкой «💬». 0/undefined — бейдж скрыт. >99 —
+   * показывается «99+».
+   */
+  chatUnreadCount?: number;
   /** Звук партии (mute/unmute). */
   muted: boolean;
   onToggleMute: () => void;
@@ -80,6 +86,7 @@ export function GameActionBar({
   resultPillLabel,
   onExpandResult,
   onCancelSearch,
+  chatUnreadCount = 0,
 }: GameActionBarProps) {
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -170,7 +177,17 @@ export function GameActionBar({
         disabled={!onChatClick}
         aria-label={t('game.chat', 'Chat')}
       >
-        <span className="game-action-bar__icon" aria-hidden="true">💬</span>
+        <span className="game-action-bar__icon-wrap">
+          <span className="game-action-bar__icon" aria-hidden="true">💬</span>
+          {chatUnreadCount > 0 && (
+            <span
+              className="game-action-bar__badge"
+              data-testid="game-action-bar-chat-badge"
+            >
+              {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+            </span>
+          )}
+        </span>
         <span className="game-action-bar__label">{t('game.chat', 'Chat')}</span>
       </button>
       <div className="game-action-bar__more-wrap" ref={moreRef}>

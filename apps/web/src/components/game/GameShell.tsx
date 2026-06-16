@@ -38,6 +38,8 @@ import { GameResultSheet } from './GameResultSheet';
 import { GameActionBar } from './GameActionBar';
 import { GameMoveStrip } from './GameMoveStrip';
 import { GameWaitingOverlay } from './GameWaitingOverlay';
+import { GameChatSheet } from './GameChatSheet';
+import { GameChatToast } from './GameChatToast';
 import { useBoardSettings } from '../../hooks/useBoardSettings';
 import { useBoardHighlights } from '../../hooks/useBoardHighlights';
 import { useResponsiveBoardSize } from '../../hooks/useResponsiveBoardSize';
@@ -281,6 +283,64 @@ export function GameShell(props: GameShellProps) {
     }
     const timer = setTimeout(() => setShowWaitingOverlay(true), 1500);
     return () => clearTimeout(timer);
+  }, [status]);
+
+  // KS-4293 (ADR-134 §4): состояние нижней панели чата + счётчик
+  // непрочитанных + уведомление о новом сообщении соперника.
+  //
+  //   - `chatSheetOpen` — управляется кнопкой «💬» в action-bar и
+  //     закрытием самой панели/тапом по уведомлению.
+  //   - `chatUnreadCount` инкрементируется при появлении нового
+  //     сообщения соперника при закрытой панели. Открытие панели
+  //     сбрасывает в 0.
+  //   - `chatToast` — текущее уведомление; null если ничего
+  //     не показываем. Появляется только при `status==='active'`
+  //     и закрытой панели; на `finished` подавлено.
+  //   - Идентификация «соперника» — `msg.userId !== chat.currentUserId`.
+  //     `chat` опционален; без него весь блок отключён.
+  const [chatSheetOpen, setChatSheetOpen] = useState(false);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  const [chatToast, setChatToast] = useState<
+    { username: string; content: string; id: string } | null
+  >(null);
+  const lastSeenMsgCountRef = useRef(chat?.messages.length ?? 0);
+  useEffect(() => {
+    if (!chat) return;
+    const total = chat.messages.length;
+    const prev = lastSeenMsgCountRef.current;
+    if (total <= prev) {
+      lastSeenMsgCountRef.current = total;
+      return;
+    }
+    // Новые сообщения с prev по total-1.
+    const incoming = chat.messages
+      .slice(prev)
+      .filter((m) => m.userId !== chat.currentUserId);
+    lastSeenMsgCountRef.current = total;
+    if (incoming.length === 0) return;
+    if (chatSheetOpen) return;
+    setChatUnreadCount((c) => c + incoming.length);
+    // Тост — только при активной партии. Берём последнее новое
+    // сообщение, id — позиция в массиве (моменто стабильна).
+    if (status === 'active') {
+      const last = incoming[incoming.length - 1];
+      setChatToast({
+        username: last.username,
+        content: last.content,
+        id: `chat-${total}`,
+      });
+    }
+  }, [chat?.messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Сброс непрочитанных и уведомления при открытии панели.
+  useEffect(() => {
+    if (chatSheetOpen) {
+      setChatUnreadCount(0);
+      setChatToast(null);
+    }
+  }, [chatSheetOpen]);
+  // На post-game гасим тост сразу, если он был.
+  useEffect(() => {
+    if (status === 'finished') setChatToast(null);
   }, [status]);
   // Сбрасываем в expanded при появлении нового результата (новая
   // партия завершилась после реванша/новой игры).
@@ -704,6 +764,16 @@ export function GameShell(props: GameShellProps) {
           <span className="clock">
             {hideClocks ? '—' : formatTime(clocks[opponentColor])}
           </span>
+          {/* KS-4293 / ADR-134 §4: уведомление о новом сообщении
+              соперника у верхнего края соперника-bar. Появляется
+              при status='active' и закрытой панели чата (родитель
+              сам отвечает за установку `chatToast` только в этих
+              условиях, см. useEffect выше). */}
+          <GameChatToast
+            message={chatToast}
+            onTimeout={() => setChatToast(null)}
+            onClick={() => setChatSheetOpen(true)}
+          />
         </div>
 
         <div
@@ -1008,7 +1078,21 @@ export function GameShell(props: GameShellProps) {
             : undefined
         }
         onCancelSearch={onCancelSearch}
+        onChatClick={chat ? () => setChatSheetOpen(true) : undefined}
+        chatUnreadCount={chatUnreadCount}
       />
+
+      {/* KS-4293 / ADR-134 §4: нижняя панель чата на mobile. Рендерим
+          всегда — `GameChatSheet` сам возвращает null при `open=false`.
+          На desktop ≥900px CSS прячет панель через `.game-chat-sheet-
+          overlay { display: none }`. */}
+      {chat && (
+        <GameChatSheet
+          open={chatSheetOpen}
+          onClose={() => setChatSheetOpen(false)}
+          chat={chat}
+        />
+      )}
 
       {showResultModal && status === 'finished' && result && (
         <div
