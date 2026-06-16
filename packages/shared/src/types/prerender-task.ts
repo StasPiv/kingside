@@ -29,6 +29,11 @@ export type PrerenderTask =
   | { kind: 'player'; username: string }
   | { kind: 'archive-game'; id: string }
   | { kind: 'archive-player'; slug: string }
+  // KS-4253. Публичный разбор партии `/analysis/public/:id` —
+  // индексация после AnalysisService.share() (или массово через
+  // admin/reindex-all). S3 ключ `analysis/public/<id>.html` отражает
+  // URL точно (важно для CloudFront-маппинга, см. KS-4255).
+  | { kind: 'analysis-public'; id: string }
   | { kind: 'list'; route: PrerenderListRoute };
 
 export type PrerenderTaskKind = PrerenderTask['kind'];
@@ -108,6 +113,13 @@ export function resolvePrerenderRoute(
         url: `${base}/archive/players/${task.slug}`,
         s3Key: `archive/players/${task.slug}.html`,
       };
+    case 'analysis-public':
+      // KS-4253. `/analysis/public/:id` — публичный разбор партии,
+      // S3-ключ один-в-один по URL (без list-namespace).
+      return {
+        url: `${base}/analysis/public/${task.id}`,
+        s3Key: `analysis/public/${task.id}.html`,
+      };
     case 'list': {
       // /broadcasts → list/broadcasts.html и т.п. — в одном
       // namespace (`list/*`), чтобы не пересекаться с entity-страницами.
@@ -144,6 +156,7 @@ export function isPrerenderTask(value: unknown): value is PrerenderTask {
     case 'tournament':
     case 'lecture':
     case 'archive-game':
+    case 'analysis-public':
       return isStr(v.id);
     case 'coach':
     case 'player':

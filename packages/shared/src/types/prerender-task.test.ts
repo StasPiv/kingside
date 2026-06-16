@@ -86,6 +86,18 @@ describe('resolvePrerenderRoute', () => {
     });
   });
 
+  it('analysis-public (KS-4253)', () => {
+    expect(
+      resolvePrerenderRoute(
+        { kind: 'analysis-public', id: 'a-uuid' },
+        base,
+      ),
+    ).toEqual({
+      url: 'https://kingside.site/analysis/public/a-uuid',
+      s3Key: 'analysis/public/a-uuid.html',
+    });
+  });
+
   it('list: каждая route в namespace list/*.html', () => {
     expect(
       resolvePrerenderRoute({ kind: 'list', route: '/broadcasts' }, base),
@@ -125,6 +137,7 @@ describe('isPrerenderTask', () => {
     { kind: 'player', username: 'u' },
     { kind: 'archive-game', id: 'x' },
     { kind: 'archive-player', slug: 's' },
+    { kind: 'analysis-public', id: 'x' },
     { kind: 'list', route: '/broadcasts' },
     { kind: 'list', route: '/archive' },
   ];

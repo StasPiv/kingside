@@ -13,6 +13,9 @@ import { PrismaService } from '../prisma/prisma.service';
 // KS-4247 / ADR-131 A1. ArchiveService для in-process резолва партии,
 // под env-флагом ARCHIVE_USE_LOCAL=true.
 import { ArchiveService } from '../archive/archive.service';
+// KS-4253 / ADR-128 §10 #11. Mutation hook на share()/update() —
+// постановка prerender для публичного разбора партии.
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { DuplicateAnnotatedDto } from './dto/duplicate-annotated.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
@@ -40,6 +43,10 @@ export class AnalysisService implements OnModuleInit {
     // к archive-service. Включается env-флагом ARCHIVE_USE_LOCAL=true.
     // По дефолту undefined → старый HTTP-путь.
     @Optional() private readonly archive?: ArchiveService,
+    // KS-4253. Mutation hook на share() — постановка prerender для
+    // публичного разбора. Глобальный провайдер PrerenderModule, в
+    // тестах подменяется моком.
+    @Optional() private readonly prerender?: PrerenderEnqueueService,
   ) {}
 
   // KS-3059: backfill — одноразовая миграция метаданных PGN для старых
@@ -891,7 +898,7 @@ export class AnalysisService implements OnModuleInit {
       );
     }
 
-    return this.prisma.analysis.update({
+    const updated = await this.prisma.analysis.update({
       where: { id },
       data: {
         ...(dto.title !== undefined && { title: dto.title }),
@@ -909,6 +916,12 @@ export class AnalysisService implements OnModuleInit {
         ...headerUpdate,
       },
     });
+    // KS-4253. Если разбор публичен — метаданные изменились (title,
+    // headers и т. п.), карточка нуждается в перегенерации.
+    if (updated.isPublic) {
+      this.prerender?.enqueueFireAndForget({ kind: 'analysis-public', id });
+    }
+    return updated;
   }
 
   /**
@@ -928,6 +941,14 @@ export class AnalysisService implements OnModuleInit {
       where: { id },
       data: { isPublic },
     });
+    // KS-4253 / ADR-128 §10 #11. Любой переход isPublic — повод
+    // обновить prerender карточки `/analysis/public/:id`:
+    //   - false → true: появилась публичная страница, нужно проиндексировать.
+    //   - true → false: страница стала недоступна, перегенерация
+    //     отдаст 404 (PublicAnalysisController вернёт NotFoundException),
+    //     воркер запишет в S3 актуальный HTML.
+    // hook идёт fire-and-forget, ошибки SQS не валят основной flow.
+    this.prerender?.enqueueFireAndForget({ kind: 'analysis-public', id });
     return {
       ...updated,
       tags: updated.tags ? updated.tags.split(' ').filter(Boolean) : [],
@@ -969,7 +990,13 @@ export class AnalysisService implements OnModuleInit {
     const analysis = await this.prisma.analysis.findUnique({ where: { id } });
     if (!analysis) throw new NotFoundException('Analysis not found');
     if (analysis.userId !== userId) throw new ForbiddenException();
+    const wasPublic = analysis.isPublic;
     await this.prisma.analysis.delete({ where: { id } });
+    // KS-4253. Удалённый публичный разбор → перегенерация. Сервер
+    // отдаст 404, воркер запишет в S3 актуальный «not found» HTML.
+    if (wasPublic) {
+      this.prerender?.enqueueFireAndForget({ kind: 'analysis-public', id });
+    }
     return { deleted: true };
   }
 

@@ -49,6 +49,7 @@ export class ReindexAllController {
     lectures: number;
     tournaments: number;
     players: number;
+    analysesPublic: number;
     lists: number;
     tasks: number;
     sent: number;
@@ -89,6 +90,16 @@ export class ReindexAllController {
       take: 50_000,
     });
 
+    // ─── Public analyses (KS-4253) ────────────────────────────────
+    // Все публичные разборы партии. У `Analysis` нет soft-delete, и
+    // отбор по `isPublic=true` достаточен (приватные разборы недоступны
+    // публичному URL `/analysis/public/:id`).
+    const publicAnalyses = await this.prisma.analysis.findMany({
+      where: { isPublic: true },
+      select: { id: true },
+      take: 50_000,
+    });
+
     // ─── Players (top-1000 по ratingBlitz) ─────────────────────────
     const players = await this.prisma.user.findMany({
       where: {
@@ -117,6 +128,10 @@ export class ReindexAllController {
       if (!p.username) continue;
       tasks.push({ kind: 'player', username: p.username });
     }
+    // KS-4253. Публичные разборы партий.
+    for (const a of publicAnalyses) {
+      tasks.push({ kind: 'analysis-public', id: a.id });
+    }
     // Lists — `/broadcasts` и `/archive` уже отправлены в KS-4221 /
     // sitemap-cron, остальное добавляем здесь.
     tasks.push({ kind: 'list', route: '/tournaments' });
@@ -128,13 +143,14 @@ export class ReindexAllController {
       lectures: lectures.length,
       tournaments: tournaments.length,
       players: players.filter((p) => p.username).length,
+      analysesPublic: publicAnalyses.length,
       lists: 3,
     };
     this.logger.log(
       `[reindex-all] enqueueing ${tasks.length} prerender tasks: ` +
         `coaches=${counts.coaches} lectures=${counts.lectures} ` +
         `tournaments=${counts.tournaments} players=${counts.players} ` +
-        `lists=${counts.lists}`,
+        `analysesPublic=${counts.analysesPublic} lists=${counts.lists}`,
     );
     const { sent } = await this.prerender.enqueueBatch(tasks);
     this.logger.log(
