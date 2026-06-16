@@ -102,6 +102,10 @@ export function LocalBotGamePage() {
         // и доска визуально смещалась вверх/вниз на каждом ходе бота —
         // отсюда «дрожание». Сейчас высота 24px зарезервирована всегда,
         // меняется только текстовое содержимое — без layout shift.
+        // KS-4303: при ошибке инициализации движка показываем сообщение
+        // и кнопку «Запустить движок ещё раз». До правки молчаливый
+        // ступор: `botError` ставился, но retry не было — пользователь
+        // не понимал, что движок умер, и игра «работала через раз».
         <div
           className="local-bot-below"
           style={{
@@ -111,10 +115,42 @@ export function LocalBotGamePage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            gap: 8,
             width: '100%',
+            flexWrap: 'wrap',
           }}
         >
-          {game.botError ? (
+          {game.engineError ? (
+            <>
+              <span
+                className="local-bot-error"
+                data-testid="local-bot-engine-error"
+                style={{ color: '#ef4444' }}
+                role="alert"
+              >
+                {t(
+                  'game.botEngineFailed',
+                  'Could not start the bot engine.',
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={game.retryEngine}
+                data-testid="local-bot-engine-retry"
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border-mid)',
+                  background: 'var(--bg-elevated, var(--c-16213e))',
+                  color: 'var(--text-primary, #fff)',
+                  cursor: 'pointer',
+                  minHeight: 28,
+                }}
+              >
+                {t('game.botEngineRetry', 'Try again')}
+              </button>
+            </>
+          ) : game.botError ? (
             <span
               className="local-bot-error"
               data-testid="local-bot-error"

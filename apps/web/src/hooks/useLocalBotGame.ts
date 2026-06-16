@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 
-import { useBotEngine } from './useBotEngine';
+import { useBotEngine, type BotEngineErrorReason } from './useBotEngine';
 import { sendClientLog } from '../utils/clientLogger';
 
 type GameColor = 'white' | 'black';
@@ -68,8 +68,16 @@ export interface LocalBotGameState {
   lastMove: { from: Square; to: Square; san: string; ply: number } | null;
   /** «думает» ли бот — для статусной строки. */
   botThinking: boolean;
-  /** Ошибка инициализации Stockfish, если есть. */
+  /** Ошибка инициализации Stockfish или запроса хода, если есть. */
   botError: string | null;
+  /**
+   * KS-4303: причина ошибки инициализации движка — для UI с retry-
+   * кнопкой. null когда движок здоров. Отдельно от `botError`, который
+   * включает ещё и таймауты конкретного `go`-запроса.
+   */
+  engineError: BotEngineErrorReason | null;
+  /** KS-4303: пересоздать воркер Stockfish после ошибки инициализации. */
+  retryEngine: () => void;
   /** KS-4153: партия без часов — UI должен скрыть таймер или показать прочерк. */
   noClock: boolean;
   /** Применить ход игрока. Возвращает true, если ход легален. */
@@ -131,11 +139,18 @@ export function useLocalBotGame(
 
   // useBotEngine хочет gameId для логов — берём стабильный «local-<N>».
   const localGameId = `local-${resetSeq}`;
-  const { getBotMove } = useBotEngine(
+  const { getBotMove, engineError, retryEngine: retryEngineRaw } = useBotEngine(
     localGameId,
     botLevel,
     status === 'active',
   );
+  // KS-4303: при retry движка ещё и сбрасываем `botError` (ошибку
+  // конкретного `go`-запроса), чтобы UI не остался с устаревшим
+  // сообщением, и эффект хода бота снова отработал на текущем fen.
+  const retryEngine = useCallback(() => {
+    setBotError(null);
+    retryEngineRaw();
+  }, [retryEngineRaw]);
 
   const players = useMemo(
     () =>
@@ -233,8 +248,10 @@ export function useLocalBotGame(
     return () => {
       cancelled = true;
     };
+    // KS-4303: добавлен `engineError` — при successful retry он
+    // обнуляется и эффект перезапускает getBotMove на текущей позиции.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fen, status, playerColor]);
+  }, [fen, status, playerColor, engineError]);
 
   // Ход игрока. Возвращает true — ход легален и применён.
   const onMove = useCallback(
@@ -301,6 +318,8 @@ export function useLocalBotGame(
     lastMove,
     botThinking,
     botError,
+    engineError,
+    retryEngine,
     noClock,
     onMove,
     onResign,
