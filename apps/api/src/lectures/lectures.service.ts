@@ -1319,6 +1319,17 @@ export class LecturesService {
     this.logger.log(
       `Lecture force-ended: id=${id} owner=${actingUserId} durationMs=${durationMs}`,
     );
+    // KS-4282 / ADR-128 §10 #11. Принудительное завершение лекции
+    // меняет status `live` → `recorded` и (опционально) длительность
+    // / endedAt — карточка `/lectures/:id` визуально перестраивается.
+    // Без этого hook'а prerender, поставленный create() в момент `live`,
+    // оставался актуальным только до момента force-end (через
+    // секунды для immediate-live → forceEnd кейса) и потом превращался
+    // в устаревший. Каталог `/lectures` тоже отражает статус.
+    if (updated.visibility === 'public') {
+      this.prerender.enqueueFireAndForget({ kind: 'lecture', id });
+      this.prerender.enqueueFireAndForget({ kind: 'list', route: '/lectures' });
+    }
     return this.withLiveAnalysisBinding(updated);
   }
 
