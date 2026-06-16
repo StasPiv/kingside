@@ -150,13 +150,9 @@ function GuestLandingHome() {
           >
             {t('landing.hero.ctaRegister')}
           </Link>
-          <Link
-            to="/login"
-            className="landing-hero__login"
-            data-testid="landing-hero-cta-login"
-          >
-            {t('landing.hero.ctaLogin')}
-          </Link>
+          {/* KS-4272: «Войти»/«Sign in» — дублировала кнопку регистрации,
+              убрана. Ключ `landing.hero.ctaLogin` оставлен в локалях для
+              возможного переиспользования в будущем (например, на /register). */}
         </div>
       </section>
 

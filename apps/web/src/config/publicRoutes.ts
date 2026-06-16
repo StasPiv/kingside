@@ -54,4 +54,13 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   { path: '/lessons', priority: 0.7, changefreq: 'daily' },
   { path: '/precision', priority: 0.6, changefreq: 'weekly' },
   { path: '/games/live', priority: 0.5, changefreq: 'daily' },
+  // KS-4272: страницы inline-footer на гостевом лендинге. Без prerender
+  // CloudFront/S3 отдавал `dist/index.html` (снимок главной с тем же
+  // inline-footer) — при прямом заходе пользователь видел не правила,
+  // а главную, и клик по «Внешний движок» уводил его на
+  // `/help/external-engine`. Snapshot'ы фиксят это: каждый URL отдаёт
+  // свою страницу без необходимости ждать hydrate.
+  { path: '/terms', priority: 0.3, changefreq: 'monthly' },
+  { path: '/help/external-engine', priority: 0.3, changefreq: 'monthly' },
+  { path: '/credits', priority: 0.3, changefreq: 'monthly' },
 ];
