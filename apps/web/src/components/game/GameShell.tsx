@@ -222,7 +222,6 @@ export function GameShell(props: GameShellProps) {
     lightSquareStyle,
     autoPromoteToQueen,
   } = useBoardSettings();
-  const boardWidth = useResponsiveBoardSize();
 
   const gamePageRef = useRef<HTMLDivElement>(null);
   const boardAreaRef = useRef<HTMLDivElement>(null);
@@ -237,6 +236,13 @@ export function GameShell(props: GameShellProps) {
     return saved !== null ? parseInt(saved, 10) : 200;
   });
   const [botBannerDismissed, setBotBannerDismissed] = useState(false);
+
+  // KS-4257: bot-banner появляется в `.game-board-area` над верхним
+  // player-bar и съедает ~34px высоты. Передаём флаг в хук, чтобы
+  // расчёт `maxByHeight` учёл это и нижний ряд клеток не уходил
+  // под нижний player-bar.
+  const hasBotBanner = isBot && showBotBanner && !botBannerDismissed;
+  const boardWidth = useResponsiveBoardSize({ hasBotBanner });
   const [chatInput, setChatInput] = useState('');
   const [pendingPromotion, setPendingPromotion] = useState<
     { from: Square; to: Square } | null

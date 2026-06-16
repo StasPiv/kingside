@@ -21,7 +21,8 @@ type Theme = 'dark' | 'light';
 export default function GameLayoutPreviewPage() {
   const [theme, setTheme] = useState<Theme>('dark');
   const [showBotBanner, setShowBotBanner] = useState(true);
-  const boardWidth = useResponsiveBoardSize();
+  // KS-4257: то же, что делает GameShell — учитываем bot-banner в расчёте.
+  const boardWidth = useResponsiveBoardSize({ hasBotBanner: showBotBanner });
 
   return (
     <div data-theme={theme} className="game-page" style={{ height: '100dvh' }}>

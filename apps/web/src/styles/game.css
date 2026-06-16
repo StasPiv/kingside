@@ -163,13 +163,17 @@ body:has(.game-page),
   user-select: none;
   will-change: transform;
   position: relative;
-  /* KS-2695 / KS-4256: расчёт max-height синхронизирован с
+  /* KS-2695 / KS-4256 / KS-4257: расчёт max-height синхронизирован с
      useResponsiveBoardSize. Колонка с доской содержит:
-       opponent-bar (≈40) + gap (6) + board + gap (6) + self-bar (≈40)
-       + page padding-top/bottom (6+6) + header (48) = ~152px.
-     Берём с запасом 140px (без back-link, он fixed). */
+       opponent-bar (≈44) + gap (6) + board + gap (6) + self-bar (≈44)
+       + page padding-top/bottom (6+6) + header (48) = ~160px.
+     При активном bot-fallback-banner добавляется ещё ~34px — хук это
+     учитывает через `hasBotBanner`, но CSS-страховка стоит на 160px,
+     чтобы даже при незарегистрированных в хуке элементах (фокус-кольцо,
+     bookmark-bar браузера) нижний ряд клеток оставался виден. Лучше
+     отдать 20px высоты, чем срезать фигуры. */
   max-width: 100%;
-  max-height: calc(100dvh - 140px);
+  max-height: calc(100dvh - 160px);
   flex-shrink: 1;
 }
 

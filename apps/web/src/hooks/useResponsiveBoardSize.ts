@@ -21,8 +21,31 @@ const BACK_LINK_HEIGHT = 0;
 const BOARD_AREA_GAP = 12; // 2 × 6px gaps between player-info and board
 const GAME_PAGE_GAP_MOBILE = 12; // gap between flex children in .game-page on mobile
 const SIDEBAR_MIN_HEIGHT_MOBILE = 200; // reserve space for moves/actions below board on mobile
+// KS-4257: bot-banner — реально занимает ~28px (padding 4+4 + font 12*1.35 + border
+// 2) плюс gap 6 над ним. Округляем до 34, чтобы запас был и на bookmark-bar.
+const BOT_BANNER_HEIGHT = 34;
+// KS-4257: общий «safety» резерв на нерасчитанные пиксели (border, focus-ring,
+// браузерные bookmark-bar/extension-bar на десктопе). Раньше доска лезла на
+// нижний player-bar — 12px резерва покрывают округление и отрисовку border'ов.
+const SAFETY_RESERVE = 12;
 
-function calculateBoardSize(): number {
+export interface ResponsiveBoardSizeOptions {
+  /**
+   * KS-4257. Дополнительная высота над доской, которую нужно вычесть из
+   * расчёта. Сейчас используется только для bot-fallback-banner; в будущем
+   * сюда же можно прокинуть высоту любых in-flow блоков, появляющихся над
+   * `.player-info`.
+   */
+  hasBotBanner?: boolean;
+  /**
+   * Произвольное дополнительное число пикселей сверху, на случай если
+   * GameShell добавит свой блок (`belowBoardBlock` сейчас рендерится
+   * внутри `.game-board-area` — отдельный кейс).
+   */
+  extraSubtract?: number;
+}
+
+function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
   const vh = window.innerHeight;
   const vw = window.innerWidth;
   const isMobile = vw < MOBILE_BREAKPOINT;
@@ -30,9 +53,22 @@ function calculateBoardSize(): number {
   const padding = isNarrow ? PADDING_NARROW : isMobile ? PADDING_MOBILE : PADDING_DESKTOP;
   const sidebarW = isMobile ? 0 : SIDEBAR_WIDTH + SIDEBAR_GAP;
 
+  const botBanner = options.hasBotBanner ? BOT_BANNER_HEIGHT : 0;
+  const extra = options.extraSubtract ?? 0;
+
   const extraVertical = isMobile
-    ? BACK_LINK_HEIGHT + BOARD_AREA_GAP + GAME_PAGE_GAP_MOBILE + SIDEBAR_MIN_HEIGHT_MOBILE
-    : BACK_LINK_HEIGHT + BOARD_AREA_GAP;
+    ? BACK_LINK_HEIGHT +
+      BOARD_AREA_GAP +
+      GAME_PAGE_GAP_MOBILE +
+      SIDEBAR_MIN_HEIGHT_MOBILE +
+      botBanner +
+      extra +
+      SAFETY_RESERVE
+    : BACK_LINK_HEIGHT +
+      BOARD_AREA_GAP +
+      botBanner +
+      extra +
+      SAFETY_RESERVE;
   const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding - extraVertical;
   const maxByWidth = vw - sidebarW - padding;
   const size = Math.min(maxByHeight, maxByWidth, MAX_BOARD_SIZE);
@@ -44,12 +80,25 @@ function calculateBoardSize(): number {
  * Board-first approach: board size = min(maxByHeight, maxByWidth, MAX).
  * Supports portrait/landscape orientation changes on mobile (min 320px).
  * Initial state is calculated synchronously to avoid layout flash on first render.
+ *
+ * KS-4257: принимает опции `{ hasBotBanner, extraSubtract }`. Когда выше
+ * доски в потоке появляется блок (например, bot-fallback-banner), нужно
+ * учесть его высоту, иначе нижний ряд клеток обрезается.
  */
-export function useResponsiveBoardSize(): number {
-  const [boardSize, setBoardSize] = useState(() => calculateBoardSize());
+export function useResponsiveBoardSize(
+  options: ResponsiveBoardSizeOptions = {},
+): number {
+  const { hasBotBanner = false, extraSubtract = 0 } = options;
+  const [boardSize, setBoardSize] = useState(() =>
+    calculateBoardSize({ hasBotBanner, extraSubtract }),
+  );
 
   useEffect(() => {
-    const onResize = () => setBoardSize(calculateBoardSize());
+    const onResize = () =>
+      setBoardSize(calculateBoardSize({ hasBotBanner, extraSubtract }));
+
+    // Пересчёт сразу при изменении входных опций (показали/скрыли баннер).
+    onResize();
 
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
@@ -57,7 +106,7 @@ export function useResponsiveBoardSize(): number {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
     };
-  }, []);
+  }, [hasBotBanner, extraSubtract]);
 
   return boardSize;
 }
