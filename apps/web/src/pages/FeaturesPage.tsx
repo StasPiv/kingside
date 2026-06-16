@@ -44,38 +44,57 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
 
   const isHome = variant === 'home';
 
-  // KS-4222 / ADR-129 §7. SEO главной и /features. SEO-блок остаётся как
-  // в KS-4119 — финальная редакция ключей `landing.seo.*` / переключение
-  // canonical и JSON-LD под новые тексты сделает KS-FE-2 / KS-FE-3.
-  const seoTitle = t(isHome ? 'seo.home.title' : 'seo.features.title');
-  const seoDescription = t(
-    isHome ? 'seo.home.description' : 'seo.features.description',
-  );
+  // KS-4269 / ADR-129 §7. SEO для гостевого лендинга `/` и `/features`.
+  // Тексты лендинга — `landing.seo.*` (KS-4263, утверждено пользователем);
+  // `/features` остаётся со старыми ключами `features.page.*` (KS-4119).
+  const seoTitle = isHome
+    ? t('landing.seo.title')
+    : t('features.page.title', 'Features');
+  const seoDescription = isHome
+    ? t('landing.seo.description')
+    : t('features.page.subtitle', 'Everything Kingside has to offer');
   const seoCanonical = isHome
     ? 'https://kingside.site/'
     : 'https://kingside.site/features';
+  // KS-4269: og:image. Для лендинга — отдельный `og/landing.png` (если
+  // выложен), на `/features` пока fallback `default.png`. Создание
+  // финального landing-баннера — KS-CT-1 (content).
+  const seoOgImage = isHome ? '/og/landing.png' : '/og/default.png';
+  // KS-4269 / ADR-129 §7. У Kingside один URL обслуживает обе языковые
+  // версии (язык переключается из шапки, хранится в localStorage), но
+  // для Google уместно объявить обе локали + `x-default` указывающие
+  // на тот же URL — рекомендация Search Central для multi-language
+  // pages с одним URL.
+  const seoHreflang = [
+    { lang: 'en', href: seoCanonical },
+    { lang: 'ru', href: seoCanonical },
+    { lang: 'x-default', href: seoCanonical },
+  ];
+  // KS-4270 / ADR-129 §7.5. JSON-LD WebSite (sitelinks search box) +
+  // Organization (knowledge panel) — только для главной.
   const seoJsonLd = isHome
     ? [
         {
           '@context': 'https://schema.org',
           '@type': 'WebSite',
-          name: 'Kingside',
           url: 'https://kingside.site/',
-          description: seoDescription,
-          inLanguage: ['en', 'ru'],
+          name: 'Kingside',
           potentialAction: {
             '@type': 'SearchAction',
-            target:
-              'https://kingside.site/players?search={search_term_string}',
-            'query-input': 'required name=search_term_string',
+            target: 'https://kingside.site/players?search={query}',
+            'query-input': 'required name=query',
           },
         },
         {
           '@context': 'https://schema.org',
           '@type': 'Organization',
-          name: 'Kingside',
           url: 'https://kingside.site/',
-          logo: 'https://kingside.site/icon.svg',
+          name: 'Kingside',
+          // KS-4270: путь до бренд-логотипа. Файла `logo.png` пока нет
+          // (KS-CT-1) — используем PWA-иконку 512×512, она PNG и
+          // ≥112×112 (требование Google для Organization.logo).
+          logo: 'https://kingside.site/icons/icon-512.png',
+          sameAs: ['https://www.youtube.com/@kingside_site'],
         },
       ]
     : undefined;
@@ -87,7 +106,8 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
         description={seoDescription}
         canonical={seoCanonical}
         ogType="website"
-        ogImage="/og/default.png"
+        ogImage={seoOgImage}
+        hreflang={seoHreflang}
         jsonLd={seoJsonLd}
       />
       {isHome ? <GuestLandingHome /> : <FeaturesCatalog />}
