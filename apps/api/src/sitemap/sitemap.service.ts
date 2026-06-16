@@ -94,7 +94,11 @@ export class SitemapService {
 
     const generators: Array<[SitemapFile, () => Promise<string>]> = [
       ['sitemap-static.xml', async () => buildStaticSitemap(this.baseUrl())],
-      ['sitemap-broadcasts.xml', () => this.generateBroadcastsXml()],
+      // KS-4236: sitemap-broadcasts.xml генерируется в
+      // apps/broadcast-service (broadcasts живут в @kingside/broadcasts-db,
+      // апи в @kingside/db не имеет доступа). Index ниже всё равно
+      // ссылается на файл — broadcast-service публикует его в тот же
+      // S3-bucket по тому же ключу.
       ['sitemap-tournaments.xml', () => this.generateTournamentsXml()],
       ['sitemap-players.xml', () => this.generatePlayersXml()],
       ['sitemap-coaches.xml', () => this.generateCoachesXml()],

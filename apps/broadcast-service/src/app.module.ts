@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { MetricsModule } from './metrics/metrics.module';
@@ -12,6 +13,8 @@ import { ChessResultsModule } from './chess-results/chess-results.module';
 import { PrerenderModule } from './prerender/prerender.module';
 // KS-4221. Admin-эндпоинты (разовая переиндексация трансляций).
 import { AdminModule } from './admin/admin.module';
+// KS-4236. Cron-генерация sitemap-broadcasts.xml + admin trigger.
+import { SitemapBroadcastsModule } from './sitemap/sitemap.module';
 
 @Module({
   imports: [
@@ -19,10 +22,12 @@ import { AdminModule } from './admin/admin.module';
       isGlobal: true,
       envFilePath: ['../../.env', '.env'],
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
     PrerenderModule,
     AdminModule,
+    SitemapBroadcastsModule,
     MetricsModule,
     HealthModule,
     BroadcastModule,
