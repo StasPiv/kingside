@@ -36,6 +36,7 @@ import { PromotionPicker } from '../PromotionPicker';
 import { HelpButton } from '../HelpButton';
 import { GameResultSheet } from './GameResultSheet';
 import { GameActionBar } from './GameActionBar';
+import { GameMoveStrip } from './GameMoveStrip';
 import { useBoardSettings } from '../../hooks/useBoardSettings';
 import { useBoardHighlights } from '../../hooks/useBoardHighlights';
 import { useResponsiveBoardSize } from '../../hooks/useResponsiveBoardSize';
@@ -273,6 +274,9 @@ export function GameShell(props: GameShellProps) {
     // desktop ≥900px компонент CSS-правилом скрыт, и `calculateBoardSize`
     // игнорирует `hasActionBar` (см. `isMobile && options.hasActionBar`).
     hasActionBar: true,
+    // KS-4291 / ADR-134 §3: на mobile под доской также рендерится
+    // компактная полоска ходов (32px). Аналогично — на desktop игнор.
+    hasMoveStrip: true,
   });
   const [chatInput, setChatInput] = useState('');
   const [pendingPromotion, setPendingPromotion] = useState<
@@ -695,6 +699,12 @@ export function GameShell(props: GameShellProps) {
         </div>
 
         {belowBoardBlock}
+
+        {/* KS-4291 / ADR-134 §3: компактная горизонтальная полоска
+            ходов под доской, видна только на mobile (CSS-правило в
+            `game.css` скрывает её на ≥900px). На desktop пользователь
+            видит обычную `.move-list` в `.game-sidebar`. */}
+        <GameMoveStrip moves={moves} />
       </div>
 
       <div className="game-h-resizer" onMouseDown={handleResizerMouseDown} />

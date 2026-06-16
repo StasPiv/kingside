@@ -805,6 +805,29 @@ body:has(.game-page),
   gap: 8px;
 }
 
+/* KS-4291 / ADR-134 §3: компактная горизонтальная полоска ходов под
+   доской на mobile. По умолчанию (desktop ≥900px) скрыта; включается
+   в @media `max-width: 899px`. На desktop пользователь продолжает
+   видеть полную `.move-list` в `.game-sidebar`. Высота — 32px, без
+   фона/border, с горизонтальным скроллом без видимого scrollbar'а. */
+.game-move-strip {
+  display: none;
+}
+
+.game-move-strip__item {
+  display: inline-block;
+  padding: 4px 6px;
+  color: var(--c-a0a0c0);
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.game-move-strip__item.current {
+  color: var(--c-fff);
+  font-weight: 700;
+}
+
 /* KS-4290 / ADR-134 §2: sticky action-bar страницы игры для мобильной
    вёрстки. По умолчанию (desktop ≥900px) скрыт `display: none` —
    действия партии остаются в существующих `.game-actions` /
@@ -1195,6 +1218,32 @@ body:has(.game-page),
      действия партии переезжают в `<GameActionBar>`. */
   .game-sidebar .game-actions,
   .game-sidebar .game-actions-top {
+    display: none;
+  }
+
+  /* KS-4291 / ADR-134 §3: вертикальная `.move-list` в боковой панели
+     на mobile скрыта — её заменяет горизонтальная `.game-move-strip`
+     под доской. */
+  .game-sidebar .move-list {
+    display: none;
+  }
+
+  .game-move-strip {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    max-width: 560px;
+    height: 32px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    /* Скрываем scrollbar — навигация по жесту/тапу. */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .game-move-strip::-webkit-scrollbar {
     display: none;
   }
 

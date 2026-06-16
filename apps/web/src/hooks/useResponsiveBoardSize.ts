@@ -44,6 +44,11 @@ const MOBILE_BOTTOM_BAR_BREAKPOINT = 768;
 // Если меняется высота — синхронизировать здесь и в `game.css`
 // .game-action-bar.
 const GAME_ACTION_BAR_HEIGHT = 56;
+// KS-4291 (ADR-134 §3): GameMoveStrip — компактная горизонтальная
+// полоска ходов под доской на mobile. Высота 32px без safe-area
+// (полоска не прижата к нижнему краю, safe-area уже учтена в
+// action-bar). Синхронизировать с `game.css` .game-move-strip.
+const GAME_MOVE_STRIP_HEIGHT = 32;
 
 function safeAreaInsetBottom(): number {
   // На iOS / Android — env(safe-area-inset-bottom). В headless / десктопе
@@ -90,6 +95,13 @@ export interface ResponsiveBoardSizeOptions {
    * значение игнорируется.
    */
   hasActionBar?: boolean;
+  /**
+   * KS-4291 (ADR-134 §3). На mobile под доской отображается компактная
+   * полоска ходов высотой 32px между нижним player-bar'ом и action-
+   * bar'ом. Параметр включает вычитание этой высоты на mobile; на
+   * desktop ≥900px игнорируется (`isMobile && options.hasMoveStrip`).
+   */
+  hasMoveStrip?: boolean;
 }
 
 function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
@@ -118,6 +130,11 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
     options.hasActionBar && isMobile
       ? GAME_ACTION_BAR_HEIGHT + safeAreaInsetBottom()
       : 0;
+  // KS-4291 (ADR-134 §3): GameMoveStrip — компактная полоска ходов под
+  // доской на mobile (≤899px). Высоту 32px вычитаем независимо от
+  // action-bar; на desktop игнорируется.
+  const moveStrip =
+    options.hasMoveStrip && isMobile ? GAME_MOVE_STRIP_HEIGHT : 0;
 
   const extraVertical = isMobile
     ? BACK_LINK_HEIGHT +
@@ -127,6 +144,7 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
       botBanner +
       mobileBar +
       actionBar +
+      moveStrip +
       extra +
       SAFETY_RESERVE
     : BACK_LINK_HEIGHT +
@@ -134,6 +152,7 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
       botBanner +
       mobileBar +
       actionBar +
+      moveStrip +
       extra +
       SAFETY_RESERVE;
   const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding - extraVertical;
@@ -160,6 +179,7 @@ export function useResponsiveBoardSize(
     extraSubtract = 0,
     hideMobileBottomBar = false,
     hasActionBar = false,
+    hasMoveStrip = false,
   } = options;
   const [boardSize, setBoardSize] = useState(() =>
     calculateBoardSize({
@@ -167,6 +187,7 @@ export function useResponsiveBoardSize(
       extraSubtract,
       hideMobileBottomBar,
       hasActionBar,
+      hasMoveStrip,
     }),
   );
 
@@ -178,6 +199,7 @@ export function useResponsiveBoardSize(
           extraSubtract,
           hideMobileBottomBar,
           hasActionBar,
+          hasMoveStrip,
         }),
       );
 
@@ -190,7 +212,13 @@ export function useResponsiveBoardSize(
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
     };
-  }, [hasBotBanner, extraSubtract, hideMobileBottomBar, hasActionBar]);
+  }, [
+    hasBotBanner,
+    extraSubtract,
+    hideMobileBottomBar,
+    hasActionBar,
+    hasMoveStrip,
+  ]);
 
   return boardSize;
 }
