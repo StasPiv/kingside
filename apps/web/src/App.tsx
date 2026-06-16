@@ -27,6 +27,8 @@ import PublicLecturesPreviewPage from './pages/dev/PublicLecturesPreviewPage';
 import BroadcastsFinishedTogglePreviewPage from './pages/dev/BroadcastsFinishedTogglePreviewPage';
 // KS-4256 dev-only: песочница для приёмочных скриншотов layout страницы игры.
 import GameLayoutPreviewPage from './pages/dev/GameLayoutPreviewPage';
+// KS-4268 dev-only: песочница шести блоков нового гостевого лендинга.
+import LandingPreviewPage from './pages/dev/LandingPreviewPage';
 import { FeaturesPage } from './pages/FeaturesPage';
 import { DocsUserCoursesPage } from './pages/DocsUserCoursesPage';
 import { DiscoverCoursesPage } from './pages/DiscoverCoursesPage';
@@ -506,6 +508,8 @@ export function App() {
         <Route path="/__dev/broadcasts-finished-toggle" element={<BroadcastsFinishedTogglePreviewPage />} />
         {/* KS-4256 dev-only песочница layout страницы игры (player-bar + доска + sidebar + bot-banner). */}
         <Route path="/__dev/game-layout" element={<GameLayoutPreviewPage />} />
+        {/* KS-4268 dev-only песочница шести блоков нового гостевого лендинга. */}
+        <Route path="/__dev/landing" element={<LandingPreviewPage />} />
         <Route path="/features" element={<FeaturesPage />} />
         {/* KS-1895: публичная документация — без ProtectedRoute */}
         <Route path="/docs/user-courses" element={<DocsUserCoursesPage />} />
