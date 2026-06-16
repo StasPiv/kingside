@@ -2639,15 +2639,6 @@
     "orUpload": "or upload .pgn file"
   },
   "features": {
-    "navigation": {
-      "title": "Menu reorganized (May 2026)",
-      "intro": "We reorganized the sidebar into 5 main groups. Direct URLs still work — only the menu structure changed.",
-      "bullet1": "Puzzles, Puzzle Rush, Drills and Precision are now grouped under \"Train\" (/train).",
-      "bullet2": "Workshop and Archive are under \"Analyze\" (/analyze).",
-      "bullet3": "\"Home\" and \"Tournaments\" were removed from the menu but remain available by direct link (/lobby, /tournaments).",
-      "bullet4": "After login you land on /play instead of /lobby.",
-      "bullet5": "On desktop, \"Train\" and \"Analyze\" subsections open directly from the sidebar via hover/click — no intermediate lobby page."
-    },
     "hero": {
       "title": "Play chess. Analyze. Improve.",
       "subtitle": "User Guide",
@@ -2701,6 +2692,54 @@
     "rating": {
       "title": "Rating System",
       "guide": "Track your progress with Elo ratings.\n\n- Separate ratings for each time control: Bullet, Blitz, Rapid, Classical, and Puzzles\n- Starting rating: 1500\n- Rating changes after each game based on the result and opponent's rating\n- View your rating history chart on your profile page\n- See other players' profiles: click their name anywhere in the app\n- Players page shows all registered players sorted by rating\n- Online counter in the header shows how many players are currently on the site"
+    }
+  },
+  "landing": {
+    "hero": {
+      "title": "Chess where AI explains every move",
+      "subtitle": "Play online, review games with Stockfish and AI commentary, train on your own mistakes. Free.",
+      "ctaPlay": "Play vs bot",
+      "ctaRegister": "Create free account",
+      "ctaLogin": "Sign in"
+    },
+    "usp": {
+      "point1": {
+        "title": "AI explains every move",
+        "text": "Not just +1.5 — a text explanation of why a move is strong, where the mistake is, and what the position threatens."
+      },
+      "point2": {
+        "title": "Puzzles from your own games",
+        "text": "Upload a PGN — Kingside finds your mistakes and turns them into tactical puzzles. Train on the exact positions where you went wrong."
+      }
+    },
+    "cards": {
+      "title": "What's on Kingside",
+      "play": "Play bots and humans across bullet, blitz, rapid, and classical — rated or casual.",
+      "analyze": "Analyze games with Stockfish 18 running in your browser, plus AI commentary on every move.",
+      "puzzles": "Tactical, middlegame, and endgame puzzles — from the public base or generated from your own games.",
+      "broadcasts": "Live tournament broadcasts with AI commentary on positions as they unfold.",
+      "social": "Coaches, recorded lectures, chat, and a community of players."
+    },
+    "proof": {
+      "title": "Real numbers",
+      "online": "players online",
+      "gamesInProgress": "games in progress",
+      "totalGames": "games played",
+      "totalUsers": "registered users",
+      "totalPuzzles": "puzzles in the database"
+    },
+    "cta": {
+      "title": "Ready to start?",
+      "button": "Create free account"
+    },
+    "footerLinks": {
+      "terms": "Terms of Use",
+      "externalEngine": "External engine",
+      "credits": "Open assets"
+    },
+    "seo": {
+      "title": "Kingside — online chess with AI commentary on every move",
+      "description": "Play chess online, analyze games with Stockfish and AI explanations, train on puzzles from your own games. Free, no subscription."
     }
   },
   "serverBusy": {

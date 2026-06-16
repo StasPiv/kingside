@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router-dom';
 import { SeoHelmet } from '../components/seo/SeoHelmet';
+import { landingApi, type LandingStats } from '../api/landingApi';
 
 const SECTIONS = ['play', 'analyze', 'puzzles', 'workshop', 'broadcasts', 'social', 'customize', 'rating'] as const;
 const ICONS: Record<string, string> = {
@@ -10,10 +11,25 @@ const ICONS: Record<string, string> = {
 };
 
 /**
- * KS-4119: `variant='home'` — страница используется как guest-лендинг на `/`
- * (брендовый h1 «Play chess. Analyze. Improve.»). `variant='features'` (дефолт)
- * — страница используется по прямому URL `/features` (h1 «Features»), чтобы
- * prerender для `/` и `/features` отдавал РАЗНЫЕ h1 (не дубль-контент в SEO).
+ * KS-4267 / ADR-129 §5. Карточки блока «Что есть на платформе» на
+ * гостевом лендинге ведут на публичные разделы (см. §6.4 ADR-129).
+ * Маршруты выровнены по существующим quick-links в `variant='features'`,
+ * чтобы у гостя не было неожиданных редиректов.
+ */
+const HOME_CARDS = [
+  { key: 'play', to: '/play', icon: '♟' },
+  { key: 'analyze', to: '/analysis/new', icon: '🔍' },
+  { key: 'puzzles', to: '/puzzles', icon: '🧩' },
+  { key: 'broadcasts', to: '/broadcasts', icon: '📡' },
+  { key: 'social', to: '/players', icon: '👥' },
+] as const;
+
+/**
+ * KS-4119: `variant='home'` — страница используется как guest-лендинг на `/`.
+ * KS-4267 / ADR-129: для `variant='home'` рендерится новая структура
+ * (Hero / USP / Cards / Proof / CTA-footer / inline-footer).
+ * `variant='features'` (дефолт) — страница используется по прямому URL
+ * `/features` (h1 «Features»), оставлен старый Help-каталог с 8 секциями.
  */
 export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'features' }) {
   const { t } = useTranslation();
@@ -26,20 +42,11 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
     }
   }, [hash]);
 
-  const heroTitle =
-    variant === 'home'
-      ? t('features.hero.title')
-      : t('features.page.title', 'Features');
-  const heroSubtitle =
-    variant === 'home'
-      ? t('features.hero.subtitle')
-      : t('features.page.subtitle', 'Everything Kingside has to offer');
-
-  // KS-4222 / ADR-129 §7. SEO главной и /features. На главной — самый
-  // ценный URL: title с ключевыми словами, JSON-LD WebSite +
-  // Organization. На /features — отдельные ключи, чтобы prerender
-  // отдавал per-page title (не дубль-контент с главной).
   const isHome = variant === 'home';
+
+  // KS-4222 / ADR-129 §7. SEO главной и /features. SEO-блок остаётся как
+  // в KS-4119 — финальная редакция ключей `landing.seo.*` / переключение
+  // canonical и JSON-LD под новые тексты сделает KS-FE-2 / KS-FE-3.
   const seoTitle = t(isHome ? 'seo.home.title' : 'seo.features.title');
   const seoDescription = t(
     isHome ? 'seo.home.description' : 'seo.features.description',
@@ -83,73 +90,202 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
         ogImage="/og/default.png"
         jsonLd={seoJsonLd}
       />
-      {/* HERO */}
+      {isHome ? <GuestLandingHome /> : <FeaturesCatalog />}
+    </div>
+  );
+}
+
+/**
+ * KS-4267 / ADR-129 §5. Новая структура гостевого лендинга:
+ * Hero → USP → Cards → Proof → CTA-footer → inline-footer.
+ * Стили — параллельная задача KS-4268 (layout). Здесь только разметка
+ * и i18n-ключи `landing.*`.
+ */
+function GuestLandingHome() {
+  const { t } = useTranslation();
+  const stats = useLandingStats();
+
+  return (
+    <>
+      {/* §5.1 Hero */}
+      <section className="features-hero landing-hero">
+        <h1 className="features-hero__title landing-hero__title">
+          {t('landing.hero.title')}
+        </h1>
+        <p className="features-hero__subtitle landing-hero__subtitle">
+          {t('landing.hero.subtitle')}
+        </p>
+        <div className="features-hero__cta landing-hero__cta">
+          <Link
+            to="/play/local-bot"
+            className="features-btn features-btn--primary"
+            data-testid="landing-hero-cta-play"
+          >
+            {t('landing.hero.ctaPlay')}
+          </Link>
+          <Link
+            to="/register"
+            className="features-btn features-btn--secondary"
+            data-testid="landing-hero-cta-register"
+          >
+            {t('landing.hero.ctaRegister')}
+          </Link>
+          <Link
+            to="/login"
+            className="landing-hero__login"
+            data-testid="landing-hero-cta-login"
+          >
+            {t('landing.hero.ctaLogin')}
+          </Link>
+        </div>
+      </section>
+
+      {/* §5.2 USP — два пункта с h3 и пояснением */}
+      <section className="landing-usp" data-testid="landing-usp">
+        <article className="landing-usp__item">
+          <span className="landing-usp__icon" aria-hidden="true">🤖</span>
+          <h3 className="landing-usp__title">{t('landing.usp.point1.title')}</h3>
+          <p className="landing-usp__text">{t('landing.usp.point1.text')}</p>
+        </article>
+        <article className="landing-usp__item">
+          <span className="landing-usp__icon" aria-hidden="true">🧩</span>
+          <h3 className="landing-usp__title">{t('landing.usp.point2.title')}</h3>
+          <p className="landing-usp__text">{t('landing.usp.point2.text')}</p>
+        </article>
+      </section>
+
+      {/* §5.3 Cards — 5 публичных разделов */}
+      <section className="landing-cards" data-testid="landing-cards">
+        <h2 className="landing-cards__title">{t('landing.cards.title')}</h2>
+        <div className="landing-cards__grid">
+          {HOME_CARDS.map((card) => (
+            <Link
+              key={card.key}
+              to={card.to}
+              className="landing-card"
+              data-testid={`landing-card-${card.key}`}
+            >
+              <span className="landing-card__icon" aria-hidden="true">{card.icon}</span>
+              <p className="landing-card__text">{t(`landing.cards.${card.key}`)}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* §5.4 Proof — отрисовать ТОЛЬКО при успешном ответе backend'а.
+          5xx / timeout / пустые данные → секция не рендерится (по §5.4
+          и §10.1 ADR-129). На prerender (бот) `/landing/stats` мокается
+          в KS-FE-4 — для KS-FE-1 достаточно условного рендера. */}
+      {stats && (
+        <section className="landing-proof" data-testid="landing-proof">
+          <h2 className="landing-proof__title">{t('landing.proof.title')}</h2>
+          <dl className="landing-proof__grid">
+            <div className="landing-proof__item" data-testid="landing-proof-online">
+              <dt className="landing-proof__value">{formatNumber(stats.onlineNow)}</dt>
+              <dd className="landing-proof__label">{t('landing.proof.online')}</dd>
+            </div>
+            <div className="landing-proof__item" data-testid="landing-proof-games-in-progress">
+              <dt className="landing-proof__value">{formatNumber(stats.gamesInProgress)}</dt>
+              <dd className="landing-proof__label">{t('landing.proof.gamesInProgress')}</dd>
+            </div>
+            <div className="landing-proof__item" data-testid="landing-proof-total-games">
+              <dt className="landing-proof__value">{formatNumber(stats.totalGames)}</dt>
+              <dd className="landing-proof__label">{t('landing.proof.totalGames')}</dd>
+            </div>
+            <div className="landing-proof__item" data-testid="landing-proof-total-users">
+              <dt className="landing-proof__value">{formatNumber(stats.registeredUsers)}</dt>
+              <dd className="landing-proof__label">{t('landing.proof.totalUsers')}</dd>
+            </div>
+            <div className="landing-proof__item" data-testid="landing-proof-total-puzzles">
+              <dt className="landing-proof__value">{formatNumber(stats.totalPuzzlesSolved)}</dt>
+              <dd className="landing-proof__label">{t('landing.proof.totalPuzzles')}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
+
+      {/* §5.5 CTA-footer */}
+      <section className="features-cta-footer landing-cta-footer">
+        <h2 className="features-cta-footer__title">{t('landing.cta.title')}</h2>
+        <Link
+          to="/register"
+          className="features-btn features-btn--primary"
+          data-testid="landing-cta-register"
+        >
+          {t('landing.cta.button')}
+        </Link>
+        {/* KS-4104: ссылка на YouTube-канал — сохранена. */}
+        <a
+          className="features-btn features-btn--secondary features-youtube-link"
+          href="https://www.youtube.com/@kingside_site"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="features-youtube-link"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            style={{ verticalAlign: 'text-bottom', marginRight: 8 }}
+          >
+            <path
+              fill="#FF0000"
+              d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8z"
+            />
+            <path fill="#fff" d="M9.6 15.6V8.4l6.2 3.6z" />
+          </svg>
+          {t('features.cta.youtube', 'Video reviews on YouTube')}
+        </a>
+      </section>
+
+      {/* §5.6 Inline-footer — три ссылки. Селектор языка тут не нужен
+          (есть в шапке, по решению layout/KS-4265). */}
+      <footer className="landing-footer" data-testid="landing-footer">
+        <Link to="/terms" className="landing-footer__link">
+          {t('landing.footerLinks.terms')}
+        </Link>
+        <span className="landing-footer__sep" aria-hidden="true">·</span>
+        <Link to="/help/external-engine" className="landing-footer__link">
+          {t('landing.footerLinks.externalEngine')}
+        </Link>
+        <span className="landing-footer__sep" aria-hidden="true">·</span>
+        <Link to="/credits" className="landing-footer__link">
+          {t('landing.footerLinks.credits')}
+        </Link>
+      </footer>
+    </>
+  );
+}
+
+/**
+ * KS-4119 (KS-4267 — без изменений). `variant='features'` остаётся
+ * Help-каталогом: h1 «Features», 5 quick-links, 8 секций с гайдами,
+ * CTA-footer. Старая секция `#navigation` (changelog меню май 2026)
+ * удалена — её ключи `features.navigation.*` убраны из i18n по
+ * ADR-129 §8.3.
+ */
+function FeaturesCatalog() {
+  const { t } = useTranslation();
+  return (
+    <>
       <section className="features-hero">
-        <h1 className="features-hero__title">{heroTitle}</h1>
-        <p className="features-hero__subtitle">{heroSubtitle}</p>
+        <h1 className="features-hero__title">
+          {t('features.page.title', 'Features')}
+        </h1>
+        <p className="features-hero__subtitle">
+          {t('features.page.subtitle', 'Everything Kingside has to offer')}
+        </p>
         <div className="features-hero__cta">
-          <Link to="/register" className="features-btn features-btn--primary">{t('features.hero.ctaPlay')}</Link>
-          <a href="#play" className="features-btn features-btn--secondary">{t('features.hero.ctaLearn')}</a>
+          <Link to="/register" className="features-btn features-btn--primary">
+            {t('features.hero.ctaPlay')}
+          </Link>
+          <a href="#play" className="features-btn features-btn--secondary">
+            {t('features.hero.ctaLearn')}
+          </a>
         </div>
       </section>
 
-      {/* KS-2814 (ADR-058 §6.7 T17): запись о ревизии навигации.
-          Якорь #navigation сохранён — на него до KS-3070 указывала кнопка
-          «Read more» в NavOnboardingTooltip; внешние ссылки/закладки
-          могли остаться. */}
-      <section
-        id="navigation"
-        className="features-section features-section--changelog"
-      >
-        <div className="features-section__inner">
-          <span className="features-section__icon">🧭</span>
-          <h2 className="features-section__title">
-            {t('features.navigation.title', 'Menu reorganized (May 2026)')}
-          </h2>
-          <div className="features-section__guide">
-            <p>
-              {t(
-                'features.navigation.intro',
-                'We reorganized the sidebar into 5 main groups. Direct URLs still work — only the menu structure changed.',
-              )}
-            </p>
-            <ul>
-              <li>
-                {t(
-                  'features.navigation.bullet1',
-                  'Puzzles, Puzzle Rush, Drills and Precision are now grouped under "Train" (/train).',
-                )}
-              </li>
-              <li>
-                {t(
-                  'features.navigation.bullet2',
-                  'Workshop and Archive are under "Analyze" (/analyze).',
-                )}
-              </li>
-              <li>
-                {t(
-                  'features.navigation.bullet3',
-                  '"Home" and "Tournaments" were removed from the menu but remain available by direct link (/lobby, /tournaments).',
-                )}
-              </li>
-              <li>
-                {t(
-                  'features.navigation.bullet4',
-                  'After login you land on /play instead of /lobby.',
-                )}
-              </li>
-              <li>
-                {t(
-                  'features.navigation.bullet5',
-                  'On desktop, "Train" and "Analyze" subsections open directly from the sidebar via hover/click — no intermediate lobby page.',
-                )}
-              </li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      {/* Quick links for guests */}
       <section className="features-quick-links">
         <div className="features-quick-links__grid">
           <Link to="/lobby" className="features-quick-link">
@@ -175,7 +311,6 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
         </div>
       </section>
 
-      {/* Guide sections */}
       {SECTIONS.map((key) => (
         <section key={key} id={key} className={`features-section features-section--${key}`}>
           <div className="features-section__inner">
@@ -192,13 +327,12 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
         </section>
       ))}
 
-      {/* CTA Footer */}
       <section className="features-cta-footer">
         <h2 className="features-cta-footer__title">{t('features.cta.title')}</h2>
-        <Link to="/register" className="features-btn features-btn--primary">{t('features.cta.button')}</Link>
-        {/* KS-4104: ссылка на YouTube-канал с видеообзорами разделов.
-            Новая вкладка, rel=noopener. Переиспользует стиль вторичной
-            кнопки для консистентности. */}
+        <Link to="/register" className="features-btn features-btn--primary">
+          {t('features.cta.button')}
+        </Link>
+        {/* KS-4104: YouTube-ссылка. */}
         <a
           className="features-btn features-btn--secondary features-youtube-link"
           href="https://www.youtube.com/@kingside_site"
@@ -222,6 +356,48 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
           {t('features.cta.youtube', 'Video reviews on YouTube')}
         </a>
       </section>
-    </div>
+    </>
   );
+}
+
+/**
+ * KS-4267 / ADR-129 §5.4. Загрузка статистики для блока «Proof».
+ * Возвращает `null` пока запрос не завершился ИЛИ если упал
+ * (5xx/timeout/network). Компонент не рендерит блок при `null` —
+ * это и есть «graceful degradation» из §10.1.
+ *
+ * Префетчинг/prerender-мок — отдельная задача KS-FE-4; здесь хук
+ * вызывает API при монтировании на клиенте.
+ */
+function useLandingStats(): LandingStats | null {
+  const [stats, setStats] = useState<LandingStats | null>(null);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    landingApi
+      .getStats(ctrl.signal)
+      .then((data) => {
+        if (!ctrl.signal.aborted) setStats(data);
+      })
+      .catch(() => {
+        // 5xx / timeout / network → блок не рендерится.
+      });
+    return () => ctrl.abort();
+  }, []);
+
+  return stats;
+}
+
+/**
+ * KS-4267 / ADR-129 §5.4. Форматирование чисел: `1234` → `1 234`.
+ * Локализованный разделитель тысяч — `Intl.NumberFormat` берёт текущую
+ * локаль браузера, в проде совпадает с языком интерфейса.
+ */
+function formatNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  try {
+    return new Intl.NumberFormat().format(value);
+  } catch {
+    return String(value);
+  }
 }
