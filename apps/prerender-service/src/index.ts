@@ -15,6 +15,7 @@
  * task сам.
  */
 
+import * as fs from 'fs';
 import {
   resolvePrerenderRoute,
   type PrerenderTask,
@@ -27,6 +28,25 @@ import {
   type PrerenderEnvelope,
   type SqsPrerenderQueue,
 } from './sqs.js';
+
+/**
+ * KS-4230. Liveness-маркер для ECS HEALTHCHECK. После каждого
+ * успешного `render done` обновляем mtime файла. Dockerfile HEALTHCHECK
+ * проверяет возраст файла: если > 120s — task считается unhealthy,
+ * ECS перезапустит автоматически. Защита от зависших экземпляров,
+ * которые в `RUNNING`, но фактически ничего не обрабатывают.
+ */
+const LIVENESS_FILE = '/tmp/last-render-success';
+
+function touchLiveness(): void {
+  try {
+    fs.writeFileSync(LIVENESS_FILE, '');
+  } catch (e) {
+    // Не валим воркер — HEALTHCHECK сам потом подберёт сигнал, что
+    // что-то не так. Логируем warn для диагностики, но без stack'а.
+    log('warn', `liveness touch failed: ${(e as Error).message}`);
+  }
+}
 
 interface Deps {
   config: Config;
@@ -75,6 +95,10 @@ async function processOne(
     'info',
     `render done id=${env.messageId} s3=${route.s3Key} bytes=${html.length} put=${wrote ? 'yes' : 'skip'} render_ms=${tRender} put_ms=${tPut}`,
   );
+  // KS-4230. Touch liveness AFTER fully successful rendered+put+delete.
+  // Если render бросил или put упал — liveness не обновлялся, ECS
+  // healthcheck зафиксирует unhealthy и перезапустит контейнер.
+  touchLiveness();
 }
 
 async function loop(deps: Deps, abort: AbortSignal): Promise<void> {
@@ -133,6 +157,12 @@ async function main(): Promise<void> {
     'info',
     `starting prerender-service region=${config.awsRegion} queue=${config.sqsQueueUrl} bucket=${config.s3Bucket} base=${config.baseUrl}`,
   );
+  // KS-4230. Touch liveness на старте — иначе HEALTHCHECK сработает
+  // в первые 120s и убьёт контейнер до первого рендера (особенно
+  // если очередь пустая или воркер только что поднялся в момент
+  // редкого трафика). Dockerfile HEALTHCHECK имеет startPeriod=30s,
+  // но мы дополнительно подстраховываемся явным touch'ем.
+  touchLiveness();
 
   const renderer = await createRenderer({
     timeoutMs: config.renderTimeoutMs,

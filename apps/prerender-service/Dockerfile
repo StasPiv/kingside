@@ -43,5 +43,22 @@ ENV AWS_REGION=eu-central-1
 ENV PRERENDER_BASE_URL=https://kingside.site
 # SQS_QUEUE_URL и S3_PRERENDER_BUCKET передаются ECS task definition'ом.
 
+# KS-4230. Liveness через возраст файла /tmp/last-render-success.
+# Воркер touch'ит файл после каждого успешного render+put+delete
+# (см. apps/prerender-service/src/index.ts). Если за 120s ни один
+# рендер не прошёл — task считается unhealthy, ECS перезапускает.
+# Защищает от зависших Playwright-сессий, которые KS-4229 фиксит на
+# уровне процесса, но если фикс не сработал — ECS подберёт.
+#
+# --interval=60s   — проверка раз в минуту.
+# --timeout=5s     — должна успеть очень быстро.
+# --retries=3      — 3 подряд неудачи → unhealthy → restart.
+# --start-period=30s — окно после старта, когда healthcheck не учитывается
+#                      (даём процессу подняться и тронуть liveness явно).
+HEALTHCHECK --interval=60s --timeout=5s --retries=3 --start-period=30s \
+  CMD test -f /tmp/last-render-success && \
+      test $(( $(date +%s) - $(stat -c %Y /tmp/last-render-success) )) -lt 120 \
+      || exit 1
+
 WORKDIR /app/apps/prerender-service
 CMD ["node", "dist/index.js"]
