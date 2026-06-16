@@ -3892,7 +3892,15 @@ function AnalysisPageInner({
   // Сейчас используем статичную заглушку `/og/analysis.png`.
   const publicSeoBlock = (() => {
     if (!publicMode) return null;
-    const publicId = params.id ?? '';
+    // KS-4258 / KS-4254 fix: используем `analysisId` из
+    // `useAnalysisContext` — это id из URL `/analysis/public/:id`.
+    // В KS-4254 ошибочно стояло `params.id`, но `params` объявлен
+    // только во внешнем `AnalysisPage` (см. ~1014), а сам блок
+    // рендерится во вложенном `AnalysisPageInner` — `params` там
+    // не в области видимости. В production-сборке после
+    // minification это вылетало `ReferenceError: params is not
+    // defined` и страница падала в белый экран.
+    const publicId = analysisId ?? '';
     const canonical = publicId
       ? `https://kingside.site/analysis/public/${encodeURIComponent(publicId)}`
       : 'https://kingside.site/analysis';
