@@ -28,6 +28,30 @@ const BOT_BANNER_HEIGHT = 34;
 // браузерные bookmark-bar/extension-bar на десктопе). Раньше доска лезла на
 // нижний player-bar — 12px резерва покрывают округление и отрисовку border'ов.
 const SAFETY_RESERVE = 12;
+// KS-4274: MobileBottomBar (layout.css `.mobile-bottom-bar`) — `position: fixed`,
+// `height: 56px + env(safe-area-inset-bottom, 0)`. Видна при `(max-width: 768px)`
+// и на не-game-страницах. На `/play/local-bot` тот же GameShell, но bar остаётся
+// — забирает 56px+safe-area нижней части viewport, доска уезжала за неё.
+const MOBILE_BOTTOM_BAR_HEIGHT = 56;
+// `(max-width: 768px)` — точный media query из layout.css §`.mobile-bottom-bar`.
+// Если меняется там — синхронизировать здесь.
+const MOBILE_BOTTOM_BAR_BREAKPOINT = 768;
+
+function safeAreaInsetBottom(): number {
+  // На iOS / Android — env(safe-area-inset-bottom). В headless / десктопе
+  // вернёт 0 при отсутствии. Безопасно для SSR — useEffect гарантирует window.
+  if (typeof window === 'undefined') return 0;
+  const probe = document.createElement('div');
+  probe.style.position = 'fixed';
+  probe.style.bottom = 'env(safe-area-inset-bottom, 0px)';
+  probe.style.height = '0';
+  probe.style.width = '0';
+  probe.style.visibility = 'hidden';
+  document.body.appendChild(probe);
+  const inset = parseFloat(getComputedStyle(probe).bottom) || 0;
+  document.body.removeChild(probe);
+  return inset;
+}
 
 export interface ResponsiveBoardSizeOptions {
   /**
@@ -43,6 +67,13 @@ export interface ResponsiveBoardSizeOptions {
    * внутри `.game-board-area` — отдельный кейс).
    */
   extraSubtract?: number;
+  /**
+   * KS-4274. `false` (по умолчанию) — на ≤768px вычитаем высоту
+   * MobileBottomBar (56px + safe-area-inset-bottom). `true` — bar
+   * скрыт (например, на `/game/<id>`, где MainLayout его прячет:
+   * `hideBottomBar = pathname.startsWith('/game/')`).
+   */
+  hideMobileBottomBar?: boolean;
 }
 
 function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
@@ -55,6 +86,14 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
 
   const botBanner = options.hasBotBanner ? BOT_BANNER_HEIGHT : 0;
   const extra = options.extraSubtract ?? 0;
+  // KS-4274: MobileBottomBar показывается на ≤768px (layout.css). На
+  // /game/<id> MainLayout его прячет — вызывающий передаёт
+  // `hideMobileBottomBar: true`.
+  const mobileBarShown =
+    !options.hideMobileBottomBar && vw <= MOBILE_BOTTOM_BAR_BREAKPOINT;
+  const mobileBar = mobileBarShown
+    ? MOBILE_BOTTOM_BAR_HEIGHT + safeAreaInsetBottom()
+    : 0;
 
   const extraVertical = isMobile
     ? BACK_LINK_HEIGHT +
@@ -62,11 +101,13 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
       GAME_PAGE_GAP_MOBILE +
       SIDEBAR_MIN_HEIGHT_MOBILE +
       botBanner +
+      mobileBar +
       extra +
       SAFETY_RESERVE
     : BACK_LINK_HEIGHT +
       BOARD_AREA_GAP +
       botBanner +
+      mobileBar +
       extra +
       SAFETY_RESERVE;
   const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding - extraVertical;
@@ -88,14 +129,24 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
 export function useResponsiveBoardSize(
   options: ResponsiveBoardSizeOptions = {},
 ): number {
-  const { hasBotBanner = false, extraSubtract = 0 } = options;
+  const {
+    hasBotBanner = false,
+    extraSubtract = 0,
+    hideMobileBottomBar = false,
+  } = options;
   const [boardSize, setBoardSize] = useState(() =>
-    calculateBoardSize({ hasBotBanner, extraSubtract }),
+    calculateBoardSize({ hasBotBanner, extraSubtract, hideMobileBottomBar }),
   );
 
   useEffect(() => {
     const onResize = () =>
-      setBoardSize(calculateBoardSize({ hasBotBanner, extraSubtract }));
+      setBoardSize(
+        calculateBoardSize({
+          hasBotBanner,
+          extraSubtract,
+          hideMobileBottomBar,
+        }),
+      );
 
     // Пересчёт сразу при изменении входных опций (показали/скрыли баннер).
     onResize();
@@ -106,7 +157,7 @@ export function useResponsiveBoardSize(
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
     };
-  }, [hasBotBanner, extraSubtract]);
+  }, [hasBotBanner, extraSubtract, hideMobileBottomBar]);
 
   return boardSize;
 }

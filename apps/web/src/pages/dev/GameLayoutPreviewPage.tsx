@@ -21,8 +21,13 @@ type Theme = 'dark' | 'light';
 export default function GameLayoutPreviewPage() {
   const [theme, setTheme] = useState<Theme>('dark');
   const [showBotBanner, setShowBotBanner] = useState(true);
-  // KS-4257: то же, что делает GameShell — учитываем bot-banner в расчёте.
-  const boardWidth = useResponsiveBoardSize({ hasBotBanner: showBotBanner });
+  // KS-4257 / KS-4274: то же, что делает GameShell — учитываем bot-banner
+  // и MobileBottomBar в расчёте. В песочнице путь `/__dev/game-layout`,
+  // не `/game/...` — bar не скрыт, как на боевой `/play/local-bot`.
+  const boardWidth = useResponsiveBoardSize({
+    hasBotBanner: showBotBanner,
+    hideMobileBottomBar: false,
+  });
 
   return (
     <div data-theme={theme} className="game-page" style={{ height: '100dvh' }}>

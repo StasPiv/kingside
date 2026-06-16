@@ -22,7 +22,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -245,7 +245,17 @@ export function GameShell(props: GameShellProps) {
   // расчёт `maxByHeight` учёл это и нижний ряд клеток не уходил
   // под нижний player-bar.
   const hasBotBanner = isBot && showBotBanner && !botBannerDismissed;
-  const boardWidth = useResponsiveBoardSize({ hasBotBanner });
+  // KS-4274: MobileBottomBar на ≤768px скрыт MainLayout'ом ТОЛЬКО на
+  // `/game/<id>` (hideBottomBar = pathname.startsWith('/game/')). На
+  // других страницах с GameShell (например `/play/local-bot`) bar
+  // остаётся и забирает 56px+safe-area внизу — передаём в хук, чтобы
+  // он вычел эту высоту из расчёта доски.
+  const location = useLocation();
+  const hideMobileBottomBar = location.pathname.startsWith('/game/');
+  const boardWidth = useResponsiveBoardSize({
+    hasBotBanner,
+    hideMobileBottomBar,
+  });
   const [chatInput, setChatInput] = useState('');
   const [pendingPromotion, setPendingPromotion] = useState<
     { from: Square; to: Square } | null
