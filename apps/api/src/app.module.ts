@@ -37,6 +37,8 @@ import { LecturesModule } from './lectures/lectures.module';
 import { LectureAudioModule } from './lecture-audio/lecture-audio.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
 import { PlayerModule } from './player/player.module';
+// KS-4264 / ADR-129 §5.4. Публичный лендинг-эндпоинт /landing/stats.
+import { LandingModule } from './landing/landing.module';
 import { MessageModule } from './message/message.module';
 import { FriendModule } from './friend/friend.module';
 import { NotificationModule } from './notification/notification.module';
@@ -126,6 +128,7 @@ import { HealthController } from './health.controller';
     LectureAudioModule,
     ClientLogsModule,
     PlayerModule,
+    LandingModule,
     MessageModule,
     FriendModule,
     NotificationModule,
