@@ -41,6 +41,9 @@ COPY apps/game-service/package.json apps/game-service/
 COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
+# KS-4247 / ADR-131 A1: archive-db нужен для нового модуля archive
+# в apps/api (отдельный PrismaClient).
+COPY packages/archive-db/package.json packages/archive-db/
 # KS-4070: position-comment подключает Maia-3 как forced-line фильтр
 # (apps/api/src/position-comment/maia.service.ts через @kingside/maia-core).
 # Сам пакет резолвится из packages/maia-core (workspace symlink), его
@@ -53,6 +56,7 @@ RUN npm ci --ignore-scripts
 RUN node node_modules/@prisma/engines/scripts/postinstall.js
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
+COPY packages/archive-db ./packages/archive-db
 COPY packages/board-image-to-fen ./packages/board-image-to-fen
 COPY packages/maia-core ./packages/maia-core
 COPY apps/api ./apps/api
@@ -68,6 +72,8 @@ RUN npx tsc --build packages/board-image-to-fen
 # Собираем в build-стадии до nest build, чтобы apps/api подхватил его типы.
 RUN npx tsc --build packages/maia-core
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
+# KS-4247 / ADR-131 A1: собираем archive-db (prisma generate + tsc + copy engines).
+RUN cd packages/archive-db && ARCHIVE_DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies (typescript,
 # jest, ts-jest, @nestjs/cli, @types/*, ts-node-dev и т.п.).
@@ -95,6 +101,9 @@ COPY --from=build /app/apps/api/data ./apps/api/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db
+# KS-4247 / ADR-131 A1: archive-db нужен в runtime для @kingside/archive-db
+# resolve (отдельный PrismaClient в новом archive-модуле).
+COPY --from=build /app/packages/archive-db ./packages/archive-db
 # KS-2363: board-image-to-fen tree включает dist/ (TS-обёртка) +
 # src/python/* (board_detect.py / board_recognize.py — spawn'ятся через
 # child_process). Без src/python модуль не сможет вызывать Python-стек.
