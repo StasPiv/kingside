@@ -7,7 +7,9 @@ interface GameResultSheetProps {
   /**
    * Управление видимостью — родитель монтирует компонент только при
    * `status === 'finished'`. Внутреннее состояние свёрнуто/раскрыто
-   * хранится в компоненте.
+   * хранится в компоненте, если не используются `expanded`/
+   * `onExpandedChange` (controlled mode для интеграции с
+   * `GameActionBar`, KS-4290).
    */
   outcome: Outcome;
   /** Заголовок панели — «Партия завершена». */
@@ -33,6 +35,18 @@ interface GameResultSheetProps {
    * передано, тап по подложке только сворачивает sheet в полоску.
    */
   onCloseOverlay?: () => void;
+  /**
+   * KS-4290 (ADR-134 §2): контролируемое состояние свёрнуто/раскрыто.
+   * При передаче `expanded`+`onExpandedChange` компонент работает в
+   * controlled-режиме — автономная свёрнутая полоска не рендерится,
+   * вместо неё в свёрнутом состоянии компонент возвращает `null`
+   * (полоску показывает `GameActionBar` в слоте post-game и
+   * вызывает `onExpandedChange(true)` для раскрытия). Если хотя бы
+   * один из двух пропов отсутствует — uncontrolled-режим как раньше
+   * (см. unit-тесты компонента).
+   */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
 const SWIPE_DOWN_THRESHOLD_PX = 60;
@@ -65,18 +79,31 @@ export function GameResultSheet({
   ratingBlock,
   actions,
   onCloseOverlay,
+  expanded: controlledExpanded,
+  onExpandedChange,
 }: GameResultSheetProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
+  // KS-4290: controlled vs uncontrolled. Controlled — когда передан и
+  // `expanded`, и `onExpandedChange` (родитель — `GameShell` —
+  // синхронизирует с `GameActionBar`). Иначе — внутреннее состояние.
+  const isControlled =
+    controlledExpanded !== undefined && onExpandedChange !== undefined;
+  const [internalExpanded, setInternalExpanded] = useState(true);
+  const expanded = isControlled ? controlledExpanded : internalExpanded;
+  const setExpanded = (next: boolean) => {
+    if (isControlled) onExpandedChange(next);
+    else setInternalExpanded(next);
+  };
   const [dragOffset, setDragOffset] = useState(0);
   const dragStartYRef = useRef<number | null>(null);
 
   // Сброс при появлении нового результата (если когда-нибудь
   // компонент будет переиспользован между партиями без unmount).
+  // В controlled-режиме сброс выполняет родитель.
   useEffect(() => {
-    setExpanded(true);
+    if (!isControlled) setInternalExpanded(true);
     setDragOffset(0);
-  }, [outcome, detail]);
+  }, [outcome, detail, isControlled]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     dragStartYRef.current = e.touches[0]?.clientY ?? null;
@@ -106,6 +133,9 @@ export function GameResultSheet({
   };
 
   if (!expanded) {
+    // KS-4290: в controlled-режиме свёрнутую полоску показывает
+    // GameActionBar — здесь возвращаем null, чтобы не дублировать.
+    if (isControlled) return null;
     return (
       <button
         type="button"

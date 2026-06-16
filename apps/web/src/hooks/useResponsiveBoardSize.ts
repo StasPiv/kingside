@@ -39,6 +39,11 @@ const MOBILE_BOTTOM_BAR_HEIGHT = 56;
 // `(max-width: 768px)` — точный media query из layout.css §`.mobile-bottom-bar`.
 // Если меняется там — синхронизировать здесь.
 const MOBILE_BOTTOM_BAR_BREAKPOINT = 768;
+// KS-4290 (ADR-134 §2): GameActionBar — `position: sticky`, min-height 56px
+// + env(safe-area-inset-bottom). Виден на ≤899px при активном GameShell.
+// Если меняется высота — синхронизировать здесь и в `game.css`
+// .game-action-bar.
+const GAME_ACTION_BAR_HEIGHT = 56;
 
 function safeAreaInsetBottom(): number {
   // На iOS / Android — env(safe-area-inset-bottom). В headless / десктопе
@@ -77,6 +82,14 @@ export interface ResponsiveBoardSizeOptions {
    * `hideBottomBar = pathname.startsWith('/game/')`).
    */
   hideMobileBottomBar?: boolean;
+  /**
+   * KS-4290 (ADR-134 §2). На mobile (≤899px) под доской рендерится
+   * sticky GameActionBar — `min-height: 56px + env(safe-area-inset-bottom)`.
+   * Чтобы доска не уезжала за нижний край, вычитаем его высоту аналогично
+   * `MobileBottomBar`. На desktop ≥900px action-bar не рендерится, и
+   * значение игнорируется.
+   */
+  hasActionBar?: boolean;
 }
 
 function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
@@ -97,6 +110,14 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
   const mobileBar = mobileBarShown
     ? MOBILE_BOTTOM_BAR_HEIGHT + safeAreaInsetBottom()
     : 0;
+  // KS-4290 (ADR-134 §2): GameActionBar показывается на ≤899px (тот же
+  // breakpoint, что у мобильной вёрстки `.game-page`). Высоту вычитаем
+  // только когда вызывающий явно подтвердил, что bar смонтирован —
+  // в десктопной верстке GameShell его не рендерит.
+  const actionBar =
+    options.hasActionBar && isMobile
+      ? GAME_ACTION_BAR_HEIGHT + safeAreaInsetBottom()
+      : 0;
 
   const extraVertical = isMobile
     ? BACK_LINK_HEIGHT +
@@ -105,12 +126,14 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
       SIDEBAR_MIN_HEIGHT_MOBILE +
       botBanner +
       mobileBar +
+      actionBar +
       extra +
       SAFETY_RESERVE
     : BACK_LINK_HEIGHT +
       BOARD_AREA_GAP +
       botBanner +
       mobileBar +
+      actionBar +
       extra +
       SAFETY_RESERVE;
   const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding - extraVertical;
@@ -136,9 +159,15 @@ export function useResponsiveBoardSize(
     hasBotBanner = false,
     extraSubtract = 0,
     hideMobileBottomBar = false,
+    hasActionBar = false,
   } = options;
   const [boardSize, setBoardSize] = useState(() =>
-    calculateBoardSize({ hasBotBanner, extraSubtract, hideMobileBottomBar }),
+    calculateBoardSize({
+      hasBotBanner,
+      extraSubtract,
+      hideMobileBottomBar,
+      hasActionBar,
+    }),
   );
 
   useEffect(() => {
@@ -148,6 +177,7 @@ export function useResponsiveBoardSize(
           hasBotBanner,
           extraSubtract,
           hideMobileBottomBar,
+          hasActionBar,
         }),
       );
 
@@ -160,7 +190,7 @@ export function useResponsiveBoardSize(
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
     };
-  }, [hasBotBanner, extraSubtract, hideMobileBottomBar]);
+  }, [hasBotBanner, extraSubtract, hideMobileBottomBar, hasActionBar]);
 
   return boardSize;
 }

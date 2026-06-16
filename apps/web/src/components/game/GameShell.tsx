@@ -35,6 +35,7 @@ import { MemoChessboard } from '../MemoChessboard';
 import { PromotionPicker } from '../PromotionPicker';
 import { HelpButton } from '../HelpButton';
 import { GameResultSheet } from './GameResultSheet';
+import { GameActionBar } from './GameActionBar';
 import { useBoardSettings } from '../../hooks/useBoardSettings';
 import { useBoardHighlights } from '../../hooks/useBoardHighlights';
 import { useResponsiveBoardSize } from '../../hooks/useResponsiveBoardSize';
@@ -240,6 +241,16 @@ export function GameShell(props: GameShellProps) {
     return saved !== null ? parseInt(saved, 10) : 200;
   });
   const [botBannerDismissed, setBotBannerDismissed] = useState(false);
+  // KS-4290 (ADR-134 §2): controlled-режим `GameResultSheet`. На mobile
+  // действия пользователя «свернуть/раскрыть результат» проходят через
+  // GameActionBar (post-game pill). На desktop модальное окно
+  // показывается отдельно — это состояние на него не влияет.
+  const [resultSheetExpanded, setResultSheetExpanded] = useState(true);
+  // Сбрасываем в expanded при появлении нового результата (новая
+  // партия завершилась после реванша/новой игры).
+  useEffect(() => {
+    if (status === 'finished') setResultSheetExpanded(true);
+  }, [status, result]);
 
   // KS-4257: bot-banner появляется в `.game-board-area` над верхним
   // player-bar и съедает ~34px высоты. Передаём флаг в хук, чтобы
@@ -256,6 +267,12 @@ export function GameShell(props: GameShellProps) {
   const boardWidth = useResponsiveBoardSize({
     hasBotBanner,
     hideMobileBottomBar,
+    // KS-4290 / ADR-134 §2: на mobile GameShell всегда рендерит
+    // GameActionBar (sticky внизу 56 + safe-area-bottom). Хуку нужно
+    // вычесть эту высоту, чтобы доска не уезжала за нижний край. На
+    // desktop ≥900px компонент CSS-правилом скрыт, и `calculateBoardSize`
+    // игнорирует `hasActionBar` (см. `isMobile && options.hasActionBar`).
+    hasActionBar: true,
   });
   const [chatInput, setChatInput] = useState('');
   const [pendingPromotion, setPendingPromotion] = useState<
@@ -891,10 +908,51 @@ export function GameShell(props: GameShellProps) {
               ) : null
             }
             actions={renderResultActions('modal')}
-            onCloseOverlay={onCloseResultModal}
+            // KS-4290: на mobile клик по подложке сворачивает sheet в
+            // pill, который появится в `GameActionBar` — задача
+            // показать пользователю, что результат можно вернуть
+            // обратно. Модальное окно на desktop — это отдельный блок
+            // ниже, у него свой `onCloseResultModal`; здесь sheet
+            // полностью скрыт через CSS, поэтому подменой колбэка
+            // десктоп-поведение не затрагивается.
+            onCloseOverlay={() => setResultSheetExpanded(false)}
+            expanded={resultSheetExpanded}
+            onExpandedChange={setResultSheetExpanded}
           />
         </div>
       )}
+
+      {/* KS-4290 / ADR-134 §2: sticky action-bar для мобильной вёрстки.
+          На desktop ≥900px скрыт CSS-правилом (`.game-action-bar`
+          `display: none` по умолчанию, `display: flex` в @media
+          `max-width: 899px`). Старые inline `.game-actions` и
+          `.game-actions-top` на mobile тоже скрыты — действия партии
+          живут только здесь. На finished — pill «Партия завершена ▲»,
+          по клику разворачивает `GameResultSheet`. */}
+      <GameActionBar
+        status={status}
+        canResign={status === 'active' && canResign && !!onResign}
+        onResign={onResign}
+        canOfferDraw={status === 'active' && canOfferDraw && !drawOffered}
+        onOfferDraw={onDrawOffer}
+        muted={muted}
+        onToggleMute={toggleMute}
+        resultPillLabel={
+          status === 'finished' && result
+            ? result === 'draw'
+              ? t('game.draw')
+              : (result === 'white' && playerColor === 'white') ||
+                  (result === 'black' && playerColor === 'black')
+                ? t('gameResult.victory')
+                : t('gameResult.defeat')
+            : undefined
+        }
+        onExpandResult={
+          status === 'finished' && !resultSheetExpanded
+            ? () => setResultSheetExpanded(true)
+            : undefined
+        }
+      />
 
       {showResultModal && status === 'finished' && result && (
         <div

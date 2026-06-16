@@ -805,6 +805,121 @@ body:has(.game-page),
   gap: 8px;
 }
 
+/* KS-4290 / ADR-134 §2: sticky action-bar страницы игры для мобильной
+   вёрстки. По умолчанию (desktop ≥900px) скрыт `display: none` —
+   действия партии остаются в существующих `.game-actions` /
+   `.game-actions-top` боковой панели. Включается ниже в @media
+   `max-width: 899px`. Синхронизация высоты:
+   `useResponsiveBoardSize.GAME_ACTION_BAR_HEIGHT = 56`. */
+.game-action-bar {
+  display: none;
+}
+
+.game-action-bar--active,
+.game-action-bar--finished,
+.game-action-bar--waiting {
+  /* Стили включаются в @media (max-width: 899px). */
+}
+
+.game-action-bar__btn {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 4px;
+  background: transparent;
+  color: var(--c-fff);
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  transition: background 120ms ease;
+}
+
+.game-action-bar__btn:hover,
+.game-action-bar__btn:focus-visible {
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.08));
+  outline: none;
+}
+
+.game-action-bar__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.game-action-bar__icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.game-action-bar__label {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.game-action-bar__more-wrap {
+  position: relative;
+  flex: 1 1 0;
+  display: flex;
+}
+
+.game-action-bar__more-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  min-width: 200px;
+  background: var(--c-1e2a4a);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px var(--ov-black-50);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 1500;
+}
+
+.game-action-bar__more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--c-fff);
+  border: none;
+  font-size: 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  min-height: 44px;
+}
+
+.game-action-bar__more-item:hover,
+.game-action-bar__more-item:focus-visible {
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.08));
+  outline: none;
+}
+
+.game-action-bar__pill {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
+  border: none;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* Analysis page rating rows */
 .analysis-ratings {
   display: flex;
@@ -1073,6 +1188,56 @@ body:has(.game-page),
 
   .game-result-sheet-wrapper {
     display: contents;
+  }
+
+  /* KS-4290 / ADR-134 §2: единый sticky-ряд действий внизу экрана.
+     Прячем inline `.game-actions` и `.game-actions-top` — все
+     действия партии переезжают в `<GameActionBar>`. */
+  .game-sidebar .game-actions,
+  .game-sidebar .game-actions-top {
+    display: none;
+  }
+
+  .game-action-bar {
+    display: flex;
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 4px 8px;
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+    min-height: 56px;
+    background: var(--c-16213e);
+    border-top: 1px solid var(--ov-white-08, rgba(255, 255, 255, 0.08));
+  }
+
+  .game-action-bar--finished {
+    /* Pill занимает всю ширину — gap не нужен. */
+    gap: 0;
+  }
+
+  .game-action-bar--waiting {
+    /* Пока пустой — резерв высоты, контент придёт с KS-4293. */
+  }
+
+}
+
+/* KS-4290: узкие телефоны (320-359px) — режим icons-only в action-bar
+   (без подписи под иконкой). Вынесено наружу из вложенной @media-
+   секции для совместимости со старыми бандлерами/браузерами. */
+@media (max-width: 359px) {
+  .game-action-bar__label {
+    display: none;
+  }
+  .game-action-bar__btn {
+    gap: 0;
   }
 }
 

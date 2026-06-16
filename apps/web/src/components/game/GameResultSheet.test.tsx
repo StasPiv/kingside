@@ -93,4 +93,29 @@ describe('KS-4288 / ADR-134 §1: GameResultSheet', () => {
     expect(screen.getByTestId('game-result-sheet')).toBeInTheDocument();
     expect(screen.queryByTestId('game-result-pill')).not.toBeInTheDocument();
   });
+
+  describe('KS-4290 controlled-режим (интеграция с GameActionBar)', () => {
+    it('expanded=true рендерит панель; expanded=false возвращает null (полоска показывается через action-bar)', () => {
+      const { rerender } = renderWithProviders(
+        <GameResultSheet {...baseProps} expanded={true} onExpandedChange={vi.fn()} />,
+      );
+      expect(screen.getByTestId('game-result-sheet')).toBeInTheDocument();
+      expect(screen.queryByTestId('game-result-pill')).not.toBeInTheDocument();
+
+      rerender(
+        <GameResultSheet {...baseProps} expanded={false} onExpandedChange={vi.fn()} />,
+      );
+      expect(screen.queryByTestId('game-result-sheet')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('game-result-pill')).not.toBeInTheDocument();
+    });
+
+    it('клик по подложке без onCloseOverlay вызывает onExpandedChange(false)', async () => {
+      const onChange = vi.fn();
+      renderWithProviders(
+        <GameResultSheet {...baseProps} expanded={true} onExpandedChange={onChange} />,
+      );
+      await userEvent.click(screen.getByTestId('game-result-sheet-overlay'));
+      expect(onChange).toHaveBeenCalledWith(false);
+    });
+  });
 });
