@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen, userEvent } from '../../test/test-utils';
 import { GameActionBar } from './GameActionBar';
 
@@ -21,6 +22,13 @@ describe('KS-4290 / ADR-134 §2: GameActionBar', () => {
     });
   });
 
+  afterEach(() => {
+    // KS-4294: тесты, использующие vi.useFakeTimers, должны откатить
+    // к реальным до следующего it, иначе глобальный userEvent.click
+    // ждёт реальный таймер бесконечно.
+    vi.useRealTimers();
+  });
+
   describe('status="active"', () => {
     it('рендерит 4 действия: Сдаться, Ничья, Чат, Ещё', () => {
       renderWithProviders(<GameActionBar {...defaults} />);
@@ -30,9 +38,12 @@ describe('KS-4290 / ADR-134 §2: GameActionBar', () => {
       expect(screen.getByTestId('game-action-bar-more')).toBeInTheDocument();
     });
 
-    it('клик «Сдаться» вызывает onResign', async () => {
+    it('первый тап «Сдаться» НЕ вызывает onResign, второй вызывает (KS-4294)', async () => {
       renderWithProviders(<GameActionBar {...defaults} />);
-      await userEvent.click(screen.getByTestId('game-action-bar-resign'));
+      const btn = screen.getByTestId('game-action-bar-resign');
+      await userEvent.click(btn);
+      expect(defaults.onResign).not.toHaveBeenCalled();
+      await userEvent.click(btn);
       expect(defaults.onResign).toHaveBeenCalledTimes(1);
     });
 
@@ -121,6 +132,69 @@ describe('KS-4290 / ADR-134 §2: GameActionBar', () => {
       expect(
         screen.queryByTestId('game-action-bar-lobby'),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('KS-4294: двухтаповое подтверждение «Сдаться»', () => {
+    it('первый тап переключает кнопку в armed-состояние с лейблом «Confirm?»', async () => {
+      renderWithProviders(<GameActionBar {...defaults} />);
+      const btn = screen.getByTestId('game-action-bar-resign');
+      expect(btn).not.toHaveAttribute('data-armed');
+      expect(btn).toHaveTextContent('Resign');
+      await userEvent.click(btn);
+      expect(btn).toHaveAttribute('data-armed', 'true');
+      expect(btn).toHaveClass('game-action-bar__btn--armed');
+      expect(btn).toHaveTextContent('Confirm?');
+      expect(defaults.onResign).not.toHaveBeenCalled();
+    });
+
+    it('сбрасывается по таймауту 2 с без второго тапа', async () => {
+      // KS-4294: используем `fireEvent.click` вместо `userEvent.click`,
+      // т. к. user-event версии в проекте конфликтует с fake-timers
+      // (зависает на ожидании реального setTimeout). fireEvent
+      // синхронен и устойчив к fake-timers; `act` нужен, чтобы
+      // setState из setTimeout-колбэка попал в текущий render-цикл.
+      vi.useFakeTimers();
+      renderWithProviders(<GameActionBar {...defaults} />);
+      const btn = screen.getByTestId('game-action-bar-resign');
+      fireEvent.click(btn);
+      expect(btn).toHaveAttribute('data-armed', 'true');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(btn).not.toHaveAttribute('data-armed');
+      expect(btn).toHaveTextContent('Resign');
+      expect(defaults.onResign).not.toHaveBeenCalled();
+    });
+
+    it('после сброса требуется снова первый тап перед onResign', async () => {
+      vi.useFakeTimers();
+      renderWithProviders(<GameActionBar {...defaults} />);
+      const btn = screen.getByTestId('game-action-bar-resign');
+      fireEvent.click(btn);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      // Следующий тап снова первый — не вызывает onResign, ставит armed.
+      fireEvent.click(btn);
+      expect(btn).toHaveAttribute('data-armed', 'true');
+      expect(defaults.onResign).not.toHaveBeenCalled();
+    });
+
+    it('смена статуса на finished сбрасывает armed-состояние', async () => {
+      const { rerender } = renderWithProviders(<GameActionBar {...defaults} />);
+      await userEvent.click(screen.getByTestId('game-action-bar-resign'));
+      expect(screen.getByTestId('game-action-bar-resign')).toHaveAttribute(
+        'data-armed',
+        'true',
+      );
+      rerender(<GameActionBar {...defaults} status="finished" />);
+      // На finished кнопка resign больше не рендерится; armed-состояние
+      // погашено эффектом — следующий рендер active не должен показать armed.
+      rerender(<GameActionBar {...defaults} status="active" />);
+      expect(
+        screen.getByTestId('game-action-bar-resign'),
+      ).not.toHaveAttribute('data-armed');
     });
   });
 

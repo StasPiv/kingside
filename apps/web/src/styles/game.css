@@ -1065,6 +1065,21 @@ body:has(.game-page),
   cursor: not-allowed;
 }
 
+/* KS-4294 / ADR-134 §7: «armed» состояние кнопки «Сдаться» после
+   первого тапа. Визуально выделяем красной рамкой и красным фоном,
+   чтобы пользователь увидел переключение в режим подтверждения. */
+.game-action-bar__btn--armed {
+  background: var(--c-ef4444);
+  color: var(--c-fff);
+  outline: 2px solid var(--c-fff);
+  outline-offset: -2px;
+}
+
+.game-action-bar__btn--armed:hover,
+.game-action-bar__btn--armed:focus-visible {
+  background: var(--c-ef4444);
+}
+
 .game-action-bar__icon {
   font-size: 18px;
   line-height: 1;

@@ -73,6 +73,8 @@ export interface GameActionBarProps {
   onCancelSearch?: () => void;
 }
 
+const RESIGN_CONFIRM_WINDOW_MS = 2000;
+
 export function GameActionBar({
   status,
   canResign,
@@ -91,6 +93,49 @@ export function GameActionBar({
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+
+  // KS-4294 / ADR-134 §7: двухтаповое подтверждение «Сдаться».
+  // Первый тап ставит `resignArmed=true` и таймер 2 с на сброс.
+  // Второй тап в окне — реально вызывает `onResign`. Если 2 с
+  // прошли без второго тапа, состояние сбрасывается — нужен снова
+  // первый тап.
+  const [resignArmed, setResignArmed] = useState(false);
+  const resignTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearResignTimer = () => {
+    if (resignTimerRef.current) {
+      clearTimeout(resignTimerRef.current);
+      resignTimerRef.current = null;
+    }
+  };
+  // Сброс при unmount и при смене статуса (если партия закончилась,
+  // armed-состояние не должно «висеть» до следующей партии).
+  useEffect(() => {
+    return () => {
+      clearResignTimer();
+    };
+  }, []);
+  useEffect(() => {
+    if (status !== 'active') {
+      clearResignTimer();
+      setResignArmed(false);
+    }
+  }, [status]);
+
+  const handleResignClick = () => {
+    if (!onResign) return;
+    if (resignArmed) {
+      clearResignTimer();
+      setResignArmed(false);
+      onResign();
+      return;
+    }
+    setResignArmed(true);
+    clearResignTimer();
+    resignTimerRef.current = setTimeout(() => {
+      setResignArmed(false);
+      resignTimerRef.current = null;
+    }, RESIGN_CONFIRM_WINDOW_MS);
+  };
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -149,14 +194,23 @@ export function GameActionBar({
     <div className="game-action-bar game-action-bar--active" data-testid="game-action-bar">
       <button
         type="button"
-        className="game-action-bar__btn"
+        className={`game-action-bar__btn${resignArmed ? ' game-action-bar__btn--armed' : ''}`}
         data-testid="game-action-bar-resign"
-        onClick={onResign}
+        data-armed={resignArmed ? 'true' : undefined}
+        onClick={handleResignClick}
         disabled={!canResign || !onResign}
-        aria-label={t('game.resign', 'Resign')}
+        aria-label={
+          resignArmed
+            ? t('game.confirmResign', 'Confirm resign')
+            : t('game.resign', 'Resign')
+        }
       >
         <span className="game-action-bar__icon" aria-hidden="true">🏳</span>
-        <span className="game-action-bar__label">{t('game.resign', 'Resign')}</span>
+        <span className="game-action-bar__label">
+          {resignArmed
+            ? t('game.confirm', 'Confirm?')
+            : t('game.resign', 'Resign')}
+        </span>
       </button>
       <button
         type="button"
