@@ -335,12 +335,25 @@ export class PrecisionService {
     if (hideSolved && userId) {
       where.attempts = { none: { userId } };
     }
-    // Pick через raw SQL — Prisma не умеет ORDER BY random().
-    // Используем простой findFirst + случайный skip как fallback,
-    // если raw недоступен — но Postgres ORDER BY random() читаем:
-    // pull count + offset random — slower на хороших объёмах.
-    // Делаем findMany с take=50 и JS random pick (компромисс
-    // «нет full-scan, но и не идеально равномерно по выборке»).
+    // KS-4238. Раньше брали `findMany({ take: 50 })` без orderBy и
+    // делали JS random pick. Это два бага:
+    //   1) Без orderBy Postgres возвращает строки в неустойчивом, но
+    //      детерминированном для одного плана порядке. Каждый запрос с
+    //      одинаковым WHERE возвращает ОДНИ И ТЕ ЖЕ первые 50.
+    //   2) С `hideSolved=true`, как только пользователь решает все
+    //      convertAdvantage из этих первых 50, в выборке остаются
+    //      почти одни saveEquality (или наоборот). Пользователь видит
+    //      «бесконечный перекос», хотя в БД распределение ~50/50.
+    // Фикс: настоящая случайная выборка через `count(*)` +
+    // `skip = floor(random()*(count-50))` + `take = 50` со стабильным
+    // orderBy. Цена — один лишний count-запрос с тем же WHERE.
+    // Postgres planner кеширует план; count здесь использует те же
+    // индексы что и findMany.
+    const total = await this.prisma.puzzle.count({ where: where as never });
+    if (total === 0) return null;
+    const window = 50;
+    const maxSkip = Math.max(0, total - window);
+    const skip = Math.floor(Math.random() * (maxSkip + 1));
     const candidates = await this.prisma.puzzle.findMany({
       where: where as never,
       select: {
@@ -354,7 +367,12 @@ export class PrecisionService {
         maiaMetricVersion: true,
         maiaTop1Elo: true,
       },
-      take: 50,
+      // KS-4238. Стабильный orderBy — без него Postgres не
+      // гарантирует, что одинаковые skip дают одинаковые строки;
+      // `id` — primary key, индекс уже есть.
+      orderBy: { id: 'asc' },
+      skip,
+      take: window,
     });
     if (candidates.length === 0) return null;
     const pick = candidates[Math.floor(Math.random() * candidates.length)];

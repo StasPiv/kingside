@@ -37,6 +37,10 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
     };
     // KS-3344: добавим findMany для pickNext (через mutation после init).
     prisma.puzzle.findMany = jest.fn().mockResolvedValue([]);
+    // KS-4238: pickNext теперь сначала делает count, потом findMany.
+    // Default count > 0 — иначе findMany не вызывается. Отдельные
+    // тесты ниже перекрывают через mockResolvedValueOnce.
+    prisma.puzzle.count.mockResolvedValue(100);
     redis = {
       get: jest.fn().mockResolvedValue(null),
       set: jest.fn().mockResolvedValue('OK'),
@@ -1282,18 +1286,83 @@ describe('PrecisionService (KS-2718 / ADR-056)', () => {
       expect(call.where.NOT).toBeUndefined();
     });
 
+    // KS-4238. Раньше findMany({ take: 50 }) без orderBy возвращал
+    // первые 50 по primary key, и под hideSolved=true это вырождалось
+    // в перекошенный набор (saveEquality vs convertAdvantage).
+    // Теперь pickNext делает count + random skip, гарантируя что
+    // выборка покрывает весь корпус, а не фиксированный префикс.
+    it('KS-4238: используется count + случайный skip по всему корпусу', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.count.mockResolvedValueOnce(10_000);
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-rand', rating: 1500 },
+      ]);
+      // Фиксируем Math.random на 0.5 — skip должен быть ≈ половина
+      // от (count - window) = (10000 - 50) * 0.5 ≈ 4975.
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.5);
+      try {
+        await service.pickNext('u-1', { scope: 'server' });
+      } finally {
+        randomSpy.mockRestore();
+      }
+      const findArgs = prisma.puzzle.findMany.mock.calls.at(-1)?.[0];
+      expect(findArgs.take).toBe(50);
+      expect(findArgs.skip).toBeGreaterThanOrEqual(4970);
+      expect(findArgs.skip).toBeLessThanOrEqual(4980);
+      expect(findArgs.orderBy).toEqual({ id: 'asc' });
+    });
+
+    it('KS-4238: total < window → skip=0, findMany берёт что есть', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      prisma.puzzle.count.mockResolvedValueOnce(3);
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-a', rating: 1500 },
+        { id: 'p-b', rating: 1500 },
+        { id: 'p-c', rating: 1500 },
+      ]);
+      const r = await service.pickNext('u-1', { scope: 'server' });
+      expect(r?.puzzleId).toMatch(/^p-/);
+      const findArgs = prisma.puzzle.findMany.mock.calls.at(-1)?.[0];
+      expect(findArgs.skip).toBe(0);
+    });
+
+    it('KS-4238: count=0 → findMany не вызывается, переходим к след. окну', async () => {
+      prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
+        rating: 1500,
+      });
+      // Все 5 окон пустые.
+      prisma.puzzle.count.mockResolvedValue(0);
+      const r = await service.pickNext('u-1', { scope: 'server' });
+      expect(r).toBeNull();
+      expect(prisma.puzzle.findMany).not.toHaveBeenCalled();
+      // count вызывался для всех окон расширения (5 штук).
+      expect(prisma.puzzle.count).toHaveBeenCalledTimes(5);
+    });
+
     it('пустое окно 150 → расширяется до 300/500/..., picks с первого непустого', async () => {
       prisma.userPrecisionRating.findUnique.mockResolvedValueOnce({
         rating: 1500,
       });
-      prisma.puzzle.findMany
-        .mockResolvedValueOnce([]) // 150
-        .mockResolvedValueOnce([]) // 300
-        .mockResolvedValueOnce([{ id: 'p-3', rating: 1900 }]); // 500
+      // KS-4238: pickNext теперь сначала count, потом findMany.
+      // Окна 150 и 300 пустые → count=0, findMany не вызывается;
+      // окно 500 → count>0, findMany возвращает кандидата.
+      prisma.puzzle.count
+        .mockResolvedValueOnce(0) // 150
+        .mockResolvedValueOnce(0) // 300
+        .mockResolvedValueOnce(1); // 500
+      prisma.puzzle.findMany.mockResolvedValueOnce([
+        { id: 'p-3', rating: 1900 },
+      ]);
       const r = await service.pickNext('u-1', { scope: 'server' });
       expect(r?.puzzleId).toBe('p-3');
-      expect(prisma.puzzle.findMany).toHaveBeenCalledTimes(3);
-      const widths = prisma.puzzle.findMany.mock.calls.map(
+      // findMany вызывается только для третьего окна (count=1).
+      expect(prisma.puzzle.findMany).toHaveBeenCalledTimes(1);
+      // count вызывался для трёх окон.
+      const widths = prisma.puzzle.count.mock.calls.map(
         (c: any) => c[0].where.rating.gte,
       );
       expect(widths).toEqual([1500 - 150, 1500 - 300, 1500 - 500]);
