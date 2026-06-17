@@ -125,3 +125,97 @@
     padding: 6px 8px;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────
+ * KS-4322. Снятие full-viewport-lock на голом /analysis и
+ * /play/local-bot — SEO-блок есть в DOM (бот видит, prerender),
+ * но человеку не виден из-за `height:100dvh + overflow:hidden`
+ * у .app/.main (layout.css/game.css/responsive.css). На этих
+ * страницах .seo-long рендерится sibling-ом к .analysis-page/
+ * .game-page (см. KS-4320 — `<>{pageContent}<SeoSection/></>`),
+ * поэтому селекторы `:has(.X + .seo-long)` срабатывают только
+ * здесь. На /analysis/:id, ?embed=1, ?puzzle=…, /game/:id
+ * sibling-блока нет, full-viewport-поведение сохраняется.
+ *
+ * Механика:
+ *   1. .main получает overflow-y:auto — внутренний скролл.
+ *   2. .analysis-page/.game-page фиксируется по высоте первого
+ *      экрана (100dvh − 48px header), чтобы доска занимала
+ *      первый screen без shrink под весом длинного SEO ниже.
+ *   3. На /play/local-bot снимаем `overflow:hidden !important`
+ *      у html/body/.app/.app-body (game.css), иначе body режет
+ *      .main даже когда тот auto.
+ *   4. На mobile (max-width:768px) такие же снятия для
+ *      class-based замков `body.has-analysis-page` /
+ *      `.app.has-analysis-page` (responsive.css), плюс
+ *      padding-bottom у .main, чтобы последние строки SEO
+ *      не уходили под MobileBottomBar.
+ * ────────────────────────────────────────────────────────── */
+
+/* (1) .main скроллится внутри — base `.app-body > .main { overflow-y:auto }`
+       перебивался `overflow:hidden` у `.main:has(.analysis-page)` /
+       `.main:has(.game-page)`. */
+.main:has(.analysis-page + .seo-long),
+.main:has(.game-page + .seo-long) {
+  overflow-y: auto !important;
+  overflow-x: hidden;
+}
+
+/* (2) Доска занимает первый экран — фиксируем размер, чтобы
+       flex:1 на .analysis-page/.game-page не давал SEO-блоку
+       выдавить её в нулевую высоту. */
+.main:has(.analysis-page + .seo-long) > .analysis-page,
+.main:has(.game-page + .seo-long) > .game-page {
+  flex: 0 0 auto;
+  height: calc(100dvh - 48px);
+  min-height: calc(100dvh - 48px);
+}
+
+/* SEO внизу не сжимается под flex-shrink:1 — собственная высота.
+   width:100% + min-width:0 — на mobile .analysis-page имеет внутреннюю
+   доску шире viewport (calc(100vw - 16px) + sidebar), и без явного
+   width SEO-блок наследует ту же ширину из flex-line cross-size
+   (align-items:stretch). */
+.main:has(.analysis-page + .seo-long) > .seo-long,
+.main:has(.game-page + .seo-long) > .seo-long {
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
+}
+
+/* (3) /play/local-bot: game.css держит overflow:hidden !important
+       на html/body/.app/.app-body — снимаем при наличии sibling. */
+html:has(.game-page + .seo-long),
+body:has(.game-page + .seo-long),
+.app:has(.game-page + .seo-long),
+.app-body:has(.game-page + .seo-long) {
+  overflow: visible !important;
+}
+
+/* (4) Mobile-замки */
+@media (max-width: 768px) {
+  body.has-analysis-page:has(.seo-long),
+  .app.has-analysis-page:has(.seo-long) {
+    height: auto;
+    overflow: visible !important;
+  }
+
+  /* .main: внутренний скролл + резерв снизу под MobileBottomBar
+     (на /analysis он показан; на /play/local-bot скрыт через
+     hideBottomBar — но padding ниже последнего абзаца SEO лишним
+     не будет, лишних 72px невидны для пользователя). */
+  body.has-analysis-page:has(.seo-long) .main,
+  body:has(.game-page + .seo-long) .main {
+    overflow-y: auto !important;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* /play/local-bot mobile: body:has(.game-page){overflow:hidden}
+     из responsive.css — перебиваем по специфичности. */
+  body:has(.game-page + .seo-long) {
+    overflow: visible;
+  }
+}
