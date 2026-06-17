@@ -14,4 +14,6 @@ export type User = {
   boardTheme?: 'default' | 'green' | 'blue' | 'brown';
   pieceSet?: 'standard' | 'neo' | 'alpha' | 'cburnett';
   soundEnabled?: boolean;
+  /** KS-4311. Отображать ли отладочную панель шахматного движка. */
+  showBotEngineDebugPanel?: boolean;
 };

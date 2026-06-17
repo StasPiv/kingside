@@ -481,6 +481,7 @@ describe('AuthService', () => {
           boardTheme: true,
           pieceSet: true,
           soundEnabled: true,
+          showBotEngineDebugPanel: true,
         },
       });
     });

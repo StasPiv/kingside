@@ -35,6 +35,7 @@ export class UserService {
     boardTheme: true,
     pieceSet: true,
     soundEnabled: true,
+    showBotEngineDebugPanel: true,
     chesscomUsername: true,
     lichessUsername: true,
   } as const;
@@ -206,6 +207,9 @@ export class UserService {
     if (dto.boardTheme !== undefined) data.boardTheme = dto.boardTheme;
     if (dto.pieceSet !== undefined) data.pieceSet = dto.pieceSet;
     if (dto.soundEnabled !== undefined) data.soundEnabled = dto.soundEnabled;
+    if (dto.showBotEngineDebugPanel !== undefined) {
+      data.showBotEngineDebugPanel = dto.showBotEngineDebugPanel;
+    }
 
     // KS-4205 §10 #11. Расширяем select на username, чтобы хук
     // мог поставить prerender без второго запроса. Username пилим

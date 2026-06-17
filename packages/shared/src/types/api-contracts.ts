@@ -56,6 +56,9 @@ export type UserSettings = {
   pieceSet: PieceSet;
   soundEnabled: boolean;
   locale: Locale;
+  /** KS-4311. Отображать ли отладочную панель шахматного движка
+   *  на странице партии с ботом. По умолчанию `false`. */
+  showBotEngineDebugPanel: boolean;
 };
 
 /** GET /api/users/me/settings */

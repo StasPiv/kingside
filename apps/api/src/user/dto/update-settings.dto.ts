@@ -18,4 +18,8 @@ export class UpdateSettingsDto implements UpdateSettingsRequest {
   @IsOptional()
   @IsBoolean()
   soundEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  showBotEngineDebugPanel?: boolean;
 }

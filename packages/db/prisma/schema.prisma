@@ -58,6 +58,11 @@ model User {
   boardTheme            String   @default("default") @map("board_theme")
   pieceSet              String   @default("standard") @map("piece_set")
   soundEnabled          Boolean  @default(true) @map("sound_enabled")
+  /// KS-4311. Пользовательский флаг отображения отладочной панели
+  /// шахматного движка (`BotEngineDebugPanel` на фронте). Включается
+  /// в настройках профиля, на сервере хранится здесь же — рядом с
+  /// остальными UI-настройками. По умолчанию выключен.
+  showBotEngineDebugPanel Boolean @default(false) @map("show_bot_engine_debug_panel")
   isBot                 Boolean  @default(false) @map("is_bot")
   /// KS-2160 (ADR-034 §2.1). Synthetic-user — отдельная категория от `isBot`:
   /// - `isBot=true`  — старая legacy-роль 30s matchmaking fallback (12 fixed UUID-ов
