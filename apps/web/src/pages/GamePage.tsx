@@ -90,13 +90,11 @@ export function GamePage() {
   const [isBot, setIsBot] = useState(false);
   const isBotRef = useRef(false);
   isBotRef.current = isBot;
-  // KS-4308: серверного бота на проекте не будет. Дихотомия
-  // `botClientSide` (KS-3559, future-proof для ADR-034 v2 WS-bot-fleet)
-  // оказалась активным источником багов: backend в живых партиях шлёт
-  // `botClientSide=false` / undefined в момент рендера, локальный
-  // `useBotEngine` не стартует, бот никогда не ходит — это и есть
-  // корневая причина жалобы пользователя «бот за белых не ходит».
-  // Уберено целиком, движок запускается на `isBot` напрямую.
+  // KS-4310: серверного бота на проекте не будет, любая bot-партия
+  // идёт через локальный `useBotEngine` по флагу `isBot`. До KS-4308
+  // здесь существовала дихотомия `botClientSide` (KS-3559), которая
+  // оказалась активным источником багов и удалена вместе с полем
+  // в `WsGameStatePayload` (backend KS-4309).
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [ratingChange, setRatingChange] = useState<
     WsGameEndPayload['ratingChange']
@@ -258,18 +256,12 @@ export function GamePage() {
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
       if (state.botLevel !== undefined) setBotLevel(state.botLevel ?? null);
-      // KS-4308: `botClientSide` из WS state больше не учитываем —
-      // серверного бота на проекте не будет, любая bot-партия идёт
-      // через локальный `useBotEngine`. См. подробности в блоке
-      // объявления `isBot` / `botLevel` выше.
       updateFromState(state);
       if (isFirstState && state.status === 'active') {
         playSound('game-start');
-        // KS-4308: триггерим Stockfish для любой bot-партии (без
-        // проверки `botClientSide`) — иначе у пользователя в момент
-        // рендера флаг приходит false/undefined, движок не стартует,
-        // бот за белых никогда не делает первый ход (KS-4308 root
-        // cause).
+        // Если бот играет белыми — триггерим первый ход. Любая
+        // bot-партия с KS-4308/KS-4310 идёт через локальный
+        // `useBotEngine`, серверного варианта больше нет.
         if (
           state.isBot === true &&
           gameId &&
@@ -320,8 +312,8 @@ export function GamePage() {
       // to avoid a redundant re-render that causes piece flicker.
       if (game.fen() === data.fen) {
         setClocks(msToSeconds(data.clocks));
-        // KS-4308: триггерим ход бота для любой bot-партии без
-        // проверки `botClientSide` — серверного бота не будет.
+        // Триггерим ход бота для любой bot-партии — локальный
+        // `useBotEngine` (KS-4308/KS-4310).
         if (isBotRef.current && gameId) {
           triggerBotMoveRef.current(data.fen);
         }
@@ -499,14 +491,10 @@ export function GamePage() {
   return (
     <>
       {/* KS-4308: отладочная панель `BotEngineDebugPanel` для пользователя
-          `Stanislav`. Рендерится во всех партиях с ботом (`isBot`), без
-          проверки `botClientSide`. Серверного бота на проекте нет и
-          не будет, дихотомия `botClientSide` лишняя для UI. Раньше было
-          `isBotClientSide`, но у пользователя в момент рендера флаг
-          `botClientSide` мог быть `false`/`undefined` (race с WS state)
-          — панель пропадала. Гейт по `user.username === 'Stanislav'`
-          внутри компонента, для всех остальных возвращает `null`. На
-          партии человек-vs-человек не рендерится (`isBot=false`). */}
+          `Stanislav`. Рендерится во всех партиях с ботом — проверка по
+          `user.username === 'Stanislav'` внутри компонента, для всех
+          остальных возвращает `null`. На партии человек-vs-человек не
+          рендерится (`isBot=false`). */}
       {isBot && <BotEngineDebugPanel />}
       <GameShell
       chess={game}

@@ -35,14 +35,3 @@ export const BOT_LEVELS: Record<number, BotLevelConfig> = {
 export function getBotLevelConfig(level: number): BotLevelConfig {
   return BOT_LEVELS[Math.max(1, Math.min(20, level))] ?? BOT_LEVELS[10];
 }
-
-/**
- * Detect if the browser supports WebAssembly.
- */
-export function detectWasmSupport(): boolean {
-  try {
-    return typeof WebAssembly === 'object' && typeof WebAssembly.instantiate === 'function';
-  } catch {
-    return false;
-  }
-}

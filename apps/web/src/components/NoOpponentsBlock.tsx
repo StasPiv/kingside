@@ -9,8 +9,8 @@ import { useTranslation } from 'react-i18next';
  * поэтому компонент только визуальный — действия inline-кнопок передаёт
  * родитель.
  *
- * Локальный Stockfish-WASM в этом сценарии НЕ активируется (см. KS-2165 —
- * `botClientSide` ветка удалена).
+ * Локальный Stockfish-WASM в этом сценарии НЕ активируется (бот через
+ * matchmaking приходит как полноценная партия с `isBot=true`, KS-4310).
  */
 type NoOpponentsBlockProps = {
   onRetry: () => void;
