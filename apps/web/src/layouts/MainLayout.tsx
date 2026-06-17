@@ -16,6 +16,7 @@ import { Sidebar } from '../components/Sidebar';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 import { ChatWidget } from '../components/ChatWidget';
+import { UpdateBanner } from '../components/UpdateBanner';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -147,6 +148,10 @@ export function MainLayout() {
       className={`app${focusModeActive ? ' focus-mode-active' : ''}`}
       data-focus-mode={focusModeActive ? 'true' : 'false'}
     >
+      {/* KS-4307: баннер «Доступна новая версия» — показывается после
+          активации нового Service Worker'а. Поверх обычного header'а
+          через `position: fixed`, см. CSS `.update-banner`. */}
+      <UpdateBanner />
       {/* KS-3188: compact-header виден только на mobile при focus-mode-
           active (см. CSS). Один пункт «← Назад к уроку» отключает фокус-
           режим — у пользователя нет других обязательных действий внутри

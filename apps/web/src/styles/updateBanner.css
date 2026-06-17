@@ -1,0 +1,89 @@
+/* KS-4307: баннер «Доступна новая версия» — сверху над header'ом,
+   тонкая полоса с акцентным фоном. На mobile сжимается, не
+   перекрывает кликабельные элементы header'а. */
+
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--c-7c83ff, #7c83ff);
+  color: var(--c-fff, #fff);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  /* Уважаем safe-area сверху на iOS (notch). */
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
+}
+
+.update-banner__text {
+  flex: 0 1 auto;
+}
+
+.update-banner__btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.update-banner__btn--primary {
+  background: var(--c-fff, #fff);
+  color: var(--c-7c83ff, #7c83ff);
+}
+
+.update-banner__btn--primary:hover,
+.update-banner__btn--primary:focus-visible {
+  background: var(--c-f0f0f0, #f0f0f0);
+  outline: none;
+}
+
+.update-banner__btn--dismiss {
+  background: transparent;
+  color: var(--c-fff, #fff);
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.update-banner__btn--dismiss:hover,
+.update-banner__btn--dismiss:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+/* Сдвигаем основной .app вниз пока баннер виден, чтобы он не
+   перекрывал header. Поскольку компонент рендерится только при
+   `visible`, используем :has() для сдвига. */
+.app:has(.update-banner) > .header,
+.app:has(.update-banner) > .app-body {
+  margin-top: 44px;
+}
+
+@media (max-width: 480px) {
+  .update-banner {
+    font-size: 12px;
+    padding: 6px 10px;
+    gap: 8px;
+  }
+  .update-banner__btn {
+    min-height: 28px;
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+  .app:has(.update-banner) > .header,
+  .app:has(.update-banner) > .app-body {
+    margin-top: 36px;
+  }
+}

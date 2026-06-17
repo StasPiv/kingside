@@ -80,6 +80,29 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 // — следующий заход на страницу с нуля и так подтянет свежий бандл
 // через обычный HTTP-кеш + SW.
 if (typeof window !== 'undefined' && import.meta.env.PROD && 'serviceWorker' in navigator) {
+  // KS-4307: предыдущая логика (KS-3315 + KS-3884) откладывала
+  // перезагрузку вкладки исключительно до `visibilityState === 'hidden'`.
+  // Если пользователь сидит на kingside.site весь день без переключения
+  // вкладки (типичный сценарий — играет шахматную партию), он навсегда
+  // застревает на старой сборке. Симптом «бот не ходит за белых,
+  // никогда» из жалоб KS-4305..4307 в точности совпадает с поведением
+  // `useBotEngine` ДО KS-4303 (таймаут 10 с без предварительной загрузки
+  // wasm) — и кэш Service Worker'а как раз держит эту старую сборку.
+  //
+  // Новая схема:
+  //   1. После активации нового SW шлём `CustomEvent('kingside:update-
+  //      available')` — `UpdateBanner` (MainLayout) показывает баннер
+  //      «Доступна новая версия» с кнопкой «Обновить».
+  //   2. Если пользователь не нажимает кнопку, ждём ЛЮБОГО из:
+  //      - `visibilityState === 'hidden'` (старая логика);
+  //      - истечения `AUTO_RELOAD_DELAY_MS` (10 мин);
+  //      что раньше.
+  //   3. На странице активной партии (`/game/<id>`, `/play/local-bot`)
+  //      автоматическая перезагрузка пропускается — только по явному
+  //      клику. Это защищает от потери позиции в середине игры. Баннер
+  //      при этом остаётся видим — пользователь сам решает, когда
+  //      обновиться.
+  const AUTO_RELOAD_DELAY_MS = 10 * 60 * 1000;
   let reloadedOnce = false;
   let pendingReload = false;
   const reloadOnce = (reason: string) => {
@@ -95,6 +118,27 @@ if (typeof window !== 'undefined' && import.meta.env.PROD && 'serviceWorker' in 
     console.info(`[ks3315] reload for fresh bundle (${reason})`);
     window.location.reload();
   };
+  const isActiveGamePath = (): boolean => {
+    const p = window.location.pathname;
+    return p.startsWith('/game/') || p.startsWith('/play/local-bot');
+  };
+  const tryAutoReload = (reason: string) => {
+    if (reloadedOnce) return;
+    if (isActiveGamePath()) {
+      // На странице партии — только по клику пользователя, чтобы не
+      // потерять позицию посреди игры. Баннер остаётся видим.
+      // eslint-disable-next-line no-console
+      console.info(`[ks3315] auto-reload suppressed on active game page (${reason})`);
+      return;
+    }
+    reloadOnce(reason);
+  };
+  // Кнопка «Обновить» в баннере шлёт `kingside:apply-update` — снимаем
+  // защиту от активной партии (пользователь явно согласен) и перезагружаем.
+  window.addEventListener('kingside:apply-update', () => {
+    if (reloadedOnce) return;
+    reloadOnce('user clicked update');
+  });
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloadedOnce) return;
     if (document.visibilityState === 'hidden') {
@@ -104,16 +148,26 @@ if (typeof window !== 'undefined' && import.meta.env.PROD && 'serviceWorker' in 
     if (pendingReload) return;
     pendingReload = true;
     // eslint-disable-next-line no-console
-    console.info(
-      '[ks3315] new Service Worker activated; reload deferred until tab is hidden',
-    );
+    console.info('[ks3315] new Service Worker activated; banner shown');
+    // Сообщаем UI: пора показать баннер «Доступна новая версия».
+    try {
+      window.dispatchEvent(new CustomEvent('kingside:update-available'));
+    } catch {
+      /* старые браузеры без CustomEvent — баннер не покажется, fallback на
+         visibility / 10-минутный таймер ниже всё равно сработает */
+    }
     const onHidden = () => {
       if (document.visibilityState === 'hidden') {
         document.removeEventListener('visibilitychange', onHidden);
-        reloadOnce('controllerchange + visibility hidden');
+        tryAutoReload('controllerchange + visibility hidden');
       }
     };
     document.addEventListener('visibilitychange', onHidden);
+    // Тайм-аут на случай, если пользователь не свернёт вкладку и не
+    // нажмёт «Обновить» — на не-игровой странице обновим сами.
+    setTimeout(() => {
+      tryAutoReload(`controllerchange + ${AUTO_RELOAD_DELAY_MS / 60_000} min idle`);
+    }, AUTO_RELOAD_DELAY_MS);
   });
 }
 
