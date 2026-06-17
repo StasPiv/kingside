@@ -11,6 +11,7 @@
     "seed:lessons:lint": "npx ts-node src/lessons/seed/lint-lessons.ts",
     "seed:sample-puzzles": "npx ts-node src/lessons/seed/seed-sample-puzzles.ts",
     "seed:screenshot": "node dist/scripts/seed-screenshot-account.js",
+    "seed:lecture-demo": "npx ts-node src/scripts/seed-lecture-demo.ts",
     "index:tactic-drills": "node dist/scripts/index-tactic-drills.js",
     "test": "jest",
     "test:e2e": "jest --config test/jest-e2e.config.ts --runInBand",
