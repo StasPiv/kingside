@@ -24,7 +24,10 @@ import {
   type BotEngineDebugEvent,
 } from '../lib/botEngineDebug';
 
-const ALLOWED_USERNAME = 'Stanislav';
+// KS-4308: у пользователя три аккаунта в БД (подтверждено backend) —
+// основной `staspivovartsev`, telegram-связанный `StanislavTelegram`
+// и тестовый `Stanislav`. Панель видна для любого из них.
+const ALLOWED_USERNAMES = ['Stanislav', 'staspivovartsev', 'StanislavTelegram'];
 
 export function BotEngineDebugPanel() {
   const { user } = useAuth();
@@ -41,7 +44,7 @@ export function BotEngineDebugPanel() {
     return unsub;
   }, []);
 
-  if (!user || user.username !== ALLOWED_USERNAME) return null;
+  if (!user || !ALLOWED_USERNAMES.includes(user.username)) return null;
 
   const onCopy = async () => {
     const text = formatBotEngineDebugEvents(events);
