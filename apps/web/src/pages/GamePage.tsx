@@ -507,14 +507,15 @@ export function GamePage() {
   return (
     <>
       {/* KS-4308: отладочная панель `BotEngineDebugPanel` для пользователя
-          `Stanislav`. Рендерится в общем вызове игры (резервный бот,
-          `isBotClientSide === true`) — основной канал жалобы. Гейт по
-          username внутри компонента, для всех остальных возвращает
-          `null`. На партии человек-vs-человек смысла нет — отдельная
-          проверка `isBotClientSide` не нужна (без событий движка панель
-          будет пустая, но и тогда показывать её бесполезно — оборачиваем
-          в `isBotClientSide`). */}
-      {isBotClientSide && <BotEngineDebugPanel />}
+          `Stanislav`. Рендерится во всех партиях с ботом (`isBot`), без
+          проверки `botClientSide`. Серверного бота на проекте нет и
+          не будет, дихотомия `botClientSide` лишняя для UI. Раньше было
+          `isBotClientSide`, но у пользователя в момент рендера флаг
+          `botClientSide` мог быть `false`/`undefined` (race с WS state)
+          — панель пропадала. Гейт по `user.username === 'Stanislav'`
+          внутри компонента, для всех остальных возвращает `null`. На
+          партии человек-vs-человек не рендерится (`isBot=false`). */}
+      {isBot && <BotEngineDebugPanel />}
       <GameShell
       chess={game}
       fen={fen}
