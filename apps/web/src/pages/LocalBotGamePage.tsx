@@ -17,6 +17,8 @@ import { useLocation } from 'react-router-dom';
 
 import { GameShell } from '../components/game/GameShell';
 import { BotEngineDebugPanel } from '../components/BotEngineDebugPanel';
+import { PageSeo } from '../components/seo/PageSeo';
+import { PlayLocalBotSeoSection } from '../components/seo/sections/PlayLocalBotSeoSection';
 import {
   useLocalBotGame,
   type LocalBotTimeControl,
@@ -74,6 +76,20 @@ export function LocalBotGamePage() {
 
   return (
     <>
+      {/* KS-4320: per-page SEO + JSON-LD. */}
+      <PageSeo
+        ns="playLocalBot"
+        path="/play/local-bot"
+        ogImage="/og/play-bot.png"
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'WebApplication',
+          name: 'Kingside Play vs Bot',
+          applicationCategory: 'GameApplication',
+          operatingSystem: 'Web',
+          offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        }}
+      />
       {/* KS-4308: отладочная панель `BotEngineDebugPanel` — рендерится
           поверх верха страницы через `position: fixed`. Видна только
           пользователю `Stanislav` (гейт по `useAuth().user.username`
@@ -179,6 +195,9 @@ export function LocalBotGamePage() {
         </div>
       }
     />
+    {/* KS-4320: SEO-блок «Играть с ботом онлайн» под игровой
+        областью. Попадает в prerender'д HTML для индексации. */}
+    <PlayLocalBotSeoSection />
     </>
   );
 }

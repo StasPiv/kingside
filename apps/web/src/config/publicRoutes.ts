@@ -35,6 +35,11 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   { path: '/daily', priority: 0.7, changefreq: 'daily' },
   { path: '/puzzle-rush', priority: 0.7, changefreq: 'weekly' },
   { path: '/analysis', priority: 0.7, changefreq: 'weekly' },
+  // KS-4320: публичный SEO-лендинг импорта PGN и игры с ботом —
+  // длинный контентный блок + per-page SeoHelmet, рендерятся в
+  // prerender'е как полноценный HTML.
+  { path: '/analysis/import', priority: 0.6, changefreq: 'weekly' },
+  { path: '/play/local-bot', priority: 0.6, changefreq: 'weekly' },
   { path: '/workshop', priority: 0.6, changefreq: 'weekly' },
   { path: '/broadcasts', priority: 0.6, changefreq: 'daily' },
   { path: '/players', priority: 0.5, changefreq: 'daily' },

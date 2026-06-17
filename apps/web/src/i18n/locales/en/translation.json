@@ -4146,6 +4146,13 @@
       "customConfigTooltip": "Custom config"
     }
   },
+  "analysisImport": {
+    "heading": "Import a PGN and open it in the analyzer",
+    "intro": "Paste the PGN of your game (from chess.com, lichess, ChessBase or any source). Kingside opens it with Stockfish 18 evaluation and AI commentary on every move.",
+    "placeholder": "Paste PGN here…",
+    "open": "Open in analyzer",
+    "openEmpty": "Or open an empty analyzer"
+  },
   "seo": {
     "broadcasts": {
       "list": {
@@ -4337,6 +4344,22 @@
         "title": "Chess analysis — Kingside",
         "description": "Deep chess analysis with engine evaluation and move classification on Kingside."
       }
+    },
+    "analysisRoot": {
+      "title": "Free online chess analysis with AI commentary — Kingside",
+      "description": "Import a PGN or play a game — Stockfish 18 evaluates, AI explains each move in plain text. Free, no signup, no subscription."
+    },
+    "analysisImport": {
+      "title": "Import PGN and analyze chess.com or lichess games with AI — Kingside",
+      "description": "Paste a PGN or a game URL — Kingside opens it with Stockfish 18 and AI commentary on every move. Free, no signup."
+    },
+    "puzzlesMistakes": {
+      "title": "Chess puzzles from your own games — train on your mistakes | Kingside",
+      "description": "Upload a PGN — Kingside turns your blunders into tactical puzzles. Train on the exact positions where you went wrong. Free, no subscription."
+    },
+    "playLocalBot": {
+      "title": "Play chess vs bot online free, no signup — Kingside",
+      "description": "Chess against the computer in your browser: 20+ skill levels, no signup, no ads. Stockfish 18 runs locally — your game never leaves the device."
     },
     "play": {
       "title": "Play chess online — Kingside",

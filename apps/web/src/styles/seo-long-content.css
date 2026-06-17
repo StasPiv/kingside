@@ -1,0 +1,127 @@
+/*
+ * KS-4320. Стили SEO-блока с длинным контентом (4 публичные страницы:
+ * /analysis, /puzzles/mistakes, /analysis/import, /play/local-bot).
+ *
+ * Цели:
+ *  - читаемая типографика для обычных абзацев, заголовков, списков, FAQ
+ *    и сравнительной таблицы;
+ *  - не конфликтует с основной разметкой страниц (доска, игровые
+ *    блоки) — вынесен в свой namespace `.seo-long`;
+ *  - на десктопе ограничен по ширине (max-width), на мобильных — на
+ *    всю ширину контейнера.
+ *
+ * Стили лёгкие — без брендовых правок (это компетенция layout-агента,
+ * можно дорабатывать позже без затрагивания разметки).
+ */
+
+.seo-long {
+  max-width: 880px;
+  margin: 32px auto 64px;
+  padding: 0 16px;
+  color: var(--text-primary, #f5f5f5);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.seo-long h1,
+.seo-long h2 {
+  color: var(--text-primary, #f5f5f5);
+  margin: 24px 0 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.seo-long h1 {
+  font-size: 28px;
+  margin-top: 0;
+}
+
+.seo-long h2 {
+  font-size: 22px;
+}
+
+.seo-long p {
+  margin: 12px 0;
+}
+
+.seo-long ul,
+.seo-long ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.seo-long li {
+  margin: 6px 0;
+}
+
+.seo-long strong {
+  color: var(--text-primary, #fff);
+}
+
+.seo-long a {
+  color: var(--link-color, #6ea8ff);
+  text-decoration: underline;
+}
+
+.seo-long a:hover {
+  text-decoration: none;
+}
+
+.seo-long__compare {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 14px;
+}
+
+.seo-long__compare th,
+.seo-long__compare td {
+  border: 1px solid var(--border-mid, #2a2f4a);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.seo-long__compare th {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  font-weight: 600;
+}
+
+.seo-long__faq dt {
+  margin-top: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+}
+
+.seo-long__faq dd {
+  margin: 4px 0 0;
+}
+
+.seo-long__cta {
+  margin-top: 24px;
+  font-size: 16px;
+}
+
+@media (max-width: 640px) {
+  .seo-long {
+    margin: 20px auto 40px;
+    font-size: 15px;
+  }
+
+  .seo-long h1 {
+    font-size: 24px;
+  }
+
+  .seo-long h2 {
+    font-size: 19px;
+  }
+
+  .seo-long__compare {
+    font-size: 13px;
+  }
+
+  .seo-long__compare th,
+  .seo-long__compare td {
+    padding: 6px 8px;
+  }
+}

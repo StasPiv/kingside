@@ -194,6 +194,11 @@ const TrainLobbyPage = lazy(() =>
 const AnalyzeLobbyPage = lazy(() =>
   import('./pages/AnalyzeLobbyPage').then((m) => ({ default: m.AnalyzeLobbyPage })),
 );
+// KS-4320: публичная посадочная страница `/analysis/import` для SEO —
+// длинный контент про импорт партий chess.com/lichess + textarea для PGN.
+const AnalysisImportPage = lazy(() =>
+  import('./pages/AnalysisImportPage').then((m) => ({ default: m.AnalysisImportPage })),
+);
 // KS-3412 (ADR-086, guess-the-move F3): точка входа `/guess`. Lazy-чанк;
 // маршрут гейтится `GUESS_ENTRY_ENABLED` (скрыт в проде до общего релиза
 // связки F1+F2+F3+L1 — случайный деплой фичу не выкатит).
@@ -854,6 +859,15 @@ export function App() {
             remount. Для авторизованного user'а guestAnalysisId
             отсутствует, key стабилен — поведение не меняется. */}
         <Route path="/analysis" element={<AnalysisRouteEntry />} />
+        {/* KS-4320: SEO-лендинг импорта PGN — публичный, prerender'ится. */}
+        <Route
+          path="/analysis/import"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <AnalysisImportPage />
+            </Suspense>
+          }
+        />
         <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
         {/* KS-2666/KS-2672: публичный read-only анализ — тот же
             AnalysisPage с `publicMode=true` (без auth-guard, грузит

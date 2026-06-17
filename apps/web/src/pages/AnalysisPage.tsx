@@ -13,6 +13,7 @@ import type { GameMetaInfo } from '../components/GameMetaBar';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
 import { PageSeo } from '../components/seo/PageSeo';
 import { SeoHelmet } from '../components/seo/SeoHelmet';
+import { AnalysisSeoSection } from '../components/seo/sections/AnalysisSeoSection';
 import { SetPositionModal } from '../components/SetPositionModal';
 import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
@@ -4033,7 +4034,20 @@ function AnalysisPageInner({
           : ''
         );
 
-  return (
+  // KS-4320: вычисляем флаг показа SEO-блока заранее, чтобы можно было
+  // вынести его как sibling от `.analysis-page` (внутри блок ломает
+  // flex-row layout с overflow:hidden).
+  const showSeoFooter =
+    ctx.kind === 'analysis' &&
+    !gameId &&
+    !analysisId &&
+    !embedded &&
+    !puzzleFen &&
+    !puzzlePgn &&
+    !publicMode &&
+    !isViewerLive;
+
+  const pageContent = (
     <div
       className="analysis-page"
       data-analysis-context={ctx.kind}
@@ -4041,9 +4055,25 @@ function AnalysisPageInner({
     >
       {/* KS-4254: в publicMode используем динамический SeoHelmet с
           именами игроков (см. `publicSeoBlock` выше). В приватном
-          режиме оставляем общий статичный PageSeo. */}
+          режиме оставляем общий статичный PageSeo.
+          KS-4320: на голом /analysis (нет id, gameId, embed, puzzle)
+          подменяем ns на `analysisRoot` — длинные SEO title/description
+          из маркетингового пакета. Для конкретных сохранённых анализов
+          и review остаётся прежний ns `analysis.detail`. */}
       {publicMode ? publicSeoBlock : (
-        <PageSeo ns="analysis.detail" path="/analysis" />
+        <PageSeo
+          ns={
+            ctx.kind === 'analysis' &&
+            !gameId &&
+            !analysisId &&
+            !embedded &&
+            !puzzleFen &&
+            !puzzlePgn
+              ? 'analysisRoot'
+              : 'analysis.detail'
+          }
+          path="/analysis"
+        />
       )}
       <div className="analysis-board-area">
         {/* KS-3182: в embedded-режиме шапка не нужна — шаг урока сам
@@ -4870,5 +4900,17 @@ function AnalysisPageInner({
         />
       )}
     </div>
+  );
+
+  if (!showSeoFooter) return pageContent;
+  // KS-4320: SEO-блок выносим СНАРУЖИ `.analysis-page`, чтобы не
+  // ломать flex-row layout с overflow:hidden — внутри блок наезжал
+  // на правую sidebar. Sibling-разметка через React-fragment;
+  // .analysis-page занимает viewport, SEO-блок скроллится ниже.
+  return (
+    <>
+      {pageContent}
+      <AnalysisSeoSection />
+    </>
   );
 }
