@@ -106,9 +106,17 @@ function makeContext(
   const catalogResponse = options.catalog ?? catalogDefault;
   const prisma = {
     archiveSource: {
-      findMany: jest.fn<Promise<CatalogRow[]>, [unknown]>(() => {
+      findMany: jest.fn<Promise<CatalogRow[]>, [unknown]>((args: unknown) => {
         if (catalogResponse instanceof Error) {
           return Promise.reject(catalogResponse);
+        }
+        // KS-4313: post-tick fetch фильтрует enabled=true в БД через
+        // `where: { enabled: true }`. Эмулируем это в моке, чтобы тесты
+        // покрывали реальное поведение Prisma.
+        const where = (args as { where?: { enabled?: boolean } } | undefined)
+          ?.where;
+        if (where?.enabled === true) {
+          return Promise.resolve(catalogResponse.filter((r) => r.enabled));
         }
         return Promise.resolve(catalogResponse);
       }),
@@ -350,11 +358,19 @@ describe('runImporterOnce', () => {
     expect(outcome.runsTotal).toBe(0);
     expect(outcome.runsFailed).toBe(0);
 
-    // KS-1716 iter4: findMany читает все источники с enabled+lastSuccessAt,
-    // фильтрация по enabled делается уже в importer-once (для доп. лога
-    // total/enabled — помогает диагностировать enabled=false в БД).
-    expect(ctx.prisma.archiveSource.findMany).toHaveBeenCalledWith({
-      select: { code: true, enabled: true, lastSuccessAt: true },
+    // KS-4313: findMany вызывается дважды.
+    //   1) pre-tick — select code+enabled только для логирования
+    //      total/enabled (lastSuccessAt не нужен — снимок устареет
+    //      ещё до конца tickOnce).
+    //   2) post-tick — `where: { enabled: true }` + select code+lastSuccessAt
+    //      → свежий снимок для `recordCatalogAge`.
+    expect(ctx.prisma.archiveSource.findMany).toHaveBeenCalledTimes(2);
+    expect(ctx.prisma.archiveSource.findMany).toHaveBeenNthCalledWith(1, {
+      select: { code: true, enabled: true },
+    });
+    expect(ctx.prisma.archiveSource.findMany).toHaveBeenNthCalledWith(2, {
+      where: { enabled: true },
+      select: { code: true, lastSuccessAt: true },
     });
 
     // EMF catalog-emit содержит ровно 1 источник — TWIC с lastSuccessAt.
@@ -423,17 +439,30 @@ describe('runImporterOnce', () => {
     }
   });
 
-  it('KS-1716: ensureDefaults() throws → catalog fetch пропускается, recordCatalogAge([]) всё равно вызван', async () => {
-    const ctx = makeContext({ runs: [], totalGamesAdded: 0 });
+  it('KS-1716/KS-4313: ensureDefaults() throws → pre-tick fetch пропускается, post-tick fetch всё равно делается, recordCatalogAge с актуальным каталогом', async () => {
+    // Catalog по умолчанию — один enabled-источник TWIC.
+    const lastSuccessAt = new Date('2026-04-01T00:00:00Z');
+    const ctx = makeContext(
+      { runs: [], totalGamesAdded: 0 },
+      { catalog: [{ code: 'twic', enabled: true, lastSuccessAt }] },
+    );
     ctx.seed.ensureDefaults.mockRejectedValue(new Error('DB unreachable'));
 
     await runImporterOnce(ctx.app);
 
-    // Seed упал ДО catalog fetch, findMany не вызывается.
-    expect(ctx.prisma.archiveSource.findMany).not.toHaveBeenCalled();
-    // recordCatalogAge всё равно вызван (с []) — симметрично остальным
-    // flush-обязательным метрикам, чтобы order/pending state был чистым.
-    expect(ctx.emf.recordCatalogAge).toHaveBeenCalledWith([], expect.any(Date));
+    // Pre-tick fetch (внутри outer try) пропускается вместе с tickOnce.
+    // Post-tick fetch выполняется в отдельном try/catch и публикует
+    // свежий каталог — это даёт мониторингу шанс показать актуальные
+    // `LastSuccessAgeSeconds` даже при сбое orchestration'а.
+    expect(ctx.prisma.archiveSource.findMany).toHaveBeenCalledTimes(1);
+    expect(ctx.prisma.archiveSource.findMany).toHaveBeenCalledWith({
+      where: { enabled: true },
+      select: { code: true, lastSuccessAt: true },
+    });
+    expect(ctx.emf.recordCatalogAge).toHaveBeenCalledWith(
+      [{ code: 'twic', lastSuccessAt }],
+      expect.any(Date),
+    );
     expect(ctx.emf.flush).toHaveBeenCalledTimes(1);
   });
 

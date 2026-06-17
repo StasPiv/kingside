@@ -109,33 +109,17 @@ export async function runImporterOnce(
         `archive_sources seeded: created=${seedResult.created} healed=${seedResult.healed} kept=${seedResult.kept}`,
       );
     }
-    // KS-1716: catalog-snapshot читается ДО tickOnce и ПОСЛЕ seed, чтобы:
-    //   1) гарантированно включал все enabled-источники (сид только что
-    //      выполнился, TWIC точно есть в БД);
-    //   2) пережил TickTimeoutError — `LastSuccessAgeSeconds` публикуется
-    //      даже если processAll зависнет и отработает только backstop;
-    //   3) не зависел от `tick.runs`, который для не-due источников может
-    //      быть пустым (TWIC с недельным cron на обычный день).
-    // Внутренний try/catch — catalog fetch fail сам по себе не считается
-    // bootstrap-ошибкой процесса, importer попытается tickOnce. Emit
-    // LastSuccessAgeSeconds просто пропустится, alarm A4 останется в ALARM
-    // — корректная сигнализация «каталог недоступен».
+    // KS-1716: до tickOnce читаем `archive_sources` только для логирования
+    // total/enabled. Для метрики `LastSuccessAgeSeconds` этот снимок
+    // НЕ используется — он стал бы протухшим сразу после успешного
+    // импорта (KS-4313: значение `lastSuccessAt` шло в EMF старое, метрика
+    // монотонно росла независимо от реальных прогонов). Свежий снимок
+    // берётся ПОСЛЕ tickOnce — там, где БД уже обновлена.
     try {
-      // KS-1716 iter 4: читаем ВСЕ записи (без where:{enabled:true}), чтобы
-      // залогировать total/enabled. При total>0 && enabled===0 — чёткий
-      // сигнал оператору «есть записи, но все disabled, catalog-метрика
-      // пустая» (именно этот сценарий убил итерации 1-3: запись TWIC была,
-      // но с enabled=false; heal-логика в ensureDefaults теперь чинит это
-      // на каждом invocation'е, но лог оставим — поможет с будущими
-      // источниками).
       const rows = await prisma.archiveSource.findMany({
-        select: { code: true, enabled: true, lastSuccessAt: true },
+        select: { code: true, enabled: true },
       });
       const enabledRows = rows.filter((r) => r.enabled);
-      catalog = enabledRows.map((r) => ({
-        code: r.code,
-        lastSuccessAt: r.lastSuccessAt ?? null,
-      }));
       logger.log(
         `archive_sources: total=${rows.length} enabled=${enabledRows.length} ` +
           `codes=[${rows.map((r) => `${r.code}:${r.enabled ? 'on' : 'off'}`).join(',')}]`,
@@ -147,7 +131,7 @@ export async function runImporterOnce(
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error(`catalog fetch failed: ${msg}`);
+      logger.error(`catalog pre-tick fetch failed: ${msg}`);
     }
     tick = await archiveImport.tickOnce();
   } catch (err: unknown) {
@@ -169,9 +153,32 @@ export async function runImporterOnce(
   }
 
   const now = new Date();
-  // KS-1716: сначала каталог-метрика `LastSuccessAgeSeconds{source=code}`
-  // для ВСЕХ enabled-источников, независимо от due/runs. Это основной
-  // сигнал для alarm A4.
+  // KS-4313: каталог-снимок читается ПОСЛЕ tickOnce, чтобы
+  // `LastSuccessAgeSeconds` отражал свежие значения, обновлённые
+  // импортёром (TWIC писал `lastSuccessAt = new Date()` в БД). Раньше
+  // снимок брался до tickOnce и метрика монотонно росла, давая ложное
+  // впечатление многодневной задержки даже после успешных прогонов.
+  //
+  // Внутренний try/catch — fail post-tick catalog fetch'а не считается
+  // ошибкой процесса; emit LastSuccessAgeSeconds просто пропустится,
+  // alarm A4 останется в ALARM — корректная сигнализация «каталог
+  // недоступен».
+  try {
+    const enabledRows = await prisma.archiveSource.findMany({
+      where: { enabled: true },
+      select: { code: true, lastSuccessAt: true },
+    });
+    catalog = enabledRows.map((r) => ({
+      code: r.code,
+      lastSuccessAt: r.lastSuccessAt ?? null,
+    }));
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`catalog post-tick fetch failed: ${msg}`);
+  }
+  // KS-1716: каталог-метрика `LastSuccessAgeSeconds{source=code}` для
+  // ВСЕХ enabled-источников, независимо от due/runs. Основной сигнал
+  // для alarm A4.
   emf.recordCatalogAge(catalog, now);
   // Затем run-level метрики (GamesAdded/ImportDurationSeconds/...) — только
   // по источникам, которые реально попали в tick.runs (due / lockHeld /
