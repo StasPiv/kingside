@@ -136,7 +136,7 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_WRITE_APPS_GAME_SERVICE":    [f"{_P}/apps/game-service:/project/apps/game-service"],
     "ROLE_WRITE_APPS_BROADCAST_WORKER":[f"{_P}/apps/broadcast-worker:/project/apps/broadcast-worker"],
     "ROLE_WRITE_APPS_BROADCAST_SERVICE":[f"{_P}/apps/broadcast-service:/project/apps/broadcast-service"],
-    "ROLE_WRITE_APPS_ARCHIVE_IMPORTER":[f"{_P}/apps/archive-importer:/project/apps/archive-importer"],
+    "ROLE_WRITE_APPS_ARCHIVE_SERVICE": [f"{_P}/apps/archive-service:/project/apps/archive-service"],
     "ROLE_WRITE_APPS_TACTIC_WORKER":   [f"{_P}/apps/tactic-worker:/project/apps/tactic-worker"],
     "ROLE_WRITE_APPS_PRERENDER_SERVICE":[f"{_P}/apps/prerender-service:/project/apps/prerender-service"],
     # Frontend-код
@@ -961,13 +961,13 @@ AGENT_ROLES: dict[str, list[str]] = {
         # действия
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_API",
         "ROLE_DEPLOY_GAME_SERVICE", "ROLE_DEPLOY_BROADCAST_SERVICE",
-        "ROLE_DEPLOY_TACTIC_WORKER",
+        "ROLE_DEPLOY_ARCHIVE_SERVICE", "ROLE_DEPLOY_TACTIC_WORKER",
         "ROLE_DEPLOY_PRERENDER_SERVICE",
         "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
         # файлы
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
         "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_BROADCAST_SERVICE",
-        "ROLE_WRITE_APPS_ARCHIVE_IMPORTER",
+        "ROLE_WRITE_APPS_ARCHIVE_SERVICE",
         "ROLE_WRITE_APPS_TACTIC_WORKER", "ROLE_WRITE_APPS_PRERENDER_SERVICE",
         "ROLE_WRITE_PACKAGES", "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_PACKAGE_LOCK",
         "ROLE_READ_TSCONFIG_BASE", "ROLE_READ_NODE_MODULES",
@@ -994,7 +994,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_PROJECT",
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API",
         "ROLE_DEPLOY_GAME_SERVICE", "ROLE_DEPLOY_BROADCAST_SERVICE",
-        "ROLE_DEPLOY_TACTIC_WORKER",
+        "ROLE_DEPLOY_ARCHIVE_SERVICE", "ROLE_DEPLOY_TACTIC_WORKER",
         "ROLE_DEPLOY_PRERENDER_SERVICE",
         "ROLE_DEPLOY_WORKERS",
         "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START", "ROLE_UP",
@@ -1054,13 +1054,16 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/vite-start": "ROLE_API_START",
     "/git-log": "ROLE_GIT_READ",
     # Должно совпадать с case-блоком в scripts/deploy-aws.sh:
-    # frontend | api | game-service | broadcast-service |
+    # frontend | api | game-service | broadcast-service | archive-service |
     # tactic-worker | workers | prerender-service | synthetic-bot | all | "" (auto-detect)
+    # archive-service образ kingside-archive-service также используется
+    # для task-def kingside-archive-importer-{oneshot,adhoc} (см. scripts/deploy-aws.sh:48-54).
     "/deploy": {
         "frontend": "ROLE_DEPLOY_FRONTEND",
         "api": "ROLE_DEPLOY_API",
         "game-service": "ROLE_DEPLOY_GAME_SERVICE",
         "broadcast-service": "ROLE_DEPLOY_BROADCAST_SERVICE",
+        "archive-service": "ROLE_DEPLOY_ARCHIVE_SERVICE",
         "tactic-worker": "ROLE_DEPLOY_TACTIC_WORKER",
         "prerender-service": "ROLE_DEPLOY_PRERENDER_SERVICE",
         "workers": "ROLE_DEPLOY_WORKERS",
@@ -3359,14 +3362,14 @@ class WebhookHandler(BaseHTTPRequestHandler):
             # отсутствие side-эффекта когда один из 7 сервисов упал, а
             # остальные уже выкачены.
             if scope in ("all", "workers", ""):
-                log(f"Deploy ОТКАЗАНО: scope='{scope}' (запрещено). Только per-scope: frontend/api/game-service/broadcast-service/synthetic-bot/tactic-worker/prerender-service.")
+                log(f"Deploy ОТКАЗАНО: scope='{scope}' (запрещено). Только per-scope: frontend/api/game-service/broadcast-service/archive-service/synthetic-bot/tactic-worker/prerender-service.")
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "status": "rejected",
                     "error": f"scope='{scope}' запрещено. Deploy атомарный — один scope за вызов.",
-                    "allowed": ["frontend", "api", "game-service", "broadcast-service", "synthetic-bot", "tactic-worker", "prerender-service"],
+                    "allowed": ["frontend", "api", "game-service", "broadcast-service", "archive-service", "synthetic-bot", "tactic-worker", "prerender-service"],
                     "hint": "Если нужно несколько сервисов — последовательные вызовы с явными scope. Координация нескольких scope — задача координатора, не одного MCP-вызова.",
                 }, ensure_ascii=False).encode())
                 return

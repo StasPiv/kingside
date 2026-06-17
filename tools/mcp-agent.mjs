@@ -63,8 +63,8 @@ const TOOLS = [
     }, required: ['agent'] } },
   { name: 'telegram_send', description: 'Отправить сообщение пользователю в Telegram.',
     inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } },
-  { name: 'deploy', description: 'Запустить деплой одного сервиса на AWS — атомарно, один scope за вызов. scope (обязателен): frontend | api | game-service | broadcast-service | tactic-worker | synthetic-bot | prerender-service. ЗАПРЕЩЕНО: "all", "workers", "" (auto) — webhook вернёт 400. Если нужно несколько сервисов — несколько последовательных вызовов с явным scope.',
-    inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['frontend', 'api', 'game-service', 'broadcast-service', 'tactic-worker', 'synthetic-bot', 'prerender-service'] } }, required: ['scope'] } },
+  { name: 'deploy', description: 'Запустить деплой одного сервиса на AWS — атомарно, один scope за вызов. scope (обязателен): frontend | api | game-service | broadcast-service | archive-service | tactic-worker | synthetic-bot | prerender-service. ЗАПРЕЩЕНО: "all", "workers", "" (auto) — webhook вернёт 400. Если нужно несколько сервисов — несколько последовательных вызовов с явным scope.',
+    inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['frontend', 'api', 'game-service', 'broadcast-service', 'archive-service', 'tactic-worker', 'synthetic-bot', 'prerender-service'] } }, required: ['scope'] } },
   { name: 'npm_install', description: 'Запустить npm install на хосте (после изменения package.json).',
     inputSchema: { type: 'object', properties: {} } },
   { name: 'api_start', description: 'Запустить API на хосте. По умолчанию идемпотентно (если уже запущен — ничего не делает). С force=true убивает старый процесс и поднимает заново — нужно после изменения .env или пересборки зависимостей.',
@@ -76,12 +76,12 @@ const TOOLS = [
   { name: 'docker_compose', description: 'Выполнить docker compose <command> <args...> на хосте. Whitelist: build, up, down, logs, ps, config, restart. Требует роль ROLE_DOCKER_COMPOSE (только devops).',
     inputSchema: { type: 'object', properties: {
       command: { type: 'string', enum: ['build', 'up', 'down', 'logs', 'ps', 'config', 'restart'] },
-      args: { type: 'array', items: { type: 'string' }, description: 'Дополнительные аргументы, например ["archive-importer"] или ["--build", "archive-importer"]' },
+      args: { type: 'array', items: { type: 'string' }, description: 'Дополнительные аргументы, например ["archive-service"] или ["--build", "archive-service"]' },
     }, required: ['command'] } },
   { name: 'npm_run', description: 'Выполнить npm run <script> на хосте. Whitelist: build, test, lint, prisma:generate, prisma:migrate. Long-running скрипты (dev/start) НЕ поддерживаются — используй /api-start или /up endpoints.',
     inputSchema: { type: 'object', properties: {
       script: { type: 'string', enum: ['build', 'test', 'lint', 'prisma:generate', 'prisma:migrate'] },
-      workspace: { type: 'string', description: 'Опционально: имя workspace, например "@kingside/archive-importer"' },
+      workspace: { type: 'string', description: 'Опционально: имя workspace, например "@kingside/archive-service"' },
     }, required: ['script'] } },
 
   // --- Playwright ---
