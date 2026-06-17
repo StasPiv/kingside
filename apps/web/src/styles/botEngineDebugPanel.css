@@ -1,0 +1,105 @@
+/* KS-4308: компактная отладочная панель для пользователя `Stanislav` —
+   моноширинный шрифт, цвет по уровню, скроллируемый список. */
+
+/* Расположение: фиксированный блок поверх верхней части страницы
+   игры, ниже шапки на 52px (header ≈ 48 + small gap). Прозрачный
+   фон чтобы не закрывать доску. На mobile занимает почти всю
+   ширину, max-width 560px. Полностью невидим для всех пользователей
+   кроме `Stanislav` (гейт по `useAuth().user.username` в компоненте).
+   z-index 2500 — ниже модалок/update-banner (3000), выше доски. */
+.bot-engine-debug-panel {
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 16px);
+  max-width: 560px;
+  z-index: 2500;
+  background: rgba(0, 0, 0, 0.78);
+  color: var(--c-fff, #fff);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  /* Указатель не блокирует доску, кроме самой панели — клики на доске
+     проходят сквозь пустоту вокруг. */
+  pointer-events: auto;
+}
+
+.bot-engine-debug-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px 6px 0 0;
+}
+
+.bot-engine-debug-panel__title {
+  font-weight: 600;
+  color: var(--c-a0a0c0, #a0a0c0);
+}
+
+.bot-engine-debug-panel__copy {
+  min-height: 24px;
+  padding: 2px 8px;
+  background: var(--c-7c83ff, #7c83ff);
+  color: var(--c-fff, #fff);
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.bot-engine-debug-panel__copy:hover,
+.bot-engine-debug-panel__copy:focus-visible {
+  background: #5b62e8;
+  outline: none;
+}
+
+.bot-engine-debug-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  /* Не блокирует UI игры — клики проходят, но скроллится сам. */
+  overscroll-behavior: contain;
+}
+
+.bot-engine-debug-panel__row {
+  display: flex;
+  gap: 6px;
+  padding: 1px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bot-engine-debug-panel__row--info {
+  color: var(--c-fff, #fff);
+}
+.bot-engine-debug-panel__row--warn {
+  color: #fbbf24;
+}
+.bot-engine-debug-panel__row--error {
+  color: #ef4444;
+}
+
+.bot-engine-debug-panel__t {
+  flex: 0 0 auto;
+  color: var(--c-a0a0c0, #a0a0c0);
+  font-variant-numeric: tabular-nums;
+}
+
+.bot-engine-debug-panel__msg {
+  flex: 1 1 auto;
+}
+
+.bot-engine-debug-panel__empty {
+  color: var(--c-a0a0c0, #a0a0c0);
+  padding: 4px 0;
+}

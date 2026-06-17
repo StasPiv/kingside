@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 
 import { GameShell } from '../components/game/GameShell';
+import { BotEngineDebugPanel } from '../components/BotEngineDebugPanel';
 import {
   useLocalBotGame,
   type LocalBotTimeControl,
@@ -72,7 +73,13 @@ export function LocalBotGamePage() {
   const forceStandardPieces = useMemo(() => !readHasExplicitPieceSet(), []);
 
   return (
-    <GameShell
+    <>
+      {/* KS-4308: отладочная панель `BotEngineDebugPanel` — рендерится
+          поверх верха страницы через `position: fixed`. Видна только
+          пользователю `Stanislav` (гейт по `useAuth().user.username`
+          внутри компонента) — у всех остальных возвращает `null`. */}
+      <BotEngineDebugPanel />
+      <GameShell
       chess={game.chess}
       fen={game.fen}
       moves={game.moves}
@@ -172,5 +179,6 @@ export function LocalBotGamePage() {
         </div>
       }
     />
+    </>
   );
 }

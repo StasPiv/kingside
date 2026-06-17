@@ -26,6 +26,14 @@ import type { Square } from 'chess.js';
 
 import { useBotEngine, type BotEngineErrorReason } from './useBotEngine';
 import { sendClientLog } from '../utils/clientLogger';
+import { logBotEngineDebug } from '../lib/botEngineDebug';
+
+// KS-4308: дублирующее логирование в UI-видимый буфер отладочной
+// панели (`BotEngineDebugPanel`).
+function dualLog(level: 'info' | 'warn' | 'error', message: string): void {
+  sendClientLog(level, message);
+  logBotEngineDebug(level, message);
+}
 
 type GameColor = 'white' | 'black';
 export type LocalBotTimeControl = {
@@ -232,8 +240,8 @@ export function useLocalBotGame(
         } catch (e) {
           lastErr = e;
           const msg = e instanceof Error ? e.message : String(e);
-          sendClientLog(
-            'error',
+          dualLog(
+            'warn',
             `[local-bot] getBotMove attempt ${attempt}/${MAX_ATTEMPTS} failed: ${msg}`,
           );
           if (attempt < MAX_ATTEMPTS && !cancelled) {
@@ -244,7 +252,7 @@ export function useLocalBotGame(
       if (cancelled) return;
       if (uci === null) {
         const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
-        sendClientLog('error', `[local-bot] engine error after retries: ${msg}`);
+        dualLog('error', `[local-bot] engine error after retries: ${msg}`);
         setBotError(msg);
         setBotThinking(false);
         return;
@@ -255,7 +263,7 @@ export function useLocalBotGame(
         const promotion = uci.length >= 5 ? uci[4] : undefined;
         const move = chess.move({ from, to, promotion });
         if (!move) {
-          sendClientLog('error', `[local-bot] illegal uci from engine: ${uci}`);
+          dualLog('error', `[local-bot] illegal uci from engine: ${uci}`);
           return;
         }
         // Применяем ход и одновременно прибавляем инкремент тому, кто
@@ -274,7 +282,7 @@ export function useLocalBotGame(
       } catch (e) {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : String(e);
-          sendClientLog('error', `[local-bot] engine error: ${msg}`);
+          dualLog('error', `[local-bot] engine error: ${msg}`);
           setBotError(msg);
         }
       } finally {

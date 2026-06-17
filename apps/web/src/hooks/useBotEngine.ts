@@ -5,6 +5,19 @@ import {
   isStockfishMultiThreaded,
   prefetchStockfishWasm,
 } from '../lib/stockfishLoader';
+import { logBotEngineDebug } from '../lib/botEngineDebug';
+
+// KS-4308: пишем те же события и в UI-видимый буфер для отладочной
+// панели пользователя `Stanislav` (см. `BotEngineDebugPanel`).
+// Параллельно с `sendClientLog` — тот уходит в server-side лог, а
+// `logBotEngineDebug` рисуется в UI и копируется пользователем.
+function dualLog(
+  level: 'info' | 'warn' | 'error',
+  message: string,
+): void {
+  sendClientLog(level, message);
+  logBotEngineDebug(level, message);
+}
 
 function levelToSettings(level: number) {
   const clamped = Math.max(1, Math.min(10, level));
@@ -71,19 +84,26 @@ export function useBotEngine(
   useEffect(() => {
     if (!isActive || botLevel == null) return;
 
+    dualLog(
+      'info',
+      `[bot] mount: game=${gameId?.slice(0, 8)} level=${botLevel} retry=${retryNonce} coi=${
+        typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : 'undef'
+      } sab=${typeof SharedArrayBuffer !== 'undefined'}`,
+    );
+
     // KS-4303: моментальный отказ если COOP/COEP не настроены — lite
     // сборка без SharedArrayBuffer не стартует, нет смысла ждать
     // 30 секунд таймаута.
     if (!isStockfishMultiThreaded()) {
-      sendClientLog(
+      dualLog(
         'error',
-        `[bot] worker abort: crossOriginIsolated=false (COOP/COEP missing)`,
+        `[bot] abort: crossOriginIsolated=false (COOP/COEP missing)`,
       );
       setEngineError('no_coi');
       return;
     }
 
-    sendClientLog(
+    dualLog(
       'info',
       `[bot] worker start: game=${gameId?.slice(0, 8)} level=${botLevel} retry=${retryNonce}`,
     );
@@ -107,6 +127,7 @@ export function useBotEngine(
     const onMessage = (e: MessageEvent) => {
       if (typeof e.data !== 'string') return;
       if (e.data.includes('uciok')) {
+        dualLog('info', `[bot] uciok received`);
         const s = levelToSettings(botLevel);
         worker?.postMessage(`setoption name Skill Level value ${s.skillLevel}`);
         worker?.postMessage('setoption name Threads value 1');
@@ -116,14 +137,14 @@ export function useBotEngine(
         if (!readyRef.current) {
           readyRef.current = true;
           if (readyTimer) clearTimeout(readyTimer);
-          sendClientLog('info', `[bot] worker ready: game=${gameId?.slice(0, 8)}`);
+          dualLog('info', `[bot] readyok — worker ready: game=${gameId?.slice(0, 8)}`);
           readyResolveRef.current?.();
         }
       }
     };
 
     const onError = (ev: ErrorEvent) => {
-      sendClientLog(
+      dualLog(
         'error',
         `[bot] worker error: game=${gameId?.slice(0, 8)} msg=${ev.message ?? 'unknown'}`,
       );
@@ -136,13 +157,18 @@ export function useBotEngine(
       //    тяжёлый шаг (~7 МБ), на мобильной сети он и был причиной
       //    таймаута. После успеха wasm попадает в HTTP-кэш браузера,
       //    и Worker при создании достанет его оттуда.
+      const tPrefetch = performance.now();
+      dualLog('info', `[bot] prefetch wasm start`);
       try {
         await prefetchStockfishWasm(abort.signal);
       } catch (err) {
-        if ((err as Error)?.name === 'AbortError') return;
-        sendClientLog(
+        if ((err as Error)?.name === 'AbortError') {
+          dualLog('warn', `[bot] prefetch aborted (cleanup)`);
+          return;
+        }
+        dualLog(
           'error',
-          `[bot] wasm prefetch failed: ${(err as Error)?.message ?? 'unknown'}`,
+          `[bot] prefetch failed: ${(err as Error)?.message ?? 'unknown'}`,
         );
         if (!cancelled) {
           setEngineError('wasm_fetch_failed');
@@ -152,14 +178,19 @@ export function useBotEngine(
         }
         return;
       }
+      dualLog(
+        'info',
+        `[bot] prefetch ok (${Math.round(performance.now() - tPrefetch)}ms)`,
+      );
       if (cancelled) return;
 
       // 2) Создаём worker. После prefetch wasm обычно уже в кэше и
       //    инициализация uci/readyok занимает доли секунды.
       try {
         worker = new Worker(STOCKFISH_ENGINE_JS_URL);
+        dualLog('info', `[bot] new Worker created`);
       } catch (err) {
-        sendClientLog(
+        dualLog(
           'error',
           `[bot] worker create failed: ${(err as Error)?.message ?? 'unknown'}`,
         );
@@ -173,7 +204,7 @@ export function useBotEngine(
 
       readyTimer = setTimeout(() => {
         if (!readyRef.current) {
-          sendClientLog(
+          dualLog(
             'error',
             `[bot] worker ready timeout after ${READY_TIMEOUT_MS}ms`,
           );
@@ -185,6 +216,7 @@ export function useBotEngine(
       worker.addEventListener('message', onMessage);
       worker.addEventListener('error', onError);
       worker.postMessage('uci');
+      dualLog('info', `[bot] sent uci command`);
     })();
 
     return () => {
@@ -228,12 +260,17 @@ export function useBotEngine(
   const getBotMove = useCallback(
     async (fen: string): Promise<string> => {
       const fenShort = fen.split(' ')[0].slice(0, 20);
-      sendClientLog('info', `[bot] getBotMove: fen=${fenShort}`);
+      const level = levelRef.current ?? 5;
+      const s = levelToSettings(level);
+      dualLog(
+        'info',
+        `[bot] getBotMove req: fen=${fenShort} depth=${s.depth} movetime=${s.movetime}`,
+      );
 
       try {
         await waitForReady();
       } catch (err: any) {
-        sendClientLog(
+        dualLog(
           'error',
           `[bot] getBotMove: engine not ready — ${err?.message ?? 'unknown'}`,
         );
@@ -243,16 +280,14 @@ export function useBotEngine(
       return new Promise((resolve, reject) => {
         const worker = workerRef.current;
         if (!worker) {
-          sendClientLog('error', `[bot] getBotMove: worker gone after ready`);
+          dualLog('error', `[bot] getBotMove: worker gone after ready`);
           reject(new Error('Engine worker missing'));
           return;
         }
 
-        const level = levelRef.current ?? 5;
-        const s = levelToSettings(level);
         const timer = setTimeout(() => {
           worker.removeEventListener('message', handler);
-          sendClientLog(
+          dualLog(
             'error',
             `[bot] getBotMove: timeout after ${s.movetime + 5000}ms`,
           );
@@ -265,7 +300,7 @@ export function useBotEngine(
           if (match) {
             clearTimeout(timer);
             worker.removeEventListener('message', handler);
-            sendClientLog('info', `[bot] getBotMove: result=${match[1]}`);
+            dualLog('info', `[bot] bestmove ${match[1]}`);
             resolve(match[1]);
           }
         };
@@ -284,7 +319,7 @@ export function useBotEngine(
    * `retryNonce` → useEffect выше пересоздаёт воркер.
    */
   const retryEngine = useCallback(() => {
-    sendClientLog('info', `[bot] retry engine init`);
+    dualLog('info', `[bot] retry engine init (user clicked)`);
     setEngineError(null);
     setRetryNonce((n) => n + 1);
   }, []);
