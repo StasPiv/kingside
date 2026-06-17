@@ -30,7 +30,7 @@ import { useDrillSounds } from '../hooks/useDrillSounds';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { muted, toggleMute, theme: soundTheme, setTheme: setSoundThemeState } = useSounds();
   const {
     boardTheme,
@@ -54,6 +54,29 @@ export function SettingsPage() {
   const [lichessUsername, setLichessUsername] = useState('');
   const [externalSaving, setExternalSaving] = useState(false);
   const [externalStatus, setExternalStatus] = useState<string | null>(null);
+
+  // KS-4312: переключатель «Показывать отладочную панель движка бота».
+  // Источник — серверное поле `user.showBotEngineDebugPanel`, изменения
+  // через `PATCH /users/me/settings`. После запроса вызываем
+  // `refreshUser()` чтобы AuthContext подтянул свежее значение.
+  const showBotEngineDebugPanel = !!user?.showBotEngineDebugPanel;
+  const [debugPanelSaving, setDebugPanelSaving] = useState(false);
+  const handleToggleBotEngineDebugPanel = useCallback(
+    async (next: boolean) => {
+      setDebugPanelSaving(true);
+      try {
+        await api.patch('/users/me/settings', {
+          showBotEngineDebugPanel: next,
+        });
+        await refreshUser();
+      } catch (err) {
+        console.warn('[settings] PATCH showBotEngineDebugPanel failed', err);
+      } finally {
+        setDebugPanelSaving(false);
+      }
+    },
+    [refreshUser],
+  );
 
   useEffect(() => {
     api.get<{ data: { id: string; username: string }[] }>('/users/blocked')
@@ -236,6 +259,40 @@ export function SettingsPage() {
             {t(
               'settings.autoPromoteQueen.hint',
               'Game mode only. A pawn reaching the last rank becomes a queen automatically.',
+            )}
+          </p>
+        </div>
+
+        {/* KS-4312: переключатель «Показывать отладочную панель движка
+            бота» — для диагностики проблем с локальным Stockfish в
+            партиях с ботом (`isBot=true`). По умолчанию выключен. */}
+        <div
+          className="settings-field"
+          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: 16 }}
+          data-testid="settings-bot-engine-debug-panel-field"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              id="bot-engine-debug-panel-toggle"
+              data-testid="settings-bot-engine-debug-panel-toggle"
+              type="checkbox"
+              checked={showBotEngineDebugPanel}
+              disabled={debugPanelSaving || !user}
+              onChange={(e) =>
+                void handleToggleBotEngineDebugPanel(e.target.checked)
+              }
+            />
+            <label htmlFor="bot-engine-debug-panel-toggle">
+              {t(
+                'settings.botEngineDebugPanel.label',
+                'Show bot engine debug panel',
+              )}
+            </label>
+          </div>
+          <p style={{ fontSize: 13, opacity: 0.75, margin: 0 }}>
+            {t(
+              'settings.botEngineDebugPanel.hint',
+              'Diagnostic only. Shows engine events (load, ready, bestmove) above the board in games against a bot.',
             )}
           </p>
         </div>

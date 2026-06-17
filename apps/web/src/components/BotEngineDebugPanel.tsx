@@ -1,19 +1,17 @@
 /**
- * KS-4308: отладочная панель над доской на `/play/local-bot` — видна
- * ТОЛЬКО когда залогинен пользователь `Stanislav`. Никаких query-
- * параметров, никаких dev-флагов — строго по `useAuth().user.username`.
+ * KS-4308 / KS-4312: отладочная панель над доской в партии с ботом и
+ * на `/play/local-bot`. Видимость управляется флагом
+ * `showBotEngineDebugPanel` в `User`/`UserSettings` — пользователь
+ * сам включает/выключает на странице настроек. По умолчанию выключена.
  *
- * Пользователь играет в Android Chrome (PWA standalone), у него нет
- * консоли разработчика. У фронта симптом «бот за белых не делает первый
- * ход» не воспроизводится ни в безголовом Chromium, ни в эмуляции UA
- * (KS-4307). Точечная диагностика без живых данных невозможна. Панель
- * рисует события `useBotEngine` (mount, prefetch wasm, new Worker,
- * uciok/readyok/bestmove, ошибки), которые пользователь сможет снять
- * и переслать.
+ * До KS-4312 проверка была хардкодом на `user.username === 'Stanislav'`
+ * — точечная диагностика конкретной жалобы (см. KS-4307: симптом «бот
+ * за белых не делает первый ход» не воспроизводился ни в безголовом
+ * Chromium, ни в эмуляции UA, нужны были логи с устройства).
  *
- * Конкретные точки эмита — в `hooks/useBotEngine.ts` и
- * `hooks/useLocalBotGame.ts` через `dualLog` (`sendClientLog` +
- * `logBotEngineDebug`).
+ * Панель рисует события `useBotEngine` (mount, prefetch wasm,
+ * new Worker, uciok/readyok/bestmove, ошибки). Источник — `dualLog`
+ * в `hooks/useBotEngine.ts` и `hooks/useLocalBotGame.ts`.
  */
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -23,8 +21,6 @@ import {
   formatBotEngineDebugEvents,
   type BotEngineDebugEvent,
 } from '../lib/botEngineDebug';
-
-const ALLOWED_USERNAME = 'Stanislav';
 
 export function BotEngineDebugPanel() {
   const { user } = useAuth();
@@ -41,7 +37,7 @@ export function BotEngineDebugPanel() {
     return unsub;
   }, []);
 
-  if (!user || user.username !== ALLOWED_USERNAME) return null;
+  if (!user || user.showBotEngineDebugPanel !== true) return null;
 
   const onCopy = async () => {
     const text = formatBotEngineDebugEvents(events);
