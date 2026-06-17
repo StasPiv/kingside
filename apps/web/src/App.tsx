@@ -194,10 +194,17 @@ const TrainLobbyPage = lazy(() =>
 const AnalyzeLobbyPage = lazy(() =>
   import('./pages/AnalyzeLobbyPage').then((m) => ({ default: m.AnalyzeLobbyPage })),
 );
-// KS-4320: публичная посадочная страница `/analysis/import` для SEO —
-// длинный контент про импорт партий chess.com/lichess + textarea для PGN.
-const AnalysisImportPage = lazy(() =>
-  import('./pages/AnalysisImportPage').then((m) => ({ default: m.AnalysisImportPage })),
+// KS-4325 (заменяет KS-4320 `/analysis/import`): публичные SEO-
+// лендинги под выбранные маркетологом long-tail URL.
+const PuzzlesFromYourGamesPage = lazy(() =>
+  import('./pages/PuzzlesFromYourGamesPage').then((m) => ({
+    default: m.PuzzlesFromYourGamesPage,
+  })),
+);
+const AnalyzePgnOnlinePage = lazy(() =>
+  import('./pages/AnalyzePgnOnlinePage').then((m) => ({
+    default: m.AnalyzePgnOnlinePage,
+  })),
 );
 // KS-3412 (ADR-086, guess-the-move F3): точка входа `/guess`. Lazy-чанк;
 // маршрут гейтится `GUESS_ENTRY_ENABLED` (скрыт в проде до общего релиза
@@ -859,12 +866,21 @@ export function App() {
             remount. Для авторизованного user'а guestAnalysisId
             отсутствует, key стабилен — поведение не меняется. */}
         <Route path="/analysis" element={<AnalysisRouteEntry />} />
-        {/* KS-4320: SEO-лендинг импорта PGN — публичный, prerender'ится. */}
+        {/* KS-4325 (заменяет KS-4320 /analysis/import): SEO-лендинги под
+            маркетинговые long-tail URL. Публичные, prerender'ятся. */}
         <Route
-          path="/analysis/import"
+          path="/analyze-pgn-online"
           element={
             <Suspense fallback={<LazyFallback />}>
-              <AnalysisImportPage />
+              <AnalyzePgnOnlinePage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/puzzles-from-your-games"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <PuzzlesFromYourGamesPage />
             </Suspense>
           }
         />

@@ -1,18 +1,18 @@
 /**
- * KS-4320. SEO-блок для `/puzzles/mistakes` — длинный контентный текст
- * (1500–2000 слов). Источник: `/tmp/seo-texts/02-puzzles-mistakes.md`.
+ * KS-4325 (текст из KS-4320). SEO-блок для публичного лендинга
+ * `/puzzles-from-your-games` — длинный контентный текст (1500–2000
+ * слов). Источник: `/tmp/seo-texts/02-puzzles-mistakes.md`.
  *
- * Важно: маршрут пока под `ProtectedRoute` — гость и боты получают
- * редирект на `/login`. SEO-индексация полного текста требует или
- * снять защиту (показывать SEO-блок выше предупреждения «sign in»),
- * или добавить `/puzzles/mistakes` в `PUBLIC_ROUTES` после изменения
- * маршрута. Решение по защите принимает координатор/архитектор —
- * сам блок встроен в страницу, отображается авторизованному
- * пользователю, для гостя пока недоступен.
+ * История: текст изначально жил на `/puzzles/mistakes`, но тот
+ * маршрут под `<ProtectedRoute>` и для бота недоступен. Маркетолог в
+ * KS-4324 перенёс на отдельный гостевой URL под long-tail-запрос
+ * «puzzles from your own games». CTA внутри ведёт на `/puzzles/
+ * mistakes` — оттуда пользователь при необходимости пройдёт логин
+ * и попадёт в свой рабочий раздел тематических ошибок.
  */
 import { useTranslation } from 'react-i18next';
 
-export function PuzzlesMistakesSeoSection() {
+export function PuzzlesFromYourGamesSeoSection() {
   const { i18n } = useTranslation();
   const isRu = (i18n.language || '').toLowerCase().startsWith('ru');
   return isRu ? <Ru /> : <En />;

@@ -8,6 +8,8 @@
   <url><loc>https://kingside.site/daily</loc><priority>0.7</priority><changefreq>daily</changefreq></url>
   <url><loc>https://kingside.site/puzzle-rush</loc><priority>0.7</priority><changefreq>weekly</changefreq></url>
   <url><loc>https://kingside.site/analysis</loc><priority>0.7</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://kingside.site/analyze-pgn-online</loc><priority>0.8</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://kingside.site/puzzles-from-your-games</loc><priority>0.8</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://kingside.site/workshop</loc><priority>0.6</priority><changefreq>weekly</changefreq></url>
   <url><loc>https://kingside.site/broadcasts</loc><priority>0.6</priority><changefreq>daily</changefreq></url>
   <url><loc>https://kingside.site/players</loc><priority>0.5</priority><changefreq>daily</changefreq></url>

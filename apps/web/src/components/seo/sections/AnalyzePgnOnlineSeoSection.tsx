@@ -1,13 +1,17 @@
 /**
- * KS-4320. SEO-блок для `/analysis/import` — длинный контентный текст
- * (1500–2000 слов). Источник: `/tmp/seo-texts/03-analysis-import.md`.
+ * KS-4325 (текст из KS-4320). SEO-блок для публичного лендинга
+ * `/analyze-pgn-online` — длинный контентный текст (1500–2000 слов).
+ * Источник: `/tmp/seo-texts/03-analysis-import.md`.
  *
- * Маршрут /analysis/import создан в этой же задаче (см. App.tsx) —
- * простая страница импорта PGN, ниже которой висит этот SEO-блок.
+ * История: изначально жил на `/analysis`; маркетолог в KS-4324
+ * перенёс на отдельный посадочный URL под long-tail-запрос «analyze
+ * pgn online» / «разбор партии онлайн». CTA внутри ведёт на
+ * `/analysis` (рабочий анализатор) — туда пользователь приходит за
+ * функцией после прочтения лендинга.
  */
 import { useTranslation } from 'react-i18next';
 
-export function AnalysisImportSeoSection() {
+export function AnalyzePgnOnlineSeoSection() {
   const { i18n } = useTranslation();
   const isRu = (i18n.language || '').toLowerCase().startsWith('ru');
   return isRu ? <Ru /> : <En />;
@@ -148,7 +152,7 @@ function Ru() {
       </dl>
 
       <p className="seo-long__cta">
-        Открой <a href="/analysis/import">импорт PGN на Kingside</a> и вставь
+        Открой <a href="/analysis">импорт PGN на Kingside</a> и вставь
         свою последнюю партию.
       </p>
     </section>
@@ -290,7 +294,7 @@ function En() {
       </dl>
 
       <p className="seo-long__cta">
-        Open <a href="/analysis/import">PGN import on Kingside</a> and paste
+        Open <a href="/analysis">PGN import on Kingside</a> and paste
         your last game.
       </p>
     </section>

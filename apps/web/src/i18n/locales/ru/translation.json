@@ -4369,13 +4369,6 @@
       "customConfigTooltip": "Нестандартный конфиг"
     }
   },
-  "analysisImport": {
-    "heading": "Импорт PGN — открой партию в анализаторе",
-    "intro": "Вставь PGN своей партии (из chess.com, lichess, ChessBase или любого другого источника). Kingside откроет её с оценкой Stockfish 18 и AI-комментариями к каждому ходу.",
-    "placeholder": "Вставь PGN сюда…",
-    "open": "Открыть в анализаторе",
-    "openEmpty": "Или открыть пустой анализатор"
-  },
   "seo": {
     "broadcasts": {
       "list": {
@@ -4460,11 +4453,11 @@
       "title": "Анализ шахматной партии онлайн с AI-комментариями — Kingside",
       "description": "Загрузи PGN или сыграй партию — Stockfish 18 даст оценку, AI объяснит каждый ход. Бесплатно, без регистрации, без подписки."
     },
-    "analysisImport": {
+    "analyzePgnOnline": {
       "title": "Импорт PGN: разбор партий chess.com и lichess с AI — Kingside",
       "description": "Вставь PGN или ссылку на партию — Kingside откроет разбор со Stockfish 18 и AI-комментариями к каждому ходу. Бесплатно, без регистрации."
     },
-    "puzzlesMistakes": {
+    "puzzlesFromYourGames": {
       "title": "Задачи из своих партий — тренируйся на своих ошибках | Kingside",
       "description": "Загрузи PGN — Kingside найдёт твои ошибки и превратит их в шахматные задачи. Тренируйся на конкретных позициях, в которых уже ошибался. Бесплатно."
     },

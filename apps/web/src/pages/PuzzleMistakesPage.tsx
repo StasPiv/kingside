@@ -4,8 +4,6 @@ import { useTranslation } from 'react-i18next';
 import type { UserMistakeAggregate } from '@kingside/shared';
 
 import { puzzleMistakesApi } from '../api/puzzleMistakesApi';
-import { PageSeo } from '../components/seo/PageSeo';
-import { PuzzlesMistakesSeoSection } from '../components/seo/sections/PuzzlesMistakesSeoSection';
 
 /**
  * Страница `/puzzles/mistakes` — полный список тем дневника ошибок
@@ -51,20 +49,6 @@ export function PuzzleMistakesPage() {
 
   return (
     <div className="mistakes-page" data-testid="mistakes-page">
-      {/* KS-4320: per-page SEO + JSON-LD. */}
-      <PageSeo
-        ns="puzzlesMistakes"
-        path="/puzzles/mistakes"
-        ogImage="/og/puzzles-mistakes.png"
-        jsonLd={{
-          '@context': 'https://schema.org',
-          '@type': 'WebApplication',
-          name: 'Kingside Puzzles from your games',
-          applicationCategory: 'GameApplication',
-          operatingSystem: 'Web',
-          offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
-        }}
-      />
       <header className="mistakes-page__header">
         <Link
           to="/puzzles"
@@ -159,13 +143,9 @@ export function PuzzleMistakesPage() {
           </>
         );
       })()}
-
-      {/* KS-4320: SEO-блок «Задачи из своих партий». Видим
-          авторизованному пользователю под таблицей. ВАЖНО: маршрут
-          /puzzles/mistakes сейчас под ProtectedRoute в App.tsx —
-          гость и боты получают редирект на /login и текст НЕ
-          индексируется. Решение по защите принимает координатор. */}
-      <PuzzlesMistakesSeoSection />
+      {/* KS-4325: SEO-блок отсюда снят. Текст ушёл на отдельный
+          публичный лендинг `/puzzles-from-your-games` — этот раздел
+          остался закрытым функциональным дневником ошибок. */}
     </div>
   );
 }

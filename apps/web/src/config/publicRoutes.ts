@@ -35,11 +35,14 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   { path: '/daily', priority: 0.7, changefreq: 'daily' },
   { path: '/puzzle-rush', priority: 0.7, changefreq: 'weekly' },
   { path: '/analysis', priority: 0.7, changefreq: 'weekly' },
-  // KS-4320: публичный SEO-лендинг импорта PGN и игры с ботом —
-  // длинный контентный блок + per-page SeoHelmet, рендерятся в
-  // prerender'е как полноценный HTML.
-  { path: '/analysis/import', priority: 0.6, changefreq: 'weekly' },
+  // KS-4320: публичный SEO-лендинг игры с ботом — длинный контентный
+  // блок + per-page SeoHelmet, рендерятся в prerender'е как HTML.
   { path: '/play/local-bot', priority: 0.6, changefreq: 'weekly' },
+  // KS-4325: маркетинговые long-tail SEO-лендинги (заменяют KS-4320
+  // `/analysis/import`). Длинные тексты из `/tmp/seo-texts/02..03.md`
+  // на отдельных публичных URL.
+  { path: '/analyze-pgn-online', priority: 0.8, changefreq: 'monthly' },
+  { path: '/puzzles-from-your-games', priority: 0.8, changefreq: 'monthly' },
   { path: '/workshop', priority: 0.6, changefreq: 'weekly' },
   { path: '/broadcasts', priority: 0.6, changefreq: 'daily' },
   { path: '/players', priority: 0.5, changefreq: 'daily' },
