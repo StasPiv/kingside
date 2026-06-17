@@ -8,7 +8,6 @@ import { RatingService } from './rating.service';
 import { RatingProtectionService } from './rating-protection.service';
 import { LiveGameService } from './live-game.service';
 import { EcoService } from './eco.service';
-import { OpeningBookService } from '../engine/opening-book.service';
 import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 
 /**
@@ -35,7 +34,7 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
 @Module({
   imports: [AuthModule, UserModule],
   controllers: [GameController],
-  providers: [GameService, GameClockService, RatingService, RatingProtectionService, LiveGameService, EcoService, OpeningBookService],
+  providers: [GameService, GameClockService, RatingService, RatingProtectionService, LiveGameService, EcoService],
   exports: [GameService],
 })
 export class GameModule {}

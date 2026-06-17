@@ -284,7 +284,7 @@ describe('MatchmakingService', () => {
       delete process.env.MATCHMAKING_BOT_TIMEOUT_MS;
     });
 
-    it('одиночка, ждёт >30s → createBotGame + game.botClientSide=true', async () => {
+    it('одиночка, ждёт >30s → createBotGame создаёт bot-партию', async () => {
       const now = Date.now();
       jest.spyOn(Date, 'now').mockReturnValue(now);
       const lonely = JSON.stringify({
@@ -303,7 +303,6 @@ describe('MatchmakingService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             isBot: true,
-            botClientSide: true,
             botLevel: MATCHMAKING_BOTS[6].botLevel,
             timeControlType: 'bullet',
           }),
@@ -316,7 +315,6 @@ describe('MatchmakingService', () => {
       expect(channel).toBe('matchmaker:found');
       const payload = JSON.parse(payloadJson);
       expect(payload.isBot).toBe(true);
-      expect(payload.botClientSide).toBe(true);
       expect(payload.gameId).toBe('game-1');
     });
 

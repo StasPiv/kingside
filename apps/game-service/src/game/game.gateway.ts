@@ -13,7 +13,6 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { GameService } from './game.service';
 import { BotGameService } from './bot-game.service';
-import { BotMoveService } from './bot-move.service';
 import { ChatService } from '../chat/chat.service';
 import { GameClockService } from './game-clock.service';
 import { RedisService } from '../redis/redis.service';
@@ -50,16 +49,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(GameGateway.name);
   /** Grace period before ending bot games on disconnect (ms) */
   private static readonly BOT_DISCONNECT_GRACE_MS = 30_000;
-  /** How long to wait for client bot-move before server fallback (ms) */
-  private static readonly BOT_MOVE_FALLBACK_MS = 5_000;
   private readonly botDisconnectTimers = new Map<string, NodeJS.Timeout>();
-  private readonly botMoveFallbackTimers = new Map<string, NodeJS.Timeout>();
   private readonly spectatorDelayMs: number;
 
   constructor(
     private readonly gameService: GameService,
     private readonly botGameService: BotGameService,
-    private readonly botMoveService: BotMoveService,
     private readonly jwtService: JwtService,
     private readonly chatService: ChatService,
     private readonly config: ConfigService,
@@ -163,7 +158,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`handleJoinGame[1]: user=${client.data.user?.username} game=${data.gameId.slice(0, 8)} joined room`);
 
     try {
-      const { state, clocks, whiteId, blackId, players, isBot, botLevel, botClientSide } = await this.gameService.getGameState(data.gameId);
+      const { state, clocks, whiteId, blackId, players, isBot, botLevel } = await this.gameService.getGameState(data.gameId);
       this.logger.log(`handleJoinGame[2]: getGameState OK status=${state.status} fen=${state.fen.slice(0, 20)}`);
 
       const color = userId === whiteId ? 'white' : userId === blackId ? 'black' : undefined;
@@ -177,7 +172,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         players,
         isBot,
         botLevel,
-        botClientSide,
       };
       client.emit(GameEvents.STATE, statePayload);
       this.logger.log(`handleJoinGame[3]: emitted game:state to ${client.data.user?.username}`);
@@ -191,13 +185,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           await this.redis.expire(joinKey, 120);
           await this.clockService.startClock(data.gameId);
           this.logger.warn(`handleJoinGame: bot game clocks STARTED game=${data.gameId.slice(0, 8)}`);
-
-          // Schedule server-side fallback for bot's first move.
-          // The client-side Stockfish WASM may not be ready when game:state fires,
-          // so getBotMove() rejects silently. This fallback ensures the game proceeds.
-          if (state.moves.length === 0) {
-            this.scheduleBotMoveFallback(data.gameId, state.fen, whiteId, blackId);
-          }
         } else {
           this.logger.warn(`handleJoinGame: calling maybeStartClocks user=${client.data.user?.username} game=${data.gameId.slice(0, 8)} color=${color} clocksRunning=${clocks.running}`);
           await this.maybeStartClocks(data.gameId, color, whiteId, blackId);
@@ -243,9 +230,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         };
         this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
         this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
-      } else {
-        // After human's move in a bot game, schedule fallback for bot's response
-        await this.maybeScheduleBotFallback(data.gameId, result.fen);
       }
     } catch (e: any) {
       const errorPayload: WsErrorPayload = { code: 'INVALID_MOVE', message: e.message };
@@ -530,13 +514,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.user?.id;
     if (!userId) return;
 
-    // Cancel server-side fallback — client handled it
-    const fallbackTimer = this.botMoveFallbackTimers.get(data.gameId);
-    if (fallbackTimer) {
-      clearTimeout(fallbackTimer);
-      this.botMoveFallbackTimers.delete(data.gameId);
-    }
-
     try {
       const dbGame = await this.gameService.getGame(data.gameId);
 
@@ -585,98 +562,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (e: any) {
       client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: e.message });
     }
-  }
-
-  /**
-   * Check if the game is a bot game and the bot should move next.
-   * If so, schedule a fallback.
-   */
-  private async maybeScheduleBotFallback(gameId: string, fen: string): Promise<void> {
-    try {
-      const dbGame = await this.gameService.getGame(gameId);
-      if (!dbGame.isBot) return;
-      this.scheduleBotMoveFallback(gameId, fen, dbGame.whiteId, dbGame.blackId);
-    } catch { /* ignore */ }
-  }
-
-  /**
-   * Schedule a server-side fallback move for bot games.
-   * If the client-side Stockfish WASM doesn't send game:bot-move within
-   * BOT_MOVE_FALLBACK_MS, the server picks a move from the opening book.
-   */
-  private scheduleBotMoveFallback(
-    gameId: string,
-    fen: string,
-    whiteId: string,
-    blackId: string,
-  ): void {
-    // Determine which player is the bot
-    const botPlayerId = this.botGameService.isBotPlayer(whiteId) ? whiteId
-      : this.botGameService.isBotPlayer(blackId) ? blackId : null;
-    if (!botPlayerId) return;
-
-    // Only schedule if it's the bot's turn
-    const activeColor = fen.split(' ')[1] === 'w' ? 'white' : 'black';
-    const activePlayerId = activeColor === 'white' ? whiteId : blackId;
-    if (activePlayerId !== botPlayerId) return;
-
-    // Cancel any existing timer
-    const existing = this.botMoveFallbackTimers.get(gameId);
-    if (existing) clearTimeout(existing);
-
-    this.logger.log(`scheduleBotMoveFallback: game=${gameId.slice(0, 8)} botColor=${activeColor} delay=${GameGateway.BOT_MOVE_FALLBACK_MS}ms`);
-
-    const timer = setTimeout(async () => {
-      this.botMoveFallbackTimers.delete(gameId);
-      try {
-        // Re-check game state — maybe client already made the move
-        const { state } = await this.gameService.getGameState(gameId);
-        if (state.status !== 'active') {
-          this.logger.log(`botMoveFallback: game=${gameId.slice(0, 8)} not active, skipping`);
-          return;
-        }
-
-        // Verify it's still the bot's turn
-        const currentActiveColor = state.fen.split(' ')[1] === 'w' ? 'white' : 'black';
-        const currentActiveId = currentActiveColor === 'white' ? whiteId : blackId;
-        if (currentActiveId !== botPlayerId) {
-          this.logger.log(`botMoveFallback: game=${gameId.slice(0, 8)} not bot's turn anymore, skipping`);
-          return;
-        }
-
-        const uci = this.botMoveService.pickMove(state.fen);
-        if (!uci) {
-          this.logger.warn(`botMoveFallback: game=${gameId.slice(0, 8)} no move available`);
-          return;
-        }
-
-        this.logger.log(`botMoveFallback: game=${gameId.slice(0, 8)} making move ${uci}`);
-        const result = await this.gameService.makeMove(gameId, botPlayerId, uci);
-
-        const movePayload: WsGameMoveServerPayload = {
-          uci,
-          san: result.san,
-          fen: result.fen,
-          clocks: { whiteMs: result.clocks.whiteMs, blackMs: result.clocks.blackMs },
-          moveFlags: result.moveFlags,
-        };
-        this.server.to(`game:${gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
-        this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_MOVE, movePayload);
-
-        if (result.gameOver) {
-          const endPayload: WsGameEndPayload = {
-            result: result.result as GameResult,
-            termination: result.termination!,
-          };
-          this.server.to(`game:${gameId}`).emit(GameEvents.END, endPayload);
-          this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_END, endPayload);
-        }
-      } catch (e: unknown) {
-        this.logger.error(`botMoveFallback: game=${gameId.slice(0, 8)} error: ${(e as Error).message}`);
-      }
-    }, GameGateway.BOT_MOVE_FALLBACK_MS);
-
-    this.botMoveFallbackTimers.set(gameId, timer);
   }
 
   /**

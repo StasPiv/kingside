@@ -44,13 +44,12 @@ export const DEV_USERNAME = 'DEV';
 export const MAX_ACTIVE_BOT_GAMES = 3;
 
 /**
- * KS-3559. Bot pool для 30-секундного client-side bot fallback'а в
- * matchmaking (`Game.botClientSide=true`). Когда живой соперник не
- * найден за `MATCHMAKING_BOT_TIMEOUT_MS` (default 30s), `MatchmakingService
- * .createBotGame` выбирает одного из этой константы по рейтингу
- * (closest-3, random pick) и создаёт партию против него. Локальный
- * Stockfish 18 WASM на фронте играет ходы — серверный движок не
- * нужен.
+ * KS-3559. Bot pool для 30-секундного bot fallback'а в matchmaking.
+ * Когда живой соперник не найден за `MATCHMAKING_BOT_TIMEOUT_MS`
+ * (default 30s), `MatchmakingService.createBotGame` выбирает одного из
+ * этой константы по рейтингу (closest-3, random pick) и создаёт партию
+ * против него. Локальный Stockfish 18 WASM на фронте играет ходы —
+ * серверного движка нет (KS-4309).
  *
  * Восстановлен из коммита 7b5abaa5 (KS-1523) после отката
  * synthetic-users (KS-2165 → revert 52ba9135). Те же UUID'ы — чтобы

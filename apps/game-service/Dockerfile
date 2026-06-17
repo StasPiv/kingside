@@ -1,13 +1,12 @@
 FROM node:20-slim AS base
 
-# KS-4111 (follow-up): Stockfish из game-service-образа УБРАН вовсе.
-# Бот-игра в game-service использует client-side Stockfish WASM
-# (`botClientSide=true`, фронт играет локально, см.
-# matchmaking.service.ts и bot-move.service.ts), серверного spawn'а
-# движка в `apps/game-service/src` нет. Прежние `apt-get install
-# stockfish` (SF15.x) и одно-итерационный SF18 native — артефакты
-# отменённого embedded-варианта; держать в образе ~50–110 МБ
-# движка без потребителей смысла нет.
+# KS-4111 / KS-4309: Stockfish из game-service-образа УБРАН вовсе.
+# Бот-игра в game-service использует client-side Stockfish WASM —
+# фронт играет локально (см. matchmaking.service.ts), серверного
+# spawn'а движка в `apps/game-service/src` нет. Прежние
+# `apt-get install stockfish` (SF15.x) и одно-итерационный SF18
+# native — артефакты отменённого embedded-варианта; держать в
+# образе ~50–110 МБ движка без потребителей смысла нет.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
     && rm -rf /var/lib/apt/lists/*
@@ -32,7 +31,6 @@ RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/game-service && npx nest build 2>&1 || true
-RUN cp -r apps/game-service/src/engine/*.json apps/game-service/dist/engine/ 2>/dev/null || true
 RUN cp -r apps/game-service/src/i18n apps/game-service/dist/i18n 2>/dev/null || true
 RUN ls apps/game-service/dist/main.js
 # KS-3051 (ADR-045 E4): отбросить devDependencies из node_modules,
@@ -45,7 +43,6 @@ RUN npm prune --omit=dev --ignore-scripts
 FROM base AS production
 WORKDIR /app
 COPY --from=build /app/apps/game-service/dist ./apps/game-service/dist
-COPY apps/game-service/data ./apps/game-service/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db

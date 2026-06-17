@@ -8,14 +8,13 @@ import { GameClockService } from './game-clock.service';
 import { RatingService } from './rating.service';
 import { RatingProtectionService } from './rating-protection.service';
 import { BotGameService } from './bot-game.service';
-import { BotMoveService } from './bot-move.service';
 import { BotCleanupService } from './bot-cleanup.service';
 import { TimeoutCheckerService } from './timeout-checker.service';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 
 @Module({
   imports: [AuthModule, ChatModule, UserModule],
-  providers: [GameGateway, GameService, GameClockService, RatingService, RatingProtectionService, BotGameService, BotMoveService, BotCleanupService, TimeoutCheckerService, WsJwtGuard],
-  exports: [GameService, GameGateway, BotGameService, BotMoveService, WsJwtGuard],
+  providers: [GameGateway, GameService, GameClockService, RatingService, RatingProtectionService, BotGameService, BotCleanupService, TimeoutCheckerService, WsJwtGuard],
+  exports: [GameService, GameGateway, BotGameService, WsJwtGuard],
 })
 export class GameModule {}

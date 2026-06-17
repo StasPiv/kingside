@@ -97,7 +97,6 @@ RUN npm prune --omit=dev --omit=optional --ignore-scripts
 FROM base AS production
 WORKDIR /app
 COPY --from=build /app/apps/api/dist ./apps/api/dist
-COPY --from=build /app/apps/api/data ./apps/api/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/packages/db ./packages/db

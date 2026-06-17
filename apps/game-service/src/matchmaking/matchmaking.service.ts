@@ -51,9 +51,9 @@ export function readNoOpponentsTimeoutMs(env: NodeJS.ProcessEnv = process.env): 
 /**
  * KS-3559. Дефолтный таймаут до bot-fallback'а — 30 секунд (восстановлено
  * из KS-1467 после отката synthetic users в KS-2165). После него
- * `createBotGame` пикает бота из `MATCHMAKING_BOTS` и поднимает партию
- * с `Game.botClientSide=true` — фронт играет ходы через локальный
- * Stockfish 18 WASM.
+ * `createBotGame` выбирает бота из `MATCHMAKING_BOTS` и поднимает
+ * партию против него. Локальный Stockfish 18 WASM на фронте играет
+ * ходы — серверного движка нет (KS-4309).
  *
  * Перебивается ENV `MATCHMAKING_BOT_TIMEOUT_MS`. Невалидное значение →
  * дефолт. Установка в `0` или отрицательное значение НЕ отключает
@@ -244,9 +244,9 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
     // Pass 2 (KS-3559): bot fallback. Возвращено старое client-side
     // поведение из KS-1467 — игроки, провисевшие в очереди дольше
     // MATCHMAKING_BOT_TIMEOUT_MS (default 30s), получают пару с одним
-    // из `MATCHMAKING_BOTS` (closest-3 по рейтингу, random). Партия
-    // создаётся с `Game.botClientSide=true` — фронт играет Stockfish'ем
-    // в браузере. Synthetic users (KS-2165 → revert) тут не задействован.
+    // из `MATCHMAKING_BOTS` (closest-3 по рейтингу, random). Фронт
+    // играет Stockfish'ем в браузере (KS-4309: серверного движка нет).
+    // Synthetic users (KS-2165 → revert) тут не задействован.
     if (readBotFallbackEnabled()) {
       await this.runBotFallbackPass(category, queueKey, entries, members, paired);
     }
@@ -420,8 +420,8 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * KS-3559. Создаёт партию между entry-игроком и ботом из
-   * `MATCHMAKING_BOTS`. Партия маркируется `botClientSide=true` —
-   * фронт играет Stockfish'ем локально. Цвета — рандом 50/50.
+   * `MATCHMAKING_BOTS`. Фронт играет Stockfish'ем локально
+   * (KS-4309: серверного движка нет). Цвета — рандом 50/50.
    *
    * Pub/sub `matchmaker:found` уведомляет gateway, тот шлёт игроку
    * WS-событие со ссылкой на новую партию.
@@ -443,10 +443,6 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
         timeInitialSec: entry.timeInitialSec,
         timeIncrementSec: entry.timeIncrementSec,
         isBot: true,
-        // KS-3559: маркер партии с client-side Stockfish'ем. Фронт по
-        // этому полю поднимает локальный WASM-движок вместо ожидания
-        // серверных bot-ходов.
-        botClientSide: true,
         botLevel: bot.botLevel,
         startedAt: new Date(),
       },
@@ -494,7 +490,6 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
         white: whiteId === entry.userId ? playerData : botData,
         black: blackId === entry.userId ? playerData : botData,
         isBot: true,
-        botClientSide: true,
         botLevel: bot.botLevel,
       }),
     );
