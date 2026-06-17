@@ -90,20 +90,13 @@ export function GamePage() {
   const [isBot, setIsBot] = useState(false);
   const isBotRef = useRef(false);
   isBotRef.current = isBot;
-  // KS-3559: backend в WS state шлёт `botClientSide=true` для партий,
-  // где локальный Stockfish играет за оппонента (matchmaking
-  // 30-секундный fallback + Workshop Play-vs-Bot). Без `botClientSide`
-  // включаем engine по `isBot=true` (legacy + back-compat: до KS-3559
-  // backend не выставлял botClientSide, но любая bot-партия была
-  // client-side). Future-proof для ADR-034 v2 (WS-bot-fleet): сервер
-  // будет шлёт `isBot=true, botClientSide=false` — локальный движок
-  // НЕ запустится, сервер сделает ход.
-  const [botClientSide, setBotClientSide] = useState<boolean | undefined>(
-    undefined,
-  );
-  const isBotClientSide = isBot && botClientSide !== false;
-  const isBotClientSideRef = useRef(false);
-  isBotClientSideRef.current = isBotClientSide;
+  // KS-4308: серверного бота на проекте не будет. Дихотомия
+  // `botClientSide` (KS-3559, future-proof для ADR-034 v2 WS-bot-fleet)
+  // оказалась активным источником багов: backend в живых партиях шлёт
+  // `botClientSide=false` / undefined в момент рендера, локальный
+  // `useBotEngine` не стартует, бот никогда не ходит — это и есть
+  // корневая причина жалобы пользователя «бот за белых не ходит».
+  // Уберено целиком, движок запускается на `isBot` напрямую.
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [ratingChange, setRatingChange] = useState<
     WsGameEndPayload['ratingChange']
@@ -115,7 +108,7 @@ export function GamePage() {
   // повторных state-апдейтах не делать двойной POST /analyses + navigate.
   const analysisRedirectingRef = useRef(false);
 
-  const { getBotMove } = useBotEngine(gameId, botLevel, isBotClientSide);
+  const { getBotMove } = useBotEngine(gameId, botLevel, isBot);
   const getBotMoveRef = useRef(getBotMove);
   getBotMoveRef.current = getBotMove;
 
@@ -265,20 +258,20 @@ export function GamePage() {
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
       if (state.botLevel !== undefined) setBotLevel(state.botLevel ?? null);
-      // KS-3559: backend в WS state шлёт botClientSide. undefined = legacy
-      // back-compat (до KS-3559 поле отсутствовало, всегда client-side).
-      if (state.botClientSide !== undefined) setBotClientSide(state.botClientSide);
+      // KS-4308: `botClientSide` из WS state больше не учитываем —
+      // серверного бота на проекте не будет, любая bot-партия идёт
+      // через локальный `useBotEngine`. См. подробности в блоке
+      // объявления `isBot` / `botLevel` выше.
       updateFromState(state);
       if (isFirstState && state.status === 'active') {
         playSound('game-start');
-        // If bot plays first (player is black), trigger initial bot move.
-        // KS-3559: триггерим Stockfish только для client-side ботов
-        // (botClientSide!==false). Для будущих server-side ботов
-        // (ADR-034 v2) первый ход придёт по WS как обычный move:server.
-        const isClientBot =
-          state.isBot === true && state.botClientSide !== false;
+        // KS-4308: триггерим Stockfish для любой bot-партии (без
+        // проверки `botClientSide`) — иначе у пользователя в момент
+        // рендера флаг приходит false/undefined, движок не стартует,
+        // бот за белых никогда не делает первый ход (KS-4308 root
+        // cause).
         if (
-          isClientBot &&
+          state.isBot === true &&
           gameId &&
           state.moves.length === 0 &&
           state.color === 'black'
@@ -327,10 +320,9 @@ export function GamePage() {
       // to avoid a redundant re-render that causes piece flicker.
       if (game.fen() === data.fen) {
         setClocks(msToSeconds(data.clocks));
-        // KS-3559: trigger client-side bot move ТОЛЬКО для botClientSide.
-        // Для server-side ботов (ADR-034 v2) ход придёт следующим
-        // game:move событием с сервера, локальный движок не стартуем.
-        if (isBotClientSideRef.current && gameId) {
+        // KS-4308: триггерим ход бота для любой bot-партии без
+        // проверки `botClientSide` — серверного бота не будет.
+        if (isBotRef.current && gameId) {
           triggerBotMoveRef.current(data.fen);
         }
         return;
