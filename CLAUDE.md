@@ -114,7 +114,6 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 | devops | Деплой, инфраструктура | scripts/ |
 | architect | Архитектура, ADR | docs/ (только документация, НЕ код) |
 | qa | Проверка задач | Ничего (ro) |
-| chess-expert | Шахматные консультации | Ничего |
 | marketing | SEO, аналитика, лендинги | apps/web (SEO/аналитика) |
 
 **Правила ownership:**
