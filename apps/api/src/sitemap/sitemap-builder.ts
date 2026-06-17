@@ -151,6 +151,11 @@ export const STATIC_PUBLIC_ROUTES: ReadonlyArray<
   { loc: '/players', changefreq: 'daily', priority: 0.6 },
   { loc: '/archive', changefreq: 'weekly', priority: 0.5 },
   { loc: '/about', changefreq: 'monthly', priority: 0.4 },
+  // KS-4326 / KS-4325. Публичные SEO-лендинги: «Анализ PGN онлайн» и
+  // «Задачи из ваших партий». Карточки сделаны фронтом, страницы
+  // существуют на kingside.site и должны индексироваться.
+  { loc: '/analyze-pgn-online', changefreq: 'monthly', priority: 0.8 },
+  { loc: '/puzzles-from-your-games', changefreq: 'monthly', priority: 0.8 },
   { loc: '/login', changefreq: 'yearly', priority: 0.3 },
   { loc: '/register', changefreq: 'yearly', priority: 0.3 },
 ];
