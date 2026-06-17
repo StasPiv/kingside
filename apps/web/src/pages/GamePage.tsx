@@ -36,6 +36,7 @@ import { sendClientLog } from '../utils/clientLogger';
 import { openAnalysis } from '../utils/openAnalysis';
 import { buildGamePgn, buildGameAnalysisTitle } from './buildGamePgn';
 import { GameShell } from '../components/game/GameShell';
+import { BotEngineDebugPanel } from '../components/BotEngineDebugPanel';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -504,7 +505,17 @@ export function GamePage() {
     !(playerColor === 'white' ? whiteBerserk : blackBerserk);
 
   return (
-    <GameShell
+    <>
+      {/* KS-4308: отладочная панель `BotEngineDebugPanel` для пользователя
+          `Stanislav`. Рендерится в общем вызове игры (резервный бот,
+          `isBotClientSide === true`) — основной канал жалобы. Гейт по
+          username внутри компонента, для всех остальных возвращает
+          `null`. На партии человек-vs-человек смысла нет — отдельная
+          проверка `isBotClientSide` не нужна (без событий движка панель
+          будет пустая, но и тогда показывать её бесполезно — оборачиваем
+          в `isBotClientSide`). */}
+      {isBotClientSide && <BotEngineDebugPanel />}
+      <GameShell
       chess={game}
       fen={fen}
       moves={moves}
@@ -569,5 +580,6 @@ export function GamePage() {
       backLink={{ to: '/', label: t('game.backToLobby') }}
       showHelpButton
     />
+    </>
   );
 }
