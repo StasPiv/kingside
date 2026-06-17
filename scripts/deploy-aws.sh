@@ -1917,6 +1917,22 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     ARCHIVE_SVC_STATUS=$(aws ecs describe-services \
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE" \
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+    # KS-4313: HTTP-эндпоинты archive-service вынесены в основной API (ADR-131,
+    # KS-4247). daemon kingside-archive-service ещё ACTIVE (formally), но
+    # desiredCount=0 и target-group `kingside-archive-api` отвязана от ALB —
+    # любой UpdateService падает InvalidParameterException. Деплой
+    # archive-service после ADR-131 нужен ТОЛЬКО ради importer-oneshot
+    # (EventBridge Scheduler + adhoc RunTask). Гейтим update-service / smoke
+    # /tree / services-stable по desiredCount>0 — если daemon когда-нибудь
+    # вернут (поднимут desired), ветка снова заработает.
+    ARCHIVE_SVC_DESIRED=$(aws ecs describe-services \
+        --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE" \
+        --query 'services[0].desiredCount' --output text 2>/dev/null || echo "0")
+    [ "$ARCHIVE_SVC_DESIRED" = "None" ] && ARCHIVE_SVC_DESIRED=0
+    ARCHIVE_HTTP_RUNNABLE=false
+    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ] && [ "$ARCHIVE_SVC_DESIRED" -gt 0 ] 2>/dev/null; then
+        ARCHIVE_HTTP_RUNNABLE=true
+    fi
     ARCHIVE_IMPORTER_STATUS=$(aws ecs describe-services \
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_IMPORTER" \
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
@@ -1983,18 +1999,21 @@ if $DEPLOY_ARCHIVE_SERVICE; then
         echo "[archive-service] HTTP service not ACTIVE (status=$ARCHIVE_SVC_STATUS) — skipping migrate step."
     fi
 
-    # Rolling update ECS-сервисов. Сейчас ACTIVE только HTTP-сервис; importer-сервис
-    # MISSING после ADR-020 (заменён EventBridge Scheduler). Логика update-service
-    # оставлена условной для обратной совместимости — если importer-сервис когда-нибудь
-    # вернётся continuous, его revision уже зарегистрирован выше.
-    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
+    # Rolling update ECS-сервисов. После ADR-131 (KS-4247) HTTP-эндпоинты
+    # archive-service переехали в основной API; daemon kingside-archive-service
+    # ACTIVE-но-desiredCount=0 и target-group без ALB — UpdateService на нём
+    # гарантированно падает InvalidParameterException. Поэтому гейт по
+    # ARCHIVE_HTTP_RUNNABLE (status=ACTIVE && desiredCount>0). Когда daemon
+    # снова поднимут — ветка автоматически включится.
+    # importer-сервис MISSING после ADR-020 (заменён EventBridge Scheduler).
+    if $ARCHIVE_HTTP_RUNNABLE; then
         echo "[archive-service] Updating ECS service $ECS_SERVICE_ARCHIVE_SERVICE to new revision..."
         aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_ARCHIVE_SERVICE" \
             --task-definition "$NEW_TD_HTTP_ARN" \
             --force-new-deployment --query 'service.deployments[0].status' --output text
         echo "  ECS service $ECS_SERVICE_ARCHIVE_SERVICE update initiated."
     else
-        echo "[archive-service] ECS service '$ECS_SERVICE_ARCHIVE_SERVICE' not found (status=$ARCHIVE_SVC_STATUS). Skipping."
+        echo "[archive-service] HTTP daemon dormant (status=$ARCHIVE_SVC_STATUS desired=$ARCHIVE_SVC_DESIRED) — skipping update-service (ADR-131: HTTP migrated to apps/api)."
     fi
 
     if [ "$ARCHIVE_IMPORTER_STATUS" = "ACTIVE" ]; then
@@ -2011,7 +2030,11 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     # Prisma-select на position-table, поэтому ловит регрессии схемы (которые
     # /_/health пропускает — тот только `SELECT 1`). FEN стартовой позиции зашит
     # константой, URL-encoded inline (jq нет в ряде окружений деплоя).
-    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
+    # KS-4313: smoke выполняем только если HTTP daemon реально работает.
+    # После ADR-131 `archive.kingside.site/tree` — это уже основной API
+    # (kingside-api-tg target group), smoke-gate тут не релевантен для
+    # importer-oneshot деплоя. Если daemon вернут — гейт снова включится.
+    if $ARCHIVE_HTTP_RUNNABLE; then
         SMOKE_FEN_ENC="rnbqkbnr%2Fpppppppp%2F8%2F8%2F8%2F8%2FPPPPPPPP%2FRNBQKBNR+w+KQkq+-+0+1"
         echo "[archive-service] Waiting for HTTP rollout to stabilize..."
         if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE"; then
@@ -2048,6 +2071,8 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     # на новый revision oneshot-family. Делается ПОСЛЕ smoke /tree — если HTTP
     # rollout развалился, scheduler остаётся на прежнем revision и завтрашний
     # запуск пойдёт со стабильного образа.
+    # KS-4313: после ADR-131 smoke /tree для importer-oneshot деплоя
+    # пропускается (HTTP daemon dormant) — scheduler обновляется без HTTP-гейта.
     ONESHOT_NEW_ARN="${NEW_TD_ARNS[kingside-archive-importer-oneshot]:-}"
     if [ -n "$ONESHOT_NEW_ARN" ]; then
         echo "[archive-service] Updating EventBridge Scheduler $ES_SCHEDULE_ARCHIVE_DAILY to new oneshot revision..."
