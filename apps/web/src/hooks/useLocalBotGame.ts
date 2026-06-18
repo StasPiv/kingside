@@ -232,10 +232,22 @@ export function useLocalBotGame(
       const MAX_ATTEMPTS = 3;
       let uci: string | null = null;
       let lastErr: unknown = null;
+      // KS-4335: передаём Stockfish'у фактические остатки на часах в мс
+      // + инкременты, движок сам выберет «человеческое» время на ход.
+      // В режиме «Без часов» (noClock) clockInfo не передаём — fallback
+      // к старому `go depth movetime` в `useBotEngine`.
+      const clockInfo = noClock
+        ? undefined
+        : {
+            wtimeMs: Math.max(1, Math.round(clocks.white * 1000)),
+            btimeMs: Math.max(1, Math.round(clocks.black * 1000)),
+            wincMs: Math.max(0, Math.round(incrementSec * 1000)),
+            bincMs: Math.max(0, Math.round(incrementSec * 1000)),
+          };
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         if (cancelled) return;
         try {
-          uci = await getBotMove(chess.fen());
+          uci = await getBotMove(chess.fen(), clockInfo);
           break;
         } catch (e) {
           lastErr = e;

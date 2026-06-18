@@ -44,6 +44,19 @@ export type BotEngineErrorReason =
   | 'init_timeout';
 
 /**
+ * KS-4335: остатки времени на часах обеих сторон + инкременты в мс.
+ * Передаются в `getBotMove`, чтобы Stockfish сам распределил думание
+ * через UCI `go wtime btime winc binc` — это даёт неравномерный
+ * человеческий расход времени и автоматическое ускорение в цейтноте.
+ */
+export interface BotClockInfo {
+  wtimeMs: number;
+  btimeMs: number;
+  wincMs?: number;
+  bincMs?: number;
+}
+
+/**
  * Local Stockfish 18 WASM movegen для **client-side** Play vs Bot.
  *
  * KS-4303: до этой задачи воркер создавался напрямую `new Worker(...)`
@@ -258,13 +271,54 @@ export function useBotEngine(
   }, []);
 
   const getBotMove = useCallback(
-    async (fen: string): Promise<string> => {
+    async (fen: string, clock?: BotClockInfo): Promise<string> => {
       const fenShort = fen.split(' ')[0].slice(0, 20);
       const level = levelRef.current ?? 5;
       const s = levelToSettings(level);
+
+      // KS-4335: если переданы остатки на часах — отдаём их Stockfish'у
+      // в `go wtime btime winc binc`, движок сам распределит время на
+      // ход. Это даёт неравномерный «человеческий» расход времени:
+      // дебют — быстро, критичная позиция — дольше, цейтнот — почти
+      // мгновенно. В этом режиме НЕ ограничиваем `depth`/`movetime`,
+      // иначе они доминируют и снова получается мгновенный ход на
+      // низких уровнях. Силу регулирует Skill Level (выставляется при
+      // uciok). Без часов (`clock` не передан или noClock) — старый
+      // путь `go depth ... movetime ...`, чтобы не сломать сценарии,
+      // где время не отслеживается.
+      const useClock =
+        clock != null &&
+        Number.isFinite(clock.wtimeMs) &&
+        Number.isFinite(clock.btimeMs) &&
+        clock.wtimeMs > 0 &&
+        clock.btimeMs > 0;
+
+      const goCmd = useClock
+        ? `go wtime ${Math.max(1, Math.round(clock!.wtimeMs))}` +
+          ` btime ${Math.max(1, Math.round(clock!.btimeMs))}` +
+          ` winc ${Math.max(0, Math.round(clock!.wincMs ?? 0))}` +
+          ` binc ${Math.max(0, Math.round(clock!.bincMs ?? 0))}`
+        : `go depth ${s.depth} movetime ${s.movetime}`;
+
+      // Таймаут берётся от стороны, чей ход сейчас (по fen — половина
+      // после первого пробела). В режиме `go wtime btime` Stockfish
+      // может думать заметно дольше движкового `movetime`, и старого
+      // лимита `movetime + 5000` не хватит на классических контролях.
+      const sideToMove = fen.split(' ')[1] === 'b' ? 'b' : 'w';
+      const ownTimeMs = useClock
+        ? sideToMove === 'w'
+          ? clock!.wtimeMs
+          : clock!.btimeMs
+        : s.movetime;
+      // Stockfish тратит максимум долю от своего остатка; берём весь
+      // остаток + запас 5 c как верхнюю границу ожидания bestmove.
+      const timeoutMs = Math.max(5_000, Math.round(ownTimeMs) + 5_000);
+
       dualLog(
         'info',
-        `[bot] getBotMove req: fen=${fenShort} depth=${s.depth} movetime=${s.movetime}`,
+        useClock
+          ? `[bot] getBotMove req: fen=${fenShort} wtime=${Math.round(clock!.wtimeMs)} btime=${Math.round(clock!.btimeMs)} winc=${Math.round(clock!.wincMs ?? 0)} binc=${Math.round(clock!.bincMs ?? 0)}`
+          : `[bot] getBotMove req: fen=${fenShort} depth=${s.depth} movetime=${s.movetime}`,
       );
 
       try {
@@ -287,12 +341,9 @@ export function useBotEngine(
 
         const timer = setTimeout(() => {
           worker.removeEventListener('message', handler);
-          dualLog(
-            'error',
-            `[bot] getBotMove: timeout after ${s.movetime + 5000}ms`,
-          );
+          dualLog('error', `[bot] getBotMove: timeout after ${timeoutMs}ms`);
           reject(new Error('Engine timeout'));
-        }, s.movetime + 5000);
+        }, timeoutMs);
 
         const handler = (e: MessageEvent) => {
           const msg = typeof e.data === 'string' ? e.data : '';
@@ -307,7 +358,7 @@ export function useBotEngine(
 
         worker.addEventListener('message', handler);
         worker.postMessage(`position fen ${fen}`);
-        worker.postMessage(`go depth ${s.depth} movetime ${s.movetime}`);
+        worker.postMessage(goCmd);
       });
     },
     [waitForReady],
