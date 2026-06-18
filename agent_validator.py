@@ -18,7 +18,7 @@ VALIDATOR_RULES_PATHS = [
 ]
 VALIDATOR_IDLE_TTL = 30 * 60
 VALIDATOR_TIMEOUT = 45
-VALIDATOR_MODEL = "claude-opus-4-7"
+VALIDATOR_MODEL = "default"
 VALIDATOR_CONTAINER = "validator"
 
 AGENT_CLAUDE_DIR = os.environ.get("AGENT_CLAUDE_DIR", os.path.expanduser("~/.claude"))
