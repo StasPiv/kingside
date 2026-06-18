@@ -236,14 +236,24 @@ export function useLocalBotGame(
       // + инкременты, движок сам выберет «человеческое» время на ход.
       // В режиме «Без часов» (noClock) clockInfo не передаём — fallback
       // к старому `go depth movetime` в `useBotEngine`.
-      const clockInfo = noClock
-        ? undefined
-        : {
-            wtimeMs: Math.max(1, Math.round(clocks.white * 1000)),
-            btimeMs: Math.max(1, Math.round(clocks.black * 1000)),
-            wincMs: Math.max(0, Math.round(incrementSec * 1000)),
-            bincMs: Math.max(0, Math.round(incrementSec * 1000)),
-          };
+      // KS-4335 (follow-up): первые 10 ходов бота играются быстро (без
+      // clockInfo), с 11-го начинаем передавать остаток часов. Подсчёт
+      // ходов бота — по истории `chess.history()`: если бот белый, его
+      // k-й ход на полуходе 2k-1; если чёрный — 2k.
+      const playedPlies = chess.history().length;
+      const isBotWhite = playerColor === 'black';
+      const botMovesDone = isBotWhite
+        ? Math.ceil(playedPlies / 2)
+        : Math.floor(playedPlies / 2);
+      const clockInfo =
+        noClock || botMovesDone < 10
+          ? undefined
+          : {
+              wtimeMs: Math.max(1, Math.round(clocks.white * 1000)),
+              btimeMs: Math.max(1, Math.round(clocks.black * 1000)),
+              wincMs: Math.max(0, Math.round(incrementSec * 1000)),
+              bincMs: Math.max(0, Math.round(incrementSec * 1000)),
+            };
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         if (cancelled) return;
         try {

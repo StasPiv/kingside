@@ -131,19 +131,37 @@ export function GamePage() {
    * почти мгновенно). До правки бот в `/game/:id` отвечал мгновенно
    * независимо от контроля времени.
    */
+  // KS-4335 (follow-up): актуальный цвет игрока для оценки «сколько
+  // ходов бот уже сыграл». Через ref, чтобы не пересоздавать
+  // `triggerBotMove` при смене цвета на инициализации.
+  const playerColorRef = useRef(playerColor);
+  playerColorRef.current = playerColor;
+
   const triggerBotMove = useCallback(
     async (fen: string) => {
       if (!gameId) return;
       const maxAttempts = 3;
+      // KS-4335 (follow-up): первые 10 ходов бота — без передачи остатка
+      // часов, чтобы дебют игрался быстро (как было до KS-4335). Начиная
+      // с 11-го хода бот получает clockInfo и распределяет время по
+      // часам через `go wtime btime winc binc`.
+      const playedPlies = movesLenRef.current;
+      const isBotWhite = playerColorRef.current === 'black';
+      const botMovesDone = isBotWhite
+        ? Math.ceil(playedPlies / 2)
+        : Math.floor(playedPlies / 2);
       const incMs = Math.max(0, Math.round(incrementSecRef.current * 1000));
       const wMs = Math.max(1, Math.round(clocksRef.current.white * 1000));
       const bMs = Math.max(1, Math.round(clocksRef.current.black * 1000));
-      const clockInfo = {
-        wtimeMs: wMs,
-        btimeMs: bMs,
-        wincMs: incMs,
-        bincMs: incMs,
-      };
+      const clockInfo =
+        botMovesDone >= 10
+          ? {
+              wtimeMs: wMs,
+              btimeMs: bMs,
+              wincMs: incMs,
+              bincMs: incMs,
+            }
+          : undefined;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           const uci = await getBotMoveRef.current(fen, clockInfo);
