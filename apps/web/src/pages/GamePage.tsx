@@ -113,10 +113,10 @@ export function GamePage() {
   // KS-4335: актуальные остатки часов и инкремент для передачи Stockfish'у
   // через UCI `go wtime btime winc binc`. Кладём в ref, чтобы не пересоздавать
   // `triggerBotMove` при каждом тике часов и не плодить лишние подписки WS.
+  // Сами refs объявляем здесь, а заполнение — в useEffect ниже, чтобы не
+  // обращаться к `gameMeta` до его объявления (TDZ при первом рендере).
   const clocksRef = useRef(clocks);
-  clocksRef.current = clocks;
   const incrementSecRef = useRef(0);
-  incrementSecRef.current = gameMeta?.increment ?? 0;
 
   /**
    * Request a bot move for the given FEN and emit it to the server.
@@ -205,6 +205,16 @@ export function GamePage() {
     increment: number;
   } | null>(null);
   const { sendChallenge, state: challengeState } = useChallenge();
+
+  // KS-4335: синхронизация refs для clockInfo. Делаем именно в эффектах,
+  // а не присваиванием прямо в теле компонента, чтобы избежать TDZ —
+  // `gameMeta` объявлен ниже `triggerBotMove`.
+  useEffect(() => {
+    clocksRef.current = clocks;
+  }, [clocks]);
+  useEffect(() => {
+    incrementSecRef.current = gameMeta?.increment ?? 0;
+  }, [gameMeta]);
 
   // Fetch game meta (opponent id, time control) for rematch
   useEffect(() => {
