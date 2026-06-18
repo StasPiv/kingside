@@ -110,20 +110,43 @@ export function GamePage() {
   const getBotMoveRef = useRef(getBotMove);
   getBotMoveRef.current = getBotMove;
 
+  // KS-4335: актуальные остатки часов и инкремент для передачи Stockfish'у
+  // через UCI `go wtime btime winc binc`. Кладём в ref, чтобы не пересоздавать
+  // `triggerBotMove` при каждом тике часов и не плодить лишние подписки WS.
+  const clocksRef = useRef(clocks);
+  clocksRef.current = clocks;
+  const incrementSecRef = useRef(0);
+  incrementSecRef.current = gameMeta?.increment ?? 0;
+
   /**
    * Request a bot move for the given FEN and emit it to the server.
    * Retries on transient engine failures so the first move after matchmaking
    * doesn't get lost when Stockfish is still initializing.
    * Errors are logged (not silently swallowed); the server-side fallback
    * kicks in after 5s if the client still fails.
+   *
+   * KS-4335: вместе с fen отдаём Stockfish'у остатки на часах в мс —
+   * `go wtime btime winc binc`. Движок сам выбирает «человеческое» время
+   * на ход (в дебюте быстрее, в критичных позициях дольше, в цейтноте
+   * почти мгновенно). До правки бот в `/game/:id` отвечал мгновенно
+   * независимо от контроля времени.
    */
   const triggerBotMove = useCallback(
     async (fen: string) => {
       if (!gameId) return;
       const maxAttempts = 3;
+      const incMs = Math.max(0, Math.round(incrementSecRef.current * 1000));
+      const wMs = Math.max(1, Math.round(clocksRef.current.white * 1000));
+      const bMs = Math.max(1, Math.round(clocksRef.current.black * 1000));
+      const clockInfo = {
+        wtimeMs: wMs,
+        btimeMs: bMs,
+        wincMs: incMs,
+        bincMs: incMs,
+      };
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          const uci = await getBotMoveRef.current(fen);
+          const uci = await getBotMoveRef.current(fen, clockInfo);
           socket.emit('game:bot-move', { gameId, uci });
           return;
         } catch (err: any) {
