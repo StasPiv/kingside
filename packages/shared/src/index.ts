@@ -34,6 +34,9 @@ export * from './utils/archive-name-normalize.js';
 export * from './utils/wdl.js';
 export * from './utils/puzzle-gen-core.js';
 export * from './utils/puzzle-gen-pipeline.js';
+// KS-4338 / ADR-135: новый алгоритм генерации tactic-пазлов на
+// Maia-difficulty. Живёт параллельно со старым puzzle-gen-pipeline.
+export * from './utils/tactic-puzzle-gen.js';
 export * from './utils/move-classification.js';
 export * from './utils/precision-score.js';
 // KS-3407 (ADR-086 S2): сравнение хода в guess-the-move.
