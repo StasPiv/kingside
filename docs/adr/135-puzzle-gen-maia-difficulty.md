@@ -122,7 +122,21 @@ model TacticPuzzleAttempt {
   ratingAfter        Int      @map("rating_after")
   puzzleRatingBefore Int?     @map("puzzle_rating_before")
   puzzleRatingAfter  Int?     @map("puzzle_rating_after")
+
+  /// Длина решённой линии (число полуходов пользователя). Не известна
+  /// заранее — определяется во время игры. Клиент на каждом полуходе
+  /// проверяет сложность позиции по shared-модулю; пазл продолжается,
+  /// пока |strongSet|=1 + difficulty > порога + gap ≥ порога.
+  lineHalfMoves      Int      @map("line_half_moves")
+  /// Все ходы пользователя через пробел (UCI). Длина переменная.
   userMoves          String?  @map("user_moves")
+  /// Причина остановки пазла:
+  ///   'easy'   — позиция стала простой по критериям сложности;
+  ///   'mate'   — мат / пат;
+  ///   'mistake'— пользователь сыграл не bestMove;
+  ///   'timeout'— превышен лимит времени;
+  ///   'aborted'— прервал сам.
+  stopReason         String   @map("stop_reason")
 
   // Поля precision-метрик (ADR-056) переезжают сюда. Двухтабличная схема
   // PuzzleAttempt + PrecisionAttempt в старой структуре была вынужденной
@@ -218,7 +232,19 @@ Lichess (`source='lichess'`, `solution_mode='forced-line'`) **не трогае�
 
 Колонка `puzzles.solution_mode` после удаления PVE-строк формально становится бесполезной (все оставшиеся строки `'forced-line'`). Удаление колонки не делаем сразу — дешевле оставить, чем переписывать DTO `/puzzles`.
 
-### 2.3. Pipeline в shared и tactic-worker
+### 2.3. Pipeline в shared, tactic-worker и в браузере
+
+Длина решения у пазла **не зафиксирована**. Сервер оценивает только стартовую позицию и сохраняет первый правильный ход. Дальше — клиент во время игры:
+
+1. Пользователь сыграл `bestMoveUci` правильно.
+2. Движок (Stockfish WASM) отвечает оптимальным ходом.
+3. На новой позиции (ход пользователя) клиент запускает **тот же модуль из shared**: SF MultiPV + Maia, проверяет `|strongSet|=1`, `difficulty > порога`, `gap ≥ порога`.
+4. Сложно → пазл продолжается, клиент показывает новую позицию пользователю, запоминает новый `bestMoveUci`. Возврат к шагу 1.
+5. Просто (несколько эквивалентов или Maia легко предсказывает) → пазл окончен, считается оценка.
+
+Поэтому общий модуль в shared — архитектурная необходимость, не косметика. Один и тот же код запускается:
+* на сервере для генерации стартовой позиции;
+* в браузере на каждом полуходе пользователя для проверки продолжения линии.
 
 **Shared** — старый `packages/shared/src/utils/puzzle-gen-pipeline.ts` и `puzzle-gen-core.ts` (всё кроме общих утилит `wdl.ts`/`expectedScoreFromWdl`) удаляются.
 
@@ -335,13 +361,23 @@ export async function processGameForTacticPuzzles(args: {
 
 ### 2.5. Frontend
 
-Раздел `/precision` целиком переезжает на новый маршрут.
+Раздел `/precision` целиком переезжает на новый маршрут `/tactic-puzzles/*`.
 
-* Новый компонент `apps/web/src/components/tactic/TacticPuzzleRunner.tsx` — заменяет `PlayVsEngineRunner.tsx` для этого раздела. Логика: solver видит позицию, обязан сыграть `bestMoveUci`. Никакой ветки `reactive`/`preventive`, никакого `replayBlunder`, никакого `firstMovePV1` фолбэка. Один путь — «угадай правильный ход».
+* `PlayVsEngineRunner.tsx` **остаётся и развивается** до `TacticPuzzleRunner.tsx`. На его базе встраивается:
+  * Stockfish WASM через существующий `engineAdapter.ts` (поддерживает `go nodes N`);
+  * Maia browser через существующий `apps/web/src/lib/maia/` (`@kingside/maia-core/browser`);
+  * цикл проверки сложности на каждом полуходе пользователя через общий модуль из shared (см. §2.3).
+* Логика рантайма:
+  1. Старт: показывается `puzzle.fen`, пользователь играет ход.
+  2. Сравнение с `bestMoveUci`: если не совпало — `stopReason='mistake'`, оценка ставится.
+  3. Если совпало — движок отвечает, клиент показывает новую позицию.
+  4. На новой позиции — фоновая проверка сложности (SF MultiPV + Maia) **пока пользователь думает**: получили новый `bestMoveUci`, `gap`, `difficulty`.
+  5. Простая позиция → `stopReason='easy'`, оценка ставится.
+  6. Сложная → пользователь играет, цикл с шага 2.
+* Никакой ветки `reactive`/`preventive`, никакого `replayBlunder`, никакого `firstMovePV1` фолбэка. Один путь — «угадай правильный ход и продолжай, пока сложно».
 * `apps/web/src/pages/PrecisionPage.tsx` — переключается на `/tactic-puzzles/*`.
 * `apps/web/src/api-puzzle.ts`, `useInfinitePuzzles.ts` — для `/puzzles` (lichess) остаются как есть. Для `/tactic-puzzles` — новые `api-tactic-puzzle.ts`, `useInfiniteTacticPuzzles.ts`.
-* Клиентский генератор `PuzzleGeneratorModal` переводится на тот же Maia-difficulty pipeline через `@kingside/maia-core/browser` + Stockfish WASM (`apps/web/src/utils/engineAdapter.ts` уже поддерживает `go nodes N`). Алгоритм один и тот же в shared, без расхождений между клиентом и сервером. Стоимость на партию пользователя — порядка минут; точный замер на T6.
-* `PlayVsEngineRunner.tsx` после переезда `/precision` и `PuzzleGeneratorModal` больше не нужен — удаляется. Логика «один сильный ход на текущей FEN» вся в `TacticPuzzleRunner.tsx`.
+* Клиентский генератор `PuzzleGeneratorModal` переводится на тот же Maia-difficulty pipeline (общий модуль в shared) — создаёт `tactic_puzzles` записи через тот же API, что и сервер.
 
 Раздел `/puzzles` (lichess), daily-puzzle, puzzle-rush — без изменений.
 
@@ -375,10 +411,12 @@ T8. devops   Массовая генерация tactic_puzzles на TWIC чер
              наблюдение метрик принятия
 T9. backend  Чистка apps/api/src/puzzle/: удалить ветки PVE-резолверов,
              параметр solutionMode из find-puzzles.dto, мёртвые тесты
-T10. frontend Удалить apps/web/src/components/puzzle/PlayVsEngineRunner.tsx,
-             apps/web/src/utils/puzzleGenerator.ts (старый blunder-генератор)
-             и связанные spec'и — после переезда PuzzleGeneratorModal
-             на Maia-difficulty pipeline (T6)
+T10. frontend Развить PlayVsEngineRunner.tsx в TacticPuzzleRunner.tsx —
+             встроить SF WASM + Maia browser + цикл проверки сложности на
+             каждом полуходе через shared-модуль. Удалить старый
+             apps/web/src/utils/puzzleGenerator.ts (blunder-генератор не
+             используется). PostGameReview/PrecisionScoreBlock — обновить
+             под переменную длину линии
 ```
 
 **Точки безопасной остановки**: после T2 (новая таблица пустая, никто к ней не ходит), после T4 (маршрут готов, фронт ещё на старом), после T6 (фронт переехал, старые данные ещё на месте — можно откатить фронт обратно).
@@ -387,22 +425,25 @@ T10. frontend Удалить apps/web/src/components/puzzle/PlayVsEngineRunner.t
 
 ### 2.7. Открытые вопросы
 
-1. **Авторские черновики пользователей** — `puzzles WHERE source='generated' AND solution_mode='play-vs-engine' AND created_by IS NOT NULL`. Это пазлы, сделанные через `PuzzleGeneratorModal`. Под предложенный DELETE в §2.2 они попадают вместе с TWIC. Варианты:
+1. **Авторские черновики пользователей** — `puzzles WHERE source='generated' AND solution_mode='play-vs-engine' AND created_by IS NOT NULL`. Это пазлы, сделанные через старый blunder-`PuzzleGeneratorModal`. Под предложенный DELETE в §2.2 они попадают вместе с TWIC. Варианты:
    * удалить вместе с TWIC (пользователи теряют черновики);
-   * перенести в `tactic_puzzles` с NULL в Maia-полях и маркером `algorithm_version='legacy-blunder-v1'` (фронт показывает их в /precision без Maia-фильтра);
-   * оставить в старой `puzzles` отдельным `solution_mode='legacy-pve'` (но это размазывает концепт).
+   * перенести в `tactic_puzzles` с NULL в Maia-полях и маркером `algorithm_version='legacy-blunder-v1'` (рантайм покажет их через тот же `TacticPuzzleRunner` — клиент сам проверит сложность на каждом полуходе через Maia, даже если запись создана старым алгоритмом).
 
-   Запрос для оценки объёма — в §2.2 (количество строк с `created_by IS NOT NULL`).
+   Второй вариант рабочий: `TacticPuzzleRunner` на клиенте умеет оценивать сложность сам, не доверяя стартовым метрикам записи. Запрос объёма — в §2.2.
 
-2. **Рейтинг пользователя по «Точности»** — отдельная таблица `TacticRatingSnapshot` или поле в `User`. Связано с архитектурой `PuzzleRatingSnapshot`. Решается на T2.
+2. **Максимальная длина пазла** — динамическая остановка может теоретически тянуться долго (каждый ход после правильного ответа движка снова сложный). Нужен потолок (например `lineHalfMoves ≤ 8`) и/или таймаут на сессию. Решается на T6.
 
-3. **Maia-2400** — корректная аудитория для /precision? Игроки часто 1200–1800. Если выборка T5 «слишком трудная» — уменьшить `MAIA_ELO` в конфиге.
+3. **Бюджет SF + Maia на каждом полуходе в браузере** — клиент считает позицию в фоне, пока пользователь думает. Если пользователь сыграл быстро, проверка может не успеть. Поведение: блокировать ввод следующего хода до завершения проверки или показывать индикатор. Решается на T6.
 
-4. **Параллелизм Maia ONNX-session** — поточно-безопасен ли `predictMoves` или нужна сериализация через мьютекс. Не проверено по документации `onnxruntime-node`/`onnxruntime-web`. Уточняется на T1 тестом.
+4. **Рейтинг пользователя по «Точности»** — отдельная таблица `TacticRatingSnapshot` или поле в `User`. Связано с архитектурой `PuzzleRatingSnapshot`. Решается на T2.
 
-5. **`go nodes` vs `go depth`** — для предсказуемости времени, возможно, перейти на `depth`. Решается на T5.
+5. **Maia-2400** — корректная аудитория для /precision? Игроки часто 1200–1800. Если выборка T5 «слишком трудная» — уменьшить `MAIA_ELO` в конфиге.
 
-6. **Эндшпильные мат-форсы** — нужен ли отдельный отсев или `|strongSet|=1 + gap ≥ 0.2` сами справляются. Оценка на T5.
+6. **Параллелизм Maia ONNX-session** — поточно-безопасен ли `predictMoves` или нужна сериализация через мьютекс. Не проверено по документации `onnxruntime-node`/`onnxruntime-web`. Уточняется на T1 тестом.
+
+7. **`go nodes` vs `go depth`** — для предсказуемости времени, возможно, перейти на `depth`. Решается на T5/T6.
+
+8. **Эндшпильные мат-форсы** — нужен ли отдельный отсев или `|strongSet|=1 + gap ≥ 0.2` сами справляются. Оценка на T5.
 
 ## 3. Последствия
 
