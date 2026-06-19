@@ -2848,29 +2848,40 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": f"unknown agent '{agent}'"}).encode())
                 return
+            # Собираем все session_id, когда-либо принадлежавшие этому агенту.
+            # Маркер — записи {"type":"agent_init","agent":<name>,"session_id":<sid>}
+            # пишет AgentDaemon._read_stdout при захвате нового session_id.
+            # Плюс текущий sid живого daemon'а (если ещё не успел залогироваться).
+            agent_sids: set[str] = set()
             with agent_daemons_lock:
                 daemon = agent_daemons.get(agent)
-            sid = daemon.session_id if daemon else None
-            if not sid:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"agent": agent, "events": [], "note": "no active session"}).encode())
-                return
+            if daemon and daemon.session_id:
+                agent_sids.add(daemon.session_id)
             events = []
+            agent_marker = f'"agent": "{agent}"'
             try:
                 with open(os.path.join(LOG_DIR, "agents.log")) as f:
                     for line in f:
-                        # Дешёвый префильтр по подстроке — пропускаем строки,
-                        # где session_id точно нет (3+ ГБ агент-лог иначе будем
-                        # парсить целиком). Точная проверка — после json.loads.
-                        if sid not in line:
+                        # Дешёвый префильтр по подстроке для собирания sid'ов
+                        # агента из agent_init-маркеров.
+                        if agent_marker in line and '"agent_init"' in line:
+                            try:
+                                data = json.loads(line)
+                                if data.get("type") == "agent_init" and data.get("agent") == agent:
+                                    sid = data.get("session_id")
+                                    if sid:
+                                        agent_sids.add(sid)
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+                            continue
+                        # Префильтр по любому из собранных sid'ов в строке.
+                        if not any(s in line for s in agent_sids):
                             continue
                         try:
                             data = json.loads(line)
                         except (json.JSONDecodeError, ValueError):
                             continue
-                        if data.get("session_id") != sid:
+                        if data.get("session_id") not in agent_sids:
                             continue
                         t = data.get("type")
                         if t == "assistant":
@@ -2891,6 +2902,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                             events.append({"kind": "result", "cost": data.get("total_cost_usd", 0)})
             except Exception as e:
                 log(f"/agent/logs error: {e}")
+            sid = (daemon.session_id if daemon else None) or (next(iter(agent_sids), None))
             events = events[-limit:]
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
