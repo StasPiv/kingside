@@ -738,101 +738,156 @@ export function TacticPuzzleRunner({
 
   return (
     <div
-      className="tactic-puzzle-runner"
+      className="puzzle-engine-runner tactic-puzzle-runner"
       data-testid="tactic-puzzle-runner"
       data-state={state}
       data-puzzle-id={puzzle.id}
     >
-      {latestWdl && (
-        <div className="tactic-puzzle-runner__wdlbar">
-          <WdlChancesBar wdl={latestWdl} />
-        </div>
-      )}
-      <PuzzleBoard
-        game={game}
-        boardOrientation={orientation}
-        enabled={isThinking && !isWin && !isLose}
-        onPieceDrop={onPieceDrop}
-        lastMoveUci={lastMoveUci}
-        boardKey={puzzle.id}
-        status={
-          isThinking
-            ? 'thinking'
-            : state === 'evaluating' || state === 'engine'
-              ? 'checking'
-              : isWin
-                ? 'correct'
-                : isLose
-                  ? 'incorrect'
-                  : null
-        }
-      />
+      <div className="puzzle-engine-runner__layout">
+        <div className="puzzle-engine-runner__board-col">
+          {/* KS-4346: полоса оценки W/D/L над доской — тот же компонент
+              и место, что и в PlayVsEngineRunner (/precision). До этого
+              тикета полоса жила в своей обёртке `.tactic-puzzle-runner__
+              wdlbar`, отрисовывалась криво и не совпадала по отступам с
+              /precision. Сейчас лежит прямой child'ом board-col, на
+              desktop попадает в первый grid-row над доской, на mobile —
+              в шапку колонки. */}
+          <WdlChancesBar
+            wdl={latestWdl}
+            testId="tactic-puzzle-wdl-chances"
+          />
 
-      {isThinking && canFinish && (
-        <div
-          className="tactic-puzzle-runner__finish-controls"
-          data-testid="tactic-puzzle-finish-controls"
-        >
-          <button
-            type="button"
-            onClick={handleSkip}
-            data-testid="tactic-puzzle-skip"
-          >
-            {t('tacticPuzzle.actions.skip', 'Skip move')}
-          </button>
-          <button
-            type="button"
-            onClick={handleFinish}
-            data-testid="tactic-puzzle-finish"
-          >
-            {t('tacticPuzzle.actions.finish', 'Finish puzzle')}
-          </button>
-        </div>
-      )}
+          <PuzzleBoard
+            game={game}
+            boardOrientation={orientation}
+            enabled={isThinking && !isWin && !isLose}
+            onPieceDrop={onPieceDrop}
+            lastMoveUci={lastMoveUci}
+            boardKey={puzzle.id}
+            status={
+              isThinking
+                ? 'thinking'
+                : state === 'evaluating' || state === 'engine'
+                  ? 'checking'
+                  : isWin
+                    ? 'correct'
+                    : isLose
+                      ? 'incorrect'
+                      : null
+            }
+          />
 
-      {(isWin || isLose) && (
-        <div className="tactic-puzzle-runner__result" data-testid="tactic-puzzle-result">
-          <p className="tactic-puzzle-runner__verdict">
-            {isWin
-              ? t('tacticPuzzle.result.solved', 'Solved')
-              : t('tacticPuzzle.result.failed', 'Failed')}
-          </p>
-          <p className="tactic-puzzle-runner__stats">
-            {t('tacticPuzzle.result.lineLength', 'Moves: {{n}}', {
-              n: halfMovesRef.current,
-            })}
-          </p>
-          <div className="tactic-puzzle-runner__nav">
-            {onBack && (
-              <button type="button" onClick={onBack} data-testid="tactic-puzzle-back">
-                {t('common.back', 'Back')}
+          {/* KS-4346: кнопки «Пропустить» / «Завершить» — `precision-
+              result-actions--compact`-стиль, как Back/Next в /precision
+              после win/lose. Выводятся прямо под доской, чтобы
+              пользователь не скроллил искать действия. */}
+          {isThinking && canFinish && (
+            <div
+              className="precision-result-actions precision-result-actions--compact tactic-puzzle-runner__finish-controls"
+              data-testid="tactic-puzzle-finish-controls"
+            >
+              <button
+                type="button"
+                className="play-btn play-btn--secondary play-btn--compact"
+                onClick={handleSkip}
+                data-testid="tactic-puzzle-skip"
+              >
+                {t('tacticPuzzle.actions.skip', 'Skip move')}
               </button>
-            )}
-            {onNext && (
-              <button type="button" onClick={onNext} data-testid="tactic-puzzle-next">
-                {t('common.next', 'Next')}
+              <button
+                type="button"
+                className="play-btn play-btn--compact"
+                onClick={handleFinish}
+                data-testid="tactic-puzzle-finish"
+              >
+                {t('tacticPuzzle.actions.finish', 'Finish puzzle')}
               </button>
-            )}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
 
-      {isError && (
-        <div className="tactic-puzzle-runner__error" data-testid="tactic-puzzle-error">
-          {errorMsg || t('tacticPuzzle.error.generic', 'Engine error')}
-        </div>
-      )}
+          {/* KS-4346: кнопка «Сдаться» во время решения — единый стиль
+              с `.puzzle-engine-runner__replay-btn` из /precision (та же
+              форма / отступы / hover/active-state), но с danger-окраской
+              текста и border'а — это деструктивное действие. */}
+          {isThinking && state === 'thinking' && (
+            <div
+              className="puzzle-engine-runner__actions tactic-puzzle-runner__abort-row"
+              data-testid="tactic-puzzle-abort-row"
+            >
+              <button
+                type="button"
+                className="puzzle-engine-runner__replay-btn tactic-puzzle-runner__abort"
+                onClick={handleAbort}
+                data-testid="tactic-puzzle-abort"
+              >
+                {t('tacticPuzzle.actions.abort', 'Resign')}
+              </button>
+            </div>
+          )}
 
-      {isThinking && state === 'thinking' && (
-        <button
-          type="button"
-          className="tactic-puzzle-runner__abort"
-          onClick={handleAbort}
-          data-testid="tactic-puzzle-abort"
-        >
-          {t('tacticPuzzle.actions.abort', 'Abort')}
-        </button>
-      )}
+          {(isWin || isLose) && (
+            <div
+              className="puzzle-engine-runner__result tactic-puzzle-runner__result"
+              data-testid="tactic-puzzle-result"
+            >
+              <div
+                className={`puzzle-engine-runner__result-label puzzle-engine-runner__result-label--${
+                  isWin ? 'win' : 'lose'
+                } tactic-puzzle-runner__verdict`}
+                data-testid="tactic-puzzle-verdict"
+              >
+                {isWin
+                  ? t('tacticPuzzle.result.solved', 'Solved')
+                  : t('tacticPuzzle.result.failed', 'Failed')}
+              </div>
+              <div
+                className="puzzle-engine-runner__result-endnote tactic-puzzle-runner__stats"
+                data-testid="tactic-puzzle-stats"
+              >
+                {t('tacticPuzzle.result.lineLength', 'Moves: {{n}}', {
+                  n: halfMovesRef.current,
+                })}
+              </div>
+              {(onBack || onNext) && (
+                <div
+                  className="precision-result-actions precision-result-actions--compact tactic-puzzle-runner__nav"
+                  data-testid="tactic-puzzle-nav"
+                >
+                  {onBack && (
+                    <button
+                      type="button"
+                      className="play-btn play-btn--secondary play-btn--compact"
+                      onClick={onBack}
+                      data-testid="tactic-puzzle-back"
+                    >
+                      {t('common.back', 'Back')}
+                    </button>
+                  )}
+                  {onNext && (
+                    <button
+                      type="button"
+                      className="play-btn play-btn--compact"
+                      onClick={onNext}
+                      data-testid="tactic-puzzle-next"
+                    >
+                      {t('common.next', 'Next')}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {isError && (
+            <div
+              className="puzzle-engine-runner__error tactic-puzzle-runner__error"
+              data-testid="tactic-puzzle-error"
+            >
+              {errorMsg || t('tacticPuzzle.error.generic', 'Engine error')}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

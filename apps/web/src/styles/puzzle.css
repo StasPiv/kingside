@@ -7043,3 +7043,94 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
     padding: 2px 8px;
   }
 }
+
+/* ===========================================================
+ * KS-4346 — страница решения /tactic-puzzles/:id.
+ *
+ * Раннер `.tactic-puzzle-runner` дополнительно к собственному классу
+ * получает `.puzzle-engine-runner` — наследует layout, сетку, мобильные
+ * брейкпоинты и стили полосы W/D/L из /precision (KS-3391/KS-2922).
+ * Ниже — только дельты, специфичные для tactic-флоу:
+ *   1) кнопка «Сдаться» (`__abort`) — деструктивная окраска поверх
+ *      `.puzzle-engine-runner__replay-btn`-формы;
+ *   2) ряд кнопок «Сдаться» (`__abort-row`) — прижат влево, чтобы не
+ *      растягиваться на всю ширину info-col;
+ *   3) wrapper страницы (`.tactic-puzzle-solve`) — компактные отступы
+ *      для loading/error-блоков под `.puzzle-page`.
+ * =========================================================== */
+.tactic-puzzle-runner__abort-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.tactic-puzzle-runner__abort.puzzle-engine-runner__replay-btn {
+  /* Danger-tinted border + color; фон/паддинги/радиус берутся из
+     .puzzle-engine-runner__replay-btn — единая форма с «Проиграть
+     ход» в /precision. */
+  color: var(--danger, #ef4444);
+  border-color: var(--ov-danger-15, rgba(220, 38, 38, 0.35));
+}
+.tactic-puzzle-runner__abort.puzzle-engine-runner__replay-btn:hover:not(:disabled) {
+  background: var(--ov-danger-15, rgba(220, 38, 38, 0.12));
+  border-color: var(--danger, #ef4444);
+  color: var(--danger, #ef4444);
+}
+.tactic-puzzle-runner__abort.puzzle-engine-runner__replay-btn:active:not(:disabled) {
+  background: var(--ov-danger-15, rgba(220, 38, 38, 0.18));
+  border-color: var(--danger, #ef4444);
+  color: var(--danger-strong, #b91c1c);
+}
+.tactic-puzzle-runner__abort.puzzle-engine-runner__replay-btn:focus-visible {
+  outline-color: var(--danger, #ef4444);
+}
+
+/* Верх result-блока: tactic-флоу пока не показывает звёзды /
+   PrecisionScoreBlock (это будет отдельная задача T10), поэтому
+   verdict-заголовок выровнен по центру и крупнее, чтобы блок
+   читался как «итог», а не как подпись. */
+.tactic-puzzle-runner__verdict {
+  text-align: center;
+}
+.tactic-puzzle-runner__stats {
+  text-align: center;
+}
+
+/* Wrapper страницы — компактные loading/error блоки, согласованные
+   по отступам с `.puzzle-page` (центрированная колонка). */
+.tactic-puzzle-solve__loading {
+  margin: 24px 0;
+  color: var(--text-secondary, var(--c-a0a0c0, #a0a0c0));
+  font-size: 14px;
+}
+
+.tactic-puzzle-solve__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 24px auto;
+  max-width: 480px;
+  padding: 16px 18px;
+  background: var(--ov-error-15, rgba(244, 67, 54, 0.12));
+  border: 1px solid var(--danger, #ef4444);
+  border-radius: 8px;
+  color: var(--text-primary, var(--c-e0e0e0));
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.tactic-puzzle-solve__error p {
+  margin: 0;
+}
+
+.tactic-puzzle-solve__error-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.tactic-puzzle-solve__error-actions .play-btn {
+  min-width: 120px;
+}

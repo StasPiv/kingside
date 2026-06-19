@@ -101,13 +101,16 @@ export function SolveTacticPuzzlePage() {
 
   return (
     <div
-      className="tactic-puzzle-solve"
+      className="puzzle-page tactic-puzzle-solve"
       data-testid="tactic-puzzle-solve"
       data-state={loading ? 'loading' : error ? 'error' : 'ready'}
     >
       <PageSeo ns="tacticPuzzle.solve" path="/tactic-puzzles" />
       {loading && (
-        <p data-testid="tactic-puzzle-solve-loading">
+        <p
+          className="tactic-puzzle-solve__loading"
+          data-testid="tactic-puzzle-solve-loading"
+        >
           {t('common.loading', 'Loading…')}
         </p>
       )}
@@ -117,12 +120,22 @@ export function SolveTacticPuzzlePage() {
           data-testid="tactic-puzzle-solve-error"
         >
           <p>{error}</p>
-          <button type="button" onClick={() => void loadPuzzle()}>
-            {t('common.retry', 'Retry')}
-          </button>
-          <button type="button" onClick={handleBack}>
-            {t('common.back', 'Back')}
-          </button>
+          <div className="tactic-puzzle-solve__error-actions">
+            <button
+              type="button"
+              className="play-btn play-btn--secondary play-btn--compact"
+              onClick={handleBack}
+            >
+              {t('common.back', 'Back')}
+            </button>
+            <button
+              type="button"
+              className="play-btn play-btn--compact"
+              onClick={() => void loadPuzzle()}
+            >
+              {t('common.retry', 'Retry')}
+            </button>
+          </div>
         </div>
       )}
       {puzzle && (
