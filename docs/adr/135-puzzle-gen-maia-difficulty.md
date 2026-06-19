@@ -1,55 +1,207 @@
-# ADR-135: Переход puzzle-generator на Maia-difficulty trigger
+# ADR-135: Раздел «Точность» — отдельный концепт пазлов на Maia-difficulty
 
 Связанные тикеты: KS-4337.
-Связанные ADR: 044, 068, 069, 070, 104, 106, 124.
+Связанные ADR: 044, 056, 068, 069, 070, 104, 106, 124.
 
 ## 1. Контекст
 
-Текущий генератор пазлов (ADR-068/070) ищет **зевки в партии**: сравнивает ход партии с PV1 Stockfish, требует падение `deltaW` или `deltaD` ≥ 0.6 и after-фильтр `W+D ≥ 0.5`. На один зевок строит до двух пазлов — `reactive` (наказать) и `preventive` (избежать).
+В проекте две сущности пазлов жили в одной таблице `puzzles`:
 
-Прототип в `/tmp/run-combined.mjs` у backend сменил концепцию. Триггер пазла больше **не привязан к ошибке в партии**. На любом ply ≥ 20 ищем позицию, где:
+* **lichess** (`source='lichess'`, `solution_mode='forced-line'`, ~6 M) — классические пазлы с фиксированной линией. База для `/puzzles`, daily-puzzle, puzzle-rush. Целевая аудитория — новички и базовое обучение.
+* **generated PVE** (`source='generated'`, `solution_mode='play-vs-engine'`) — генерируемые из партий TWIC через триггер «зевок» (ADR-068/070). Каждый зевок порождал два пазла: `reactive` (наказать) и `preventive` (избежать). Цель — раздел `/precision`.
 
-* единственный сильный ход на двух проходах Stockfish (предварительный и верифицирующий) — `|strongSet| = 1` (все остальные ходы хуже на `> EPS_EQUIV = 0.02` expected score),
-* Maia-3 на ELO 2400 даёт этому ходу policy < 10 % — то есть человеку 2400 трудно увидеть его,
+Прототип в `/tmp/run-combined.mjs` сменил концепт generated-генерации. Триггер пазла больше не привязан к ошибке в партии. На любом ply ≥ 20 ищем позицию, где:
+
+* единственный сильный ход на двух проходах Stockfish (предварительный 1 M nodes и верифицирующий 10 M nodes) — `|strongSet| = 1` (все остальные ходы хуже на `> EPS_EQUIV = 0.02` по expected score),
+* Maia-3 на ELO 2400 даёт этому ходу policy < 10 % — человеку 2400 трудно его увидеть,
 * лучший ход не проигрывает (`L ≤ 0.5`),
 * зазор по expected score между лучшим и вторым `≥ 0.2`,
 * лучший ход на обоих проходах совпадает.
 
-Цель пазла теперь — **«найди единственный сильный ход в трудной позиции»**, без жанров «реализуй перевес»/«спасение» как структурного разделения reactive/preventive. Backend утвердил концепцию с пользователем.
-
-Параметры прототипа (на трёх партиях SF18, 1 поток):
+Параметры прототипа (проверено на 3 партиях, SF 18, 1 поток):
 
 | Параметр | Значение | Назначение |
 |---|---|---|
 | `START_PLY` | 20 | Отсечь дебютную теорию |
-| `SF_MAIN_NODES` | 1 000 000 | Бюджет main pass (дешёвый отсев) |
-| `SF_VERIFY_NODES` | 10 000 000 | Бюджет verify pass (защита от артефактов main) |
+| `SF_MAIN_NODES` | 1 000 000 | Бюджет предварительного прохода |
+| `SF_VERIFY_NODES` | 10 000 000 | Бюджет верифицирующего прохода |
 | `SF_MULTIPV` | 10 | Глубина поиска альтернатив |
 | `MAIA_ELO` | 2400 | Целевая аудитория |
-| `EPS_EQUIV` | 0.02 | Что считается «эквивалентным» лучшему по E |
-| `DIFFICULTY_MIN` | 0.9 | Σ policy[strongSet] < 0.1 |
+| `EPS_EQUIV` | 0.02 | Что считается эквивалентным лучшему |
+| `DIFFICULTY_MIN` | 0.9 | Σ policy по сильному набору < 0.1 |
 | `LOSE_MAX` | 0.5 | Лучший ход не должен проигрывать |
 | `GAP_MIN` | 0.2 | bestE − secondE |
 
-В проекте уже есть **вся необходимая Maia-инфраструктура**:
+**Решение пользователя по поверхности изменений:**
 
-* `@kingside/maia-core` — `Maia.predictMoves(fen, elo, elo) → { policy }`, провайдер ONNX-runtime для Node;
-* `MaiaAnnotationService` в `apps/tactic-worker/src/maia/maia-annotation.service.ts` — singleton-обёртка с lazy-init, kill-switch при ошибке загрузки;
-* модель `tools/maia3/maia3_simplified.onnx`, ENV `PRECISION_MAIA_MODEL_PATH`, путь, конфиг;
+* раздел `/precision` (generated PVE) — **полная переработка**, чистый разрыв;
+* раздел `/puzzles` (lichess) — **не трогаем**, lichess остаётся для новичков (daily-puzzle, puzzle-rush);
+* старые generated PVE-пазлы и их история — **удаляются**.
+
+Maia-инфраструктура уже в проекте:
+
+* `@kingside/maia-core` — `Maia.predictMoves(fen, elo, elo) → { policy }`, провайдер ONNX-runtime;
+* `MaiaAnnotationService` — обёртка-одиночка с отложенной инициализацией, выключателем при ошибке загрузки модели;
+* модель `tools/maia3/maia3_simplified.onnx`;
 * `expectedScoreFromWdl(wdl)` в shared — формула E из прототипа уже есть.
-
-Сейчас Maia используется только для **post-аннотации** уже созданных PVE-пазлов (`maiaWeakChoiceProb`, ADR-106). После ADR-135 Maia становится частью триггера генерации, а не пост-аннотации.
 
 ## 2. Решение
 
-### 2.1. Контракты типов в `packages/shared`
+### 2.1. Новая таблица `tactic_puzzles` (Prisma)
 
-Файл `src/utils/puzzle-gen-pipeline.ts` — добавляем параллельный pipeline. Старый (blunder) **остаётся** до полного перехода — нужен для отката и клиентского генератора (`PuzzleGeneratorModal`, ADR-070).
+Полностью изолирована от `puzzles`. Никаких пересечений колонок и совмещённых индексов. Содержит только поля, нужные новому концепту.
 
-Новые сущности (новый файл `src/utils/puzzle-gen-maia.ts`):
+```prisma
+model TacticPuzzle {
+  id               String   @id @default(uuid()) @db.Uuid
+  fen              String   @unique
+  /// UCI единственного сильного хода (решение пазла).
+  bestMoveUci      String   @map("best_move_uci")
+  /// side-to-move в fen — тот, кто решает.
+  solverSide       String   @map("solver_side") // 'w' | 'b'
+
+  // Maia-difficulty метрики (см. §2.3)
+  bestE            Float    @map("best_e")
+  secondE          Float    @map("second_e")
+  gap              Float                          // bestE - secondE
+  difficulty       Float                          // 1 - Σ policy[strongSet]
+  wdlW             Int      @map("wdl_w")
+  wdlD             Int      @map("wdl_d")
+  wdlL             Int      @map("wdl_l")
+
+  /// 'convertAdvantage' | 'saveEquality'. Определяется по WDL solver на fen.
+  objective        String
+
+  /// Drill-теги (pin/fork/skewer/...) через пробел.
+  /// Без 'reactive'/'preventive' — этих жанров в новом концепте нет.
+  themes           String   @default("")
+
+  /// Glicko-2 рейтинг пазла для подбора игроку.
+  rating           Int      @default(1500)
+  ratingDev        Int      @default(350) @map("rating_dev")
+  popularity       Int      @default(0)
+  nbPlays          Int      @default(0) @map("nb_plays")
+
+  // Источник
+  sourceGameId     String?  @map("source_game_id") @db.Uuid
+  sourceMoveNum    Int?     @map("source_move_num")
+  sourceWhiteElo   Int?     @map("source_white_elo")
+  sourceBlackElo   Int?     @map("source_black_elo")
+  sourceHeaders    Json?    @map("source_headers") @db.JsonB
+
+  // Параметры алгоритма (для воспроизводимости и пересчёта)
+  algorithmVersion String   @default("maia-difficulty-v1") @map("algorithm_version")
+  maiaElo          Int      @map("maia_elo")
+  sfMainNodes      Int      @map("sf_main_nodes")
+  sfVerifyNodes    Int      @map("sf_verify_nodes")
+  sfMultiPv        Int      @map("sf_multi_pv")
+
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  attempts         TacticPuzzleAttempt[]
+  mistakes         TacticUserMistake[]
+
+  @@index([rating])
+  @@index([themes])
+  @@index([difficulty])
+  @@index([gap])
+  @@index([objective, rating])
+  @@index([algorithmVersion])
+  @@map("tactic_puzzles")
+}
+
+model TacticPuzzleAttempt {
+  id                 String   @id @default(uuid()) @db.Uuid
+  puzzleId           String   @map("puzzle_id") @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  solved             Boolean
+  timeMs             Int      @map("time_ms")
+
+  // Игровой рейтинг пользователя по разделу «Точность» (свой, не общий /puzzles)
+  ratingBefore       Int      @map("rating_before")
+  ratingAfter        Int      @map("rating_after")
+  puzzleRatingBefore Int?     @map("puzzle_rating_before")
+  puzzleRatingAfter  Int?     @map("puzzle_rating_after")
+  userMoves          String?  @map("user_moves")
+
+  // Поля precision-метрик (ADR-056) переезжают сюда. Двухтабличная схема
+  // PuzzleAttempt + PrecisionAttempt в старой структуре была вынужденной
+  // из-за смеси forced-line и PVE в одной таблице. Здесь PVE — норма,
+  // отдельной таблицы не нужно.
+  wdlStart           Float?   @map("wdl_start")
+  wdlEnd             Float?   @map("wdl_end")
+  movesAccuracy      Float?   @map("moves_accuracy")
+  precisionGrade     Int?     @map("precision_grade")  // 1..5 (KS-3744 / ADR-065)
+
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  puzzle             TacticPuzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  user               User         @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([puzzleId])
+  @@index([userId, createdAt])
+  @@index([userId, puzzleId, solved])
+  @@map("tactic_puzzle_attempts")
+}
+
+model TacticUserMistake {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  puzzleId  String   @map("puzzle_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  resolved  Boolean  @default(false)
+
+  puzzle    TacticPuzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id])
+
+  @@unique([userId, puzzleId])
+  @@index([userId, resolved])
+  @@map("tactic_user_mistakes")
+}
+```
+
+Пользовательский рейтинг по разделу «Точность» — отдельное поле в `User` или отдельная таблица `TacticRatingSnapshot` (по образцу `PuzzleRatingSnapshot`). Решается на T2 (см. §2.6).
+
+### 2.2. Удаление старых данных
+
+Миграция `delete_legacy_generated_pve`:
+
+```sql
+-- 1. Precision-метрики старых PVE-попыток
+DELETE FROM precision_attempts
+WHERE attempt_id IN (
+  SELECT pa.id FROM puzzle_attempts pa
+  JOIN puzzles p ON pa.puzzle_id = p.id
+  WHERE p.source = 'generated' AND p.solution_mode = 'play-vs-engine'
+);
+
+-- 2. Ошибки пользователей по старым PVE
+DELETE FROM user_mistakes
+WHERE puzzle_id IN (
+  SELECT id FROM puzzles
+  WHERE source = 'generated' AND solution_mode = 'play-vs-engine'
+);
+
+-- 3. Сами пазлы (попытки удалятся каскадом — Puzzle.attempts onDelete: Cascade)
+DELETE FROM puzzles
+WHERE source = 'generated' AND solution_mode = 'play-vs-engine';
+```
+
+`puzzle_rush_session_puzzles` ссылается на `puzzles` — проверить на T2 не было ли PVE-пазлов в сессиях rush. Маловероятно (rush работает на lichess), но FK-аудит обязателен.
+
+Lichess (`source='lichess'`, `solution_mode='forced-line'`) **не трогаем**. Колонки `solution_mode`, `maia_weak_choice_prob`, `maia_metric_version`, `maia_top1_elo` остаются — они уже не имеют смысла для lichess (forced-line их не использует), но и не мешают. Чистку этих колонок выносить в отдельную задачу (необязательную, через пол-года когда убедимся что разрыв окончательный).
+
+Колонка `puzzles.solution_mode` после удаления PVE-строк формально становится бесполезной (все оставшиеся строки `'forced-line'`). Удаление колонки не делаем сразу — дешевле оставить, чем переписывать DTO `/puzzles`.
+
+### 2.3. Pipeline в shared и tactic-worker
+
+**Shared** — старый `packages/shared/src/utils/puzzle-gen-pipeline.ts` и `puzzle-gen-core.ts` (всё кроме общих утилит `wdl.ts`/`expectedScoreFromWdl`) удаляются.
+
+Новый файл `packages/shared/src/utils/tactic-puzzle-gen.ts`:
 
 ```ts
-export interface MaiaDifficultySettings {
+export interface TacticPuzzleGenSettings {
   startPly: number;             // 20
   sfMainNodes: number;          // 1_000_000
   sfVerifyNodes: number;        // 10_000_000
@@ -61,22 +213,20 @@ export interface MaiaDifficultySettings {
   gapMin: number;               // 0.2
 }
 
-/** Один сильный ход с метриками. */
-export interface MaiaDifficultyCandidate {
+export interface TacticPuzzleCandidate {
   ply: number;
-  fen: string;                  // позиция-кандидат (она же FEN пазла)
-  solverSide: 'w' | 'b';        // = side-to-move в fen
+  fen: string;
+  solverSide: 'w' | 'b';
   bestMoveUci: string;
   bestE: number;
   secondE: number;
-  gap: number;                  // bestE - secondE
-  wdl: { w: number; d: number; l: number } | null;
-  difficulty: number;           // 1 - Σ policy[strongSet] (на main pass)
-  mainPassMaxDepth: number;
-  verifyPassMaxDepth: number;
+  gap: number;
+  wdl: { w: number; d: number; l: number };
+  difficulty: number;
+  objective: 'convertAdvantage' | 'saveEquality';
 }
 
-export type MaiaDifficultyRejectReason =
+export type TacticPuzzleRejectReason =
   | 'gameOver'
   | 'engineError'
   | 'noEngineLines'
@@ -89,310 +239,165 @@ export type MaiaDifficultyRejectReason =
   | 'gapTooSmall';
 
 export interface MaiaPolicySource {
-  /** Совместимо с Maia.predictMoves сигнатурой. */
   predictMoves(fen: string, eloW: number, eloB: number):
     Promise<{ policy: Array<{ move: string; probability: number }> }>;
 }
 
-/** Adapter к Stockfish, отдающий expected score E на каждую PV. */
-export interface MaiaSfEngine {
+export interface TacticSfEngine {
   analyze(fen: string, multiPV: number, nodes: number, ctx?: {
     label?: string;
     signal?: AbortSignal;
-  }): Promise<{ lines: Array<{ move: string; E: number; wdl: Wdl | null }>;
-                maxDepth: number }>;
+  }): Promise<{
+    lines: Array<{ move: string; E: number; wdl: Wdl | null }>;
+    maxDepth: number;
+  }>;
 }
 
-export async function analyzePlyForMaiaDifficulty(
-  step: PlyStep,
-  sf: MaiaSfEngine,
+export async function analyzePlyForTacticPuzzle(
+  step: { ply: number; fen: string; isGameOver: boolean },
+  sf: TacticSfEngine,
   maia: MaiaPolicySource,
-  settings: MaiaDifficultySettings,
+  settings: TacticPuzzleGenSettings,
 ): Promise<
-  | { kind: 'accepted'; candidate: MaiaDifficultyCandidate }
-  | { kind: 'rejected'; reason: MaiaDifficultyRejectReason }
+  | { kind: 'accepted'; candidate: TacticPuzzleCandidate }
+  | { kind: 'rejected'; reason: TacticPuzzleRejectReason }
 >;
 
-export function buildPuzzleFromMaiaCandidate(
-  candidate: MaiaDifficultyCandidate,
-  gameMeta: GameMeta,
-): GeneratedPuzzle;
+export async function processGameForTacticPuzzles(args: {
+  pgn: string;
+  sf: TacticSfEngine;
+  maia: MaiaPolicySource;
+  settings: TacticPuzzleGenSettings;
+  signal?: AbortSignal;
+}): Promise<{
+  candidates: TacticPuzzleCandidate[];
+  stats: { positionsAnalyzed: number;
+           drops: Record<TacticPuzzleRejectReason, number> };
+}>;
 ```
 
-`PlyStep` переиспользуем из текущего pipeline (нужно `fen`/`ply` и индикатор `isGameOver`). Поля `fenAfter`/`reactiveSolverSide` остаются ненужными для нового алгоритма — pipeline берёт только `fenBefore` и не делает применения хода партии.
+Только `fen` (без `fenAfter`), нет `puzzlePhase`, нет двойной эмиссии reactive/preventive — один сильный ход на принятый кандидат, один пазл.
 
-`GeneratedPuzzle` остаётся существующим типом, но новые пазлы заполняют его иначе:
+**Tactic-worker** — `apps/tactic-worker/src/puzzle-generator/` целиком удаляется и заменяется на `apps/tactic-worker/src/tactic-puzzle-generator/`:
 
-* `fen` = позиция-кандидат (то есть `fenBefore` ply из партии-источника);
-* `solverSide` = side-to-move в `fen`;
-* `solutionMode: 'play-vs-engine'` — без изменений;
-* `puzzlePhase: 'preventive'` — **технический маркер для совместимости с UI** (`PlayVsEngineRunner` сейчас по этому тегу выбирает ветку «solver играет ВМЕСТО зевка»; новые пазлы используют тот же UX);
-* `objective` определяется по WDL solver на `fen`: `wdl.w / 1000 >= 0.5 ? 'convertAdvantage' : 'saveEquality'`;
-* `themes` = `['playVsEngine', objective, 'maia-difficulty', ...drillTags]` — **тег `reactive` уходит**; новый маркер `maia-difficulty` отличает алгоритм-источник;
-* `sourceMetadata` — новая форма (см. §2.3).
+* алгоритм генерации — обёртка над `processGameForTacticPuzzles` из shared;
+* провайдер `MaiaPolicyProvider` — общий с `MaiaAnnotationService` (выделить в `apps/tactic-worker/src/maia/maia-policy-provider.ts`, обе точки используют один объект);
+* адаптер `StockfishService` → `TacticSfEngine` с режимом `go nodes`;
+* запись в `tactic_puzzles` через Prisma (новый клиент или дополнение `prisma.service`);
+* CLI `generate-tactic-puzzles.cli.ts` и `generate-tactic-puzzles-from-twic.cli.ts`.
 
-Уходят (для нового пайплайна; в shared остаются ради клиента и legacy):
+Прогнозируемая стоимость генерации: средняя партия 50 ply × ~1 с (предварительный + Maia) + 3–5 кандидатов × ~10 с (верификация) ≈ **80–150 с на партию на одном потоке**. При `GAME_CONCURRENCY=8` ≈ 10–20 с эффективно. 50 K TWIC-партий: 7–28 ч. Цифры стартовые, проверка — на T5.
 
-* `BlunderEvalInput/Settings/Result/Trigger/RejectReason`,
-* `analyzePlyForBlunder` (в новом не используется),
-* `buildPuzzlesFromCandidate` (новый pipeline вызывает другую функцию),
-* двойственность reactive/preventive,
-* `meetsSolvabilityFinal`/`holdsSolvabilityIntermediate` — у нового алгоритма нет solvability-прогона (`halfMovesN`-режим), доказательство сильной позиции делается на verify pass.
+### 2.4. Маршрут на backend
 
-### 2.2. Pipeline в tactic-worker
+Старый `apps/api/src/puzzle/` остаётся под lichess (`/puzzles`, daily-puzzle, rush). Из него удаляются ветки, относившиеся к PVE:
 
-`apps/tactic-worker/src/puzzle-generator/generator-pipeline.ts` — добавляем ветку выбора по `options.algorithm`.
+* в `puzzle.service.ts:resolvePveSolutionUci`, `puzzlePhase`-резолвер, ветка `solutionMode === 'play-vs-engine'`;
+* в `mistakes.service.ts`, `puzzle-rating.service.ts` — фильтрация по `solutionMode='play-vs-engine'`;
+* в `find-puzzles.dto.ts` — параметр `solutionMode` (валидация), эндпоинт `/puzzles?solutionMode=play-vs-engine` — больше не нужен.
 
-```
-algorithm = 'maia-difficulty'      (default после миграции)
-algorithm = 'blunder'              (legacy, для отката / клиент-режима)
-```
+Новый модуль `apps/api/src/tactic-puzzle/`:
 
-Новая ветка `processGame` (псевдокод):
+* `tactic-puzzle.controller.ts` — маршруты `/tactic-puzzles/next`, `/tactic-puzzles/:id`, `/tactic-puzzles/browse`, `/tactic-puzzles/attempts`, `/tactic-puzzles/mistakes`;
+* `tactic-puzzle.service.ts` — подбор по рейтингу/темам/сложности, регистрация попыток, расчёт precision-grade (ADR-065) встроенно (старый `PrecisionAttempt` не нужен);
+* DTO без полей `solutionMode`, `puzzlePhase`, `acceptedMoves`, `moves` — их в концепте нет;
+* отдельный пользовательский рейтинг «точности» (TacticRatingSnapshot или поле в User).
 
-```
-replayPgnToSteps(pgn, startPly)            # тот же из shared
-for step in steps (last 100 ply max):
-    if step.isGameOverAfter: drop gameOver
-    main = sf.analyze(step.fenBefore, MULTIPV, MAIN_NODES,
-                       label='ply=N stage=main')
-    if main.lines == 0: drop noEngineLines
-    mainBestE = max(E)
-    mainStrong = [L | mainBestE − L.E ≤ EPS_EQUIV]
-    if |mainStrong| ≠ 1: drop notUniqueStrongMain
+### 2.5. Frontend
 
-    maia = await maiaProvider.predictMoves(fenBefore, MAIA_ELO, MAIA_ELO)
-    strongProb = Σ policy[m] for m ∈ mainStrong
-    difficulty = 1 − strongProb
-    if difficulty ≤ DIFFICULTY_MIN: drop maiaLowDifficulty
+Раздел `/precision` целиком переезжает на новый маршрут.
 
-    verify = sf.analyze(step.fenBefore, MULTIPV, VERIFY_NODES,
-                         label='ply=N stage=verify')
-    if verify.lines == 0: drop noEngineLines
-    vBestE = max(E)
-    vStrong = [L | vBestE − L.E ≤ EPS_EQUIV]
-    if |vStrong| ≠ 1: drop notUniqueStrongVerify
-    if vStrong[0].move ≠ mainStrong[0].move: drop bestMoveMismatch
+* Новый компонент `apps/web/src/components/tactic/TacticPuzzleRunner.tsx` — заменяет `PlayVsEngineRunner.tsx` для этого раздела. Логика: solver видит позицию, обязан сыграть `bestMoveUci`. Никакой ветки `reactive`/`preventive`, никакого `replayBlunder`, никакого `firstMovePV1` фолбэка. Один путь — «угадай правильный ход».
+* `apps/web/src/pages/PrecisionPage.tsx` — переключается на `/tactic-puzzles/*`.
+* `apps/web/src/api-puzzle.ts`, `useInfinitePuzzles.ts` — для `/puzzles` (lichess) остаются как есть. Для `/tactic-puzzles` — новые `api-tactic-puzzle.ts`, `useInfiniteTacticPuzzles.ts`.
+* `PlayVsEngineRunner.tsx` — после переезда `/precision` остаётся **только** для клиентского PVE-генератора `PuzzleGeneratorModal` (см. §2.7). Если решим выключить и его — компонент удаляется.
 
-    bestL = wdl.l/1000 (fallback по E)
-    if bestL > LOSE_MAX: drop bestMoveLoses
-
-    second = sortBy(E desc)[1].E or 0
-    gap = vBestE − second
-    if gap < GAP_MIN: drop gapTooSmall
-
-    accept → MaiaDifficultyCandidate
-    insert via buildPuzzleFromMaiaCandidate + adaptGeneratedPuzzleToRecord
-```
-
-**Maia singleton** — переиспользуем `MaiaAnnotationService.getEngine()` рефакторингом в `MaiaPolicyProvider` (выделить общий слой, чтобы и аннотация, и генерация делили один ONNX-session per process). Альтернатива (минимум кода): ввести `MaiaPolicyProviderModule`, в котором `Maia` создаётся один раз и инжектится в оба места.
-
-**Adapter SF → MaiaSfEngine.** Текущий `EngineApi.analyzePositionWdl(fen, limit, multiPV, label)` принимает `AnalysisLimit = { timeMs?, depth?, nodes? }`. Нужен путь `nodes` (он уже поддерживается в `StockfishService` — проверить под `go nodes`). Adapter переводит `lines` → `{move, E = expectedScoreFromWdl(wdl) || fallback, wdl}` через `wdlOrMateFallback` + `expectedScoreFromWdl` из shared.
-
-**Бюджет ресурсов на партию.** Прикидка:
-
-* партия ≈ 50 ply ≥ 20 → 50 итераций;
-* main pass: 1 SF-вызов 1M nodes MultiPV=10 на 1 поток → 0.3–2 с (зависит от позиции и nps);
-* Maia inference: 10–30 мс;
-* доля кандидатов, доходящих до verify, ≈ 5–10 % после `|strongSet|=1 + difficulty > 0.9`;
-* verify pass: 1 SF-вызов 10M nodes MultiPV=10 → 5–20 с.
-
-Средняя партия: 50 × ~1 с (main+maia) + 3–5 × ~10 с (verify) = **80–150 с / партия / SF-поток**. При `GAME_CONCURRENCY=8` на 8-thread VPS ≈ **10–20 с / партия эффективно**. На 50 000 TWIC-партий: 7–28 часов. Цифры стартовые — реальная скорость проверяется на smoke-прогоне 100–500 партий (T4).
-
-**Куда уходят отбракованные.** `GeneratorStats.drops` расширяется новыми ключами (см. список выше). Категорные счётчики уже инфраструктурно поддержаны (`bumpDrop`, `logProgress`); ничего нового кроме перечисления случаев.
-
-### 2.3. Схема БД (Prisma)
-
-Существующая таблица `puzzles` сохраняется; **никакие колонки не удаляются**.
-
-Добавляем (миграция `puzzles_add_maia_difficulty`):
-
-```sql
-ALTER TABLE puzzles
-  ADD COLUMN maia_difficulty Float NULL,
-  ADD COLUMN gen_algorithm   VARCHAR(32) NULL;
-CREATE INDEX puzzles_solution_mode_maia_difficulty_idx
-  ON puzzles (solution_mode, maia_difficulty);
-CREATE INDEX puzzles_gen_algorithm_idx
-  ON puzzles (gen_algorithm) WHERE gen_algorithm IS NOT NULL;
-```
-
-Семантика:
-
-* `maia_difficulty` Float? — значение `1 − strongProb` на main pass. **Отдельное поле от `maia_weak_choice_prob`**: метрики близки, но рассчитываются по-разному (weak\_choice ограничен Maia-TopK с policy > 0.10, difficulty считается по `strongSet` из SF). Совмещение в одной колонке исказит фильтрацию /precision (ADR-106 §2.6).
-* `gen_algorithm` String? — маркер источника пазла: `'maia-difficulty-v1'` для новых, NULL для всех старых (legacy lichess и blunder-generated). Дополнительно дублируется в `source_metadata.algorithm` для дебага.
-
-`source_metadata` для новых пазлов:
-
-```json
-{
-  "algorithm": "maia-difficulty-v1",
-  "bestMovePV1": "e2e4",
-  "bestE": 0.83,
-  "secondE": 0.41,
-  "gap": 0.42,
-  "wdl": { "w": 800, "d": 150, "l": 50 },
-  "difficulty": 0.93,
-  "maiaElo": 2400,
-  "epsEquiv": 0.02,
-  "loseMax": 0.5,
-  "gapMin": 0.2,
-  "mainPassNodes": 1000000,
-  "verifyPassNodes": 10000000,
-  "multiPv": 10,
-  "sourceMoveNum": 27,
-  "headers": { "White": "...", "Black": "...", "Event": "..." },
-  "engine": "stockfish",
-  "generatedAt": "2026-06-19T15:42:32Z"
-}
-```
-
-Поле `firstMovePV1` — оставляем как алиас `bestMovePV1` для обратной совместимости с `MaiaAnnotationService.annotate()` и аналитикой `KS-4100/ADR-124` (`maia-weak-choice` пост-аннотация требует `firstMovePV1`). UI-фолбэк в `puzzleGenerator.ts:502` уже умеет читать `preventiveCorrectMoveUci` и `firstMovePV1`; добавляем второе имя в этот же резолвер.
-
-**`solutionMode`** — остаётся как enum строкой (`'forced-line' | 'play-vs-engine'`). Новые maia-difficulty пазлы пишутся с `'play-vs-engine'` — фильтры /precision и UI-ветка `PlayVsEngineRunner` работают без изменений.
-
-**`puzzlePhase`** как доменная сущность **уходит из shared**, но значение `'preventive'` остаётся в `themes` и `source_metadata.puzzlePhase` для совместимости с фронтом (текущий код во `PlayVsEngineRunner` ветвится `if (puzzlePhase === 'preventive')` — новая ветка алгоритмически идентична preventive UX-флоу). Удалять колонку или enum-значение НЕ нужно.
-
-**`gap` (Int)** — поле уже есть, семантика **меняется**: было `WDL_signed_after_blunder × 100`, становится `(bestE − secondE) × 100`. Старые значения для лidens/blunder-generated не сопоставимы с новыми. Решение:
-
-* НЕ перезаписываем legacy.
-* Для нового pipeline пишем новую семантику в то же поле.
-* В API/UI пользоваться `gap` для cross-algorithm фильтра нельзя; фильтр привязывается к `gen_algorithm = 'maia-difficulty-v1'`.
-* Документируется в комментарии к колонке в Prisma и в Backend-задаче.
-
-**Индексы.** `@@index([solutionMode, maiaWeakChoiceProb])` остаётся, `@@index([themes])` уже есть. Новый `@@index([solutionMode, maiaDifficulty])` — под фильтр `/puzzles/browse?maiaDifficultyMin=`. `@@index([genAlgorithm])` partial — под выборку «только новые».
-
-### 2.4. API / UI совместимость
-
-`/puzzles`, `/puzzles/:id`, `/puzzles/browse`, `/precision` — **поверхность не меняется**. Версионирования эндпоинтов нет. Изменения:
-
-1. **Backend (apps/api):**
-   * `puzzle.controller.ts:394` (SELECT `/puzzles/browse`) — добавить `p.maia_difficulty, p.gen_algorithm` в SELECT-листы, прокинуть в DTO.
-   * `puzzle-browse-filter.ts:281` — рядом с фильтром `maia_weak_choice_prob` добавить `maia_difficulty_min` (опц.). Старые фильтры сохраняются.
-   * DTO `puzzle.service.ts:1480` (`maiaWeakChoiceProb`) — добавить `maiaDifficulty?: number | null`, `genAlgorithm?: string | null`.
-   * `resolveSolutionMode` в `puzzle.service.ts:1438` — оставить fallback `'reactive'` для legacy без `puzzlePhase`; новые пазлы кладут `'preventive'`, маршрут не меняется.
-
-2. **Frontend (apps/web):**
-   * `api-puzzle.ts`/`useInfinitePuzzles.ts` — типы DTO расширяются `maiaDifficulty`, `genAlgorithm`.
-   * `PlayVsEngineRunner.tsx:522` — `puzzlePhaseFromThemes` остаётся; новые пазлы попадают в ветку `preventive`. Алгоритмическое поведение идентично («solver видит позицию и обязан сыграть единственный сильный ход»). Никаких UI-правок этой ветки.
-   * **Опционально** (отдельная задача `frontend`): фильтр-чип в /precision «алгоритм» — `maia-difficulty | blunder | mixed`, по `genAlgorithm`. Не блокирует выкатку.
-   * `WdlChancesBar.tsx`, `PuzzleBoard.tsx` — никаких правок, ориентация и оценка строятся из `wdl`/`fen`.
-
-3. **Feature-flag.** Включение нового алгоритма — флаг на стороне tactic-worker:
-   * CLI: `--algorithm=maia-difficulty | blunder` (default зафиксировать `blunder` до полного готова, после T7 — переключить);
-   * ENV: `PUZZLE_GEN_ALGORITHM` — для крон-скриптов.
-
-   Эндпоинты ничего про алгоритм не знают, флага на стороне API не нужен.
-
-4. **Dual-read период не требуется**: shape пазла в API не меняется. Старые и новые пазлы лежат рядом в одной таблице, читаются одной выборкой. Различение через `gen_algorithm` для UI/аналитики при необходимости.
-
-### 2.5. Стратегия для уже сгенерированных пазлов
-
-Соcуществование. Конкретно:
-
-* **Лichess-пазлы (`source='lichess'`, ~6M)** — не трогаем. `gen_algorithm = NULL`, `solutionMode = 'forced-line'`. Ничего не меняется.
-* **Blunder-generated PVE (`source='generated'`, `solutionMode='play-vs-engine'`)** — не трогаем. `gen_algorithm = NULL` (или одной миграцией backfill `'blunder-v1'` — отдельная подзадача T8, не блокирует выкатку). `themes` сохраняют `reactive`/`preventive`. Maia-аннотация (`maiaWeakChoiceProb`) у них уже есть.
-* **Новые maia-difficulty пазлы** — пишутся с `gen_algorithm='maia-difficulty-v1'`, `solutionMode='play-vs-engine'`, `themes=['playVsEngine', objective, 'maia-difficulty', preventive, drill-tags...]`.
-
-**Soft-deprecate.** Не делаем сразу. После T7 (если новый алгоритм даст лучшую сравнительную статистику принятия игроками) — отдельной задачей переключить /precision на выдачу только `gen_algorithm = 'maia-difficulty-v1'`.
-
-**Стоимость полной регенерации.** Опционально — НЕ обязательно. На TWIC-базе ~50 K партий: 7–28 часов на 8-thread сервере (см. §2.2). Существующие старые пазлы не удаляем при перегенерации (`puzzles.fen` UNIQUE — `skipDuplicates` отбросит дубли). Если решим полную замену, отдельная задача — `tactic-worker dump → backup → DELETE WHERE gen_algorithm IS NULL AND source='generated' → regen`. В рамках ADR не утверждаем — это business-решение.
+Раздел `/puzzles` (lichess), daily-puzzle, puzzle-rush — без изменений.
 
 ### 2.6. План внедрения
 
-Последовательность задач (детальный список — в комментарии к KS-4337). Точки безопасной остановки помечены ⛳.
-
 ```
-T1. backend  shared/puzzle-gen-maia.ts                — типы + analyzePlyForMaiaDifficulty
-                                                       + buildPuzzleFromMaiaCandidate
-                                                       + processGameForMaiaDifficultyPuzzles
-T2. backend  Prisma migration                         — maia_difficulty, gen_algorithm,
-                                                       индексы
-                                                       ⛳ совместимая, можно откатить drop column
-T3. backend  tactic-worker generator-pipeline.ts      — ветка algorithm='maia-difficulty',
-                                                       MaiaPolicyProvider singleton (общий
-                                                       с MaiaAnnotationService),
-                                                       SF nodes-adapter, drops
-T4. backend  smoke-генерация 100–500 партий локально  — ручная верификация выборки в
-                                                       /precision, измерение времени
-                                                       партии, корректировка дефолтов
-                                                       ⛳ если выборка плоха — крутим
-                                                       пороги в shared без правки кода
-T5. backend  API расширение DTO                       — maiaDifficulty, genAlgorithm
-                                                       в /puzzles/:id, /browse;
-                                                       опц. фильтр maiaDifficultyMin
-T6. frontend types + опц. фильтр /precision           — не блокирует выкатку
-                                                       ⛳ можно остановиться до T6
-T7. devops  переключить CLI default на maia-difficulty — массовая регенерация на TWIC,
-                                                       наблюдение метрик принятия
-T8. backend (опц.) backfill gen_algorithm='blunder-v1' — для существующих generated;
-                                                       включить UI-фильтр «алгоритм»
-```
-
-**Откат.**
-
-* T1–T3 без T7: CLI флаг `--algorithm=blunder`, легаси-pipeline остался работоспособным.
-* После T2 (миграция): новые колонки nullable, drop column безопасен.
-* После T7 (массовая регенерация): новые записи отделяются по `gen_algorithm`; при необходимости — `DELETE FROM puzzles WHERE gen_algorithm = 'maia-difficulty-v1'`.
-
-### 2.7. Что вынесено в конфиг
-
-Пороги прототипа стартовые. Параметры алгоритма вынести в TypeScript-константы рядом с `HARD_DELTA_W` в `generator-pipeline.ts` (имя `MAIA_DIFFICULTY_DEFAULTS`), переопределение через CLI-флаги:
-
-```
---maia-difficulty-min 0.9
---gap-min 0.2
---lose-max 0.5
---eps-equiv 0.02
---sf-main-nodes 1000000
---sf-verify-nodes 10000000
---sf-multipv 10
---maia-elo 2400
+T1. backend  Shared: tactic-puzzle-gen.ts (типы + analyzePlyForTacticPuzzle
+             + processGameForTacticPuzzles), удалить старый puzzle-gen-pipeline.ts
+T2. backend  Prisma migration: tactic_puzzles + tactic_puzzle_attempts
+             + tactic_user_mistakes + tactic_rating_snapshot (или поле в User).
+             ⛳ совместимая, можно откатить drop table
+T3. backend  tactic-worker: новый модуль tactic-puzzle-generator,
+             MaiaPolicyProvider (общий с MaiaAnnotationService),
+             SF-adapter на nodes, CLI generate-tactic-puzzles-from-twic
+T4. backend  API: новый модуль tactic-puzzle (controller/service/DTO),
+             маршруты /tactic-puzzles/*
+T5. backend  Smoke-генерация 100–500 партий локально, ручная верификация
+             выборки, корректировка дефолтов
+             ⛳ если выборка плоха — крутим пороги в shared
+T6. frontend TacticPuzzleRunner.tsx + api-tactic-puzzle.ts + переезд
+             PrecisionPage.tsx на новый маршрут
+T7. backend  Миграция delete_legacy_generated_pve: удалить
+             precision_attempts → user_mistakes → puzzles (cascade на
+             puzzle_attempts) для source='generated'
+             AND solution_mode='play-vs-engine'
+             ⛳ выполняется ПОСЛЕ T6 (UI уже не ходит к старым данным)
+T8. devops   Массовая генерация tactic_puzzles на TWIC через ECS-шарды,
+             наблюдение метрик принятия
+T9. backend  Чистка apps/api/src/puzzle/: удалить ветки PVE-резолверов,
+             параметр solutionMode из find-puzzles.dto, мёртвые тесты
+T10. backend Чистка apps/web/src/components/puzzle/PlayVsEngineRunner.tsx —
+             либо удалить (если PuzzleGeneratorModal тоже выключается),
+             либо упростить (только клиент-генератор)
 ```
 
-ENV для крон-скриптов: `PUZZLE_GEN_*` префикс (например `PUZZLE_GEN_DIFFICULTY_MIN`). Это согласовано с текущим стилем (см. `PRECISION_MAIA_*`).
+**Точки безопасной остановки**: после T2 (новая таблица пустая, никто к ней не ходит), после T4 (маршрут готов, фронт ещё на старом), после T6 (фронт переехал, старые данные ещё на месте — можно откатить фронт обратно).
 
-### 2.8. Что не делаем в этом ADR
+**Откат на любом шаге до T7**: фронт возвращается на `/puzzles?solutionMode=play-vs-engine`, новые таблицы остаются пустыми (drop безопасен). После T7 откат данных невозможен — это сознательный разрыв.
 
-* Не меняем клиентский генератор (`apps/web/src/utils/puzzleGenerator.ts`, ADR-070). Maia-difficulty требует ONNX-runtime + 10 M nodes SF — нереалистично в браузере. Клиентский режим остаётся blunder-based.
-* Не меняем UI /precision и PlayVsEngineRunner функционально. Опциональный фильтр-чип — отдельной задачей T6/T8.
-* Не удаляем колонку `solutionMode` и тип `'forced-line'` — пазлы lichess живые.
-* Не удаляем поле `puzzlePhase` из метаданных — UI ветвится по нему для legacy и новых пазлов одинаково.
+### 2.7. Открытые вопросы
+
+1. **Клиентский PVE-генератор `PuzzleGeneratorModal`** — пользователь генерит пазлы из своих партий через WASM-Stockfish. Сейчас это blunder-based (ADR-070). Maia-difficulty в браузере нереалистично (10 M nodes SF + ONNX-runtime + Maia-модель). Варианты:
+   * выключить функционал;
+   * оставить blunder-генератор для клиента только (отдельный артефакт shared);
+   * упростить — генерировать кандидатов клиентом (низкий бюджет), отправлять на сервер для верификации.
+
+   Решается отдельным согласованием с пользователем. До решения — оставляем blunder-генератор для клиента в `apps/web/src/utils/puzzleGenerator.ts`, шаренный код туда копируется out-of-band.
+
+2. **Рейтинг пользователя по «Точности»** — отдельная таблица `TacticRatingSnapshot` или поле в `User`. Связано с архитектурой `PuzzleRatingSnapshot`. Решается на T2.
+
+3. **Maia-2400** — корректная аудитория для /precision? Игроки часто 1200–1800. Если выборка T5 «слишком трудная» — уменьшить `MAIA_ELO` в конфиге.
+
+4. **Параллелизм Maia ONNX-session** — поточно-безопасен ли `predictMoves` или нужна сериализация через мьютекс. Уточняется на T1.
+
+5. **`go nodes` vs `go depth`** — для предсказуемости времени, возможно, перейти на `depth`. Решается на T5.
+
+6. **Эндшпильные мат-форсы** — нужен ли отдельный отсев или `|strongSet|=1 + gap ≥ 0.2` сами справляются. Оценка на T5.
+
+7. **PuzzleRush PVE** — сейчас PuzzleRush возможно крутил PVE-пазлы (`PuzzleRushSessionPuzzle.puzzleId`). FK-аудит на T2: были ли PVE-сессии. Если да — либо удалить эти сессии, либо обнулить `puzzleId` (тип данных позволяет).
 
 ## 3. Последствия
 
 **Плюсы.**
 
-* Пазлы привязаны к **обучающей ценности позиции**, а не к ошибке игрока в партии. Из той же базы TWIC можно извлечь существенно больше пазлов высокого уровня.
-* `gap`/`difficulty` дают понятную численную ось сложности для /precision-фильтра.
-* Maia-инфраструктура уже в проекте — внедрение минимально инвазивно.
+* Раздел «Точность» получает свою таблицу со схемой, точно совпадающей с концептом. Никаких чужих полей, никаких legacy-ветвлений в коде.
+* DTO и UI чистые — `solutionMode`, `puzzlePhase`, `acceptedMoves`, `moves`, `reactive`/`preventive` уходят навсегда из новой поверхности.
+* Индексы `tactic_puzzles` не делятся с lichess-нагрузкой — раздельная производительность.
+* Lichess остаётся стабильным для новичков, daily-puzzle и rush.
 
 **Минусы / риски.**
 
-* Стоимость генерации выросла. Verify pass 10 M nodes / MULTIPV=10 — 5–20 с / позиция. Полная регенерация TWIC — десятки часов.
-* Сильная зависимость от качества Maia-3 ONNX-модели. Деградация модели = ложно-positive по difficulty.
-* `gap` Int меняет семантику внутри одного поля. Любой код, который сейчас читает `gap` без учёта `gen_algorithm`, начнёт смешивать величины. На текущей кодовой базе таких читателей **один**: `puzzle.controller.ts:644` отдаёт `gap` в DTO без интерпретации — фронт его сейчас не использует для логики. Поэтому риск ограничен.
-* Singleton `MaiaPolicyProvider` живёт пока жив worker. Утечки ONNX-session — отслеживать в smoke T4.
+* Полная переработка раздела — нельзя выкатить «полосочкой». Откат после T7 невозможен (старые PVE-пазлы и попытки удалены).
+* Удаление `puzzle_attempts` для PVE стирает игровую историю пользователей в разделе «Точность». Это сознательная цена концептуального разрыва — старые попытки на старых пазлах не имеют ценности при смене триггера.
+* Двойная таблица пазлов (`puzzles` lichess + `tactic_puzzles` Maia) — больше Prisma-моделей, больше клиентов. Это плата за чистоту схемы.
+* Стоимость генерации высокая (см. §2.3). Полная регенерация TWIC — десятки часов.
 
-**Метрики выкатки.** После T7:
+**Метрики выкатки** (после T8):
 
 * партий / час;
 * доля принятия (accepted / processed);
 * распределение drops по причинам;
 * распределение `difficulty` и `gap` среди принятых;
-* runtime per game p50/p95.
+* runtime per game p50 / p95.
 
 ## 4. Альтернативы рассмотренные
 
-1. **Не вводить `maia_difficulty`, переиспользовать `maia_weak_choice_prob` с `maia_metric_version=2`.** Отвергнуто: метрики `weakChoiceProb` (ADR-106 §2.1, Maia-TopK + loss\_E) и `difficulty` (Σ policy по SF-strongSet) считаются по-разному и не взаимозаменяемы. Перетирание поля сломает фильтр /precision на legacy пазлах.
-2. **Один проход SF с большим бюджетом без main/verify деления.** Отвергнуто: дорого. Большинство ply отсеивается по `|strongSet|≠1` на дешёвом проходе. Двухступенчатый отсев — экономия на порядок.
-3. **Версионировать эндпоинт `/puzzles/v2`.** Отвергнуто: shape DTO не меняется, dual-read бессмыслен.
-4. **Удалить колонку `solutionMode` и enum `forced-line`.** Отвергнуто: lichess-пазлы (6 M) живые, форсированная линия — корректный режим для них.
-5. **Удалить теги `reactive`/`preventive` из themes сразу.** Отвергнуто: legacy PVE-пазлы будут читаться без них и попадут в неверную ветку `PlayVsEngineRunner` (default reactive). Уходит из новой генерации, но не из старых записей.
-
-## 5. Открытые вопросы
-
-* Целевая глубина SF main vs nodes-бюджет. `nodes=1M` на 1 потоке = `depth ≈ 20–25`. Возможно, перейти на `depth=18` для предсказуемости. Решается на T4.
-* Maia-2400 — корректная аудитория? Игроки /precision могут иметь рейтинг 1200–1800. Если пазлы получаются «слишком трудные», уменьшить `MAIA_ELO`.
-* Параллелизм Maia-inference. Один ONNX-session — нужно ли сериализовать `predictMoves` через мьютекс, или библиотека thread-safe. Уточнить у backend на T1.
-* Что делать с шахматными окончаниями (мат-форсы 5–7 ply). Прототип их не отсеивает специально — `gap ≥ 0.2` и `|strongSet|=1` сами их пропускают. Если в выборке T4 окажется много шаблонных эндшпильных пазлов — добавить `--filter-endgame` (опц.).
+1. **Обратно-совместимая миграция в существующей `puzzles`** (первая редакция этого ADR) — отвергнута пользователем: каша из трёх концептов в одной таблице, перегруженные индексы, теги-зомби.
+2. **Отдельная таблица, но lichess тоже сносим** — отвергнуто пользователем: lichess нужен для новичков, daily-puzzle, rush.
+3. **Сохранить старые generated PVE через `algorithm_version='blunder-v1'`** — отвергнуто пользователем: смысла нет, концепт другой.
+4. **Версионировать `/puzzles?algorithm=maia-difficulty`** — отвергнуто: общая поверхность смешивает несвязанные концепты, валидация и фильтры расходятся.
