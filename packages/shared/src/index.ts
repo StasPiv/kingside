@@ -10,6 +10,9 @@ export * from './types/feature-flags.js';
 export * from './types/synthetic.js';
 export * from './types/internal-auth.js';
 export * from './types/tactic-drill.js';
+// KS-4342 / ADR-135 §2.4: контракты API /tactic-puzzles/* (раздел
+// «Точность» на Maia-difficulty).
+export * from './types/tactic-puzzle.js';
 export * from './types/saved-filters.js';
 // KS-3269 (ADR-077): Opening Trainer.
 export * from './types/opening-trainer.js';
