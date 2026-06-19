@@ -5274,10 +5274,39 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
   border: 0;
   border-radius: 6px;
   cursor: pointer;
+  /* KS-4344: класс применяется и к <a> (KS-4343 /tactic-puzzles карточка),
+     и к <button> — сбрасываем подчёркивание и выравниваем по центру, чтобы
+     ссылка-кнопка выглядела как нативная кнопка. */
+  text-align: center;
+  text-decoration: none;
+  display: block;
 }
 
 .play-vs-engine-card__solve-btn:hover {
   background: var(--accent-hover, #6b72e6);
+}
+
+/* ============================================================
+ * KS-4344 — карточка /tactic-puzzles. Дополнения к
+ * `.play-vs-engine-card`: чип «жанра» в meta-блоке и блок статистики
+ * (Difficulty / Rating). Цветовая шкала и типографика выровнены с
+ * `__side` (KS-2972 / KS-2754).
+ * ============================================================ */
+.play-vs-engine-card__objective {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  color: var(--accent-primary, #7c83ff);
+}
+
+.play-vs-engine-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 600px) {

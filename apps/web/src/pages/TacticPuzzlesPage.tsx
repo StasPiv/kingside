@@ -1,13 +1,14 @@
 /**
- * KS-4343 / ADR-135 §2.5. Каталог раздела «Точность» на новой
- * таблице `tactic_puzzles`. Маршрут `/tactic-puzzles/*`.
+ * KS-4343 → KS-4344 / ADR-135 §2.5. Каталог раздела «Точность».
  *
- * Минимальный набор фильтров: `objective` (segment-control) + auto-pick
- * «Начать тренировку» (`GET /tactic-puzzles/next`). Расширенные фильтры
- * (themes, ratingMin/Max, Maia-сложность range) — отдельной задачей
- * после стабилизации UX.
+ * Вёрстка переиспользует существующие CSS-классы `play-vs-engine-*` /
+ * `precision-objective-segment*` (см. `puzzle.css`) — единый стиль с
+ * `/precision`: сетка карточек с миниатюрой доски, метаданными
+ * (игроки/ELO/событие/сложность/рейтинг) и кнопкой «Решить».
  *
- * Старая `PrecisionPage` остаётся на `/precision` — её удалит T9/T10.
+ * Локализация: все строки через i18next (`tacticPuzzle.*`). Ссылка
+ * на старый `/precision` скрыта до cleanup'а T9/T10 — пользователю не
+ * нужно знать о parallel-разделе.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -27,6 +28,16 @@ const LIMIT = 20;
 
 function sideFromFen(fen: string): 'white' | 'black' {
   return fen.split(' ')[1] === 'b' ? 'black' : 'white';
+}
+
+/**
+ * Читает год из PGN-тега `Date` (формат `YYYY.MM.DD` или `YYYY`). Возвращает
+ * пустую строку, если поле не парсится.
+ */
+function extractYear(date: string | undefined | null): string {
+  if (!date) return '';
+  const m = /^(\d{4})/.exec(date);
+  return m ? m[1] : '';
 }
 
 export function TacticPuzzlesPage() {
@@ -58,13 +69,9 @@ export function TacticPuzzlesPage() {
   const handleStartTraining = useCallback(async () => {
     if (startingTraining) return;
     if (!user) {
-      // /next требует JWT — гостя ведём в обычный каталог через карточку.
-      setStartError(
-        t(
-          'tacticPuzzle.startError.guest',
-          'Sign in to start a tactic training session.',
-        ),
-      );
+      // /next требует JWT — гостя ведём в обычный каталог, авто-подбор
+      // ему недоступен.
+      setStartError(t('tacticPuzzle.startError.guest'));
       return;
     }
     setStartingTraining(true);
@@ -74,17 +81,10 @@ export function TacticPuzzlesPage() {
       if (next) {
         navigate(`/tactic-puzzles/${next.id}`);
       } else {
-        setStartError(
-          t(
-            'tacticPuzzle.startError.noPuzzles',
-            'No puzzles available for current filters.',
-          ),
-        );
+        setStartError(t('tacticPuzzle.startError.noPuzzles'));
       }
     } catch {
-      setStartError(
-        t('tacticPuzzle.startError.generic', 'Could not pick a puzzle.'),
-      );
+      setStartError(t('tacticPuzzle.startError.generic'));
     } finally {
       setStartingTraining(false);
     }
@@ -138,39 +138,33 @@ export function TacticPuzzlesPage() {
 
   return (
     <div
-      className="tactic-puzzles"
+      className="play-vs-engine-puzzles"
       data-testid="tactic-puzzles"
       data-state={pageState}
     >
       <PageSeo ns="tacticPuzzle.list" path="/tactic-puzzles" />
-      <header className="tactic-puzzles__header">
-        <h1>{t('tacticPuzzle.title', 'Tactic puzzles')}</h1>
-        <p className="tactic-puzzles__intro">
-          {t(
-            'tacticPuzzle.intro',
-            'Single-move tactics where a top engine punishes the wrong choice. The puzzle continues as long as the position stays sharp.',
-          )}
+      <header className="play-vs-engine-puzzles__header">
+        <h1>{t('tacticPuzzle.title')}</h1>
+        <p className="play-vs-engine-puzzles__intro">
+          {t('tacticPuzzle.intro')}
         </p>
 
-        <div className="tactic-puzzles__nav">
-          <Link to="/precision" className="tactic-puzzles__legacy-link">
-            ← {t('tacticPuzzle.backToLegacy', 'Legacy precision')}
-          </Link>
+        <div className="play-vs-engine-puzzles__nav">
           <button
             type="button"
-            className="tactic-puzzles__start-btn"
+            className="generate-puzzles-btn"
             data-testid="tactic-puzzles-start"
             onClick={() => void handleStartTraining()}
             disabled={startingTraining}
           >
             {startingTraining
-              ? t('tacticPuzzle.starting', 'Starting…')
-              : t('tacticPuzzle.start', 'Start training')}
+              ? t('tacticPuzzle.starting')
+              : t('tacticPuzzle.start')}
           </button>
         </div>
         {startError && (
           <p
-            className="tactic-puzzles__start-error"
+            className="play-vs-engine-puzzles__status play-vs-engine-puzzles__status--error"
             data-testid="tactic-puzzles-start-error"
           >
             {startError}
@@ -178,9 +172,9 @@ export function TacticPuzzlesPage() {
         )}
 
         <nav
-          className="tactic-puzzles__objective-segments"
+          className="precision-objective-segments"
           data-testid="tactic-puzzles-objective-segments"
-          aria-label={t('tacticPuzzle.objective.label', 'Puzzle type')}
+          aria-label={t('tacticPuzzle.objective.label')}
           role="tablist"
         >
           {(['all', 'convertAdvantage', 'saveEquality'] as const).map((key) => {
@@ -191,8 +185,8 @@ export function TacticPuzzlesPage() {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                className={`tactic-puzzles__objective-segment${
-                  active ? ' tactic-puzzles__objective-segment--active' : ''
+                className={`precision-objective-segment${
+                  active ? ' precision-objective-segment--active' : ''
                 }`}
                 data-testid={`tactic-puzzles-objective-${key}`}
                 data-active={active ? 'true' : 'false'}
@@ -204,13 +198,10 @@ export function TacticPuzzlesPage() {
                 }}
               >
                 {key === 'all'
-                  ? t('tacticPuzzle.objective.all', 'All')
+                  ? t('tacticPuzzle.objective.all')
                   : key === 'convertAdvantage'
-                    ? t(
-                        'puzzle.objective.convertAdvantage',
-                        'Convert the advantage',
-                      )
-                    : t('puzzle.objective.saveEquality', 'Save the draw')}
+                    ? t('puzzle.objective.convertAdvantage')
+                    : t('puzzle.objective.saveEquality')}
               </button>
             );
           })}
@@ -219,62 +210,76 @@ export function TacticPuzzlesPage() {
 
       {pageState === 'loading' && (
         <p
-          className="tactic-puzzles__status"
+          className="play-vs-engine-puzzles__status"
           data-testid="tactic-puzzles-loading"
         >
-          {t('common.loading', 'Loading…')}
+          {t('common.loading')}
         </p>
       )}
 
       {pageState === 'error' && (
         <div
-          className="tactic-puzzles__status tactic-puzzles__status--error"
+          className="play-vs-engine-puzzles__status play-vs-engine-puzzles__status--error"
           data-testid="tactic-puzzles-error"
         >
-          <p>{t('tacticPuzzle.loadError', 'Could not load puzzles.')}</p>
+          <p>{t('tacticPuzzle.loadError')}</p>
           <button type="button" onClick={() => window.location.reload()}>
-            {t('common.retry', 'Retry')}
+            {t('common.retry')}
           </button>
         </div>
       )}
 
       {pageState === 'empty' && (
         <p
-          className="tactic-puzzles__status tactic-puzzles__status--empty"
+          className="play-vs-engine-puzzles__status play-vs-engine-puzzles__status--empty"
           data-testid="tactic-puzzles-empty"
         >
-          {t(
-            'tacticPuzzle.gridEmpty',
-            'No puzzles in this slice yet — generator is still filling the bank.',
-          )}
+          {t('tacticPuzzle.gridEmpty')}
         </p>
       )}
 
       {pageState === 'ready' && (
         <div
-          className="tactic-puzzles__list"
+          className="play-vs-engine-puzzles__list"
           data-testid="tactic-puzzles-list"
         >
           {puzzles.map((p: TacticPuzzleResponse) => {
             const orientation = sideFromFen(p.fen);
             const puzzleUrl = `/tactic-puzzles/${p.id}`;
-            const whiteName = p.sourceHeaders?.White ?? null;
-            const blackName = p.sourceHeaders?.Black ?? null;
-            const whiteElo = p.sourceHeaders?.WhiteElo ?? null;
-            const blackElo = p.sourceHeaders?.BlackElo ?? null;
-            const event = p.sourceHeaders?.Event ?? null;
-            const hasSource = whiteName || blackName || event;
+            const headers = p.sourceHeaders ?? null;
+            const whiteName = headers?.White ?? null;
+            const blackName = headers?.Black ?? null;
+            const whiteElo = headers?.WhiteElo ?? null;
+            const blackElo = headers?.BlackElo ?? null;
+            const event = headers?.Event ?? null;
+            const year = extractYear(headers?.Date);
+            const eventLabel = event
+              ? year && !event.includes(year)
+                ? `${event} · ${year}`
+                : event
+              : null;
+            const whiteLabel = whiteName
+              ? whiteElo
+                ? `${whiteName} (${whiteElo})`
+                : whiteName
+              : null;
+            const blackLabel = blackName
+              ? blackElo
+                ? `${blackName} (${blackElo})`
+                : blackName
+              : null;
+            const hasPlayers = whiteLabel || blackLabel;
             return (
               <article
                 key={p.id}
-                className="tactic-puzzles__card"
+                className="play-vs-engine-card"
                 data-testid="tactic-puzzles-card"
                 data-puzzle-id={p.id}
               >
                 <Link
                   to={puzzleUrl}
-                  className="tactic-puzzles__card-board"
-                  aria-label={t('tacticPuzzle.openPuzzle', 'Open puzzle')}
+                  className="play-vs-engine-card__board-btn"
+                  aria-label={t('tacticPuzzle.openPuzzle')}
                   data-testid="tactic-puzzles-card-board"
                 >
                   <Chessboard
@@ -287,50 +292,58 @@ export function TacticPuzzlesPage() {
                     }}
                   />
                 </Link>
-                <div className="tactic-puzzles__card-body">
+                <div className="play-vs-engine-card__body">
                   <div
-                    className="tactic-puzzles__card-meta"
+                    className="play-vs-engine-card__meta"
                     data-testid="tactic-puzzles-card-meta"
                   >
                     <span
-                      className="tactic-puzzles__card-side"
+                      className="play-vs-engine-card__side"
                       data-side={orientation}
                     >
                       {orientation === 'white'
-                        ? t('drills.side.whiteToMove', 'White to move')
-                        : t('drills.side.blackToMove', 'Black to move')}
+                        ? t('drills.side.whiteToMove')
+                        : t('drills.side.blackToMove')}
                     </span>
                     <span
-                      className="tactic-puzzles__card-objective"
+                      className="play-vs-engine-card__objective"
                       data-objective={p.objective}
                     >
                       {p.objective === 'convertAdvantage'
-                        ? t(
-                            'puzzle.objective.convertAdvantage',
-                            'Convert the advantage',
-                          )
-                        : t('puzzle.objective.saveEquality', 'Save the draw')}
-                    </span>
-                    <span className="tactic-puzzles__card-difficulty">
-                      {t('tacticPuzzle.difficulty', 'Difficulty')}:{' '}
-                      {(p.difficulty * 100).toFixed(0)}%
-                    </span>
-                    <span className="tactic-puzzles__card-rating">
-                      {t('tacticPuzzle.rating', 'Rating')}: {p.rating}
+                        ? t('puzzle.objective.convertAdvantage')
+                        : t('puzzle.objective.saveEquality')}
                     </span>
                   </div>
-                  {hasSource && (
+                  <div
+                    className="play-vs-engine-card__stats"
+                    data-testid="tactic-puzzles-card-stats"
+                  >
+                    <span>
+                      {t('tacticPuzzle.difficulty')}:{' '}
+                      {(p.difficulty * 100).toFixed(0)}%
+                    </span>
+                    <span>
+                      {t('tacticPuzzle.rating')}: {p.rating}
+                    </span>
+                  </div>
+                  {hasPlayers && (
                     <div
-                      className="tactic-puzzles__card-source"
+                      className="play-vs-engine-card__source"
                       data-testid="tactic-puzzles-card-source"
                     >
-                      {whiteName ?? '?'}
-                      {whiteElo ? ` (${whiteElo})` : ''} —{' '}
-                      {blackName ?? '?'}
-                      {blackElo ? ` (${blackElo})` : ''}
-                      {event ? ` · ${event}` : ''}
+                      <div className="play-vs-engine-card__source-players">
+                        {[whiteLabel, blackLabel].filter(Boolean).join(' — ')}
+                        {eventLabel ? ` · ${eventLabel}` : ''}
+                      </div>
                     </div>
                   )}
+                  <Link
+                    to={puzzleUrl}
+                    className="play-vs-engine-card__solve-btn"
+                    data-testid="tactic-puzzles-card-solve"
+                  >
+                    {t('tacticPuzzle.solve')}
+                  </Link>
                 </div>
               </article>
             );
@@ -348,10 +361,10 @@ export function TacticPuzzlesPage() {
       )}
       {loadingMore && (
         <p
-          className="tactic-puzzles__status"
+          className="play-vs-engine-puzzles__status"
           data-testid="tactic-puzzles-load-more"
         >
-          {t('common.loading', 'Loading…')}
+          {t('common.loading')}
         </p>
       )}
     </div>

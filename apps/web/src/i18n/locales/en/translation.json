@@ -722,7 +722,10 @@
     "backToHome": "Back to home",
     "close": "Close",
     "cancel": "Cancel",
-    "optional": "optional"
+    "optional": "optional",
+    "retry": "Retry",
+    "back": "Back",
+    "next": "Next"
   },
   "liveAnalysis": {
     "stop": "Stop",
@@ -2126,6 +2129,44 @@
       "visibilityError": "Failed to update visibility",
       "deleted": "Puzzle deleted",
       "deleteError": "Failed to delete puzzle"
+    }
+  },
+  "tacticPuzzle": {
+    "title": "Tactics",
+    "intro": "Positions where a strong engine punishes any inaccuracy. Each puzzle continues only while the board still has a single best move.",
+    "start": "Start training",
+    "starting": "Starting…",
+    "openPuzzle": "Open puzzle",
+    "solve": "Solve",
+    "loadError": "Could not load puzzles.",
+    "gridEmpty": "No puzzles yet — the bank is still being filled.",
+    "difficulty": "Difficulty",
+    "rating": "Rating",
+    "objective": {
+      "label": "Puzzle type",
+      "all": "All"
+    },
+    "startError": {
+      "guest": "Sign in to start a training session.",
+      "noPuzzles": "No puzzles match the current filters.",
+      "generic": "Could not pick a puzzle."
+    },
+    "solveError": {
+      "noPuzzle": "No puzzles available right now.",
+      "generic": "Could not load puzzle."
+    },
+    "result": {
+      "solved": "Solved",
+      "failed": "Failed",
+      "lineLength": "Moves played: {{n}}"
+    },
+    "actions": {
+      "skip": "Skip move",
+      "finish": "Finish puzzle",
+      "abort": "Resign"
+    },
+    "error": {
+      "generic": "Engine error"
     }
   },
   "precisionTrends": {
