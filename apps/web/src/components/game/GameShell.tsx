@@ -929,40 +929,14 @@ export function GameShell(props: GameShellProps) {
           </div>
         )}
 
-        {status === 'finished' && result && !showResultModal && (
-          <div className="game-result">
-            <h3>{t('game.finished')}</h3>
-            <p>
-              {result === 'draw'
-                ? t('game.draw')
-                : result === 'white'
-                  ? t('game.whiteWins')
-                  : t('game.blackWins')}
-            </p>
-            {ratingChange && (
-              <div className="game-result-rating">
-                <span className="rating-before">{playerRatingBefore}</span>
-                <span className="rating-arrow">&rarr;</span>
-                <span className="rating-after">{playerRatingAfter}</span>
-                <span
-                  className={`rating-diff ${
-                    ratingDiff! > 0
-                      ? 'positive'
-                      : ratingDiff! < 0
-                        ? 'negative'
-                        : ''
-                  }`}
-                >
-                  ({ratingDiff! > 0 ? '+' : ''}
-                  {ratingDiff})
-                </span>
-              </div>
-            )}
-            <div className="game-result-actions">
-              {renderResultActions('side')}
-            </div>
-          </div>
-        )}
+        {/* KS-4336: встроенный блок `.game-result` в правой колонке
+            удалён. Раньше он рендерился после закрытия модального
+            окна завершения (`!showResultModal`) и дублировал ту же
+            информацию: «Партия завершена» + исход + кнопки
+            «Открыть в анализе»/«На главную». В узкой sidebar-колонке
+            вторая кнопка обрезалась («На г…»). Источник истины
+            теперь — модальное окно (desktop) и `GameResultSheet`
+            (mobile); встроенная плитка убрана целиком. */}
 
         {chat && (
           <div className="chat">
