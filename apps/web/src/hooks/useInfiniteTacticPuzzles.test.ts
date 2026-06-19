@@ -1,8 +1,6 @@
 /**
- * KS-4343 / ADR-135 §2.5: тесты `useInfiniteTacticPuzzles`. Покрывают
- * cursor-pagination, race-guard, локальные операции (remove/patch) и
- * специфичные новой схеме фильтры (`objective`, `minDifficulty` /
- * `maxDifficulty`). Образец взят из `useInfinitePuzzles.test.ts`.
+ * KS-4343 / ADR-135 §2.5: тесты `useInfiniteTacticPuzzles` против
+ * shared-контракта KS-4342 (`TacticPuzzleBrowseQuery`/`TacticPuzzleBrowsePage`).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -13,32 +11,42 @@ vi.mock('../api', () => ({
 }));
 
 import { useInfiniteTacticPuzzles } from './useInfiniteTacticPuzzles';
+import type { TacticPuzzleResponse } from '@kingside/shared';
 
-const PUZZLE_A = {
+const PUZZLE_A: TacticPuzzleResponse = {
   id: 'a',
   fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
   bestMoveUci: 'e2e4',
-  solverSide: 'w' as const,
-  objective: 'convertAdvantage' as const,
+  solverSide: 'w',
+  objective: 'convertAdvantage',
+  themes: ['pin'],
+  rating: 1500,
+  ratingDev: 350,
   difficulty: 0.92,
   gap: 0.35,
-  rating: 1500,
-  themes: ['pin'],
+  bestE: 0.8,
+  secondE: 0.45,
+  wdl: { w: 600, d: 300, l: 100 },
   createdAt: '2026-06-19T10:00:00Z',
+  sourceHeaders: null,
+  sourceMoveNum: null,
+  sourceGameId: null,
 };
-const PUZZLE_B = { ...PUZZLE_A, id: 'b' };
-const PUZZLE_C = { ...PUZZLE_A, id: 'c' };
+const PUZZLE_B: TacticPuzzleResponse = { ...PUZZLE_A, id: 'b' };
+const PUZZLE_C: TacticPuzzleResponse = { ...PUZZLE_A, id: 'c' };
 
 function browseCalls(): unknown[][] {
   return apiGet.mock.calls.filter(
-    (c) => typeof c[0] === 'string' && (c[0] as string).startsWith('/tactic-puzzles/browse'),
+    (c) =>
+      typeof c[0] === 'string' &&
+      (c[0] as string).startsWith('/tactic-puzzles/browse'),
   );
 }
 
 beforeEach(() => {
   apiGet.mockReset();
   apiGet.mockImplementation(() =>
-    Promise.resolve({ data: [], nextCursor: null }),
+    Promise.resolve({ items: [], nextCursor: null }),
   );
 });
 
@@ -47,9 +55,9 @@ afterEach(() => {
 });
 
 describe('useInfiniteTacticPuzzles', () => {
-  it('первичный fetch загружает первую страницу', async () => {
+  it('первичный запрос загружает первую страницу', async () => {
     apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A, PUZZLE_B],
+      items: [PUZZLE_A, PUZZLE_B],
       nextCursor: 'cur1',
     });
     const { result } = renderHook(() =>
@@ -62,13 +70,13 @@ describe('useInfiniteTacticPuzzles', () => {
   });
 
   it('loadMore догружает следующую страницу с cursor', async () => {
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_A], nextCursor: 'cur1' });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_A], nextCursor: 'cur1' });
     const { result } = renderHook(() =>
       useInfiniteTacticPuzzles({ limit: 1 }),
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_B], nextCursor: null });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_B], nextCursor: null });
     act(() => result.current.loadMore());
     await waitFor(() => expect(result.current.loadingMore).toBe(false));
     expect(result.current.puzzles.map((p) => p.id)).toEqual(['a', 'b']);
@@ -79,22 +87,22 @@ describe('useInfiniteTacticPuzzles', () => {
   });
 
   it('hasMore=false при nextCursor=null с первого ответа', async () => {
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_A], nextCursor: null });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_A], nextCursor: null });
     const { result } = renderHook(() => useInfiniteTacticPuzzles({}));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.hasMore).toBe(false);
   });
 
-  it('передаёт фильтры в query (themes ANY-of через запятую, objective)', async () => {
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+  it('передаёт фильтры в query', async () => {
+    apiGet.mockResolvedValueOnce({ items: [], nextCursor: null });
     renderHook(() =>
       useInfiniteTacticPuzzles({
         ratingMin: 1200,
         ratingMax: 1800,
         themes: ['pin', 'fork'],
         objective: 'convertAdvantage',
-        mine: true,
-        hideSolved: true,
+        maiaDifficultyMin: 0.5,
+        gapMin: 0.2,
         limit: 30,
       }),
     );
@@ -105,54 +113,30 @@ describe('useInfiniteTacticPuzzles', () => {
     expect(url).toMatch(/ratingMax=1800/);
     expect(url).toMatch(/themes=pin%2Cfork|themes=pin,fork/);
     expect(url).toMatch(/objective=convertAdvantage/);
-    expect(url).toMatch(/mine=true/);
-    expect(url).toMatch(/hideSolved=true/);
+    expect(url).toMatch(/maiaDifficultyMin=0\.5/);
+    expect(url).toMatch(/gapMin=0\.2/);
   });
 
-  it('objective=all → параметр НЕ передаётся', async () => {
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
+  it('maiaDifficultyMin=0 → параметр НЕ передаётся (синоним «без фильтра»)', async () => {
+    apiGet.mockResolvedValueOnce({ items: [], nextCursor: null });
     renderHook(() =>
-      useInfiniteTacticPuzzles({ objective: 'all', limit: 10 }),
+      useInfiniteTacticPuzzles({ maiaDifficultyMin: 0, limit: 10 }),
     );
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = apiGet.mock.calls[0][0] as string;
-    expect(url).not.toMatch(/objective=/);
+    expect(url).not.toMatch(/maiaDifficultyMin/);
   });
 
-  it('minDifficulty > 0 → передаётся; minDifficulty=0 → НЕ передаётся', async () => {
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
-    const { rerender } = renderHook(
-      ({ min }: { min: number }) =>
-        useInfiniteTacticPuzzles({ minDifficulty: min, limit: 10 }),
-      { initialProps: { min: 0.5 } },
-    );
+  it('gapMin=0 → параметр НЕ передаётся', async () => {
+    apiGet.mockResolvedValueOnce({ items: [], nextCursor: null });
+    renderHook(() => useInfiniteTacticPuzzles({ gapMin: 0, limit: 10 }));
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    expect(apiGet.mock.calls[0][0] as string).toMatch(/minDifficulty=0\.5/);
-
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
-    rerender({ min: 0 });
-    await waitFor(() => expect(browseCalls()).toHaveLength(2));
-    expect(browseCalls()[1][0] as string).not.toMatch(/minDifficulty/);
-  });
-
-  it('maxDifficulty < 1 → передаётся; maxDifficulty=1 → НЕ передаётся', async () => {
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
-    const { rerender } = renderHook(
-      ({ max }: { max: number }) =>
-        useInfiniteTacticPuzzles({ maxDifficulty: max, limit: 10 }),
-      { initialProps: { max: 0.8 } },
-    );
-    await waitFor(() => expect(apiGet).toHaveBeenCalled());
-    expect(apiGet.mock.calls[0][0] as string).toMatch(/maxDifficulty=0\.8/);
-
-    apiGet.mockResolvedValueOnce({ data: [], nextCursor: null });
-    rerender({ max: 1 });
-    await waitFor(() => expect(browseCalls()).toHaveLength(2));
-    expect(browseCalls()[1][0] as string).not.toMatch(/maxDifficulty/);
+    const url = apiGet.mock.calls[0][0] as string;
+    expect(url).not.toMatch(/gapMin/);
   });
 
   it('смена фильтров → новый запрос без cursor (reset списка)', async () => {
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_A], nextCursor: 'cur1' });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_A], nextCursor: 'cur1' });
     const { result, rerender } = renderHook(
       ({ ratingMin }: { ratingMin: number }) =>
         useInfiniteTacticPuzzles({ ratingMin }),
@@ -160,7 +144,7 @@ describe('useInfiniteTacticPuzzles', () => {
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_C], nextCursor: null });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_C], nextCursor: null });
     rerender({ ratingMin: 2000 });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.puzzles.map((p) => p.id)).toEqual(['c']);
@@ -171,7 +155,7 @@ describe('useInfiniteTacticPuzzles', () => {
 
   it('removeLocally удаляет пазл из state', async () => {
     apiGet.mockResolvedValueOnce({
-      data: [PUZZLE_A, PUZZLE_B],
+      items: [PUZZLE_A, PUZZLE_B],
       nextCursor: null,
     });
     const { result } = renderHook(() => useInfiniteTacticPuzzles({}));
@@ -181,18 +165,18 @@ describe('useInfiniteTacticPuzzles', () => {
   });
 
   it('patchLocally обновляет одно поле пазла', async () => {
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_A], nextCursor: null });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_A], nextCursor: null });
     const { result } = renderHook(() => useInfiniteTacticPuzzles({}));
     await waitFor(() => expect(result.current.loading).toBe(false));
-    act(() => result.current.patchLocally('a', { solvedStatus: 'solved' }));
-    expect(result.current.puzzles[0].solvedStatus).toBe('solved');
+    act(() => result.current.patchLocally('a', { rating: 1600 }));
+    expect(result.current.puzzles[0].rating).toBe(1600);
   });
 
   it('backend возвращает тот же cursor → hasMore=false (защита от цикла)', async () => {
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_A], nextCursor: 'cur1' });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_A], nextCursor: 'cur1' });
     const { result } = renderHook(() => useInfiniteTacticPuzzles({}));
     await waitFor(() => expect(result.current.loading).toBe(false));
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_B], nextCursor: 'cur1' });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_B], nextCursor: 'cur1' });
     act(() => result.current.loadMore());
     await waitFor(() => expect(result.current.loadingMore).toBe(false));
     expect(result.current.hasMore).toBe(false);
@@ -200,11 +184,11 @@ describe('useInfiniteTacticPuzzles', () => {
   });
 
   it('двойной loadMore синхронно → только один сетевой запрос', async () => {
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_A], nextCursor: 'cur1' });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_A], nextCursor: 'cur1' });
     const { result } = renderHook(() => useInfiniteTacticPuzzles({}));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_B], nextCursor: 'cur2' });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_B], nextCursor: 'cur2' });
     act(() => {
       result.current.loadMore();
       result.current.loadMore();
@@ -221,8 +205,8 @@ describe('useInfiniteTacticPuzzles', () => {
     expect(result.current.puzzles).toEqual([]);
   });
 
-  it('смена filtersKey пока loadMore inflight сбрасывает loadingMore', async () => {
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_A], nextCursor: 'cur1' });
+  it('смена filtersKey пока loadMore в полёте сбрасывает loadingMore', async () => {
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_A], nextCursor: 'cur1' });
     const { result, rerender } = renderHook(
       ({ themes }: { themes?: string[] }) =>
         useInfiniteTacticPuzzles({ themes }),
@@ -241,15 +225,14 @@ describe('useInfiniteTacticPuzzles', () => {
     });
     expect(result.current.loadingMore).toBe(true);
 
-    apiGet.mockResolvedValueOnce({ data: [PUZZLE_C], nextCursor: 'cur2' });
+    apiGet.mockResolvedValueOnce({ items: [PUZZLE_C], nextCursor: 'cur2' });
     rerender({ themes: ['pin'] });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.loadingMore).toBe(false);
     expect(result.current.puzzles.map((p) => p.id)).toEqual(['c']);
 
-    // Поздний ответ старого запроса не должен затирать новый список.
     act(() => {
-      resolveSlow({ data: [PUZZLE_B], nextCursor: 'old-cur' });
+      resolveSlow({ items: [PUZZLE_B], nextCursor: 'old-cur' });
     });
     await waitFor(() =>
       expect(result.current.puzzles.map((p) => p.id)).toEqual(['c']),

@@ -4,23 +4,21 @@
  *
  * Логика:
  *   1. Если есть `:id` — загружаем пазл через `/tactic-puzzles/:id`.
- *   2. Иначе — `/tactic-puzzles/next` (авто-подбор).
+ *   2. Иначе — `/tactic-puzzles/next` (авто-подбор, JWT).
  *   3. Передаём в `TacticPuzzleRunner`. На submit отправляем attempt,
  *      затем загружаем следующий пазл (auto-pick).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { TacticPuzzleResponse } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { PageSeo } from '../components/seo/PageSeo';
 import {
   TacticPuzzleRunner,
   type TacticPuzzleRunnerSubmit,
 } from '../components/puzzle/TacticPuzzleRunner';
-import {
-  tacticPuzzleApi,
-  type TacticPuzzleDto,
-} from '../api/api-tactic-puzzle';
+import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
 
 export function SolveTacticPuzzlePage() {
   const { t } = useTranslation();
@@ -28,7 +26,7 @@ export function SolveTacticPuzzlePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [puzzle, setPuzzle] = useState<TacticPuzzleDto | null>(null);
+  const [puzzle, setPuzzle] = useState<TacticPuzzleResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +37,7 @@ export function SolveTacticPuzzlePage() {
     try {
       const next = id
         ? await tacticPuzzleApi.getById(id)
-        : (await tacticPuzzleApi.pickNext()).puzzle;
+        : await tacticPuzzleApi.pickNext();
       if (!next) {
         setError(
           t(
@@ -66,21 +64,18 @@ export function SolveTacticPuzzlePage() {
   const handleSubmit = useCallback(
     async (data: TacticPuzzleRunnerSubmit) => {
       if (!puzzle) return;
-      // Гостям не отправляем attempt (auth обязателен на backend).
+      // Гостям не отправляем attempt (JWT обязателен на backend).
       if (!user) return;
       try {
-        await tacticPuzzleApi.submitAttempt({
-          puzzleId: puzzle.id,
-          solved: data.solved,
-          timeMs: data.timeMs,
+        await tacticPuzzleApi.submitAttempt(puzzle.id, {
           lineHalfMoves: data.lineHalfMoves,
           userMoves: data.userMoves,
           stopReason: data.stopReason,
-          moves: data.moves,
+          timeMs: data.timeMs,
+          wdlStart: data.wdlStart,
+          wdlEnd: data.wdlEnd,
         });
       } catch (e) {
-        // Не валим UX — пользователь видит результат раннера; ошибку
-        // логируем в консоль.
         console.warn('SolveTacticPuzzlePage: submitAttempt failed', e);
       }
     },
@@ -89,9 +84,9 @@ export function SolveTacticPuzzlePage() {
 
   const handleNext = useCallback(async () => {
     try {
-      const res = await tacticPuzzleApi.pickNext();
-      if (res.puzzle) {
-        navigate(`/tactic-puzzles/${res.puzzle.id}`);
+      const next = await tacticPuzzleApi.pickNext();
+      if (next) {
+        navigate(`/tactic-puzzles/${next.id}`);
       } else {
         navigate('/tactic-puzzles');
       }

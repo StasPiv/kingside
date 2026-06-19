@@ -2,15 +2,10 @@
  * KS-4343 / ADR-135 §2.5. Каталог раздела «Точность» на новой
  * таблице `tactic_puzzles`. Маршрут `/tactic-puzzles/*`.
  *
- * MVP-разрез T6: список + 3 сегментных фильтра (`objective`/scope/themes
- * сводим к минимуму), сценарии auth/guest, переход на solve-страницу
- * `/tactic-puzzles/:id`. Полный набор фильтров (Maia-сложность range,
- * темы bottom-sheet, scope drafts/published, статистика) переезжает из
- * `PrecisionPage` отдельной задачей в рамках cleanup'а T9/T10 — здесь
- * страница строится с нуля по новому API, чтобы:
- *   - не тянуть `useInfinitePuzzles`/`/precision/*` контракт;
- *   - чисто проверить контракт `/tactic-puzzles/*` (KS-4342) на живых
- *     данных, не пересекаясь со старым flow.
+ * Минимальный набор фильтров: `objective` (segment-control) + auto-pick
+ * «Начать тренировку» (`GET /tactic-puzzles/next`). Расширенные фильтры
+ * (themes, ratingMin/Max, Maia-сложность range) — отдельной задачей
+ * после стабилизации UX.
  *
  * Старая `PrecisionPage` остаётся на `/precision` — её удалит T9/T10.
  */
@@ -18,16 +13,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
+import type {
+  TacticPuzzleBrowseQuery,
+  TacticPuzzleObjective,
+  TacticPuzzleResponse,
+} from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { PageSeo } from '../components/seo/PageSeo';
-import {
-  useInfiniteTacticPuzzles,
-} from '../hooks/useInfiniteTacticPuzzles';
-import type {
-  BrowseTacticPuzzleDto,
-  TacticBrowseFilters,
-  TacticPuzzleObjective,
-} from '../api/api-tactic-puzzle';
+import { useInfiniteTacticPuzzles } from '../hooks/useInfiniteTacticPuzzles';
 import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
 
 const LIMIT = 20;
@@ -47,16 +40,13 @@ export function TacticPuzzlesPage() {
     objectiveParam === 'convertAdvantage' || objectiveParam === 'saveEquality'
       ? objectiveParam
       : 'all';
-  const showSolvedParam = searchParams.get('showSolved') === 'true';
-  const hideSolved = !showSolvedParam;
 
-  const filters = useMemo<TacticBrowseFilters>(
+  const filters = useMemo<TacticPuzzleBrowseQuery>(
     () => ({
-      objective,
-      hideSolved: user ? hideSolved : undefined,
+      objective: objective === 'all' ? undefined : objective,
       limit: LIMIT,
     }),
-    [objective, hideSolved, user],
+    [objective],
   );
 
   const { puzzles, loading, loadingMore, error, hasMore, loadMore } =
@@ -67,15 +57,22 @@ export function TacticPuzzlesPage() {
   const [startError, setStartError] = useState<string | null>(null);
   const handleStartTraining = useCallback(async () => {
     if (startingTraining) return;
+    if (!user) {
+      // /next требует JWT — гостя ведём в обычный каталог через карточку.
+      setStartError(
+        t(
+          'tacticPuzzle.startError.guest',
+          'Sign in to start a tactic training session.',
+        ),
+      );
+      return;
+    }
     setStartingTraining(true);
     setStartError(null);
     try {
-      const res = await tacticPuzzleApi.pickNext({
-        objective: objective === 'all' ? undefined : objective,
-        hideSolved: user ? true : undefined,
-      });
-      if (res.puzzle) {
-        navigate(`/tactic-puzzles/${res.puzzle.id}`);
+      const next = await tacticPuzzleApi.pickNext();
+      if (next) {
+        navigate(`/tactic-puzzles/${next.id}`);
       } else {
         setStartError(
           t(
@@ -91,7 +88,7 @@ export function TacticPuzzlesPage() {
     } finally {
       setStartingTraining(false);
     }
-  }, [startingTraining, objective, user, navigate, t]);
+  }, [startingTraining, user, navigate, t]);
 
   // ── IntersectionObserver-infinite scroll ─────────────────────────
   const sentinelInViewRef = useRef(false);
@@ -218,26 +215,6 @@ export function TacticPuzzlesPage() {
             );
           })}
         </nav>
-
-        {user && (
-          <label
-            className="tactic-puzzles__show-solved"
-            data-testid="tactic-puzzles-show-solved"
-          >
-            <input
-              type="checkbox"
-              checked={showSolvedParam}
-              onChange={(e) => {
-                const sp = new URLSearchParams(searchParams);
-                if (e.target.checked) sp.set('showSolved', 'true');
-                else sp.delete('showSolved');
-                setSearchParams(sp, { replace: false });
-              }}
-              data-testid="tactic-puzzles-show-solved-input"
-            />
-            {t('tacticPuzzle.showSolved', 'Show solved')}
-          </label>
-        )}
       </header>
 
       {pageState === 'loading' && (
@@ -278,16 +255,21 @@ export function TacticPuzzlesPage() {
           className="tactic-puzzles__list"
           data-testid="tactic-puzzles-list"
         >
-          {puzzles.map((p: BrowseTacticPuzzleDto) => {
+          {puzzles.map((p: TacticPuzzleResponse) => {
             const orientation = sideFromFen(p.fen);
             const puzzleUrl = `/tactic-puzzles/${p.id}`;
+            const whiteName = p.sourceHeaders?.White ?? null;
+            const blackName = p.sourceHeaders?.Black ?? null;
+            const whiteElo = p.sourceHeaders?.WhiteElo ?? null;
+            const blackElo = p.sourceHeaders?.BlackElo ?? null;
+            const event = p.sourceHeaders?.Event ?? null;
+            const hasSource = whiteName || blackName || event;
             return (
               <article
                 key={p.id}
                 className="tactic-puzzles__card"
                 data-testid="tactic-puzzles-card"
                 data-puzzle-id={p.id}
-                data-solved={p.solvedStatus ?? 'none'}
               >
                 <Link
                   to={puzzleUrl}
@@ -337,25 +319,18 @@ export function TacticPuzzlesPage() {
                       {t('tacticPuzzle.rating', 'Rating')}: {p.rating}
                     </span>
                   </div>
-                  {p.sourceGame?.headers ? (
+                  {hasSource && (
                     <div
                       className="tactic-puzzles__card-source"
                       data-testid="tactic-puzzles-card-source"
                     >
-                      {p.sourceGame.headers.White ?? '?'}{' '}
-                      {p.sourceGame.whiteElo
-                        ? `(${p.sourceGame.whiteElo})`
-                        : ''}{' '}
-                      —{' '}
-                      {p.sourceGame.headers.Black ?? '?'}{' '}
-                      {p.sourceGame.blackElo
-                        ? `(${p.sourceGame.blackElo})`
-                        : ''}
-                      {p.sourceGame.headers.Event
-                        ? ` · ${p.sourceGame.headers.Event}`
-                        : ''}
+                      {whiteName ?? '?'}
+                      {whiteElo ? ` (${whiteElo})` : ''} —{' '}
+                      {blackName ?? '?'}
+                      {blackElo ? ` (${blackElo})` : ''}
+                      {event ? ` · ${event}` : ''}
                     </div>
-                  ) : null}
+                  )}
                 </div>
               </article>
             );

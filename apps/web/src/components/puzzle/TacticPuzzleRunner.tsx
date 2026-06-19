@@ -10,8 +10,8 @@
  *     что использовал сервер при генерации стартовой позиции;
  *   - индикатор «сложно/просто» обновляется в реальном времени по мере
  *     роста глубины Stockfish (`go infinite`);
- *   - `stopReason` ∈ `user-finished | user-skipped | mate | mistake |
- *     aborted | timeout` (см. ADR-135 §2.1).
+ *   - `stopReason` ∈ `easy | mate | mistake | timeout | aborted`
+ *     (см. ADR-135 §2.1 и shared `TacticPuzzleStopReason`).
  *
  * MVP-разрез T6: основной цикл «ход пользователя → проверка → ответ
  * движка → проверка сложности следующей позиции → решение продолжать или
@@ -35,6 +35,8 @@ import {
   type TacticSfEngine,
   type TacticSfLine,
   type MaiaPolicySource,
+  type TacticPuzzleResponse,
+  type TacticPuzzleStopReason,
 } from '@kingside/shared';
 import {
   WasmEngineAdapter,
@@ -48,11 +50,6 @@ import { PuzzleBoard } from '../PuzzleBoard';
 import { WdlChancesBar } from '../WdlChancesBar';
 import { EngineLoader } from '../EngineLoader';
 import type { EngineErrorReason } from '../../hooks/useStockfish';
-import type {
-  TacticAttemptMoveSnapshot,
-  TacticAttemptStopReason,
-  TacticPuzzleDto,
-} from '../../api/api-tactic-puzzle';
 
 // ─── Public API ─────────────────────────────────────────────────────
 
@@ -63,15 +60,17 @@ export interface TacticPuzzleRunnerSubmit {
   /** Все UCI пользователя через пробел. */
   userMoves: string;
   /** Причина остановки попытки. */
-  stopReason: TacticAttemptStopReason;
+  stopReason: TacticPuzzleStopReason;
   /** Длительность попытки в мс. */
   timeMs: number;
-  /** Per-move лог (для server-trust accuracy). */
-  moves: TacticAttemptMoveSnapshot[];
+  /** Стартовое expected-score (E = W+D/2) POV решающего. */
+  wdlStart: number | null;
+  /** Финальное expected-score POV решающего. */
+  wdlEnd: number | null;
 }
 
 export interface TacticPuzzleRunnerProps {
-  puzzle: TacticPuzzleDto;
+  puzzle: TacticPuzzleResponse;
   /**
    * Вызывается один раз при завершении попытки. Родитель сам решает,
    * слать ли `tacticPuzzleApi.submitAttempt` (гостям — нет).
@@ -232,11 +231,12 @@ export function TacticPuzzleRunner({
   /** Длина решённой линии (число полуходов пользователя). */
   const halfMovesRef = useRef(0);
   const userMovesRef = useRef<string[]>([]);
-  const movesLogRef = useRef<TacticAttemptMoveSnapshot[]>([]);
   const submittedRef = useRef(false);
   const startTimeRef = useRef(Date.now());
   /** Последний live-WDL POV solver — для индикатора. */
   const [latestWdl, setLatestWdl] = useState<WdlDistribution | null>(null);
+  /** Стартовый E (W+D/2) POV решающего — отдаётся в attempt.wdlStart. */
+  const wdlStartRef = useRef<number | null>(null);
 
   // ── Engine ────────────────────────────────────────────────────────
   const [engineLoadState, setEngineLoadState] = useState<
@@ -358,16 +358,20 @@ export function TacticPuzzleRunner({
 
   // ── Submit one-shot ───────────────────────────────────────────────
   const finishAttempt = useCallback(
-    async (args: { solved: boolean; stopReason: TacticAttemptStopReason }) => {
+    async (args: { solved: boolean; stopReason: TacticPuzzleStopReason }) => {
       if (submittedRef.current) return;
       submittedRef.current = true;
+      const wdlEnd = latestWdl
+        ? (latestWdl.w + latestWdl.d / 2) / 1000
+        : null;
       const data: TacticPuzzleRunnerSubmit = {
         solved: args.solved,
         lineHalfMoves: halfMovesRef.current,
         userMoves: userMovesRef.current.join(' '),
         stopReason: args.stopReason,
         timeMs: Date.now() - startTimeRef.current,
-        moves: movesLogRef.current,
+        wdlStart: wdlStartRef.current,
+        wdlEnd,
       };
       setState(args.solved ? 'win' : 'lose');
       try {
@@ -378,7 +382,7 @@ export function TacticPuzzleRunner({
         console.warn('TacticPuzzleRunner: submit failed', e);
       }
     },
-    [onSubmit],
+    [onSubmit, latestWdl],
   );
 
   // ── User move handler ────────────────────────────────────────────
@@ -400,23 +404,12 @@ export function TacticPuzzleRunner({
       }
       if (!mv) return false;
       const playedUci = `${mv.from}${mv.to}${mv.promotion ?? ''}`;
-      const fenBefore = game.fen();
 
       // Сверка с ожидаемым лучшим ходом.
       if (playedUci !== expectedBestUciRef.current) {
-        // Ошибка: фиксируем ход в логе, сабмитим mistake.
-        movesLogRef.current.push({
-          ply: halfMovesRef.current + 1,
-          fenBefore,
-          playedUci,
-          bestUci: expectedBestUciRef.current,
-          wdlBefore: latestWdl,
-          wdlAfter: null,
-          depth: null,
-        });
+        // Ошибка: фиксируем ход в строку, закрываем попытку как mistake.
         userMovesRef.current.push(playedUci);
         halfMovesRef.current += 1;
-        // Обновляем доску, чтобы юзер увидел свой ход.
         setGame(probe);
         setLastMoveUci(playedUci);
         void finishAttempt({ solved: false, stopReason: 'mistake' });
@@ -426,15 +419,6 @@ export function TacticPuzzleRunner({
       // Правильный ход — фиксируем, играем на доске, запускаем цикл.
       userMovesRef.current.push(playedUci);
       halfMovesRef.current += 1;
-      movesLogRef.current.push({
-        ply: halfMovesRef.current,
-        fenBefore,
-        playedUci,
-        bestUci: playedUci,
-        wdlBefore: latestWdl,
-        wdlAfter: latestWdl, // best-ход → wdlAfter=wdlBefore (нулевая потеря)
-        depth: null,
-      });
       setGame(probe);
       setLastMoveUci(playedUci);
       setCanFinish(false);
@@ -486,14 +470,6 @@ export function TacticPuzzleRunner({
       // WDL на FEN'е соперника POV соперника → флипаем в POV solver.
       const wdlSolverAfter = best.wdl ? flipWdl(best.wdl) : null;
       if (wdlSolverAfter) setLatestWdl(wdlSolverAfter);
-      // Доливаем `engineUci`/`wdlAfter` в последний снимок (правильный ход
-      // user'а — wdlAfter ≈ wdlBefore, но точное значение пришло сейчас).
-      const last = movesLogRef.current[movesLogRef.current.length - 1];
-      if (last) {
-        last.engineUci = engineUci ?? null;
-        last.wdlAfter = wdlSolverAfter ?? last.wdlAfter;
-        last.depth = best.depth;
-      }
 
       // 2) Применяем ход движка.
       if (!engineUci) {
@@ -576,18 +552,27 @@ export function TacticPuzzleRunner({
     [queueAnalyze, maiaSource, settings, finishAttempt],
   );
 
-  // ── Initial difficulty bar ────────────────────────────────────────
+  // ── Initial difficulty bar + snapshot стартовой оценки ──────────
   useEffect(() => {
     // Стартовый WDL уже есть в puzzle DTO — берём его, чтобы полосa
     // показывала «сложную» позицию сразу, не дожидаясь анализа.
-    if (puzzle.wdl) setLatestWdl(puzzle.wdl);
+    if (puzzle.wdl) {
+      setLatestWdl(puzzle.wdl);
+      // E (W + D/2) — single-number метрика, нужная backend'у в
+      // `SubmitTacticAttemptInput.wdlStart`. POV solver.
+      wdlStartRef.current =
+        (puzzle.wdl.w + puzzle.wdl.d / 2) / 1000;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puzzle.id]);
 
   // ── User finish/skip buttons handlers ────────────────────────────
   const handleFinish = useCallback(() => {
     if (!canFinish || state !== 'thinking') return;
-    void finishAttempt({ solved: true, stopReason: 'user-finished' });
+    // Сложность упала, пользователь закрывает попытку как решённую:
+    // соответствует `easy` (см. ADR-135 §2.1 / shared
+    // `TacticPuzzleStopReason`).
+    void finishAttempt({ solved: true, stopReason: 'easy' });
   }, [canFinish, state, finishAttempt]);
 
   const handleSkip = useCallback(() => {
@@ -612,15 +597,6 @@ export function TacticPuzzleRunner({
     const playedUci = `${mv.from}${mv.to}${mv.promotion ?? ''}`;
     userMovesRef.current.push(playedUci);
     halfMovesRef.current += 1;
-    movesLogRef.current.push({
-      ply: halfMovesRef.current,
-      fenBefore: game.fen(),
-      playedUci,
-      bestUci: playedUci,
-      wdlBefore: latestWdl,
-      wdlAfter: latestWdl,
-      depth: null,
-    });
     setGame(probe);
     setLastMoveUci(playedUci);
     setCanFinish(false);
@@ -629,7 +605,7 @@ export function TacticPuzzleRunner({
       return;
     }
     void runEngineThenAnalyze(probe);
-  }, [canFinish, state, game, latestWdl, runEngineThenAnalyze, finishAttempt]);
+  }, [canFinish, state, game, runEngineThenAnalyze, finishAttempt]);
 
   const handleAbort = useCallback(() => {
     if (submittedRef.current) return;

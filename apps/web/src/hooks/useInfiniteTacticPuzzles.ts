@@ -4,63 +4,48 @@
  * Архитектура по образцу `useInfinitePuzzles`:
  *   - `seq-guard` через монотонный счётчик защищает от race-condition
  *     при смене фильтров;
- *   - `lastUsedCursorRef` блокирует бесконечный retry на одинаковый cursor
- *     (KS-2565 проблема, описана в исходнике lichess-хука);
- *   - `AbortController` отменяет inflight-запрос при смене фильтра.
+ *   - `lastUsedCursorRef` блокирует бесконечный повторный запрос на тот же
+ *     cursor (KS-2565 защита);
+ *   - `AbortController` отменяет запрос в полёте при смене фильтра.
  *
- * Отличия от `useInfinitePuzzles`:
- *   - не несёт `source`/`visibility`/`blundererElo*` — у новой схемы их нет;
- *   - `objective` вместо `themes`-фильтра на жанр (более явное поле);
- *   - `minDifficulty`/`maxDifficulty` вместо `minMaiaWeakChoiceProb`.
+ * Типы фильтров — из shared (`TacticPuzzleBrowseQuery`), общий с backend
+ * (KS-4342). Имя поля сложности: `maiaDifficultyMin`, дополнительно `gapMin`.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../ApiError';
-import {
-  tacticPuzzleApi,
-  type BrowseTacticPuzzleDto,
-  type TacticBrowseFilters,
-} from '../api/api-tactic-puzzle';
+import type {
+  TacticPuzzleBrowseQuery,
+  TacticPuzzleResponse,
+} from '@kingside/shared';
+import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
 
 export interface InfiniteTacticPuzzlesState {
-  puzzles: BrowseTacticPuzzleDto[];
+  puzzles: TacticPuzzleResponse[];
   loading: boolean;
   loadingMore: boolean;
   error: string | null;
-  /** `true` пока сервер не прислал `null` в `nextCursor`. */
   hasMore: boolean;
-  /** Запросить следующую страницу. No-op при `hasMore=false`. */
   loadMore: () => void;
-  /** Удалить пазл локально (после backend `DELETE` / разрешения mistake). */
   removeLocally: (id: string) => void;
-  /** Обновить одно поле локально (например `solvedStatus` после attempt). */
-  patchLocally: (id: string, patch: Partial<BrowseTacticPuzzleDto>) => void;
+  patchLocally: (id: string, patch: Partial<TacticPuzzleResponse>) => void;
 }
 
-/**
- * Стабильный сериализованный ключ фильтров — изменение значимых полей
- * вызывает перезагрузку. JSON-сериализация сохраняет порядок массивов
- * тем (порядок выбора пользователя имеет значение для UI).
- */
-function buildFiltersKey(filters: TacticBrowseFilters): string {
+function buildFiltersKey(filters: TacticPuzzleBrowseQuery): string {
   return JSON.stringify({
+    objective: filters.objective,
+    maiaDifficultyMin: filters.maiaDifficultyMin,
+    gapMin: filters.gapMin,
     ratingMin: filters.ratingMin,
     ratingMax: filters.ratingMax,
     themes: filters.themes,
-    themesOr: filters.themesOr,
-    themesAnd: filters.themesAnd,
-    objective: filters.objective,
-    mine: filters.mine,
-    hideSolved: filters.hideSolved,
-    minDifficulty: filters.minDifficulty,
-    maxDifficulty: filters.maxDifficulty,
     limit: filters.limit,
   });
 }
 
 export function useInfiniteTacticPuzzles(
-  filters: TacticBrowseFilters,
+  filters: TacticPuzzleBrowseQuery,
 ): InfiniteTacticPuzzlesState {
-  const [puzzles, setPuzzles] = useState<BrowseTacticPuzzleDto[]>([]);
+  const [puzzles, setPuzzles] = useState<TacticPuzzleResponse[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -68,17 +53,10 @@ export function useInfiniteTacticPuzzles(
 
   const seqRef = useRef(0);
   const cursorRef = useRef<string | null>(null);
-  /**
-   * Cursor, с которым УЖЕ делали запрос. Защищает от бесконечного retry,
-   * когда IntersectionObserver-effect видит sentinel в viewport и дергает
-   * `loadMore` повторно (KS-2565). Если backend в гонке вернул тот же
-   * cursor — переключаем `hasMore=false`.
-   */
   const lastUsedCursorRef = useRef<string | null>(null);
 
   const filtersKey = buildFiltersKey(filters);
 
-  // Initial / reset при смене фильтров.
   useEffect(() => {
     const mySeq = ++seqRef.current;
     cursorRef.current = null;
@@ -101,7 +79,7 @@ export function useInfiniteTacticPuzzles(
       .browse(filters, null, signal)
       .then((res) => {
         if (mySeq !== seqRef.current) return;
-        setPuzzles(res.data ?? []);
+        setPuzzles(res.items ?? []);
         setNextCursor(res.nextCursor ?? null);
         cursorRef.current = res.nextCursor ?? null;
       })
@@ -140,7 +118,7 @@ export function useInfiniteTacticPuzzles(
       .browse(filters, cursorAtCall)
       .then((res) => {
         if (mySeq !== seqRef.current) return;
-        setPuzzles((prev) => [...prev, ...(res.data ?? [])]);
+        setPuzzles((prev) => [...prev, ...(res.items ?? [])]);
         const nextC =
           res.nextCursor && res.nextCursor !== cursorAtCall
             ? res.nextCursor
@@ -163,7 +141,7 @@ export function useInfiniteTacticPuzzles(
   }, []);
 
   const patchLocally = useCallback(
-    (id: string, patch: Partial<BrowseTacticPuzzleDto>) => {
+    (id: string, patch: Partial<TacticPuzzleResponse>) => {
       setPuzzles((prev) =>
         prev.map((p) => (p.id === id ? { ...p, ...patch } : p)),
       );
