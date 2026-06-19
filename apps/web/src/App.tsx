@@ -39,6 +39,10 @@ import { SettingsPage } from './pages/SettingsPage';
 import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
 // KS-2484 (ADR-044): отдельный список play-vs-engine пазлов.
 import { PrecisionPage } from './pages/PrecisionPage';
+// KS-4343 (ADR-135 §2.5): новый раздел /tactic-puzzles на Maia-difficulty.
+// Сосуществует со старым /precision до T9/T10 cleanup'а.
+import { TacticPuzzlesPage } from './pages/TacticPuzzlesPage';
+import { SolveTacticPuzzlePage } from './pages/SolveTacticPuzzlePage';
 // KS-2719 F4 / ADR-056 §5: detail-страница одной precision-попытки.
 import { PrecisionAttemptPage } from './pages/PrecisionAttemptPage';
 import { PuzzleStatsPage } from './pages/PuzzleStatsPage';
@@ -606,6 +610,16 @@ export function App() {
             <Route path="/puzzles" element={<PuzzleBrowserPage />} />
             {/* KS-2538 / ADR-048: новый каноничный роут раздела. */}
             <Route path="/precision" element={<PrecisionPage />} />
+            {/* KS-4343 (ADR-135 §2.5). Новый раздел «Точность» на
+                Maia-difficulty: каталог + solve. Должен стоять ВЫШЕ
+                wildcard'ов раздела /puzzles ниже, чтобы маршрут не
+                перехватился. Старый /precision остаётся параллельно
+                до T9/T10 cleanup'а ADR-135. */}
+            <Route path="/tactic-puzzles" element={<TacticPuzzlesPage />} />
+            <Route
+              path="/tactic-puzzles/:id"
+              element={<SolveTacticPuzzlePage />}
+            />
             {/* KS-2747 / ADR-057 §2.2: вынос статистики и истории
                 на отдельные страницы (KS-2744 / KS-2745). Обе через
                 lazy() — отдельные чанки, не тянем при заходе на главную
