@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y git curl wget procps unzip lsof \
     libx11-xcb1 libdrm2 libexpat1 \
     python3 python3-pip python3-opencv python3-numpy python3-pil python3-fitz \
     python3-cairosvg python3-psycopg2 \
-    imagemagick stockfish djvulibre-bin ffmpeg \
+    imagemagick djvulibre-bin ffmpeg \
     fonts-noto-core fonts-noto-color-emoji fonts-noto-cjk \
     && ln -sf /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/* \
@@ -23,6 +23,20 @@ RUN pip install --break-system-packages --no-cache-dir piper-tts chess \
         https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx \
     && wget -q -O /opt/piper-voices/ru_RU-irina-medium.onnx.json \
         https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json
+
+# Stockfish 18 native — debian-bookworm даёт SF15.x, что для шахматных
+# проверок недостаточно. AVX2 — оптимально для современных x86-64. sha256
+# фиксирован, та же версия используется в apps/tactic-worker/Dockerfile.
+ARG SF_VERSION=18
+ARG SF_TARBALL=stockfish-ubuntu-x86-64-avx2.tar
+ARG SF_SHA256=536c0c2c0cf06450df0bfb5e876ef0d3119950703a8f143627f990c7b5417964
+RUN curl -fsSL -o /tmp/sf.tar \
+        "https://github.com/official-stockfish/Stockfish/releases/download/sf_${SF_VERSION}/${SF_TARBALL}" \
+    && echo "${SF_SHA256}  /tmp/sf.tar" | sha256sum -c - \
+    && tar -xf /tmp/sf.tar -C /tmp \
+    && install -D -m 0755 /tmp/stockfish/stockfish-ubuntu-x86-64-avx2 /usr/games/stockfish \
+    && rm -rf /tmp/sf.tar /tmp/stockfish \
+    && stockfish bench 2>&1 | tail -3
 
 RUN npm install -g @anthropic-ai/claude-code@latest
 
