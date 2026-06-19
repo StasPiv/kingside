@@ -167,6 +167,12 @@ model User {
   // трассы анализа (audit-поле, не для авторизации; права на запись
   // регулируются guard'ом контроллера).
   positionalTraces          AnalysisPositionalTrace[] @relation("PositionalTraceCreatedBy")
+  // KS-4339 / ADR-135 §2.1: новый банк tactic-пазлов на Maia-difficulty.
+  // Полностью изолирован от puzzleAttempts / precisionRating — другой
+  // концепт, своя кривая рейтинга.
+  tacticPuzzleAttempts      TacticPuzzleAttempt[]
+  tacticUserMistakes        TacticUserMistake[]
+  tacticRating              UserTacticRating?
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -2566,4 +2572,191 @@ model AnalysisPositionalTrace {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("analysis_positional_traces")
+}
+
+/// KS-4339 / ADR-135 §2.1. Новый банк tactic-пазлов на Maia-difficulty.
+/// Полностью изолирован от `puzzles` (lichess + legacy generated PVE).
+/// Триггер пазла — не зевок в партии, а позиция с единственным сильным
+/// ходом, который трудно увидеть человеку уровня `maiaElo`. См.
+/// `packages/shared/src/utils/tactic-puzzle-gen.ts` для алгоритма отбора.
+model TacticPuzzle {
+  id            String   @id @default(uuid()) @db.Uuid
+  /// Стартовая FEN пазла. side-to-move в FEN = solver. `@unique` —
+  /// один пазл на одну позицию, дубликаты при перегенерации игнорятся.
+  fen           String   @unique
+  /// UCI единственного сильного хода (решение пазла).
+  bestMoveUci   String   @map("best_move_uci")
+  /// side-to-move в `fen`. Денормализованный кэш — фронту удобно
+  /// фильтровать пазлы по стороне, не парся FEN.
+  solverSide    String   @map("solver_side")
+
+  // Метрики качества (см. shared `TacticPuzzleCandidate`).
+  /// Expected score лучшего хода на верифицирующем проходе.
+  bestE         Float    @map("best_e")
+  /// Expected score второго по силе хода на верифицирующем проходе.
+  secondE       Float    @map("second_e")
+  /// `bestE − secondE`. Дублируется как колонка для индекса по выборке.
+  gap           Float
+  /// `1 − Σ policy[strongSet]` по Maia на стартовой позиции.
+  difficulty    Float
+  /// WDL лучшего хода POV solver (per-mille, сумма ≈ 1000).
+  wdlW          Int      @map("wdl_w")
+  wdlD          Int      @map("wdl_d")
+  wdlL          Int      @map("wdl_l")
+
+  /// `'convertAdvantage' | 'saveEquality'`. Семантика задачи solver'у.
+  /// Определяется по `bestE` лучшего хода (порог 0.6).
+  objective     String
+
+  /// Drill-теги (pin/fork/skewer/...) через пробел. Без
+  /// `reactive`/`preventive` — этих жанров в новом концепте нет.
+  themes        String   @default("")
+
+  // Glicko-2 рейтинг пазла для подбора игроку (отдельная кривая от
+  // `puzzles.rating` lichess).
+  rating        Int      @default(1500)
+  ratingDev     Int      @default(350) @map("rating_dev")
+  popularity    Int      @default(0)
+  nbPlays       Int      @default(0) @map("nb_plays")
+
+  // Источник партии.
+  sourceGameId   String? @map("source_game_id") @db.Uuid
+  sourceMoveNum  Int?    @map("source_move_num")
+  sourceWhiteElo Int?    @map("source_white_elo")
+  sourceBlackElo Int?    @map("source_black_elo")
+  /// Seven Tag Roster + ELO. JSON по образцу `puzzles.source_metadata.headers`.
+  sourceHeaders  Json?   @map("source_headers") @db.JsonB
+
+  // Параметры алгоритма (для воспроизводимости и пересчёта).
+  /// Версия алгоритма: `'maia-difficulty-v1'` для первой выкатки.
+  /// Меняется при сдвиге порогов — позволяет фильтровать «старые»
+  /// пазлы и при необходимости перегенерировать только их.
+  algorithmVersion String @default("maia-difficulty-v1") @map("algorithm_version")
+  maiaElo          Int    @map("maia_elo")
+  sfMainNodes      Int    @map("sf_main_nodes")
+  sfVerifyNodes    Int    @map("sf_verify_nodes")
+  sfMultiPv        Int    @map("sf_multi_pv")
+
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  attempts         TacticPuzzleAttempt[]
+  mistakes         TacticUserMistake[]
+
+  @@index([rating])
+  @@index([themes])
+  @@index([difficulty])
+  @@index([gap])
+  @@index([objective, rating])
+  @@index([algorithmVersion])
+  @@map("tactic_puzzles")
+}
+
+/// KS-4339 / ADR-135 §2.1. Попытка пользователя по `tactic_puzzle`.
+/// Длина решения переменная — клиент во время игры на каждом полуходе
+/// пересчитывает сложность (см. `analyzePlyForTacticPuzzle` в shared).
+/// Precision-метрики переехали сюда: двухтабличная схема
+/// `PuzzleAttempt + PrecisionAttempt` была вынужденной из-за смеси
+/// forced-line и PVE; здесь PVE — норма, отдельной таблицы не нужно.
+model TacticPuzzleAttempt {
+  id                  String   @id @default(uuid()) @db.Uuid
+  puzzleId            String   @map("puzzle_id") @db.Uuid
+  userId              String   @map("user_id") @db.Uuid
+  solved              Boolean
+  timeMs              Int      @map("time_ms")
+
+  // Игровой рейтинг пользователя по разделу «Точность» (см. UserTacticRating).
+  ratingBefore        Int      @map("rating_before")
+  ratingAfter         Int      @map("rating_after")
+  puzzleRatingBefore  Int?     @map("puzzle_rating_before")
+  puzzleRatingAfter   Int?     @map("puzzle_rating_after")
+
+  /// Длина решённой линии (число полуходов пользователя). Не известна
+  /// заранее — определяется во время игры. Клиент на каждом полуходе
+  /// проверяет сложность позиции по shared-модулю; пазл продолжается,
+  /// пока |strongSet|=1 + difficulty > порога + gap ≥ порога.
+  lineHalfMoves       Int      @map("line_half_moves")
+  /// Все ходы пользователя через пробел (UCI). Длина переменная.
+  userMoves           String?  @map("user_moves")
+  /// Причина остановки пазла:
+  ///   `'user-finished'` — пользователь сам нажал «завершить задачу»
+  ///                       (доступно когда difficulty упала ниже порога);
+  ///   `'user-skipped'`  — пользователь нажал «пропустить ход»
+  ///                       (доступно когда difficulty упала ниже порога);
+  ///   `'mate'`          — мат / пат на доске;
+  ///   `'mistake'`       — пользователь сыграл не bestMove;
+  ///   `'aborted'`       — закрыл страницу / явно прервал.
+  stopReason          String   @map("stop_reason")
+
+  // Precision-метрики (ADR-056 / ADR-065).
+  wdlStart            Float?   @map("wdl_start")
+  wdlEnd              Float?   @map("wdl_end")
+  movesAccuracy       Float?   @map("moves_accuracy")
+  /// 1..5 stars (KS-3744 / ADR-065).
+  precisionGrade      Int?     @map("precision_grade")
+
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  puzzle              TacticPuzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  user                User         @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([puzzleId])
+  @@index([userId, createdAt])
+  @@index([userId, puzzleId, solved])
+  @@map("tactic_puzzle_attempts")
+}
+
+/// KS-4339 / ADR-135 §2.1. Журнал ошибок для повтора («моя работа над
+/// ошибками» в разделе /tactic-puzzles). По образцу `user_mistakes`,
+/// но с FK Cascade — концепт «попытаться ещё раз» теряет смысл без
+/// самого пазла.
+model TacticUserMistake {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  puzzleId  String   @map("puzzle_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  resolved  Boolean  @default(false)
+
+  puzzle    TacticPuzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id])
+
+  @@unique([userId, puzzleId])
+  @@index([userId, resolved])
+  @@map("tactic_user_mistakes")
+}
+
+/// KS-4339 / ADR-135 §2.1. Рейтинг пользователя по разделу
+/// «Точность» — изолированная Glicko-1 кривая. Структура полностью
+/// копирует `UserPrecisionRating`: PK = `userId`, FK Cascade, поля
+/// `rating/deviation/volatility/attempts/lastAttemptAt/updatedAt`.
+///
+/// Решение «отдельная таблица, не поле в users»:
+///   * пять Glicko-полей на каждого пользователя — это раздувание
+///     `users` ради подмножества активных в разделе пользователей
+///     (большинство будет иметь NULL/дефолты);
+///   * прецедент `UserPrecisionRating` (1:1 с User, onDelete Cascade)
+///     уже работает для precision-attempts — следуем тому же паттерну
+///     ради единообразия;
+///   * `users` уже несёт `ratingPuzzle` (lichess) и `precisionRating`
+///     (PVE); добавлять третий банк-специфичный рейтинг в users —
+///     путать концепты;
+///   * исторические снимки (TacticRatingSnapshot по образцу
+///     `PuzzleRatingSnapshot`) при появлении логично FK на это таблице,
+///     не на User напрямую.
+model UserTacticRating {
+  userId        String    @id @map("user_id") @db.Uuid
+  rating        Float     @default(1500)
+  /// Glicko RD. Большой RD (350) → высокая неопределённость, рейтинг
+  /// двигается быстрее. После многих попыток сужается до ~50-100.
+  deviation     Float     @default(350)
+  /// Glicko-2 параметр (для будущего; в MVP используется Glicko-1
+  /// continuous как у `UserPrecisionRating`).
+  volatility    Float     @default(0.06)
+  attempts      Int       @default(0)
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_tactic_ratings")
 }
