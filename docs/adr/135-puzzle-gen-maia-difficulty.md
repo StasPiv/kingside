@@ -165,30 +165,54 @@ model TacticUserMistake {
 
 ### 2.2. Удаление старых данных
 
-Миграция `delete_legacy_generated_pve`:
+FK-каскады в текущей схеме (проверено в `packages/db/prisma/schema.prisma`):
+
+* `PuzzleAttempt.puzzle → Puzzle onDelete: Cascade`;
+* `PrecisionAttempt.attempt → PuzzleAttempt onDelete: Cascade`;
+* `PrecisionAttemptMove.attempt → PrecisionAttempt onDelete: Cascade`;
+* `PuzzleRushSessionPuzzle.puzzle → Puzzle onDelete: Cascade`;
+* `DailyPuzzle.puzzle → Puzzle onDelete: Cascade`;
+* `UserMistake.puzzle → Puzzle onDelete: SetNull` (KS-2675 сознательно — строка ошибки пользователя сохраняется без ссылки на пазл).
+
+Поэтому миграция `delete_legacy_generated_pve` — один запрос:
 
 ```sql
--- 1. Precision-метрики старых PVE-попыток
-DELETE FROM precision_attempts
-WHERE attempt_id IN (
-  SELECT pa.id FROM puzzle_attempts pa
-  JOIN puzzles p ON pa.puzzle_id = p.id
-  WHERE p.source = 'generated' AND p.solution_mode = 'play-vs-engine'
-);
-
--- 2. Ошибки пользователей по старым PVE
-DELETE FROM user_mistakes
-WHERE puzzle_id IN (
-  SELECT id FROM puzzles
-  WHERE source = 'generated' AND solution_mode = 'play-vs-engine'
-);
-
--- 3. Сами пазлы (попытки удалятся каскадом — Puzzle.attempts onDelete: Cascade)
 DELETE FROM puzzles
 WHERE source = 'generated' AND solution_mode = 'play-vs-engine';
 ```
 
-`puzzle_rush_session_puzzles` ссылается на `puzzles` — проверить на T2 не было ли PVE-пазлов в сессиях rush. Маловероятно (rush работает на lichess), но FK-аудит обязателен.
+Каскадно удалится:
+* все `puzzle_attempts` по этим пазлам → `precision_attempts` → `precision_attempt_moves`;
+* `puzzle_rush_session_puzzles` со ссылкой на эти пазлы;
+* `daily_puzzles` со ссылкой на эти пазлы (если есть).
+
+Сохранится:
+* `user_mistakes.puzzle_id` обнулится через SetNull — строка ошибки остаётся в истории пользователя без ссылки на источник.
+
+**Обязательные FK-аудиты до миграции (шаг T2)** — без них миграция не запускается:
+
+```sql
+-- 1. Сколько PVE-пазлов под удаление и сколько связей сорвётся
+SELECT
+  (SELECT count(*) FROM puzzles
+   WHERE source='generated' AND solution_mode='play-vs-engine') AS pve_puzzles,
+  (SELECT count(*) FROM puzzle_attempts pa
+   JOIN puzzles p ON pa.puzzle_id = p.id
+   WHERE p.source='generated' AND p.solution_mode='play-vs-engine') AS attempts,
+  (SELECT count(*) FROM puzzle_rush_session_puzzles prsp
+   JOIN puzzles p ON prsp.puzzle_id = p.id
+   WHERE p.source='generated' AND p.solution_mode='play-vs-engine') AS rush_sessions,
+  (SELECT count(*) FROM user_mistakes um
+   JOIN puzzles p ON um.puzzle_id = p.id
+   WHERE p.source='generated' AND p.solution_mode='play-vs-engine') AS mistakes_setnull;
+
+-- 2. Сколько среди удаляемых — авторские черновики пользователей
+SELECT count(*) FROM puzzles
+WHERE source='generated' AND solution_mode='play-vs-engine'
+  AND created_by IS NOT NULL;
+```
+
+**Авторские черновики пользователей (`puzzles.created_by IS NOT NULL`)** — отдельный риск. Сейчас `PuzzleGeneratorModal` создаёт пазлы с `source='generated', solution_mode='play-vs-engine'`, `created_by = req.user.id`. Под предложенный DELETE они попадают вместе с TWIC. Решение — открытый вопрос (см. §2.7 п.1).
 
 Lichess (`source='lichess'`, `solution_mode='forced-line'`) **не трогаем**. Колонки `solution_mode`, `maia_weak_choice_prob`, `maia_metric_version`, `maia_top1_elo` остаются — они уже не имеют смысла для lichess (forced-line их не использует), но и не мешают. Чистку этих колонок выносить в отдельную задачу (необязательную, через пол-года когда убедимся что разрыв окончательный).
 
@@ -286,7 +310,13 @@ export async function processGameForTacticPuzzles(args: {
 * запись в `tactic_puzzles` через Prisma (новый клиент или дополнение `prisma.service`);
 * CLI `generate-tactic-puzzles.cli.ts` и `generate-tactic-puzzles-from-twic.cli.ts`.
 
-Прогнозируемая стоимость генерации: средняя партия 50 ply × ~1 с (предварительный + Maia) + 3–5 кандидатов × ~10 с (верификация) ≈ **80–150 с на партию на одном потоке**. При `GAME_CONCURRENCY=8` ≈ 10–20 с эффективно. 50 K TWIC-партий: 7–28 ч. Цифры стартовые, проверка — на T5.
+Прогнозируемая стоимость генерации — **стартовая оценка, требует замера на T5**:
+
+* nps Stockfish зависит от сборки (SF18 с NNUE на 1 потоке) и нагрузки на сервер — не проверял в проекте;
+* доля кандидатов, доходящих до верифицирующего прохода после `|strongSet|=1 + difficulty > 0.9` — на 3 партиях прототипа точная статистика не снималась;
+* при допущении 1–2 с на main + Maia и 10–20 с на verify, средняя партия 50 ply ориентировочно 60–180 с на одном потоке. На 8 потоках 50 K TWIC ≈ 6–30 ч.
+
+Замер на T5 — обязателен до перехода к T8 (массовая генерация).
 
 ### 2.4. Маршрут на backend
 
@@ -310,7 +340,8 @@ export async function processGameForTacticPuzzles(args: {
 * Новый компонент `apps/web/src/components/tactic/TacticPuzzleRunner.tsx` — заменяет `PlayVsEngineRunner.tsx` для этого раздела. Логика: solver видит позицию, обязан сыграть `bestMoveUci`. Никакой ветки `reactive`/`preventive`, никакого `replayBlunder`, никакого `firstMovePV1` фолбэка. Один путь — «угадай правильный ход».
 * `apps/web/src/pages/PrecisionPage.tsx` — переключается на `/tactic-puzzles/*`.
 * `apps/web/src/api-puzzle.ts`, `useInfinitePuzzles.ts` — для `/puzzles` (lichess) остаются как есть. Для `/tactic-puzzles` — новые `api-tactic-puzzle.ts`, `useInfiniteTacticPuzzles.ts`.
-* `PlayVsEngineRunner.tsx` — после переезда `/precision` остаётся **только** для клиентского PVE-генератора `PuzzleGeneratorModal` (см. §2.7). Если решим выключить и его — компонент удаляется.
+* Клиентский генератор `PuzzleGeneratorModal` переводится на тот же Maia-difficulty pipeline через `@kingside/maia-core/browser` + Stockfish WASM (`apps/web/src/utils/engineAdapter.ts` уже поддерживает `go nodes N`). Алгоритм один и тот же в shared, без расхождений между клиентом и сервером. Стоимость на партию пользователя — порядка минут; точный замер на T6.
+* `PlayVsEngineRunner.tsx` после переезда `/precision` и `PuzzleGeneratorModal` больше не нужен — удаляется. Логика «один сильный ход на текущей FEN» вся в `TacticPuzzleRunner.tsx`.
 
 Раздел `/puzzles` (lichess), daily-puzzle, puzzle-rush — без изменений.
 
@@ -332,18 +363,22 @@ T5. backend  Smoke-генерация 100–500 партий локально, �
              ⛳ если выборка плоха — крутим пороги в shared
 T6. frontend TacticPuzzleRunner.tsx + api-tactic-puzzle.ts + переезд
              PrecisionPage.tsx на новый маршрут
-T7. backend  Миграция delete_legacy_generated_pve: удалить
-             precision_attempts → user_mistakes → puzzles (cascade на
-             puzzle_attempts) для source='generated'
-             AND solution_mode='play-vs-engine'
+T7. backend  Миграция delete_legacy_generated_pve: один DELETE FROM puzzles
+             WHERE source='generated' AND solution_mode='play-vs-engine'.
+             FK-каскады снимут puzzle_attempts → precision_attempts →
+             precision_attempt_moves, puzzle_rush_session_puzzles,
+             daily_puzzles. user_mistakes.puzzle_id обнулится (SetNull).
+             ПЕРЕД миграцией — FK-аудиты из §2.2 + решение по черновикам
+             (§2.7 п.1).
              ⛳ выполняется ПОСЛЕ T6 (UI уже не ходит к старым данным)
 T8. devops   Массовая генерация tactic_puzzles на TWIC через ECS-шарды,
              наблюдение метрик принятия
 T9. backend  Чистка apps/api/src/puzzle/: удалить ветки PVE-резолверов,
              параметр solutionMode из find-puzzles.dto, мёртвые тесты
-T10. backend Чистка apps/web/src/components/puzzle/PlayVsEngineRunner.tsx —
-             либо удалить (если PuzzleGeneratorModal тоже выключается),
-             либо упростить (только клиент-генератор)
+T10. frontend Удалить apps/web/src/components/puzzle/PlayVsEngineRunner.tsx,
+             apps/web/src/utils/puzzleGenerator.ts (старый blunder-генератор)
+             и связанные spec'и — после переезда PuzzleGeneratorModal
+             на Maia-difficulty pipeline (T6)
 ```
 
 **Точки безопасной остановки**: после T2 (новая таблица пустая, никто к ней не ходит), после T4 (маршрут готов, фронт ещё на старом), после T6 (фронт переехал, старые данные ещё на месте — можно откатить фронт обратно).
@@ -352,24 +387,22 @@ T10. backend Чистка apps/web/src/components/puzzle/PlayVsEngineRunner.tsx 
 
 ### 2.7. Открытые вопросы
 
-1. **Клиентский PVE-генератор `PuzzleGeneratorModal`** — пользователь генерит пазлы из своих партий через WASM-Stockfish. Сейчас это blunder-based (ADR-070). Maia-difficulty в браузере нереалистично (10 M nodes SF + ONNX-runtime + Maia-модель). Варианты:
-   * выключить функционал;
-   * оставить blunder-генератор для клиента только (отдельный артефакт shared);
-   * упростить — генерировать кандидатов клиентом (низкий бюджет), отправлять на сервер для верификации.
+1. **Авторские черновики пользователей** — `puzzles WHERE source='generated' AND solution_mode='play-vs-engine' AND created_by IS NOT NULL`. Это пазлы, сделанные через `PuzzleGeneratorModal`. Под предложенный DELETE в §2.2 они попадают вместе с TWIC. Варианты:
+   * удалить вместе с TWIC (пользователи теряют черновики);
+   * перенести в `tactic_puzzles` с NULL в Maia-полях и маркером `algorithm_version='legacy-blunder-v1'` (фронт показывает их в /precision без Maia-фильтра);
+   * оставить в старой `puzzles` отдельным `solution_mode='legacy-pve'` (но это размазывает концепт).
 
-   Решается отдельным согласованием с пользователем. До решения — оставляем blunder-генератор для клиента в `apps/web/src/utils/puzzleGenerator.ts`, шаренный код туда копируется out-of-band.
+   Запрос для оценки объёма — в §2.2 (количество строк с `created_by IS NOT NULL`).
 
 2. **Рейтинг пользователя по «Точности»** — отдельная таблица `TacticRatingSnapshot` или поле в `User`. Связано с архитектурой `PuzzleRatingSnapshot`. Решается на T2.
 
 3. **Maia-2400** — корректная аудитория для /precision? Игроки часто 1200–1800. Если выборка T5 «слишком трудная» — уменьшить `MAIA_ELO` в конфиге.
 
-4. **Параллелизм Maia ONNX-session** — поточно-безопасен ли `predictMoves` или нужна сериализация через мьютекс. Уточняется на T1.
+4. **Параллелизм Maia ONNX-session** — поточно-безопасен ли `predictMoves` или нужна сериализация через мьютекс. Не проверено по документации `onnxruntime-node`/`onnxruntime-web`. Уточняется на T1 тестом.
 
 5. **`go nodes` vs `go depth`** — для предсказуемости времени, возможно, перейти на `depth`. Решается на T5.
 
 6. **Эндшпильные мат-форсы** — нужен ли отдельный отсев или `|strongSet|=1 + gap ≥ 0.2` сами справляются. Оценка на T5.
-
-7. **PuzzleRush PVE** — сейчас PuzzleRush возможно крутил PVE-пазлы (`PuzzleRushSessionPuzzle.puzzleId`). FK-аудит на T2: были ли PVE-сессии. Если да — либо удалить эти сессии, либо обнулить `puzzleId` (тип данных позволяет).
 
 ## 3. Последствия
 
@@ -382,8 +415,10 @@ T10. backend Чистка apps/web/src/components/puzzle/PlayVsEngineRunner.tsx 
 
 **Минусы / риски.**
 
-* Полная переработка раздела — нельзя выкатить «полосочкой». Откат после T7 невозможен (старые PVE-пазлы и попытки удалены).
+* Полная переработка раздела — нельзя выкатить кусочно. Откат после T7 невозможен (старые PVE-пазлы и попытки удалены).
 * Удаление `puzzle_attempts` для PVE стирает игровую историю пользователей в разделе «Точность». Это сознательная цена концептуального разрыва — старые попытки на старых пазлах не имеют ценности при смене триггера.
+* `user_mistakes` для удалённых PVE-пазлов сохраняются (SetNull по `puzzle_id`) — строки ошибок остаются в истории пользователя без ссылки на источник. UI должен корректно отображать ошибку без пазла.
+* Авторские черновики пользователей попадают под удаление, если не вынесены отдельно (§2.7 п.1).
 * Двойная таблица пазлов (`puzzles` lichess + `tactic_puzzles` Maia) — больше Prisma-моделей, больше клиентов. Это плата за чистоту схемы.
 * Стоимость генерации высокая (см. §2.3). Полная регенерация TWIC — десятки часов.
 
