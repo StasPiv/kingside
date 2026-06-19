@@ -248,6 +248,16 @@ export function TacticPuzzleRunner({
   const engineRef = useRef<EngineAdapter | null>(null);
   const engineInitPromiseRef = useRef<Promise<EngineAdapter> | null>(null);
   const engineQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  /**
+   * KS-4345 / KS-3391 pattern. Generation-счётчик «живого» анализа:
+   * каждый запуск/остановка инкрементит его, и устаревший `onUpdate`
+   * (от прошлой позиции) перестаёт писать в `latestWdl`. `liveInFlightRef`
+   * — реально ли сейчас идёт `go infinite` на worker'е: `stop()` шлём
+   * только когда это так, чтобы случайно не оборвать классификационный
+   * `analyze`.
+   */
+  const liveGenRef = useRef(0);
+  const liveInFlightRef = useRef(false);
 
   const ensureEngine = useCallback((): Promise<EngineAdapter> => {
     if (engineRef.current) return Promise.resolve(engineRef.current);
@@ -331,6 +341,70 @@ export function TacticPuzzleRunner({
     [ensureEngine, analyzeDepth, analyzeMovetimeMs],
   );
 
+  /**
+   * KS-4345. «Живой» непрерывный анализ позиции игрока. На каждой info-
+   * строке Stockfish обновляем `latestWdl` (POV solver) — полоса
+   * шансов уточняется в реальном времени по мере роста глубины.
+   *
+   * Сам по себе НЕ завершается (`go infinite`) — гасится
+   * `stopLiveAnalysis()` перед каждым классификационным `queueAnalyze`
+   * (иначе один WASM-worker не сможет принять новую `go`-команду).
+   */
+  const startLiveAnalysis = useCallback(
+    (fen: string) => {
+      const gen = ++liveGenRef.current;
+      const queued = engineQueueRef.current.then(async () => {
+        // Отменён до старта (игрок успел сходить / сменился пазл) —
+        // выходим без go infinite, очередь сразу свободна для analyze.
+        if (gen !== liveGenRef.current) return;
+        const eng = await ensureEngine();
+        if (gen !== liveGenRef.current) return;
+        liveInFlightRef.current = true;
+        try {
+          await eng.analyzeLive(fen, 1, (info) => {
+            if (gen !== liveGenRef.current) return;
+            // Side-to-move в `fen` == текущий ходящий. Когда live запущен
+            // на позиции, где ходит solver, info.wdl уже POV solver.
+            // Когда live запущен на позиции, где ходит соперник
+            // (промежуточные кадры между ходом игрока и ответом движка),
+            // флипаем под POV solver.
+            const stm = sideFromFen(fen);
+            const wdlSolver =
+              info.wdl == null
+                ? null
+                : stm === solverSide
+                  ? info.wdl
+                  : flipWdl(info.wdl);
+            if (wdlSolver) setLatestWdl(wdlSolver);
+          });
+        } finally {
+          liveInFlightRef.current = false;
+        }
+      });
+      engineQueueRef.current = queued.catch(() => {
+        liveInFlightRef.current = false;
+      });
+    },
+    [ensureEngine, solverSide],
+  );
+
+  /**
+   * KS-4345. Остановить «живой» анализ. Инкремент `liveGenRef`
+   * инвалидирует stale onUpdate и pending-старт; `stop()` дёргаем
+   * только когда `go infinite` реально идёт — иначе он мог бы
+   * оборвать классификационный analyze.
+   */
+  const stopLiveAnalysis = useCallback(() => {
+    liveGenRef.current++;
+    if (liveInFlightRef.current) {
+      try {
+        engineRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       try {
@@ -361,6 +435,9 @@ export function TacticPuzzleRunner({
     async (args: { solved: boolean; stopReason: TacticPuzzleStopReason }) => {
       if (submittedRef.current) return;
       submittedRef.current = true;
+      // KS-4345. Попытка завершена — гасим «живой» анализ, чтобы
+      // worker не молотил `go infinite` после показа результата.
+      stopLiveAnalysis();
       const wdlEnd = latestWdl
         ? (latestWdl.w + latestWdl.d / 2) / 1000
         : null;
@@ -382,7 +459,7 @@ export function TacticPuzzleRunner({
         console.warn('TacticPuzzleRunner: submit failed', e);
       }
     },
-    [onSubmit, latestWdl],
+    [onSubmit, latestWdl, stopLiveAnalysis],
   );
 
   // ── User move handler ────────────────────────────────────────────
@@ -404,6 +481,11 @@ export function TacticPuzzleRunner({
       }
       if (!mv) return false;
       const playedUci = `${mv.from}${mv.to}${mv.promotion ?? ''}`;
+      // KS-4345. Игрок сходил — гасим «живой» анализ его прежней
+      // позиции и освобождаем worker для классификационного analyze.
+      // Без этого `go infinite` держал бы движок и `queueAnalyze` ниже
+      // встал бы навсегда.
+      stopLiveAnalysis();
 
       // Сверка с ожидаемым лучшим ходом.
       if (playedUci !== expectedBestUciRef.current) {
@@ -544,12 +626,18 @@ export function TacticPuzzleRunner({
           setCanFinish(true);
           setState('thinking');
         }
+        // KS-4345. На новой позиции игрока запускаем «живой» анализ —
+        // полоса шансов уточняется, пока он думает над ответом.
+        // `thinking` к этому моменту уже выставлен; запускаем после
+        // классификационных queueAnalyze, иначе live перехватит
+        // worker до их завершения.
+        startLiveAnalysis(afterEngine.fen());
       } catch (e) {
         setErrorMsg(e instanceof Error ? e.message : 'difficulty-check-failed');
         setState('error');
       }
     },
-    [queueAnalyze, maiaSource, settings, finishAttempt],
+    [queueAnalyze, maiaSource, settings, finishAttempt, startLiveAnalysis],
   );
 
   // ── Initial difficulty bar + snapshot стартовой оценки ──────────
@@ -563,6 +651,14 @@ export function TacticPuzzleRunner({
       wdlStartRef.current =
         (puzzle.wdl.w + puzzle.wdl.d / 2) / 1000;
     }
+    // KS-4345. «Живой» непрерывный анализ стартовой FEN — полоса
+    // шансов уточняется в реальном времени, пока пользователь думает
+    // над первым ходом. Гасится `stopLiveAnalysis()` ниже при первом
+    // же ходе или размонтировании.
+    startLiveAnalysis(puzzle.fen);
+    return () => {
+      stopLiveAnalysis();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puzzle.id]);
 
@@ -595,6 +691,9 @@ export function TacticPuzzleRunner({
     }
     if (!mv) return;
     const playedUci = `${mv.from}${mv.to}${mv.promotion ?? ''}`;
+    // KS-4345. «Пропустить ход» тоже ведёт к новому циклу analyze —
+    // гасим live, чтобы освободить worker.
+    stopLiveAnalysis();
     userMovesRef.current.push(playedUci);
     halfMovesRef.current += 1;
     setGame(probe);
@@ -605,7 +704,14 @@ export function TacticPuzzleRunner({
       return;
     }
     void runEngineThenAnalyze(probe);
-  }, [canFinish, state, game, runEngineThenAnalyze, finishAttempt]);
+  }, [
+    canFinish,
+    state,
+    game,
+    runEngineThenAnalyze,
+    finishAttempt,
+    stopLiveAnalysis,
+  ]);
 
   const handleAbort = useCallback(() => {
     if (submittedRef.current) return;
