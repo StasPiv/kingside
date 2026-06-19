@@ -378,6 +378,23 @@ export class MaiaAnnotationService {
   }
 
   /**
+   * KS-4340 / ADR-135. Прямой доступ к Maia.predictMoves для tactic-
+   * puzzle-generator. Возвращает policy в формате shared
+   * `MaiaPolicySource`. Использует ту же singleton ONNX-сессию, что и
+   * continuous annotation, чтобы оба пайплайна делили одну загрузку
+   * модели (~125 MiB).
+   */
+  async predictPolicy(
+    fen: string,
+    eloW: number,
+    eloB: number,
+  ): Promise<{ policy: Array<{ move: string; probability: number }> }> {
+    const engine = await this.getEngine();
+    const result = await engine.predictMoves(fen, eloW, eloB);
+    return { policy: result.policy };
+  }
+
+  /**
    * Лениво создаёт Maia engine. Идемпотентно — если уже создан,
    * возвращает ту же ссылку. Если `ensureSession()` упало (модель не
    * найдена, ORT-init сломался) — поднимает `initFailed = true` и

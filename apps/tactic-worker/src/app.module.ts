@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { StockfishModule } from './stockfish/stockfish.module';
+import { TacticPuzzleGeneratorModule } from './tactic-puzzle-generator/tactic-puzzle-generator.module';
 
 /**
  * AppModule для tactic-worker (ADR-042 §1.2).
@@ -22,6 +23,8 @@ import { StockfishModule } from './stockfish/stockfish.module';
     }),
     PrismaModule,
     StockfishModule,
+    // KS-4340 / ADR-135: новый банк tactic-пазлов (Maia-difficulty).
+    TacticPuzzleGeneratorModule,
   ],
 })
 export class AppModule {}

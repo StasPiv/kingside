@@ -34,6 +34,7 @@ import { runBackfillPhase } from './cli/backfill-phase.cli';
 import { runBackfillEndgameSubtype } from './cli/backfill-endgame-subtype.cli';
 import { runGeneratePuzzlesFromTwic } from './cli/generate-puzzles-from-twic.cli';
 import { runParityCheck } from './cli/parity-check.cli';
+import { runGenerateTacticPuzzlesFromTwic } from './cli/generate-tactic-puzzles-from-twic.cli';
 
 const SUBCOMMANDS = [
   'index-tactic-drills',
@@ -46,6 +47,8 @@ const SUBCOMMANDS = [
   'backfill-endgame-subtype',
   'generate-puzzles-from-twic',
   'parity-check',
+  // KS-4340 / ADR-135: новый банк tactic-пазлов на Maia-difficulty.
+  'generate-tactic-puzzles-from-twic',
 ] as const;
 
 function printHelp(): void {
@@ -113,6 +116,9 @@ async function main(): Promise<void> {
         break;
       case 'parity-check':
         await runParityCheck(app, rest);
+        break;
+      case 'generate-tactic-puzzles-from-twic':
+        await runGenerateTacticPuzzlesFromTwic(app, rest);
         break;
       default:
         // exhaustiveness — TypeScript уже проверил выше.
