@@ -4,7 +4,7 @@
  *
  * Источники данных:
  *   - `GET /tactic-puzzles/stats/me` → `TacticUserStats` (рейтинг + Glicko,
- *     тоталы, серия, разрезы по stopReason/objective/difficulty);
+ *     тоталы, серия, разрезы по stopReason/difficulty);
  *   - `GET /tactic-puzzles/stats/rating-history` → `TacticRatingPoint[]`
  *     (точки графика рейтинга по дням, фильтр `from`/`to`).
  *
@@ -15,8 +15,7 @@
  *   4. Линейный график рейтинга (inline SVG) с переключателем периода
  *      «Неделя / Месяц / Всё время».
  *   5. Разрез по причинам остановки (горизонтальные полосы).
- *   6. Разрез по `objective` (convert/save).
- *   7. Гистограмма по бакетам сложности.
+ *   6. Гистограмма по бакетам сложности.
  *
  * Гостям эндпоинты вернут 401 — рендерим приглашение войти.
  */
@@ -290,26 +289,6 @@ export function TacticPuzzlesStatsPage() {
     }));
   }, [stats, t]);
 
-  const objectiveRows: BarRow[] = useMemo(() => {
-    if (!stats) return [];
-    return [
-      {
-        label: t(
-          'tacticPuzzle.stats.objective.convertAdvantage',
-          'Convert the advantage',
-        ),
-        value: stats.objectiveBreakdown.convertAdvantage,
-      },
-      {
-        label: t(
-          'tacticPuzzle.stats.objective.saveEquality',
-          'Save the draw',
-        ),
-        value: stats.objectiveBreakdown.saveEquality,
-      },
-    ];
-  }, [stats, t]);
-
   const difficultyRows: BarRow[] = useMemo(() => {
     if (!stats) return [];
     return Object.entries(stats.difficultyBuckets)
@@ -351,7 +330,7 @@ export function TacticPuzzlesStatsPage() {
         <p className="tactic-puzzles-stats__intro">
           {t(
             'tacticPuzzle.stats.intro',
-            'Summary of your Tactics section: current rating, totals and breakdowns by stop reason, objective and difficulty.',
+            'Summary of your Tactics section: current rating, totals and breakdowns by stop reason and difficulty.',
           )}
         </p>
       </header>
@@ -580,17 +559,6 @@ export function TacticPuzzlesStatsPage() {
             <HorizontalBars
               rows={stopReasonRows}
               testIdPrefix="tactic-stats-stop"
-            />
-          </section>
-
-          <section
-            className="tactic-stats__card"
-            data-testid="tactic-stats-objective"
-          >
-            <h2>{t('tacticPuzzle.stats.objective.title', 'Puzzle type')}</h2>
-            <HorizontalBars
-              rows={objectiveRows}
-              testIdPrefix="tactic-stats-obj"
             />
           </section>
 

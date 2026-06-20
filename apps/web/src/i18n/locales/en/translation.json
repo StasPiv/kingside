@@ -2243,7 +2243,7 @@
     },
     "stats": {
       "title": "Stats — tactics training",
-      "intro": "Summary of your Tactics section: current rating, totals, and breakdowns by stop reason, objective and difficulty.",
+      "intro": "Summary of your Tactics section: current rating, totals, and breakdowns by stop reason and difficulty.",
       "guestTitle": "Sign in to see stats",
       "guestMessage": "Stats are available to signed-in players only.",
       "empty": "Solve your first puzzle — stats will show up here.",
@@ -2278,11 +2278,6 @@
       },
       "stopReason": {
         "title": "Stop reasons"
-      },
-      "objective": {
-        "title": "Puzzle type",
-        "convertAdvantage": "Convert the advantage",
-        "saveEquality": "Save the draw"
       },
       "difficulty": {
         "title": "Difficulty distribution"
@@ -4628,7 +4623,7 @@
       },
       "stats": {
         "title": "Stats — tactics training — Kingside",
-        "description": "Current rating, totals and breakdowns by stop reason, objective and difficulty — your personal Tactics summary on Kingside."
+        "description": "Current rating, totals and breakdowns by stop reason and difficulty — your personal Tactics summary on Kingside."
       },
       "mistakes": {
         "title": "Mistake review — tactics training — Kingside",
