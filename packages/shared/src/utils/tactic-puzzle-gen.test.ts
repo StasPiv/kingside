@@ -141,27 +141,14 @@ describe('analyzePlyForTacticPuzzle', () => {
     expect(r.candidate.bestMoveUci).toBe('e3c2');
     expect(r.candidate.gap).toBeCloseTo(0.499, 3);
     expect(r.candidate.difficulty).toBeCloseTo(0.98, 3);
-    expect(r.candidate.objective).toBe('saveEquality');
     expect(r.candidate.depth).toBe(20);
   });
 
-  it('objective=convertAdvantage при bestE ≥ 0.6', async () => {
-    const sf = makeSf({
-      main: [
-        { move: 'd1d8', E: 0.95, wdl: wdl(950, 50, 0) },
-        { move: 'a2a3', E: 0.5, wdl: wdl(0, 1000, 0) },
-      ],
-      verify: [
-        { move: 'd1d8', E: 0.95, wdl: wdl(950, 50, 0) },
-        { move: 'a2a3', E: 0.5, wdl: wdl(0, 1000, 0) },
-      ],
-    });
-    const maia = makeMaia([{ move: 'd1d8', probability: 0.05 }]);
-    const r = await analyzePlyForTacticPuzzle(STEP(), sf, maia, SETTINGS);
-    expect(r.kind).toBe('accepted');
-    if (r.kind !== 'accepted') return;
-    expect(r.candidate.objective).toBe('convertAdvantage');
-  });
+  // KS-4368 / KS-4367. Тест на objective='convertAdvantage' удалён —
+  // поле objective убрано из TacticPuzzleCandidate целиком. Семантика
+  // «реализуй перевес / удержи равенство» оказалась ad-hoc эвристикой
+  // и не используется ни в UI, ни в логике отбора (см. пересмотр
+  // ADR-135 §2.3, коммит f8fa746).
 
   it('gameOver → rejected', async () => {
     const sf = makeSf({ main: [], verify: [] });

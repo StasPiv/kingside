@@ -142,25 +142,15 @@ export interface TacticPuzzleCandidate {
   wdl: Wdl;
   /** `1 − Σ policy[strongSet]` по Maia на стартовой позиции. */
   difficulty: number;
-  /** Семантика задачи solver'у: «реализовать перевес» или «удержать
-   *  равенство». Считается из `bestE` лучшего хода. */
-  objective: 'convertAdvantage' | 'saveEquality';
   /** Достигнутая глубина движка на верифицирующем проходе. */
   depth: number;
 }
 
-/**
- * Семантика объектива пазла (ADR-135 §2.1, поле `objective` в БД). Для
- * solver'а на стартовой FEN:
- *   * `bestE ≥ 0.6` — у solver'а есть перевес, задача — «реализовать»;
- *   * `bestE < 0.6` — у solver'а позиция, в которой надо «удержать
- *     равенство» (либо лёгкий минус, который правильным ходом не
- *     проигрывается).
- *
- * Порог 0.6 — наследие шкалы lichess (~50 cp). Финал — на T5 после
- * валидации выборки.
- */
-const CONVERT_THRESHOLD = 0.6;
+// KS-4368 / KS-4367. Поле `objective` и CONVERT_THRESHOLD удалены.
+// Семантика «реализуй перевес / удержи равенство» оказалась
+// ad-hoc эвристикой и не используется UI (см. пересмотр ADR-135 §2.3,
+// коммит f8fa746). Логика отбора кандидата теперь не зависит от bestE
+// в этой части — решает только `gapMin` / `loseMax` / `difficultyMin`.
 
 export type TacticPuzzleRejectReason =
   | 'gameOver'
@@ -311,8 +301,6 @@ export async function analyzePlyForTacticPuzzle(
   }
 
   const solverSide = sideToMoveFromFen(step.fen);
-  const objective: 'convertAdvantage' | 'saveEquality' =
-    verifyPick.bestE >= CONVERT_THRESHOLD ? 'convertAdvantage' : 'saveEquality';
 
   return {
     kind: 'accepted',
@@ -326,7 +314,6 @@ export async function analyzePlyForTacticPuzzle(
       gap,
       wdl: bestLine.wdl,
       difficulty,
-      objective,
       depth,
     },
   };

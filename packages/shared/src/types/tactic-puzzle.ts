@@ -17,8 +17,11 @@
  *      `timeout` — таймер; `aborted` — закрыл / прервал).
  */
 
-/** Семантика задачи solver'у. */
-export type TacticPuzzleObjective = 'convertAdvantage' | 'saveEquality';
+// KS-4368 / KS-4367. `TacticPuzzleObjective` удалён: семантика «реализуй
+// перевес / удержи равенство» оказалась ad-hoc эвристикой, не отражённой
+// в реальном UI и плохо коррелирующей с ощущением сложности у игрока
+// (см. пересмотр ADR-135 §2.3, коммит f8fa746). Поле `objective` уходит
+// из всех контрактов и из колонки БД на T1.
 
 /** Причина закрытия попытки в `tactic_puzzle_attempts.stop_reason`. */
 export type TacticPuzzleStopReason =
@@ -50,7 +53,6 @@ export interface TacticPuzzleResponse {
   bestMoveUci: string;
   /** side-to-move в `fen` — кто решает. */
   solverSide: 'w' | 'b';
-  objective: TacticPuzzleObjective;
   themes: string[];
   rating: number;
   ratingDev: number;
@@ -74,7 +76,6 @@ export interface TacticPuzzleResponse {
 export interface TacticPuzzleBrowseQuery {
   cursor?: string;
   limit?: number;
-  objective?: TacticPuzzleObjective;
   /** Только пазлы с `difficulty >= maiaDifficultyMin`. */
   maiaDifficultyMin?: number;
   /** Только пазлы с `gap >= gapMin`. */
@@ -146,7 +147,6 @@ export interface TacticUserMistakeItem {
   rating: number;
   difficulty: number;
   gap: number;
-  objective: TacticPuzzleObjective;
   themes: string[];
   /** ISO-8601 — когда ошибка добавлена. */
   createdAt: string;
@@ -180,8 +180,6 @@ export interface TacticAttemptListItem {
   fen: string;
   bestMoveUci: string;
   solverSide: 'w' | 'b';
-  /** Семантика задачи solver'у на этом пазле. */
-  objective: TacticPuzzleObjective;
   /** Заголовок партии-источника, формат `"White vs Black"` либо
    *  `null` если пазл не из партии или ELO не подтверждены. */
   playersTitle: string | null;
@@ -224,7 +222,6 @@ export interface TacticAttemptDetail extends TacticAttemptListItem {
     id: string;
     fen: string;
     bestMoveUci: string;
-    objective: TacticPuzzleObjective;
     difficulty: number;
     gap: number;
     rating: number;
@@ -269,7 +266,6 @@ export interface TacticUserStats {
     best: number;
   };
   stopReasonBreakdown: Record<TacticStopReason, number>;
-  objectiveBreakdown: { convertAdvantage: number; saveEquality: number };
   difficultyBuckets: Record<string, number>;
 }
 
@@ -305,7 +301,6 @@ export interface TacticMistakeListItem {
   fen: string;
   bestMoveUci: string;
   solverSide: 'w' | 'b';
-  objective: TacticPuzzleObjective;
   themes: string[];
   difficulty: number;
   /** Заголовок партии-источника, формат `"White vs Black"` либо `null`. */
