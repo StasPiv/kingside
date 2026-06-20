@@ -1,6 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+// KS-4464. Переключатель языка должен переписывать URL'ы, у которых
+// первый сегмент — локаль (`/<lang>/blog/...`), иначе после
+// `i18n.changeLanguage` страница тут же подтягивает старую локаль из
+// URL (BlogFeedPage/BlogPostPage синхронизируют `i18n.language` из
+// `useParams`). Хелпер общий — поддержит будущие префиксные разделы.
+import { rewriteLangPrefix } from '../utils/langPath';
+import { toBlogLocale } from '../utils/blogUrl';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook, FaTelegram, FaCode, FaEnvelope, FaBell, FaUserFriends } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
@@ -121,6 +128,7 @@ export function MainLayout() {
   }, []);
 
   const location = useLocation();
+  const navigate = useNavigate();
 
   const closeAll = () => {
     setUserMenuOpen(false);
@@ -244,7 +252,16 @@ export function MainLayout() {
                 пользователя), но логируем — рассинхрон UI/курсы
                 устранится при следующей удачной смене. Для гостей
                 (user==null) PATCH не делаем — бэк всё равно отдаёт ru
-                fallback. */}
+                fallback.
+
+                KS-4464: на префиксных URL'ах (`/<lang>/blog[/...]`)
+                одной смены `i18n.language` недостаточно — страница
+                сразу синхронизирует язык обратно из `useParams`-lang
+                и UI «откатывается». Решение: после смены языка, если
+                первый сегмент пути — поддерживаемая локаль, делаем
+                `navigate` на тот же путь с новым префиксом. На
+                страницах без префикса (`/`, `/lessons`, …) ничего
+                не навигируется — поведение прежнее. */}
             <button
               className="lang-switcher"
               onClick={async () => {
@@ -258,6 +275,21 @@ export function MainLayout() {
                 }
                 await i18n.changeLanguage(next);
                 localStorage.setItem('locale', next);
+                // KS-4464. Переписываем URL под новый язык, если он
+                // содержит языковой префикс. `toBlogLocale` гарантирует
+                // фолбэк на 'en', если в `next` придёт неизвестное
+                // значение (защита на случай будущих расширений
+                // переключателя).
+                const rewritten = rewriteLangPrefix(
+                  location.pathname,
+                  toBlogLocale(next),
+                );
+                if (rewritten) {
+                  navigate(
+                    `${rewritten}${location.search}${location.hash}`,
+                    { replace: true },
+                  );
+                }
               }}
               title={i18n.language === 'ru' ? 'Switch to English' : 'Переключить на русский'}
             >
