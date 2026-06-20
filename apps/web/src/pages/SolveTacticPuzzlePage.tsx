@@ -17,7 +17,7 @@
  *   - кнопка «Открыть в мастерской» рядом с «Сдаться» — отправляет
  *     попытку как `aborted` и переходит на `/analysis?fen=...`.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -33,7 +33,6 @@ import {
 } from '../components/puzzle/TacticPuzzleRunner';
 import { PuzzleSourceGame } from '../components/puzzle/PuzzleSourceGame';
 import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
-import { api } from '../api';
 
 /**
  * KS-4347. Адаптер `TacticPuzzleResponse.sourceHeaders` (PGN-headers) →
@@ -137,87 +136,76 @@ export function SolveTacticPuzzlePage() {
   }, [navigate]);
 
   /**
-   * KS-4347 → KS-4350. «Открыть в мастерской».
+   * KS-4347 → KS-4350 → KS-4353. «Открыть в мастерской».
    *
-   * Шаги:
-   *   1) Сразу синхронно открываем пустую новую вкладку (`window.open`
-   *      в обработчике клика — single user-gesture, иначе блокировщик
-   *      всплывающих окон может задержать вкладку).
-   *   2) Параллельно отправляем `attempt` с `stopReason='aborted'`.
-   *   3) Если есть `sourceGameId` — `POST /analyses { archiveGameId }`,
-   *      backend (KS-3261/3263) сам подгрузит PGN и дедуплицирует
-   *      по `archiveGameId`. После — подменяем URL новой вкладки на
-   *      `/analysis/<created.id>`.
-   *   4) Если `sourceGameId` нет (legacy) — fallback: открываем
-   *      `/analysis?fen=<puzzle.fen>` в той же новой вкладке.
-   *   5) Если открытие новой вкладки заблокировано (pop-up blocker
-   *      или гость без права на POST `/analyses`) — навигация в той же
-   *      вкладке как окончательный fallback.
+   * Открываем СТАРТОВУЮ позицию пазла (FEN) в мастерской в новой
+   * вкладке. Не партию-источник, не POST `/analyses` — пользователь
+   * хочет разобрать конкретно задачу.
    *
-   * На странице пазла раннер выставил `state='lose'` — пользователь
-   * видит экран результата с «сдался», возврат сюда после возврата из
-   * мастерской показывает уже закрытую попытку.
+   *   - если попытка ещё не отправлена (раннер передал данные на клик
+   *     по кнопке во время решения), параллельно шлём `attempt`
+   *     с `stopReason='aborted'`;
+   *   - если попытка уже завершена (на экране результата), раннер
+   *     передаёт уже зафиксированные данные, но `submittedRef` в нём
+   *     не даёт повторного вызова `onOpenWorkshop`. Здесь же мы можем
+   *     получить data с любым stopReason — повторно отправлять не
+   *     нужно, и `attempt` не уходит.
+   *
+   * Защита от двойной отправки: храним `submittedAttemptRef` —
+   * по `puzzle.id` запоминаем, что для этого пазла попытку уже
+   * отправляли, при повторном клике пропускаем submit.
    */
+  const submittedAttemptRef = useRef<string | null>(null);
   const handleOpenWorkshop = useCallback(
-    async (data: TacticPuzzleRunnerSubmit) => {
+    (data: TacticPuzzleRunnerSubmit) => {
       if (!puzzle) return;
-      // Открываем пустую вкладку синхронно — обязательное условие
-      // user-gesture для большинства pop-up политик. Без `noopener`,
-      // чтобы получить ссылку и потом подменить URL.
-      const tab: Window | null = window.open('about:blank', '_blank');
-      const fallbackUrl = `/analysis?fen=${encodeURIComponent(puzzle.fen)}`;
-      // attempt + POST /analyses идут параллельно — submit от backend
-      // нужен сам по себе (журнал ошибок), а ссылка на анализ не зависит
-      // от его исхода.
-      const submitPromise = user
-        ? tacticPuzzleApi
-            .submitAttempt(puzzle.id, {
-              lineHalfMoves: data.lineHalfMoves,
-              userMoves: data.userMoves,
-              stopReason: data.stopReason,
-              timeMs: data.timeMs,
-              wdlStart: data.wdlStart,
-              wdlEnd: data.wdlEnd,
-            })
-            .catch((e) => {
-              console.warn(
-                'SolveTacticPuzzlePage: workshop submit failed',
-                e,
-              );
-            })
-        : Promise.resolve();
+      const targetUrl = `/analysis?fen=${encodeURIComponent(puzzle.fen)}`;
+      // Открываем синхронно — обязательное условие user-gesture для
+      // pop-up политик. Если заблокировано — переходим в той же вкладке.
+      const tab = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      if (!tab) window.location.href = targetUrl;
 
-      let targetUrl = fallbackUrl;
-      if (user && puzzle.sourceGameId) {
-        try {
-          const title = puzzle.sourceHeaders
-            ? `${puzzle.sourceHeaders.White ?? '?'} vs ${
-                puzzle.sourceHeaders.Black ?? '?'
-              }`
-            : 'Tactic puzzle';
-          const created = await api.post<{ id: string }>(`/analyses`, {
-            title,
-            category: 'analysis',
-            archiveGameId: puzzle.sourceGameId,
+      // attempt отправляем только если ещё не отправляли для этого пазла.
+      if (
+        user &&
+        submittedAttemptRef.current !== puzzle.id
+      ) {
+        submittedAttemptRef.current = puzzle.id;
+        tacticPuzzleApi
+          .submitAttempt(puzzle.id, {
+            lineHalfMoves: data.lineHalfMoves,
+            userMoves: data.userMoves,
+            stopReason: data.stopReason,
+            timeMs: data.timeMs,
+            wdlStart: data.wdlStart,
+            wdlEnd: data.wdlEnd,
+          })
+          .catch((e) => {
+            console.warn(
+              'SolveTacticPuzzlePage: workshop submit failed',
+              e,
+            );
           });
-          targetUrl = `/analysis/${created.id}`;
-        } catch (e) {
-          console.warn(
-            'SolveTacticPuzzlePage: POST /analyses failed, fallback to fen',
-            e,
-          );
-        }
       }
-      // Подменяем URL в открытой вкладке. Если открытие было
-      // заблокировано — fallback на навигацию в той же вкладке.
-      if (tab && !tab.closed) {
-        tab.location.href = targetUrl;
-      } else {
-        window.location.href = targetUrl;
-      }
-      await submitPromise;
     },
     [puzzle, user],
+  );
+
+  // Сбрасываем «уже отправили» при смене пазла.
+  useEffect(() => {
+    submittedAttemptRef.current = null;
+  }, [puzzle?.id]);
+
+  // Зеркальная пометка «attempt уже отправлен» — раннер ставит её
+  // при обычном `onSubmit`, чтобы повторный клик «Открыть в мастерской»
+  // на экране результата не отправил attempt второй раз.
+  const handleSubmitWrapper = useCallback(
+    async (data: TacticPuzzleRunnerSubmit) => {
+      if (!puzzle) return;
+      submittedAttemptRef.current = puzzle.id;
+      await handleSubmit(data);
+    },
+    [puzzle, handleSubmit],
   );
 
   const puzzleShortId = puzzle ? puzzle.id.slice(0, 8) : '';
@@ -376,7 +364,7 @@ export function SolveTacticPuzzlePage() {
           <TacticPuzzleRunner
             key={puzzle.id}
             puzzle={puzzle}
-            onSubmit={handleSubmit}
+            onSubmit={handleSubmitWrapper}
             onNext={handleNext}
             onBack={handleBack}
             onOpenWorkshop={handleOpenWorkshop}

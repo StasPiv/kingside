@@ -735,14 +735,19 @@ export function TacticPuzzleRunner({
    * что `finishAttempt` для `onSubmit`, но передаём в `onOpenWorkshop`.
    * Дальше — сторона страницы решает порядок (submit + redirect).
    */
+  /**
+   * KS-4350 → KS-4353. «Открыть в мастерской».
+   *
+   * Кнопка остаётся доступной на любом состоянии — раннер каждый раз
+   * передаёт родителю текущие данные попытки, страница сама решает
+   * отправить ли attempt (на основе своего флага). Первый клик во
+   * время решения переводит компонент в `lose` (доска отключается,
+   * попытка засчитывается как сдача). Повторные клики после финала
+   * просто вызывают `onOpenWorkshop` — без повторной смены состояния
+   * и без повторного `stopLiveAnalysis`.
+   */
   const handleOpenWorkshop = useCallback(() => {
-    if (submittedRef.current || !onOpenWorkshop) return;
-    submittedRef.current = true;
-    stopLiveAnalysis();
-    // KS-4350. Попытка закрыта как сдача — переключаемся в `lose`,
-    // чтобы доска отключилась и пользователь увидел отчёт. Сама
-    // мастерская откроется в новой вкладке (родитель решает).
-    setState('lose');
+    if (!onOpenWorkshop) return;
     const wdlEnd = latestWdl
       ? (latestWdl.w + latestWdl.d / 2) / 1000
       : null;
@@ -755,6 +760,12 @@ export function TacticPuzzleRunner({
       wdlStart: wdlStartRef.current,
       wdlEnd,
     };
+    // Первый клик во время решения — закрываем попытку как сдачу.
+    if (!submittedRef.current) {
+      submittedRef.current = true;
+      stopLiveAnalysis();
+      setState('lose');
+    }
     void onOpenWorkshop(data);
   }, [latestWdl, onOpenWorkshop, stopLiveAnalysis]);
 
@@ -845,14 +856,14 @@ export function TacticPuzzleRunner({
             </div>
           )}
 
-          {/* KS-4349: «Открыть в мастерской» оформлена один-в-один с
-              `/precision` — класс `puzzle-engine-runner__workshop-link`
-              (фиолетовая на всю ширину со стрелкой ↗ через CSS ::after).
-              Размещается отдельным блоком `__actions`, как в
-              `PlayVsEngineRunner`. Кнопка «Сдаться» вынесена в свой
-              ряд ниже — деструктивное действие, отдельно от перехода
-              в мастерскую. */}
-          {isThinking && state === 'thinking' && onOpenWorkshop && (
+          {/* KS-4349 → KS-4353. Кнопка «Открыть в мастерской» оформлена
+              один-в-один с `/precision` (`puzzle-engine-runner__
+              workshop-link`). Видна на любом состоянии раннера: и во
+              время решения, и после lose/win. Первый клик во время
+              решения закрывает попытку как сдачу (см. handleOpenWorkshop);
+              повторные клики после финала открывают мастерскую без
+              повторной отправки attempt. */}
+          {onOpenWorkshop && (
             <div
               className="puzzle-engine-runner__actions"
               data-testid="tactic-puzzle-actions"
