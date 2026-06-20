@@ -288,17 +288,6 @@ export function TacticPuzzlesMistakesPage() {
                       )}
                   </div>
                   <div className="tactic-puzzles-mistakes__meta">
-                    <span
-                      className="tactic-puzzles-mistakes__objective"
-                      data-objective={m.objective}
-                    >
-                      {m.objective === 'convertAdvantage'
-                        ? t(
-                            'puzzle.objective.convertAdvantage',
-                            'Convert the advantage',
-                          )
-                        : t('puzzle.objective.saveEquality', 'Save the draw')}
-                    </span>
                     <span>
                       {t(
                         'tacticPuzzle.mistakes.labels.difficulty',
