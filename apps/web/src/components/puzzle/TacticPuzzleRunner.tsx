@@ -739,6 +739,10 @@ export function TacticPuzzleRunner({
     if (submittedRef.current || !onOpenWorkshop) return;
     submittedRef.current = true;
     stopLiveAnalysis();
+    // KS-4350. Попытка закрыта как сдача — переключаемся в `lose`,
+    // чтобы доска отключилась и пользователь увидел отчёт. Сама
+    // мастерская откроется в новой вкладке (родитель решает).
+    setState('lose');
     const wdlEnd = latestWdl
       ? (latestWdl.w + latestWdl.d / 2) / 1000
       : null;

@@ -32,6 +32,7 @@ import {
 } from '../components/puzzle/TacticPuzzleRunner';
 import { PuzzleSourceGame } from '../components/puzzle/PuzzleSourceGame';
 import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
+import { api } from '../api';
 
 /**
  * KS-4347. Адаптер `TacticPuzzleResponse.sourceHeaders` (PGN-headers) →
@@ -135,33 +136,87 @@ export function SolveTacticPuzzlePage() {
   }, [navigate]);
 
   /**
-   * KS-4347. «Открыть в мастерской». Шаги:
-   *   1) Отправляем attempt с `stopReason='aborted'` (как «Сдаться»).
-   *   2) Переходим на `/analysis?fen=<puzzle.fen>` — в мастерской
-   *      откроется ровно стартовая позиция пазла.
-   * Submit не блокирует переход: если упал — логируем, пользователь
-   * всё равно попадает в мастерскую.
+   * KS-4347 → KS-4350. «Открыть в мастерской».
+   *
+   * Шаги:
+   *   1) Сразу синхронно открываем пустую новую вкладку (`window.open`
+   *      в обработчике клика — single user-gesture, иначе блокировщик
+   *      всплывающих окон может задержать вкладку).
+   *   2) Параллельно отправляем `attempt` с `stopReason='aborted'`.
+   *   3) Если есть `sourceGameId` — `POST /analyses { archiveGameId }`,
+   *      backend (KS-3261/3263) сам подгрузит PGN и дедуплицирует
+   *      по `archiveGameId`. После — подменяем URL новой вкладки на
+   *      `/analysis/<created.id>`.
+   *   4) Если `sourceGameId` нет (legacy) — fallback: открываем
+   *      `/analysis?fen=<puzzle.fen>` в той же новой вкладке.
+   *   5) Если открытие новой вкладки заблокировано (pop-up blocker
+   *      или гость без права на POST `/analyses`) — навигация в той же
+   *      вкладке как окончательный fallback.
+   *
+   * На странице пазла раннер выставил `state='lose'` — пользователь
+   * видит экран результата с «сдался», возврат сюда после возврата из
+   * мастерской показывает уже закрытую попытку.
    */
   const handleOpenWorkshop = useCallback(
     async (data: TacticPuzzleRunnerSubmit) => {
       if (!puzzle) return;
-      if (user) {
+      // Открываем пустую вкладку синхронно — обязательное условие
+      // user-gesture для большинства pop-up политик. Без `noopener`,
+      // чтобы получить ссылку и потом подменить URL.
+      const tab: Window | null = window.open('about:blank', '_blank');
+      const fallbackUrl = `/analysis?fen=${encodeURIComponent(puzzle.fen)}`;
+      // attempt + POST /analyses идут параллельно — submit от backend
+      // нужен сам по себе (журнал ошибок), а ссылка на анализ не зависит
+      // от его исхода.
+      const submitPromise = user
+        ? tacticPuzzleApi
+            .submitAttempt(puzzle.id, {
+              lineHalfMoves: data.lineHalfMoves,
+              userMoves: data.userMoves,
+              stopReason: data.stopReason,
+              timeMs: data.timeMs,
+              wdlStart: data.wdlStart,
+              wdlEnd: data.wdlEnd,
+            })
+            .catch((e) => {
+              console.warn(
+                'SolveTacticPuzzlePage: workshop submit failed',
+                e,
+              );
+            })
+        : Promise.resolve();
+
+      let targetUrl = fallbackUrl;
+      if (user && puzzle.sourceGameId) {
         try {
-          await tacticPuzzleApi.submitAttempt(puzzle.id, {
-            lineHalfMoves: data.lineHalfMoves,
-            userMoves: data.userMoves,
-            stopReason: data.stopReason,
-            timeMs: data.timeMs,
-            wdlStart: data.wdlStart,
-            wdlEnd: data.wdlEnd,
+          const title = puzzle.sourceHeaders
+            ? `${puzzle.sourceHeaders.White ?? '?'} vs ${
+                puzzle.sourceHeaders.Black ?? '?'
+              }`
+            : 'Tactic puzzle';
+          const created = await api.post<{ id: string }>(`/analyses`, {
+            title,
+            category: 'analysis',
+            archiveGameId: puzzle.sourceGameId,
           });
+          targetUrl = `/analysis/${created.id}`;
         } catch (e) {
-          console.warn('SolveTacticPuzzlePage: workshop submit failed', e);
+          console.warn(
+            'SolveTacticPuzzlePage: POST /analyses failed, fallback to fen',
+            e,
+          );
         }
       }
-      navigate(`/analysis?fen=${encodeURIComponent(puzzle.fen)}`);
+      // Подменяем URL в открытой вкладке. Если открытие было
+      // заблокировано — fallback на навигацию в той же вкладке.
+      if (tab && !tab.closed) {
+        tab.location.href = targetUrl;
+      } else {
+        window.location.href = targetUrl;
+      }
+      await submitPromise;
     },
-    [puzzle, user, navigate],
+    [puzzle, user],
   );
 
   const puzzleShortId = puzzle ? puzzle.id.slice(0, 8) : '';
