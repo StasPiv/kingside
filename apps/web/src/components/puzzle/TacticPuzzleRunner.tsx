@@ -841,27 +841,34 @@ export function TacticPuzzleRunner({
             </div>
           )}
 
-          {/* KS-4346/KS-4347: кнопки во время решения. «Открыть в
-              мастерской» — переход в анализ (засчитывает попытку как
-              сдачу, перенаправляет на /analysis с FEN пазла). «Сдаться»
-              — закрыть попытку без перехода. Стиль `replay-btn` единый
-              с /precision; «Сдаться» с danger-окраской — деструктивное
-              действие. */}
+          {/* KS-4349: «Открыть в мастерской» оформлена один-в-один с
+              `/precision` — класс `puzzle-engine-runner__workshop-link`
+              (фиолетовая на всю ширину со стрелкой ↗ через CSS ::after).
+              Размещается отдельным блоком `__actions`, как в
+              `PlayVsEngineRunner`. Кнопка «Сдаться» вынесена в свой
+              ряд ниже — деструктивное действие, отдельно от перехода
+              в мастерскую. */}
+          {isThinking && state === 'thinking' && onOpenWorkshop && (
+            <div
+              className="puzzle-engine-runner__actions"
+              data-testid="tactic-puzzle-actions"
+            >
+              <button
+                type="button"
+                className="puzzle-engine-runner__workshop-link"
+                onClick={handleOpenWorkshop}
+                data-testid="tactic-puzzle-workshop"
+              >
+                {t('tacticPuzzle.actions.openWorkshop', 'Open in workshop')}
+              </button>
+            </div>
+          )}
+
           {isThinking && state === 'thinking' && (
             <div
-              className="puzzle-engine-runner__actions tactic-puzzle-runner__abort-row"
+              className="tactic-puzzle-runner__abort-row"
               data-testid="tactic-puzzle-abort-row"
             >
-              {onOpenWorkshop && (
-                <button
-                  type="button"
-                  className="puzzle-engine-runner__replay-btn tactic-puzzle-runner__workshop"
-                  onClick={handleOpenWorkshop}
-                  data-testid="tactic-puzzle-workshop"
-                >
-                  {t('tacticPuzzle.actions.openWorkshop', 'Open in workshop')}
-                </button>
-              )}
               <button
                 type="button"
                 className="puzzle-engine-runner__replay-btn tactic-puzzle-runner__abort"
