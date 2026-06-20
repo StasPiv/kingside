@@ -10,16 +10,38 @@
  *   GET    /tactic-puzzles/browse         — пагинированный каталог.
  *   POST   /tactic-puzzles/:id/attempts   — регистрация попытки (JWT).
  *   GET    /tactic-puzzles/mistakes       — журнал ошибок (JWT).
+ *   GET    /tactic-puzzles/attempts       — история попыток (JWT, KS-4359).
  */
 import { api } from '../api';
 import type {
   SubmitTacticAttemptInput,
   SubmitTacticAttemptResponse,
+  TacticAttemptListPage,
   TacticPuzzleBrowsePage,
   TacticPuzzleBrowseQuery,
   TacticPuzzleResponse,
+  TacticStopReason,
   TacticUserMistakesPage,
 } from '@kingside/shared';
+
+/**
+ * KS-4359 / ADR-136 §3.8. Query-параметры для `GET /tactic-puzzles/attempts`.
+ * Контракт зеркалит backend-DTO `ListTacticAttemptsDto`; общий тип в
+ * shared не экспортируется (DTO живёт на стороне API), поэтому
+ * описываем локально с теми же полями.
+ */
+export interface ListTacticAttemptsQuery {
+  /** ISO-8601 нижняя граница `createdAt` (включительно). */
+  from?: string;
+  /** ISO-8601 верхняя граница `createdAt` (включительно). */
+  to?: string;
+  stopReason?: TacticStopReason;
+  solved?: boolean;
+  ratingMin?: number;
+  ratingMax?: number;
+  cursor?: string;
+  limit?: number;
+}
 
 const BASE = '/tactic-puzzles';
 
@@ -80,7 +102,38 @@ export const tacticPuzzleApi = {
   getMistakes(): Promise<TacticUserMistakesPage> {
     return api.get<TacticUserMistakesPage>(`${BASE}/mistakes`);
   },
+
+  /**
+   * KS-4359 / ADR-136 §3.8. Список истории попыток текущего пользователя
+   * с фильтрами и cursor-пагинацией.
+   */
+  listAttempts(
+    filters: ListTacticAttemptsQuery = {},
+    cursor: string | null = null,
+    signal?: AbortSignal,
+  ): Promise<TacticAttemptListPage> {
+    return api.get<TacticAttemptListPage>(
+      `${BASE}/attempts?${buildAttemptsQs(filters, cursor)}`,
+      signal ? { signal } : undefined,
+    );
+  },
 };
 
-// Внутренний helper для unit-тестов сборки query.
-export const __test__ = { buildBrowseQs };
+function buildAttemptsQs(
+  f: ListTacticAttemptsQuery,
+  cursor: string | null,
+): string {
+  const qs = new URLSearchParams();
+  qs.set('limit', String(f.limit ?? 30));
+  if (cursor) qs.set('cursor', cursor);
+  if (f.from) qs.set('from', f.from);
+  if (f.to) qs.set('to', f.to);
+  if (f.stopReason) qs.set('stopReason', f.stopReason);
+  if (typeof f.solved === 'boolean') qs.set('solved', String(f.solved));
+  if (f.ratingMin != null) qs.set('ratingMin', String(f.ratingMin));
+  if (f.ratingMax != null) qs.set('ratingMax', String(f.ratingMax));
+  return qs.toString();
+}
+
+// Внутренние helpers для unit-тестов сборки query.
+export const __test__ = { buildBrowseQs, buildAttemptsQs };

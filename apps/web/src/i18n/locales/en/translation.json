@@ -2173,6 +2173,53 @@
       "stats": "Stats",
       "mistakes": "Mistakes"
     },
+    "history": {
+      "title": "Attempt history",
+      "intro": "Every attempt you made in the Tactics section. Use the filters to narrow by date, outcome or rating range.",
+      "empty": "No attempts yet. Solve one puzzle and it will appear here.",
+      "guestTitle": "Sign in to see history",
+      "guestMessage": "Attempt history is available to signed-in players only.",
+      "loadError": "Could not load attempt history.",
+      "openReview": "Open review",
+      "playersFallback": "No source game",
+      "labels": {
+        "duration": "Time",
+        "lineLength": "Moves",
+        "rating": "Rating",
+        "delta": "Δ rating",
+        "outcome": "Outcome",
+        "playedAt": "Played"
+      },
+      "outcome": {
+        "solved": "Solved",
+        "failed": "Failed"
+      },
+      "stopReason": {
+        "easy": "Finished",
+        "mate": "Mate",
+        "mistake": "Mistake",
+        "timeout": "Timeout",
+        "aborted": "Resigned"
+      },
+      "filters": {
+        "title": "Filters",
+        "period": "Period",
+        "outcome": "Outcome",
+        "stopReason": "Stop reason",
+        "rating": "Rating",
+        "reset": "Reset",
+        "periodToday": "Today",
+        "periodWeek": "Week",
+        "periodMonth": "Month",
+        "periodAll": "All time",
+        "outcomeAll": "All",
+        "outcomeSolved": "Solved only",
+        "outcomeFailed": "Failed only",
+        "stopReasonAll": "Any",
+        "ratingMin": "Min",
+        "ratingMax": "Max"
+      }
+    },
     "error": {
       "generic": "Engine error"
     }
@@ -4459,6 +4506,10 @@
       "list": {
         "title": "Tactic puzzles — Maia + Stockfish chess problems — Kingside",
         "description": "Chess puzzles where a strong engine punishes any inaccuracy. Difficulty is calibrated for Maia 2400 players; each puzzle continues only while the board still has a single best move."
+      },
+      "history": {
+        "title": "Attempt history — tactics training — Kingside",
+        "description": "Every tactics attempt you played on Kingside. Filter by date, outcome, stop reason or rating range. Open any attempt for a Stockfish breakdown."
       },
       "detail": {
         "title": "{{playersTitle}} — tactic puzzle {{difficulty}}% — Kingside",

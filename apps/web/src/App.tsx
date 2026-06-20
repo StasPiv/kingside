@@ -43,6 +43,8 @@ import { PrecisionPage } from './pages/PrecisionPage';
 // Сосуществует со старым /precision до T9/T10 cleanup'а.
 import { TacticPuzzlesPage } from './pages/TacticPuzzlesPage';
 import { SolveTacticPuzzlePage } from './pages/SolveTacticPuzzlePage';
+// KS-4359 (ADR-136 T7): история попыток раздела «Точность».
+import { TacticPuzzlesHistoryPage } from './pages/TacticPuzzlesHistoryPage';
 // KS-2719 F4 / ADR-056 §5: detail-страница одной precision-попытки.
 import { PrecisionAttemptPage } from './pages/PrecisionAttemptPage';
 import { PuzzleStatsPage } from './pages/PuzzleStatsPage';
@@ -616,6 +618,13 @@ export function App() {
                 перехватился. Старый /precision остаётся параллельно
                 до T9/T10 cleanup'а ADR-135. */}
             <Route path="/tactic-puzzles" element={<TacticPuzzlesPage />} />
+            {/* KS-4359 (ADR-136 T7). История попыток. Должна стоять
+                ВЫШЕ wildcard'а `/tactic-puzzles/:id`, иначе раннер
+                ловит маршрут как UUID-пазл. */}
+            <Route
+              path="/tactic-puzzles/history"
+              element={<TacticPuzzlesHistoryPage />}
+            />
             <Route
               path="/tactic-puzzles/:id"
               element={<SolveTacticPuzzlePage />}
