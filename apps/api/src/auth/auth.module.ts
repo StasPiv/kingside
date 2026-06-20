@@ -16,6 +16,9 @@ import { FacebookStrategy } from './facebook.strategy';
 import { AdminEmailGuard } from './admin-email.guard';
 import { AdminUserGuard, AdminUserService } from './admin-user.guard';
 import { InternalKeyGuard } from './internal-key.guard';
+// KS-4454 / ADR-139 T2: machine-to-machine аутентификация автономных
+// агентов через service-account токены `ks_sa_*`.
+import { ServiceAccountGuard } from './service-account.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 import { McpExclude } from '../mcp/decorators';
 
@@ -64,6 +67,8 @@ import { McpExclude } from '../mcp/decorators';
     InternalKeyGuard,
     // KS-2305: rate-limit guard для screenshot-token с structured-log.
     ScreenshotTokenRateLimitGuard,
+    // KS-4454 / ADR-139 T2.
+    ServiceAccountGuard,
   ],
   exports: [
     AuthService,
@@ -72,6 +77,7 @@ import { McpExclude } from '../mcp/decorators';
     AdminUserGuard,
     AdminUserService,
     InternalKeyGuard,
+    ServiceAccountGuard,
   ],
 })
 export class AuthModule {}
