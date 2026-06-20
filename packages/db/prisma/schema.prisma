@@ -2607,9 +2607,9 @@ model TacticPuzzle {
   wdlD          Int      @map("wdl_d")
   wdlL          Int      @map("wdl_l")
 
-  /// `'convertAdvantage' | 'saveEquality'`. Семантика задачи solver'у.
-  /// Определяется по `bestE` лучшего хода (порог 0.6).
-  objective     String
+  // KS-4370 / KS-4367. Поле `objective` удалено: семантика «реализуй
+  // перевес / удержи равенство» оказалась ad-hoc эвристикой, не
+  // отражённой в UI (см. пересмотр ADR-135 §2.3, коммит f8fa746).
 
   /// Drill-теги (pin/fork/skewer/...) через пробел. Без
   /// `reactive`/`preventive` — этих жанров в новом концепте нет.
@@ -2649,7 +2649,9 @@ model TacticPuzzle {
   @@index([themes])
   @@index([difficulty])
   @@index([gap])
-  @@index([objective, rating])
+  // KS-4370 / KS-4367. Композитный индекс `(objective, rating)` удалён
+  // вместе с колонкой; подбор пазлов идёт по `rating` (стандартный
+  // single-column индекс выше).
   @@index([algorithmVersion])
   @@map("tactic_puzzles")
 }
