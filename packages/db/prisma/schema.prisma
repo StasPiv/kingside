@@ -2853,3 +2853,39 @@ model BlogPost {
   @@index([tags], type: Gin)
   @@map("blog_posts")
 }
+
+/// KS-4453 / ADR-139. Сервисный аккаунт агента (системного, не
+/// человеческого) для machine-to-machine API-доступа. Используется
+/// гардом `ServiceAccountGuard` (T2): клиент шлёт `Authorization:
+/// Bearer <plainToken>`, гард считает sha256, ищет запись по
+/// `tokenHash`, проверяет `revokedAt IS NULL` и подходящий scope.
+///
+/// `tokenHash` — sha256 от plain-токена (никогда не храним plain в БД).
+/// Уникальность не объявлена: уникален `handle`, токен можно ротировать
+/// (старый аккаунт переписывает `tokenHash`); шанс sha256-коллизии
+/// между двумя живыми токенами игнорируем. Индекс по `tokenHash` для
+/// O(log n)-lookup на каждом запросе.
+model AgentServiceAccount {
+  id          String    @id @default(uuid()) @db.Uuid
+  /// Стабильный идентификатор аккаунта: 'agent-backend',
+  /// 'agent-content', 'agent-qa' и т. п. UNIQUE — один handle =
+  /// один аккаунт; ротация токена не меняет handle.
+  handle      String    @unique
+  /// Человекочитаемое назначение для админ-UI / аудита.
+  description String?
+  /// sha256(hex) от plain-токена. Plain виден ровно один раз — при
+  /// выдаче через админ-CLI (T4).
+  tokenHash   String    @map("token_hash")
+  /// Список scope-строк формата `<resource>:<action>` или
+  /// `<resource>:*`. Дефолт — пустой массив (нет прав).
+  scopes      String[]  @default([])
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Обновляется гардом при каждом успешном запросе (best-effort
+  /// fire-and-forget, не блокирует основной запрос).
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz(3)
+  /// Отзыв доступа. Не-null → гард сразу 401, без проверки scope.
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  @@index([tokenHash])
+  @@map("agent_service_accounts")
+}
