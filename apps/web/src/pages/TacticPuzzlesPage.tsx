@@ -322,9 +322,6 @@ export function TacticPuzzlesPage() {
                       {t('tacticPuzzle.difficulty')}:{' '}
                       {(p.difficulty * 100).toFixed(0)}%
                     </span>
-                    <span>
-                      {t('tacticPuzzle.rating')}: {p.rating}
-                    </span>
                   </div>
                   {hasPlayers && (
                     <div

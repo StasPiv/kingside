@@ -2150,7 +2150,6 @@
     "loadError": "Could not load puzzles.",
     "gridEmpty": "No puzzles yet — the bank is still being filled.",
     "difficulty": "Difficulty",
-    "rating": "Rating",
     "solvedFilter": {
       "label": "Progress",
       "all": "All",
