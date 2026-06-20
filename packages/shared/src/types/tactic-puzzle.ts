@@ -150,3 +150,168 @@ export interface TacticUserMistakesPage {
   items: TacticUserMistakeItem[];
   nextCursor: string | null;
 }
+
+// ─── KS-4355 / ADR-136 §3.7 — история и статистика ──────────────────
+
+/**
+ * Алиас на `TacticPuzzleStopReason` без префикса `Puzzle` — используется
+ * в API истории и статистики (`/tactic-puzzles/attempts`, `/stats/*`).
+ * Семантика и набор значений идентичны.
+ */
+export type TacticStopReason = TacticPuzzleStopReason;
+
+/**
+ * Элемент списка истории попыток (`GET /tactic-puzzles/attempts`).
+ * Поля сжаты до того, что нужно UI-карточке: мини-доска (FEN +
+ * bestMoveUci + solverSide), заголовок партии-источника
+ * (`playersTitle` = `"White Player vs Black Player"`), метрика
+ * успеха (solved + stopReason), затраченное время и линия, дельта
+ * рейтинга для индикатора «-7 / +12».
+ */
+export interface TacticAttemptListItem {
+  id: string;
+  puzzleId: string;
+  fen: string;
+  bestMoveUci: string;
+  solverSide: 'w' | 'b';
+  /** Семантика задачи solver'у на этом пазле. */
+  objective: TacticPuzzleObjective;
+  /** Заголовок партии-источника, формат `"White vs Black"` либо
+   *  `null` если пазл не из партии или ELO не подтверждены. */
+  playersTitle: string | null;
+  solved: boolean;
+  stopReason: TacticStopReason;
+  lineHalfMoves: number;
+  timeMs: number;
+  ratingBefore: number;
+  ratingAfter: number;
+  /** `ratingAfter − ratingBefore`. Денормализованный кэш для UI. */
+  ratingDelta: number;
+  precisionGrade: number | null;
+  /** ISO-8601. */
+  createdAt: string;
+}
+
+export interface TacticAttemptListPage {
+  items: TacticAttemptListItem[];
+  nextCursor: string | null;
+}
+
+/**
+ * Детали одной попытки (`GET /tactic-puzzles/attempts/:id`). Расширяет
+ * `TacticAttemptListItem` полями для разбора:
+ *   * `userMoves` — все ходы пользователя через пробел (UCI), для
+ *     перевоспроизведения на доске;
+ *   * `wdlStart` / `wdlEnd` — expected-score solver'а на старте и в
+ *     конце попытки (snapshot, не пересчитываем);
+ *   * `movesAccuracy` — точность по ходам [0..1] (если считалось);
+ *   * `puzzle` — компактная ссылка на пазл (FEN, темы, метрики);
+ *   * `sourceGameId` / `sourceHeaders` — данные партии-источника для
+ *     карточки «из партии» внутри разбора.
+ */
+export interface TacticAttemptDetail extends TacticAttemptListItem {
+  userMoves: string;
+  wdlStart: number | null;
+  wdlEnd: number | null;
+  movesAccuracy: number | null;
+  puzzle: {
+    id: string;
+    fen: string;
+    bestMoveUci: string;
+    objective: TacticPuzzleObjective;
+    difficulty: number;
+    gap: number;
+    rating: number;
+    themes: string[];
+  };
+  sourceGameId: string | null;
+  sourceMoveNum: number | null;
+  sourceHeaders: Record<string, string> | null;
+}
+
+/**
+ * Агрегированная статистика пользователя по разделу «Точность»
+ * (`GET /tactic-puzzles/stats/me`). Все агрегаты рассчитываются
+ * на лету по `tactic_puzzle_attempts` + `user_tactic_ratings`
+ * (см. ADR-136 §3.5). Materialized view не нужны на этапе MVP.
+ *
+ * `difficultyBuckets` — гистограмма принятых попыток по интервалам
+ * Maia-difficulty: ключ — диапазон `"0.9-0.95"` / `"0.95-1.0"` (точные
+ * границы выбирает сервис); значение — счётчик попыток в нём.
+ */
+export interface TacticUserStats {
+  rating: {
+    value: number;
+    deviation: number;
+    attempts: number;
+    /** ISO-8601 или `null` для пользователя без единой попытки. */
+    lastAttemptAt: string | null;
+  };
+  totals: {
+    attempts: number;
+    solved: number;
+    /** `solved / attempts * 100`, округление до целого. 0 при attempts=0. */
+    solvedPercent: number;
+    avgTimeMs: number;
+    avgLineHalfMoves: number;
+    avgPrecisionGrade: number | null;
+  };
+  streak: {
+    /** Сколько подряд solved-попыток В САМОМ ПОСЛЕДНЕМ хвосте истории. */
+    current: number;
+    /** Личный рекорд за всё время. */
+    best: number;
+  };
+  stopReasonBreakdown: Record<TacticStopReason, number>;
+  objectiveBreakdown: { convertAdvantage: number; saveEquality: number };
+  difficultyBuckets: Record<string, number>;
+}
+
+/**
+ * Точка графика динамики рейтинга (`GET /tactic-puzzles/stats/rating-history`).
+ * Источник — таблица `tactic_rating_snapshots` (см. KS-4354 / ADR-136 §3.6).
+ * Дни без попыток пропускаются — фронт линейно соединит точки сам.
+ */
+export interface TacticRatingPoint {
+  /** `YYYY-MM-DD` (без времени, UTC-день из БД-колонки `date`). */
+  date: string;
+  rating: number;
+  /** Сколько попыток сделано в этот день (для tooltip'а на точке). */
+  attempts: number;
+  /** Сколько из них solved. */
+  solved: number;
+}
+
+/**
+ * Элемент журнала ошибок (`GET /tactic-puzzles/mistakes`, новая форма
+ * по ADR-136). Отличие от существующего `TacticUserMistakeItem` —
+ * `playersTitle` и `stopReason` последней попытки: UI «работа над
+ * ошибками» показывает, чем кончилась попытка, и партию-источник.
+ *
+ * Существующий `TacticUserMistakeItem` оставлен для обратной
+ * совместимости с уже задеплоенным `GET /mistakes` (ADR-135 §2.4);
+ * новый тип используется только в обновлённой ветке.
+ */
+export interface TacticMistakeListItem {
+  id: string;
+  puzzleId: string;
+  /** FEN стартовой позиции для мини-доски в карточке. */
+  fen: string;
+  bestMoveUci: string;
+  solverSide: 'w' | 'b';
+  objective: TacticPuzzleObjective;
+  themes: string[];
+  difficulty: number;
+  /** Заголовок партии-источника, формат `"White vs Black"` либо `null`. */
+  playersTitle: string | null;
+  /** `stopReason` последней попытки этого пазла (что именно не получилось). */
+  lastStopReason: TacticStopReason | null;
+  resolved: boolean;
+  /** ISO-8601 — когда ошибка добавлена в журнал. */
+  createdAt: string;
+}
+
+export interface TacticMistakeListPage {
+  items: TacticMistakeListItem[];
+  nextCursor: string | null;
+}
