@@ -16,17 +16,23 @@ import { BlogMediaService } from './blog-media.service';
 import { BlogViewService } from './blog-view.service';
 // KS-4470 / ADR-140 T4: лайки статей под JwtAuthGuard.
 import { BlogLikeService } from './blog-like.service';
+// KS-4471 / ADR-140 T5: модуль комментариев — GET/POST/PATCH/DELETE.
+import { BlogCommentController } from './blog-comment.controller';
+import { BlogCommentService } from './blog-comment.service';
+import { BlogCommentCreateRateLimitGuard } from './blog-comment-rate-limit.guard';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [AuthModule],
-  controllers: [BlogController, BlogAdminController],
+  controllers: [BlogController, BlogAdminController, BlogCommentController],
   providers: [
     BlogService,
     BlogAdminService,
     BlogMediaService,
     BlogViewService,
     BlogLikeService,
+    BlogCommentService,
+    BlogCommentCreateRateLimitGuard,
   ],
   exports: [
     BlogService,
@@ -34,6 +40,7 @@ import { AuthModule } from '../auth/auth.module';
     BlogMediaService,
     BlogViewService,
     BlogLikeService,
+    BlogCommentService,
   ],
 })
 export class BlogModule {}
