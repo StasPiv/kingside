@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import {
   BroadcastController,
+  avgEloOfTopN,
   buildTopPlayers,
   deduplicateGamesByPair,
 } from './broadcast.controller';
@@ -1284,5 +1285,43 @@ describe('buildTopPlayers (KS-2450)', () => {
       { name: 'B', elo: 2600 },
     ]);
     expect(out).toHaveLength(2);
+  });
+});
+
+describe('avgEloOfTopN (KS-4395)', () => {
+  it('пустой массив → null', () => {
+    expect(avgEloOfTopN([])).toBeNull();
+  });
+
+  it('меньше 10 игроков → среднее по всем', () => {
+    expect(avgEloOfTopN([2700, 2600, 2500])).toBeCloseTo(2600, 5);
+  });
+
+  it('ровно 10 игроков → среднее по всем', () => {
+    const elos = [2700, 2600, 2500, 2400, 2300, 2200, 2100, 2000, 1900, 1800];
+    expect(avgEloOfTopN(elos)).toBeCloseTo(2250, 5);
+  });
+
+  it('больше 10 игроков → среднее по топ-10, низы игнорируются (опен-эффект)', () => {
+    const top10 = [2750, 2700, 2700, 2650, 2650, 2600, 2600, 2550, 2550, 2500];
+    const longTail = Array.from({ length: 90 }, () => 1800);
+    const all = [...top10, ...longTail];
+    // По всем 100: (top10sum + 90*1800)/100 ≈ 1857. По топ-10: 2625.
+    const expectedTop10 = top10.reduce((a, b) => a + b, 0) / top10.length;
+    expect(avgEloOfTopN(all)).toBeCloseTo(expectedTop10, 5);
+  });
+
+  it('порядок входа не влияет (берём топ-N независимо)', () => {
+    const sorted = [2800, 2700, 2600, 2500, 2400];
+    const shuffled = [2400, 2800, 2500, 2700, 2600];
+    expect(avgEloOfTopN(sorted)).toBeCloseTo(avgEloOfTopN(shuffled)!, 5);
+  });
+
+  it('n=1 → максимум', () => {
+    expect(avgEloOfTopN([2400, 2800, 2600], 1)).toBe(2800);
+  });
+
+  it('n=0 защита: всё равно берём как минимум одного игрока', () => {
+    expect(avgEloOfTopN([2700, 2600], 0)).toBe(2700);
   });
 });

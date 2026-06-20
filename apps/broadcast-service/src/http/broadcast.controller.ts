@@ -225,6 +225,24 @@ function compareLifecycleSort(
   return b._updatedAt.getTime() - a._updatedAt.getTime();
 }
 
+/**
+ * KS-4395. Средний ELO топ-N игроков. Семантически совпадает с SQL-
+ * агрегацией в `computeBroadcastMeta` (см. `avg_elo` подзапрос):
+ *   * сортируем входной массив по убыванию;
+ *   * берём первые `n` (default 10), если входных < `n` — берём всех;
+ *   * считаем среднее.
+ *
+ * Возвращает `null` если на вход подан пустой массив.
+ * Округление до целого выполняет caller (как `Math.round(avg_elo)`).
+ */
+export function avgEloOfTopN(elos: number[], n = 10): number | null {
+  if (elos.length === 0) return null;
+  const sorted = [...elos].sort((a, b) => b - a);
+  const top = sorted.slice(0, Math.max(1, n));
+  const sum = top.reduce((acc, x) => acc + x, 0);
+  return sum / top.length;
+}
+
 @Controller()
 export class BroadcastController {
   constructor(
@@ -494,19 +512,38 @@ export class BroadcastController {
              AND r.starts_at IS NOT NULL
              AND r.starts_at > NOW()
         ) AS nearest_pending_at,
+        -- KS-4395. Средний ELO топ-10 УНИКАЛЬНЫХ игроков (по имени).
+        -- До этого считался средний ELO всех записей white_elo + black_elo
+        -- по партиям, из-за чего опены и командники с массой
+        -- низкорейтинговых не попадали в pinned (топ размывался).
+        -- Сейчас: на каждого игрока берём максимальное ELO из его партий
+        -- (внутри турнира ELO стабилен, MAX страхует от шумовых null /
+        -- разнобоя апдейтов Lichess), сортируем по убыванию, берём
+        -- первые 10, считаем среднее. Если уникальных игроков менее 10 —
+        -- LIMIT 10 берёт всех, среднее по всем.
         (
-          SELECT AVG(elo_val)::float
+          SELECT AVG(max_elo)::float
           FROM (
-            SELECT g.white_elo AS elo_val
-              FROM broadcast_games g
-              JOIN broadcast_rounds r ON g.round_id = r.id
-             WHERE r.broadcast_id = b.id AND g.white_elo IS NOT NULL AND g.white_elo > 0
-            UNION ALL
-            SELECT g.black_elo
-              FROM broadcast_games g
-              JOIN broadcast_rounds r ON g.round_id = r.id
-             WHERE r.broadcast_id = b.id AND g.black_elo IS NOT NULL AND g.black_elo > 0
-          ) t
+            SELECT MAX(elo_val) AS max_elo
+              FROM (
+                SELECT g.white_player AS name, g.white_elo AS elo_val
+                  FROM broadcast_games g
+                  JOIN broadcast_rounds r ON g.round_id = r.id
+                 WHERE r.broadcast_id = b.id
+                   AND g.white_player IS NOT NULL
+                   AND g.white_elo IS NOT NULL AND g.white_elo > 0
+                UNION ALL
+                SELECT g.black_player AS name, g.black_elo AS elo_val
+                  FROM broadcast_games g
+                  JOIN broadcast_rounds r ON g.round_id = r.id
+                 WHERE r.broadcast_id = b.id
+                   AND g.black_player IS NOT NULL
+                   AND g.black_elo IS NOT NULL AND g.black_elo > 0
+              ) all_players
+              GROUP BY name
+              ORDER BY max_elo DESC
+              LIMIT 10
+          ) top_players
         ) AS avg_elo,
         (
           SELECT COUNT(*)::int
@@ -982,7 +1019,9 @@ export class BroadcastController {
 
     let tournamentType: BroadcastRoundTournamentType | null;
     let games: BroadcastGameSummary[];
-    let links: BracketLink[] = [];
+    // `links` присваивается в обеих ветках if/else ниже — объявление
+    // без инициализации, иначе `no-useless-assignment` ругается.
+    let links: BracketLink[];
     if (hasPlayoff) {
       tournamentType = 'playoff';
       // Берём только партии playoff-раундов — гибридные турниры
