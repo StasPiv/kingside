@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 
 import { BlogPostSeo } from '../components/seo/BlogPostSeo';
 import { LikeButton } from '../components/blog/LikeButton';
+import { BlogCommentsSection } from '../components/blog/BlogCommentsSection';
 import { blogApi } from '../api/api-blog';
 import { useBlogPost } from '../hooks/useBlogPost';
 import {
@@ -420,6 +421,17 @@ export function BlogPostPage() {
           </Link>
         </aside>
       )}
+
+      {/* KS-4476 / ADR-140 T10. Комментарии под телом статьи и блоком
+          related-CTA. `key={post.id}` сбрасывает state секции при смене
+          статьи (компонент остаётся смонтированным внутри одной SPA-
+          сессии при переходе по ссылкам блога). */}
+      <BlogCommentsSection
+        key={post.id}
+        postId={post.id}
+        initialCommentsCount={post.commentsCount}
+        locale={locale}
+      />
     </article>
   );
 }

@@ -12,6 +12,8 @@
 import { api } from '../api';
 import type {
   BlogAuthor,
+  BlogComment,
+  BlogCommentsPage,
   BlogLikeResponse,
   BlogLocale,
   BlogPostAdmin,
@@ -182,6 +184,51 @@ export const blogApi = {
   unlikePost(postId: string): Promise<BlogLikeResponse> {
     return api.delete<BlogLikeResponse>(
       `${BASE}/posts/${encodeURIComponent(postId)}/like`,
+    );
+  },
+
+  // ─── KS-4476 / ADR-140 §3 T10. Комментарии. ────────────────────────
+  //
+  // `GET` под `OptionalJwtGuard` — гость получает ленту без флагов
+  // `canEdit/canDelete`. `POST/PATCH/DELETE` — `JwtAuthGuard`, на
+  // фронте gating через `useRequireAuth` (см. BlogCommentsSection).
+  //
+  // `PATCH` отдаёт 403, если 15-минутное окно редактирования закрылось
+  // (backend, `BlogCommentService.updateComment`). Фронт ловит
+  // `ApiError.status === 403` и показывает toast «Время истекло».
+
+  listComments(
+    postId: string,
+    options: { cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<BlogCommentsPage> {
+    const qs = new URLSearchParams();
+    if (options.cursor) qs.set('cursor', options.cursor);
+    if (options.limit !== undefined) qs.set('limit', String(options.limit));
+    const tail = qs.toString();
+    const url = `${BASE}/posts/${encodeURIComponent(postId)}/comments${tail ? `?${tail}` : ''}`;
+    return api.get<BlogCommentsPage>(url, signal ? { signal } : undefined);
+  },
+
+  createComment(postId: string, body: string): Promise<BlogComment> {
+    return api.post<BlogComment>(
+      `${BASE}/posts/${encodeURIComponent(postId)}/comments`,
+      { body },
+    );
+  },
+
+  /** PATCH. 403 = окно редактирования (15 мин) закрылось. */
+  updateComment(commentId: string, body: string): Promise<BlogComment> {
+    return api.patch<BlogComment>(
+      `${BASE}/comments/${encodeURIComponent(commentId)}`,
+      { body },
+    );
+  },
+
+  /** DELETE — soft-delete на бэке, возвращает обновлённую запись. */
+  deleteComment(commentId: string): Promise<BlogComment> {
+    return api.delete<BlogComment>(
+      `${BASE}/comments/${encodeURIComponent(commentId)}`,
     );
   },
 };
