@@ -82,6 +82,12 @@ export interface TacticPuzzleBrowseQuery {
   ratingMin?: number;
   ratingMax?: number;
   themes?: string[];
+  /** KS-4365. Фильтр по тому, решал ли текущий пользователь:
+   *  `true` — только решённые (есть `tactic_puzzle_attempts.solved=true`);
+   *  `false` — только нерешённые этим пользователем;
+   *  не задан — все. Для гостя параметр игнорируется (без 400).
+   */
+  solved?: boolean;
 }
 
 export interface TacticPuzzleBrowsePage {

@@ -123,6 +123,7 @@ export class TacticPuzzleService {
 
   async browse(
     query: TacticPuzzleBrowseQuery,
+    userId: string | null = null,
   ): Promise<TacticPuzzleBrowsePage> {
     const limit = Math.min(
       Math.max(1, query.limit ?? DEFAULT_BROWSE_LIMIT),
@@ -152,6 +153,15 @@ export class TacticPuzzleService {
     }
     if (cursorId) {
       where.id = { gt: cursorId };
+    }
+    // KS-4365. Фильтр «решено / не решено» для текущего пользователя.
+    // Для гостя (userId=null) параметр игнорируется — выборка как раньше.
+    // true  → id IN (puzzleId из attempts с solved=true этого юзера);
+    // false → id NOT IN (та же выборка).
+    if (typeof query.solved === 'boolean' && userId) {
+      where.attempts = query.solved
+        ? { some: { userId, solved: true } }
+        : { none: { userId, solved: true } };
     }
 
     const items = await this.prisma.tacticPuzzle.findMany({

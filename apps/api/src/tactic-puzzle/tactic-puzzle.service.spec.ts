@@ -218,6 +218,40 @@ describe('TacticPuzzleService', () => {
     });
   });
 
+  describe('browse — KS-4365 фильтр solved', () => {
+    beforeEach(() => {
+      prisma.tacticPuzzle.findMany.mockResolvedValue([]);
+    });
+
+    it('solved=true для авторизованного → where.attempts.some', async () => {
+      await service.browse({ solved: true } as never, USER_ID);
+      const arg = prisma.tacticPuzzle.findMany.mock.calls[0][0];
+      expect(arg.where.attempts).toEqual({
+        some: { userId: USER_ID, solved: true },
+      });
+    });
+
+    it('solved=false для авторизованного → where.attempts.none', async () => {
+      await service.browse({ solved: false } as never, USER_ID);
+      const arg = prisma.tacticPuzzle.findMany.mock.calls[0][0];
+      expect(arg.where.attempts).toEqual({
+        none: { userId: USER_ID, solved: true },
+      });
+    });
+
+    it('гость + solved=true → фильтр игнорируется (where.attempts отсутствует)', async () => {
+      await service.browse({ solved: true } as never, null);
+      const arg = prisma.tacticPuzzle.findMany.mock.calls[0][0];
+      expect(arg.where.attempts).toBeUndefined();
+    });
+
+    it('без solved → фильтр не применяется (текущее поведение)', async () => {
+      await service.browse({} as never, USER_ID);
+      const arg = prisma.tacticPuzzle.findMany.mock.calls[0][0];
+      expect(arg.where.attempts).toBeUndefined();
+    });
+  });
+
   describe('submitAttempt / авто-резолв mistake', () => {
     beforeEach(() => {
       prisma.tacticPuzzle.findUnique.mockResolvedValue(makePuzzleRow());

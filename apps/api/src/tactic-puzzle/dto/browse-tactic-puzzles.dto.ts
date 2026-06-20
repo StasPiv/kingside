@@ -6,6 +6,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -65,6 +66,18 @@ export class BrowseTacticPuzzlesDto implements TacticPuzzleBrowseQuery {
   @IsInt()
   @Min(0)
   ratingMax?: number;
+
+  /** KS-4365. `?solved=true|false` — фильтр по факту успешной попытки
+   *  текущего пользователя. Для гостя сервис игнорирует. */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (value === 'true' || value === '1') return true;
+    if (value === 'false' || value === '0') return false;
+    return value;
+  })
+  @IsBoolean()
+  solved?: boolean;
 
   /** `?themes=a,b,c` — CSV; client может также отправить `?themes=a&themes=b`. */
   @IsOptional()

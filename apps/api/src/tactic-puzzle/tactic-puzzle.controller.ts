@@ -15,6 +15,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { TacticPuzzleService } from './tactic-puzzle.service';
 import { SubmitTacticAttemptDto } from './dto/submit-tactic-attempt.dto';
@@ -33,10 +34,19 @@ export class TacticPuzzleController {
     return this.service.getNextForUser(req.user.id);
   }
 
-  /** GET /tactic-puzzles/browse — выборка с фильтрами и cursor-пагинацией. */
+  /** GET /tactic-puzzles/browse — выборка с фильтрами и cursor-пагинацией.
+   *  KS-4365: добавлен фильтр `?solved=true|false` по факту успешной
+   *  попытки текущего пользователя. Гостям маршрут остаётся доступным
+   *  через OptionalJwtGuard (req.user может быть null); фильтр solved
+   *  тогда игнорируется. */
+  @UseGuards(OptionalJwtGuard)
   @Get('browse')
-  browse(@Query() query: BrowseTacticPuzzlesDto) {
-    return this.service.browse(query);
+  browse(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: BrowseTacticPuzzlesDto,
+  ) {
+    const userId = req.user?.id ?? null;
+    return this.service.browse(query, userId);
   }
 
   /** GET /tactic-puzzles/mistakes — журнал ошибок текущего пользователя. */
