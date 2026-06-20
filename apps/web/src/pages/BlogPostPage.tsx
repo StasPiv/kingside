@@ -15,11 +15,12 @@
  *   - `ready` — статья загружена. Если `isLocaleFallback=true` — над
  *     телом плашка «не переведено».
  */
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { BlogPostSeo } from '../components/seo/BlogPostSeo';
+import { blogApi } from '../api/api-blog';
 import { useBlogPost } from '../hooks/useBlogPost';
 import {
   DEFAULT_BLOG_LOCALE,
@@ -30,6 +31,21 @@ import type {
   BlogLocale,
   BlogPostDetail,
 } from '@kingside/shared';
+
+// KS-4474 / ADR-140 §2.2 T8. Задержка между моментом готовности статьи
+// и `POST /view` — отсекает скан-проходы по ленте (пользователь открыл,
+// сразу нажал «назад»), оставляет реальные просмотры.
+const VIEW_DELAY_MS = 5000;
+
+// KS-4474. Префикс ключа `sessionStorage` для фронт-дедупа. Полный ключ:
+// `blog:view:<slug>:<locale>`. На back/forward в той же вкладке не
+// шлём повторный POST — backend и так дедупит в окне 24ч, но это
+// экономит сетевой round-trip.
+const VIEW_SESSION_PREFIX = 'blog:view';
+
+function makeViewKey(slug: string, locale: BlogLocale): string {
+  return `${VIEW_SESSION_PREFIX}:${slug}:${locale}`;
+}
 
 // KS-4438: дефолтный путь `/og/blog-default.png` убран — файла такого
 // в проекте нет (и не будет, см. тикет). Если у статьи нет `coverUrl`,
@@ -75,6 +91,71 @@ export function BlogPostPage() {
   }, [i18n, locale]);
 
   const { post, status } = useBlogPost(slug, locale);
+
+  // KS-4474 / ADR-140 T8. Локальный счётчик просмотров. Источник —
+  // `post.viewsCount` при первой загрузке; после успешного
+  // `POST /view` обновляется значением из ответа (`viewsCount` уже
+  // инкрементированный, см. `BlogViewResponse`). Хранится как
+  // `null` пока статья не загружена — UI рендерит 0 в этот момент
+  // не нужно, мета-блок появляется уже на ready.
+  const [viewsCount, setViewsCount] = useState<number | null>(null);
+
+  // Синхронизация локального счётчика с серверным значением при
+  // (пере)загрузке статьи. Делаем явный effect, а не инициализируем в
+  // useState — `post` приходит не сразу, а при смене slug/locale
+  // компонент остаётся смонтированным.
+  useEffect(() => {
+    if (post) setViewsCount(post.viewsCount);
+  }, [post]);
+
+  // KS-4474. Отправка `POST /view` через 5с после загрузки статьи.
+  // Дедуп через `sessionStorage:blog:view:<slug>:<locale>` — повторный
+  // вход в той же вкладке не шлёт повторный запрос. Backend всё равно
+  // дедупит в окне 24ч (Redis), фронт-дедуп — экономия round-trip.
+  useEffect(() => {
+    if (!post) return;
+    const sessionKey = makeViewKey(slug, locale);
+    let storage: Storage | null = null;
+    try {
+      storage = typeof window !== 'undefined' ? window.sessionStorage : null;
+    } catch {
+      // Может выбросить в режимах с заблокированным storage (Safari
+      // private + ITP). Считаем, что дедупа нет, но запрос отправим
+      // — backend всё равно справится.
+      storage = null;
+    }
+    if (storage?.getItem(sessionKey)) return;
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      // Ставим маркер ДО POST: если пользователь обновит страницу пока
+      // запрос в полёте — лишний запрос не пойдёт. Backend дедупит
+      // в любом случае, но без маркера могли бы шлёпнуться два POST
+      // подряд при быстром F5.
+      try {
+        storage?.setItem(sessionKey, '1');
+      } catch {
+        // ignore: см. catch выше.
+      }
+      blogApi
+        .recordView(post.id)
+        .then((res) => {
+          if (cancelled) return;
+          setViewsCount(res.viewsCount);
+        })
+        .catch((e) => {
+          // 429/5xx не должны валить страницу. Маркер уже стоит — не
+          // снимаем, чтобы не зацикливать ретраи. Следующая сессия
+          // (новая вкладка) попробует снова.
+          console.warn('[blog] POST /view failed', e);
+        });
+    }, VIEW_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [post, slug, locale]);
 
   const handleBack = useCallback(() => {
     navigate(blogFeedPath(locale));
@@ -263,6 +344,27 @@ export function BlogPostPage() {
             {t('blog.post.readingTime', '{{count}} min read', {
               count: post.readingTimeMin,
             })}
+          </span>
+          {/* KS-4474 / ADR-140 T8. Иконка просмотров. Рендерим всегда,
+              даже при 0 — мета-блок должен быть стабильным, чтобы при
+              успешном POST /view число не «прыгало» в виде нового
+              разделителя. Источник числа — локальный state
+              `viewsCount` (синхронизируется с `post.viewsCount` на
+              load и обновляется из ответа POST /view). */}
+          <span className="blog-article__meta-sep" aria-hidden="true">·</span>
+          <span
+            className="blog-article__meta-views"
+            data-testid="blog-post-views"
+            data-count={viewsCount ?? post.viewsCount}
+            title={t('blog.post.viewsTitle', 'Views')}
+          >
+            <span
+              className="blog-article__meta-views-icon"
+              aria-hidden="true"
+            >
+              👁
+            </span>{' '}
+            {viewsCount ?? post.viewsCount}
           </span>
         </div>
         {post.tags.length > 0 && (

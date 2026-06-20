@@ -18,6 +18,7 @@ import type {
   BlogPostListPage,
   BlogPostListQuery,
   BlogPostStatus,
+  BlogViewResponse,
 } from '@kingside/shared';
 
 const BASE = '/blog';
@@ -124,6 +125,31 @@ export const blogApi = {
     return api.get<BlogAuthor>(
       `${BASE}/authors/${encodeURIComponent(handle)}`,
       signal ? { signal } : undefined,
+    );
+  },
+
+  /**
+   * KS-4474 / ADR-140 §2.2 T8. Регистрация просмотра статьи.
+   *
+   * Backend (`POST /blog/posts/:id/view`) — идемпотентен в окне 24ч:
+   * повторный вызов в пределах суток вернёт `counted=false` с тем же
+   * `viewsCount` (Redis-дедуп по `userId | sha1(ip+UA)`). Бот-UA и
+   * чужой Origin/Referer тоже отдают `counted=false`, инкремента нет.
+   *
+   * Клиенту это позволяет всегда писать `viewsCount` из ответа в
+   * локальный state как новый источник правды — без отдельного GET.
+   * Фронт-дедуп через `sessionStorage` (см. BlogPostPage) — лишь
+   * экономия сетевого вызова: на back/forward в той же вкладке мы и
+   * так знаем, что в сутки уже было.
+   *
+   * Без `AbortSignal`: вызов fire-and-forget из таймера 5с, отмена
+   * не нужна — если пользователь ушёл со страницы до ответа, лишний
+   * `setState` отсечёт guard на стороне BlogPostPage.
+   */
+  recordView(postId: string): Promise<BlogViewResponse> {
+    return api.post<BlogViewResponse>(
+      `${BASE}/posts/${encodeURIComponent(postId)}/view`,
+      {},
     );
   },
 };
