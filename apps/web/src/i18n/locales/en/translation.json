@@ -723,6 +723,18 @@
       "pageOf": "Page {{page}} of {{total}}",
       "prev": "Previous",
       "next": "Next"
+    },
+    "post": {
+      "loading": "Loading the article…",
+      "notFoundTitle": "Article not found",
+      "notFoundMessage": "The link may be outdated, or the article has not been published yet.",
+      "backToFeed": "Back to the blog",
+      "readingTime": "{{count}} min read",
+      "updatedAt": "updated {{date}}",
+      "untranslatedText": "This article is not translated into English yet. Showing the original.",
+      "untranslatedLink": "Read the original",
+      "relatedCtaTitle": "Try it in the section",
+      "relatedCtaButton": "Open section"
     }
   },
   "common": {

@@ -733,6 +733,18 @@
       "pageOf": "Страница {{page}} из {{total}}",
       "prev": "Назад",
       "next": "Вперёд"
+    },
+    "post": {
+      "loading": "Загрузка статьи…",
+      "notFoundTitle": "Статья не найдена",
+      "notFoundMessage": "Возможно, ссылка устарела или статья ещё не опубликована.",
+      "backToFeed": "К списку статей",
+      "readingTime": "{{count}} мин чтения",
+      "updatedAt": "обновлено {{date}}",
+      "untranslatedText": "Эта статья пока не переведена на русский. Показан оригинал.",
+      "untranslatedLink": "Прочитать в оригинале",
+      "relatedCtaTitle": "Попробовать в разделе",
+      "relatedCtaButton": "Открыть раздел"
     }
   },
   "common": {

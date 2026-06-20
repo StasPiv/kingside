@@ -44,6 +44,8 @@ import { PrecisionPage } from './pages/PrecisionPage';
 import { TacticPuzzlesPage } from './pages/TacticPuzzlesPage';
 // KS-4396 (ADR-137 T3): лента блога Kingside.
 import { BlogFeedPage } from './pages/BlogFeedPage';
+// KS-4398 (ADR-137 T4): страница одной статьи /blog/:slug.
+import { BlogPostPage } from './pages/BlogPostPage';
 import { SolveTacticPuzzlePage } from './pages/SolveTacticPuzzlePage';
 // KS-4359 (ADR-136 T7): история попыток раздела «Точность».
 import { TacticPuzzlesHistoryPage } from './pages/TacticPuzzlesHistoryPage';
@@ -549,9 +551,11 @@ export function App() {
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/lobby" element={<LobbyPage />} />
         {/* KS-4396 (ADR-137 T3). Лента блога. Доступна гостям, prerender
-            покрывает /blog (PUBLIC_ROUTES). Конкретные статьи /blog/:slug
-            подключатся в T4. */}
+            покрывает /blog (PUBLIC_ROUTES). */}
         <Route path="/blog" element={<BlogFeedPage />} />
+        {/* KS-4398 (ADR-137 T4). Страница одной статьи. Slug-маршруты
+            добавляются в prerender через generated/blog-routes.ts на T6. */}
+        <Route path="/blog/:slug" element={<BlogPostPage />} />
         {/* KS-4142 / ADR-128 §4: зал открыт гостю. Все игровые
             действия (matchmaking / challenge / Play vs Bot) обёрнуты
             через useRequireAuth в самом PlayPage. */}
