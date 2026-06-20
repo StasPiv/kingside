@@ -13,6 +13,9 @@
 //   - URI === "/" → пропускаем (DefaultRootObject отдаст /index.html)
 //   - URI вида "/<route>" или "/<route>/" и <route> в publicRoutes
 //        → переписываем в "/<route>/index.html" (пререндеренная страница)
+//   - URI вида "/<lang>/blog/<slug>" (lang ∈ {en, ru}, один сегмент после
+//        префикса) → "/<lang>/blog/<slug>/index.html" (snapshot статьи блога,
+//        KS-4463 / KS-4460)
 //   - всё прочее (приватные маршруты, вложенные пути) → "/index.html" (SPA-fallback)
 //
 // Список publicRoutes синхронизируется с apps/web/src/config/publicRoutes.ts (KS-4116).
@@ -92,12 +95,12 @@ function handler(event) {
         '/lectures': 1,
         '/feedback': 1,
         '/features': 1,
-        '/login': 1
-        // KS-4461: блог переехал на префиксные `/en/blog` и `/ru/blog`
-        // (KS-4460), старый `/blog` редиректит выше 301-м — в publicRoutes
-        // больше не нужен. Поддержка SEO-prerender'а для `/en/blog`,
-        // `/ru/blog` и `/<lang>/blog/<slug>` — отдельной фронт-задачей
-        // (сейчас эти URI уходят в SPA-fallback `/index.html`).
+        '/login': 1,
+        // KS-4463: ленты блога с языковым префиксом. Старый `/blog`
+        // редиректится выше 301-м на `/en/blog`. Snapshot'ы лежат в
+        // `dist/<lang>/blog/index.html` (KS-4460).
+        '/en/blog': 1,
+        '/ru/blog': 1
     };
 
     var normalized = uri;
@@ -106,6 +109,28 @@ function handler(event) {
     }
 
     if (publicRoutes[normalized]) {
+        request.uri = normalized + '/index.html';
+        return request;
+    }
+
+    // KS-4463: статьи блога с языковым префиксом — `/<lang>/blog/<slug>`.
+    // prerender кладёт каждую в `dist/<lang>/blog/<slug>/index.html`
+    // (KS-4460, аналог старой схемы из KS-4448). Без этой ветки путь
+    // уходит в SPA-fallback на корневой `/index.html` (landing-разметка),
+    // и snapshot со статьёй не попадает к ботам / первому заходу.
+    // Условия: URI начинается с `/en/blog/` или `/ru/blog/`, ровно
+    // один непустой сегмент после префикса (нет вложенного слеша).
+    // Несуществующий slug → S3 вернёт 404, CloudFront-фолбэк
+    // (Custom Error Response) отдаст корневой `/index.html`.
+    var langPrefix = null;
+    if (normalized.indexOf('/en/blog/') === 0) {
+        langPrefix = '/en/blog/';
+    } else if (normalized.indexOf('/ru/blog/') === 0) {
+        langPrefix = '/ru/blog/';
+    }
+    if (langPrefix !== null
+        && normalized.indexOf('/', langPrefix.length) === -1
+        && normalized.length > langPrefix.length) {
         request.uri = normalized + '/index.html';
         return request;
     }
