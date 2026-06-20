@@ -28,6 +28,11 @@ import {
   blogPostPath,
   toBlogLocale,
 } from '../utils/blogUrl';
+// KS-4477 / ADR-140 T11. Компактный формат `1.2k` для счётчиков
+// вовлечённости в карточке фида. Базовый `formatCompact` уже
+// используется в AnalysisPage для статистики движка (без знаков
+// после запятой); для блога просим одну десятичную.
+import { formatCompact } from '../utils/chessFormat';
 import type { BlogLocale } from '@kingside/shared';
 
 // KS-4438: дефолтную картинку-плашку для карточки без обложки не
@@ -243,6 +248,58 @@ export function BlogFeedPage() {
                         {t('blog.feed.readingTime', '{{count}} min', {
                           count: post.readingTimeMin,
                         })}
+                      </span>
+                    </div>
+                    {/* KS-4477 / ADR-140 T11. Три счётчика
+                        вовлечённости в нижней мета-строке. Иконки —
+                        те же, что используются на странице статьи
+                        (LikeButton: ♥, BlogPostPage: 👁), плюс 💬
+                        для комментариев. Числа — компактным форматом
+                        `1.2k` от 1000; всегда отрисовываем три блока
+                        (включая 0), чтобы карточка имела стабильную
+                        высоту независимо от вовлечённости статьи. */}
+                    <div
+                      className="blog-feed__card-stats"
+                      data-testid="blog-feed-card-stats"
+                    >
+                      <span
+                        className="blog-feed__card-stat"
+                        data-testid="blog-feed-card-views"
+                        title={t('blog.feed.viewsTitle', 'Views')}
+                      >
+                        <span
+                          className="blog-feed__card-stat-icon"
+                          aria-hidden="true"
+                        >
+                          👁
+                        </span>{' '}
+                        {formatCompact(post.viewsCount, { decimals: 1 })}
+                      </span>
+                      <span
+                        className="blog-feed__card-stat"
+                        data-testid="blog-feed-card-likes"
+                        title={t('blog.feed.likesTitle', 'Likes')}
+                      >
+                        <span
+                          className="blog-feed__card-stat-icon"
+                          aria-hidden="true"
+                        >
+                          ♥
+                        </span>{' '}
+                        {formatCompact(post.likesCount, { decimals: 1 })}
+                      </span>
+                      <span
+                        className="blog-feed__card-stat"
+                        data-testid="blog-feed-card-comments"
+                        title={t('blog.feed.commentsTitle', 'Comments')}
+                      >
+                        <span
+                          className="blog-feed__card-stat-icon"
+                          aria-hidden="true"
+                        >
+                          💬
+                        </span>{' '}
+                        {formatCompact(post.commentsCount, { decimals: 1 })}
                       </span>
                     </div>
                     {post.tags.length > 0 && (

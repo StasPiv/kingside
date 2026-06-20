@@ -89,9 +89,24 @@ export function permilleToPercent(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n / 10)));
 }
 
-export function formatCompact(n: number): string {
+/**
+ * Компактное представление числа: 1234 → `1k`, 1_500_000 → `1.5M`.
+ *
+ * KS-4477: добавлен опциональный `decimals` для тысячного диапазона —
+ * блогу нужен формат `1.2k` (одна десятичная), движковая статистика
+ * AnalysisPage по-прежнему рендерится без знаков после запятой (дефолт).
+ * Аргументы B/M остаются с `.toFixed(1)` — там читаемость важнее
+ * округления, и старые вызовы не меняют поведение.
+ */
+export function formatCompact(
+  n: number,
+  options: { decimals?: number } = {},
+): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  if (n >= 1_000) {
+    const decimals = options.decimals ?? 0;
+    return `${(n / 1_000).toFixed(decimals)}k`;
+  }
   return String(n);
 }
