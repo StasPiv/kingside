@@ -32,7 +32,7 @@ function makePuzzleRow(overrides: Record<string, unknown> = {}) {
     wdlW: 1,
     wdlD: 997,
     wdlL: 2,
-    objective: 'saveEquality',
+    // KS-4369 / KS-4367. objective из mock-строки удалён вместе с колонкой.
     themes: 'endgame mate-threat',
     rating: 1600,
     ratingDev: 200,
@@ -426,7 +426,7 @@ describe('TacticPuzzleService', () => {
         timeMs: 10000,
         lineHalfMoves: 3,
         precisionGrade: 4,
-        puzzle: { objective: 'saveEquality', difficulty: 0.95 },
+        puzzle: { difficulty: 0.95 },
         ...overrides,
       });
       // последовательность: 3 solved, потом 1 unsolved (стрик
@@ -450,7 +450,7 @@ describe('TacticPuzzleService', () => {
       expect(stats.stopReasonBreakdown.easy).toBe(4);
       expect(stats.stopReasonBreakdown.mate).toBe(1);
       expect(stats.stopReasonBreakdown.mistake).toBe(1);
-      expect(stats.objectiveBreakdown.saveEquality).toBe(6);
+      // KS-4369 / KS-4367. objectiveBreakdown удалён из TacticUserStats.
     });
 
     it('пустой набор → дефолты', async () => {

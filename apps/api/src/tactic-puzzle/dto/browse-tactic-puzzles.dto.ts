@@ -7,7 +7,6 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
-  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -15,15 +14,10 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import type {
-  TacticPuzzleBrowseQuery,
-  TacticPuzzleObjective,
-} from '@kingside/shared';
+import type { TacticPuzzleBrowseQuery } from '@kingside/shared';
 
-const OBJECTIVES: TacticPuzzleObjective[] = [
-  'convertAdvantage',
-  'saveEquality',
-];
+// KS-4369 / KS-4367. Поле `objective` и массив OBJECTIVES удалены —
+// семантика «реализуй перевес / удержи равенство» уходит из всего раздела.
 
 export class BrowseTacticPuzzlesDto implements TacticPuzzleBrowseQuery {
   @IsOptional()
@@ -36,10 +30,6 @@ export class BrowseTacticPuzzlesDto implements TacticPuzzleBrowseQuery {
   @Min(1)
   @Max(100)
   limit?: number;
-
-  @IsOptional()
-  @IsIn(OBJECTIVES)
-  objective?: TacticPuzzleObjective;
 
   @IsOptional()
   @Type(() => Number)

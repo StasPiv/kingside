@@ -36,7 +36,6 @@ import {
   type TacticAttemptListPage,
   type TacticPuzzleBrowsePage,
   type TacticPuzzleBrowseQuery,
-  type TacticPuzzleObjective,
   type TacticPuzzleResponse,
   type TacticPuzzleStopReason,
   type TacticRatingPoint,
@@ -132,7 +131,7 @@ export class TacticPuzzleService {
     const cursorId = decodeCursor(query.cursor);
 
     const where: Prisma.TacticPuzzleWhereInput = {};
-    if (query.objective) where.objective = query.objective;
+    // KS-4369 / KS-4367. Фильтр `where.objective` удалён вместе с полем.
     if (query.maiaDifficultyMin != null) {
       where.difficulty = { gte: query.maiaDifficultyMin };
     }
@@ -456,7 +455,7 @@ export class TacticPuzzleService {
         id: p.id,
         fen: p.fen,
         bestMoveUci: p.bestMoveUci,
-        objective: toObjective(p.objective),
+        // KS-4369 / KS-4367. objective из карточки удалён.
         difficulty: p.difficulty,
         gap: p.gap,
         rating: p.rating,
@@ -475,7 +474,9 @@ export class TacticPuzzleService {
       this.prisma.tacticPuzzleAttempt.findMany({
         where: { userId },
         orderBy: { createdAt: 'asc' },
-        include: { puzzle: { select: { objective: true, difficulty: true } } },
+        // KS-4369 / KS-4367. Колонка `objective` уйдёт из БД на T1 миграции;
+        // selects её больше не запрашивает. Для difficultyBuckets нужен только difficulty.
+        include: { puzzle: { select: { difficulty: true } } },
       }),
     ]);
 
@@ -494,7 +495,7 @@ export class TacticPuzzleService {
       timeout: 0,
       aborted: 0,
     };
-    const objectiveBreakdown = { convertAdvantage: 0, saveEquality: 0 };
+    // KS-4369 / KS-4367. objectiveBreakdown удалён вместе с полем.
     const difficultyBuckets: Record<string, number> = {
       '0.90-0.92': 0,
       '0.92-0.94': 0,
@@ -529,8 +530,6 @@ export class TacticPuzzleService {
       }
       const reason = a.stopReason as TacticStopReason;
       if (reason in stopReasonBreakdown) stopReasonBreakdown[reason]++;
-      const obj = toObjective(a.puzzle.objective);
-      objectiveBreakdown[obj]++;
       bucketize(difficultyBuckets, a.puzzle.difficulty);
     }
 
@@ -558,7 +557,6 @@ export class TacticPuzzleService {
       totals,
       streak: { current: currentTailRun, best: bestRun },
       stopReasonBreakdown,
-      objectiveBreakdown,
       difficultyBuckets,
     };
   }
@@ -613,7 +611,7 @@ export class TacticPuzzleService {
       fen: p.fen,
       bestMoveUci: p.bestMoveUci,
       solverSide: p.solverSide === 'b' ? 'b' : 'w',
-      objective: toObjective(p.objective),
+      // KS-4369 / KS-4367. objective из карточки удалён.
       playersTitle: buildPlayersTitle(
         p.sourceHeaders as Record<string, string> | null,
       ),
@@ -635,10 +633,7 @@ export class TacticPuzzleService {
       fen: puzzle.fen,
       bestMoveUci: puzzle.bestMoveUci,
       solverSide: puzzle.solverSide === 'b' ? 'b' : 'w',
-      objective:
-        puzzle.objective === 'saveEquality'
-          ? 'saveEquality'
-          : 'convertAdvantage',
+      // KS-4369 / KS-4367. objective из ответа удалён.
       themes: puzzle.themes
         ? puzzle.themes.split(/\s+/).filter(Boolean)
         : [],
@@ -668,8 +663,7 @@ export class TacticPuzzleService {
       rating: p.rating,
       difficulty: p.difficulty,
       gap: p.gap,
-      objective:
-        p.objective === 'saveEquality' ? 'saveEquality' : 'convertAdvantage',
+      // KS-4369 / KS-4367. objective из карточки журнала ошибок удалён.
       themes: p.themes ? p.themes.split(/\s+/).filter(Boolean) : [],
       createdAt: mistake.createdAt.toISOString(),
     };
@@ -689,9 +683,7 @@ export function isSolvedStopReason(reason: TacticPuzzleStopReason): boolean {
 
 // ─── KS-4356 helpers ─────────────────────────────────────────────────
 
-function toObjective(raw: string): TacticPuzzleObjective {
-  return raw === 'saveEquality' ? 'saveEquality' : 'convertAdvantage';
-}
+// KS-4369 / KS-4367. `toObjective` удалён вместе с типом TacticPuzzleObjective.
 
 function splitThemes(raw: string): string[] {
   return raw ? raw.split(/\s+/).filter(Boolean) : [];
