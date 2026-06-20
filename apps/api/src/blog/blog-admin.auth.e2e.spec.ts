@@ -41,6 +41,9 @@ import { createHash } from 'node:crypto';
 import { BlogAdminController } from './blog-admin.controller';
 import { BlogAdminService } from './blog-admin.service';
 import { BlogMediaService } from './blog-media.service';
+// KS-4473 / ADR-140 T7: BlogAdminController теперь зависит от
+// BlogCounterReconcileService (POST /admin/blog/recount).
+import { BlogCounterReconcileService } from './blog-counter-reconcile.service';
 import { AuthModule } from '../auth/auth.module';
 import { SERVICE_ACCOUNT_PREFIX } from '../auth/service-account.guard';
 import { PrismaService } from '../prisma/prisma.service';
@@ -118,6 +121,17 @@ class TestGlobalInfraModule {}
         getAllowedMimeTypes: jest
           .fn()
           .mockReturnValue(['image/png', 'image/jpeg', 'image/webp']),
+      },
+    },
+    {
+      provide: BlogCounterReconcileService,
+      useValue: {
+        reconcileAll: jest.fn().mockResolvedValue({
+          processed: 0,
+          mismatched: 0,
+          updated: 0,
+          tookMs: 0,
+        }),
       },
     },
   ],

@@ -20,6 +20,9 @@ import { BlogLikeService } from './blog-like.service';
 import { BlogCommentController } from './blog-comment.controller';
 import { BlogCommentService } from './blog-comment.service';
 import { BlogCommentCreateRateLimitGuard } from './blog-comment-rate-limit.guard';
+// KS-4473 / ADR-140 T7: суточный cron пересчёта счётчиков вовлечённости.
+import { BlogCounterReconcileService } from './blog-counter-reconcile.service';
+import { BlogReconcileScheduler } from './blog-reconcile.scheduler';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
@@ -33,6 +36,8 @@ import { AuthModule } from '../auth/auth.module';
     BlogLikeService,
     BlogCommentService,
     BlogCommentCreateRateLimitGuard,
+    BlogCounterReconcileService,
+    BlogReconcileScheduler,
   ],
   exports: [
     BlogService,
@@ -41,6 +46,7 @@ import { AuthModule } from '../auth/auth.module';
     BlogViewService,
     BlogLikeService,
     BlogCommentService,
+    BlogCounterReconcileService,
   ],
 })
 export class BlogModule {}

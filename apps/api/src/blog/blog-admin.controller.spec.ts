@@ -75,7 +75,7 @@ describe('BlogAdminController.createPost (multipart)', () => {
   it('с файлом cover → uploadCover вызван, coverUrl передан в admin.createPost', async () => {
     const admin = makeAdmin();
     const media = makeMedia({ uploadResult: { url: 'https://cdn/u.png' } });
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await ctrl.createPost(POST_BODY, makeFile());
     expect(media.uploadCover).toHaveBeenCalledWith('my-post', expect.objectContaining({
       buffer: expect.any(Buffer),
@@ -89,7 +89,7 @@ describe('BlogAdminController.createPost (multipart)', () => {
   it('без файла → uploadCover НЕ вызван', async () => {
     const admin = makeAdmin();
     const media = makeMedia();
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await ctrl.createPost(POST_BODY, undefined);
     expect(media.uploadCover).not.toHaveBeenCalled();
     expect(admin.createPost).toHaveBeenCalledWith(POST_BODY);
@@ -98,7 +98,7 @@ describe('BlogAdminController.createPost (multipart)', () => {
   it('media не сконфигурирован + файл → 503', async () => {
     const admin = makeAdmin();
     const media = makeMedia({ configured: false });
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await expect(ctrl.createPost(POST_BODY, makeFile())).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
@@ -109,7 +109,7 @@ describe('BlogAdminController.createPost (multipart)', () => {
     const media = makeMedia({
       uploadThrows: new BlogMediaInvalidMimeError('Unsupported MIME: image/gif'),
     });
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await expect(ctrl.createPost(POST_BODY, makeFile())).rejects.toBeInstanceOf(
       BadRequestException,
     );
@@ -120,7 +120,7 @@ describe('BlogAdminController.createPost (multipart)', () => {
     const media = makeMedia({
       uploadThrows: new BlogMediaNotConfiguredError('BLOG_MEDIA_BUCKET not configured'),
     });
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await expect(ctrl.createPost(POST_BODY, makeFile())).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
@@ -134,7 +134,7 @@ describe('BlogAdminController.updatePost (multipart)', () => {
     const admin = makeAdmin();
     admin.getPost.mockResolvedValueOnce({ slug: 'db-slug' });
     const media = makeMedia({ uploadResult: { url: 'https://cdn/new.png' } });
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await ctrl.updatePost(POST_ID, { title: 'new' }, makeFile());
     expect(media.uploadCover).toHaveBeenCalledWith('db-slug', expect.any(Object));
     expect(admin.updatePost).toHaveBeenCalledWith(
@@ -146,7 +146,7 @@ describe('BlogAdminController.updatePost (multipart)', () => {
   it('с файлом + body.slug → берётся slug из body (не лезет в БД)', async () => {
     const admin = makeAdmin();
     const media = makeMedia({ uploadResult: { url: 'https://cdn/q.png' } });
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await ctrl.updatePost(POST_ID, { slug: 'new-slug' }, makeFile());
     expect(media.uploadCover).toHaveBeenCalledWith('new-slug', expect.any(Object));
     expect(admin.getPost).not.toHaveBeenCalled();
@@ -155,7 +155,7 @@ describe('BlogAdminController.updatePost (multipart)', () => {
   it('без файла, coverReset=true → coverUrl и coverAlt занулены в admin.updatePost', async () => {
     const admin = makeAdmin();
     const media = makeMedia();
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await ctrl.updatePost(POST_ID, { coverReset: true, title: 't' }, undefined);
     expect(media.uploadCover).not.toHaveBeenCalled();
     const arg = admin.updatePost.mock.calls[0][1];
@@ -167,7 +167,7 @@ describe('BlogAdminController.updatePost (multipart)', () => {
   it('без файла, без coverReset → cover-поля не трогаются', async () => {
     const admin = makeAdmin();
     const media = makeMedia();
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await ctrl.updatePost(POST_ID, { title: 'only-title' }, undefined);
     const arg = admin.updatePost.mock.calls[0][1];
     expect(arg).toEqual({ title: 'only-title' });
@@ -177,7 +177,7 @@ describe('BlogAdminController.updatePost (multipart)', () => {
   it('файл имеет приоритет над coverReset', async () => {
     const admin = makeAdmin();
     const media = makeMedia({ uploadResult: { url: 'https://cdn/from-file.png' } });
-    const ctrl = new BlogAdminController(admin as never, media as never);
+    const ctrl = new BlogAdminController(admin as never, media as never, undefined as never);
     await ctrl.updatePost(
       POST_ID,
       { slug: 's', coverReset: true } as never,

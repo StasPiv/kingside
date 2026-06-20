@@ -46,6 +46,10 @@ import { AdminOrServiceGuard } from '../auth/admin-or-service.guard';
 import { RequiredScope } from '../auth/required-scope.decorator';
 import { BlogAdminService } from './blog-admin.service';
 import {
+  BlogCounterReconcileService,
+  type BlogReconcileSummary,
+} from './blog-counter-reconcile.service';
+import {
   BlogMediaInvalidMimeError,
   BlogMediaNotConfiguredError,
   BlogMediaService,
@@ -95,6 +99,8 @@ export class BlogAdminController {
   constructor(
     private readonly admin: BlogAdminService,
     private readonly media: BlogMediaService,
+    // KS-4473 / ADR-140 T7: ручной запуск пересчёта счётчиков.
+    private readonly reconciler: BlogCounterReconcileService,
   ) {}
 
   // ─── posts ─────────────────────────────────────────────────────────
@@ -251,5 +257,23 @@ export class BlogAdminController {
   ): Promise<{ deleted: true }> {
     await this.admin.deleteAuthor(id);
     return { deleted: true };
+  }
+
+  /**
+   * KS-4473 / ADR-140 T7. Ручной запуск пересчёта `likes_count` и
+   * `comments_count` из COUNT(*) детальных таблиц.
+   *
+   * Тот же код выполняется суточным cron'ом 03:00 UTC
+   * (`BlogReconcileScheduler`). Эндпоинт нужен:
+   *   - проверить cron после деплоя без ожидания тика;
+   *   - быстро отреставрировать счётчики после ручной правки БД.
+   *
+   * Защищён `AdminOrServiceGuard` + scope `blog:write` (как остальные
+   * mutating-маршруты блога).
+   */
+  @Post('recount')
+  @RequiredScope('blog:write')
+  recount(): Promise<BlogReconcileSummary> {
+    return this.reconciler.reconcileAll();
   }
 }
