@@ -57,6 +57,23 @@ export interface BlogPostListItem {
    * по локали жёсткий.
    */
   isLocaleFallback?: boolean;
+  /**
+   * KS-4467/KS-4468 / ADR-140 §2.1. Денормализованные счётчики
+   * вовлечённости — берутся из колонок `blog_posts.*_count` без
+   * агрегатов, чтобы лента и карточка статьи отдавались одним
+   * запросом. Источник правды для лайков/комментариев — детальные
+   * таблицы; суточный cron (T7) выправляет дрейф.
+   */
+  viewsCount: number;
+  likesCount: number;
+  commentsCount: number;
+  /**
+   * KS-4468 / ADR-140. `true`, если запрос идёт от авторизованного
+   * пользователя и его лайк по этой статье есть. Для гостей всегда
+   * `false`. Сервер заполняет либо batched IN-query (для ленты), либо
+   * left-join (для одиночной статьи).
+   */
+  likedByMe: boolean;
 }
 
 /**
@@ -100,4 +117,66 @@ export interface BlogPostListQuery {
   locale: BlogLocale;
   page?: number;
   tag?: string;
+}
+
+// ─── ADR-140: вовлечённость — лайки, просмотры, комментарии ─────────
+
+/**
+ * KS-4468 / ADR-140 §3. Комментарий к статье блога. Плоская лента,
+ * без вложенных ответов (MVP). Soft-delete: при `deleted: true`
+ * сервер возвращает `body: null`, но запись остаётся в ленте, чтобы
+ * не сбивать порядок и курсорную пагинацию.
+ *
+ * `canEdit` — true только для автора, не-удалённого комментария и в
+ * пределах 15-минутного окна с момента `createdAt`.
+ * `canDelete` — true для автора или администратора. Удаление —
+ * soft (см. T5).
+ */
+export interface BlogComment {
+  id: string;
+  postId: string;
+  userId: string;
+  /** Username автора (на момент рендера; не FK-источник). */
+  authorUsername: string;
+  /** `null` если комментарий удалён (soft-delete). */
+  body: string | null;
+  deleted: boolean;
+  /** ISO-8601. */
+  createdAt: string;
+  /** ISO-8601. */
+  updatedAt: string;
+  canEdit: boolean;
+  canDelete: boolean;
+}
+
+/**
+ * KS-4468 / ADR-140 §3. Страница комментариев `GET /blog/posts/:id/comments`.
+ * Cursor-пагинация по `(createdAt DESC, id DESC)` — стабильная при
+ * совпадении `createdAt`. `nextCursor === null` — больше нет.
+ */
+export interface BlogCommentsPage {
+  items: BlogComment[];
+  nextCursor: string | null;
+}
+
+/**
+ * KS-4468 / ADR-140 §2.2. Ответ `POST /blog/posts/:id/view`.
+ * `counted=false` — повтор в окне 24ч (Redis-дедуп) либо отсев бота /
+ * чужой Origin. В обоих случаях клиент получает актуальный `viewsCount`
+ * без отдельного `GET`.
+ */
+export interface BlogViewResponse {
+  viewsCount: number;
+  counted: boolean;
+}
+
+/**
+ * KS-4468 / ADR-140 §2.1. Ответ `POST` и `DELETE` `/blog/posts/:id/like`.
+ * Оба эндпоинта идемпотентны: повторный POST не инкрементит, повторный
+ * DELETE не декрементит. Клиент использует `likesCount`/`likedByMe`
+ * как новый источник правды для UI без отдельного GET.
+ */
+export interface BlogLikeResponse {
+  likesCount: number;
+  likedByMe: boolean;
 }

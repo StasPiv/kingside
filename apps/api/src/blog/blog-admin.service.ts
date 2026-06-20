@@ -348,6 +348,14 @@ export class BlogAdminService {
       status: post.status === 'published' ? 'published' : 'draft',
       createdAt: post.createdAt.toISOString(),
       authorId: post.authorId,
+      // KS-4468 / ADR-140. Денормализованные счётчики из Prisma-модели
+      // (поля заведены в T1 / KS-4467). `likedByMe` для админ-DTO
+      // содержательной нагрузки не несёт — админ читает черновики
+      // без сессии-пользователя; по форме типа возвращаем `false`.
+      viewsCount: post.viewsCount,
+      likesCount: post.likesCount,
+      commentsCount: post.commentsCount,
+      likedByMe: false,
     };
   }
 

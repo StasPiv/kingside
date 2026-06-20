@@ -118,6 +118,15 @@ export class BlogService {
         nameRu: post.author.nameRu,
         nameEn: post.author.nameEn,
       },
+      // KS-4468 / ADR-140. Денормализованные счётчики читаются прямо
+      // из Prisma-модели (поля заведены в T1 / KS-4467). `likedByMe`
+      // здесь жёстко `false` — для гостей это корректно; для
+      // авторизованных значение заполнит T6 (KS-4472) через
+      // `OptionalJwtGuard` + batched IN-query по `blog_post_likes`.
+      viewsCount: post.viewsCount,
+      likesCount: post.likesCount,
+      commentsCount: post.commentsCount,
+      likedByMe: false,
     };
   }
 
