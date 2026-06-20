@@ -247,8 +247,13 @@ function isTelemetryRequest(path: string, method: string): boolean {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('token');
+  // KS-4449: для `FormData`-тела не выставляем `Content-Type` —
+  // браузер сам подставит `multipart/form-data; boundary=...`. Иначе
+  // request падает на бэкенде, не сумев распарсить multipart.
+  const isFormDataBody =
+    typeof FormData !== 'undefined' && options?.body instanceof FormData;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormDataBody ? {} : { 'Content-Type': 'application/json' }),
     ...((options?.headers as Record<string, string>) ?? {}),
   };
   if (token && !headers['Authorization']) {
@@ -416,4 +421,11 @@ export const api = {
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  // KS-4449. Multipart-варианты для эндпоинтов, принимающих файлы
+  // (`/admin/blog/posts*` с обложкой). `body` уходит как есть; `request`
+  // детектирует FormData и не выставляет `Content-Type`.
+  postForm: <T>(path: string, form: FormData) =>
+    request<T>(path, { method: 'POST', body: form }),
+  putForm: <T>(path: string, form: FormData) =>
+    request<T>(path, { method: 'PUT', body: form }),
 };

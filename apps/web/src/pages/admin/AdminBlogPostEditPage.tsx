@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   BlogAuthor,
   BlogLocale,
+  BlogPostAdmin,
   BlogPostStatus,
 } from '@kingside/shared';
 
@@ -324,19 +325,46 @@ export function AdminBlogPostEditPage() {
         status: form.status,
         tags: tagsFromString(form.tags),
       };
-      if (form.coverUrl.trim()) payload.coverUrl = form.coverUrl.trim();
+      // KS-4449: `coverUrl` руками не отправляем — он управляется
+      // загрузкой файла (`coverFile`) и сбросом (`coverReset`) через
+      // multipart. Если бы оставили `payload.coverUrl=form.coverUrl`,
+      // мы бы переписали свежий S3-URL на старое значение.
       if (form.coverAlt.trim()) payload.coverAlt = form.coverAlt.trim();
       if (form.relatedRoute.trim()) payload.relatedRoute = form.relatedRoute.trim();
       if (form.publishedAt.trim()) payload.publishedAt = form.publishedAt.trim();
 
+      const coverOpts = {
+        coverFile: form.coverFile,
+        coverReset: form.coverReset,
+      };
+
       try {
+        let result: BlogPostAdmin;
         if (isEdit && id) {
           const update: UpdateBlogPostInput = payload;
-          await blogAdminApi.updatePost(id, update);
+          result = await blogAdminApi.updatePost(id, update, coverOpts);
         } else {
-          const created = await blogAdminApi.createPost(payload);
-          navigate(`/admin/blog/posts/${created.id}`, { replace: true });
-          return;
+          result = await blogAdminApi.createPost(payload, coverOpts);
+        }
+
+        // KS-4449. Обновляем форму данными из ответа: после загрузки
+        // обложки в S3 backend возвращает свежий `coverUrl` (CDN-URL),
+        // и нам нужно показать его, а не оставить `coverFile`/old.
+        // Сбрасываем coverFile/coverReset/coverError — операция применена.
+        setForm((prev) => ({
+          ...prev,
+          coverUrl: result.coverUrl ?? '',
+          coverAlt: result.coverAlt ?? '',
+          coverFile: null,
+          coverReset: false,
+        }));
+        setCoverError(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+
+        if (!isEdit) {
+          // Создание — переходим на страницу редактирования по id из
+          // ответа, чтобы повторное сохранение не создавало дубль.
+          navigate(`/admin/blog/posts/${result.id}`, { replace: true });
         }
         // на edit — остаёмся, чтобы можно было править дальше
       } catch (err) {

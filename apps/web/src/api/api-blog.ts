@@ -58,6 +58,16 @@ export interface CreateBlogPostInput {
 /** PATCH-семантика: отсутствие поля = «не менять». */
 export type UpdateBlogPostInput = Partial<CreateBlogPostInput>;
 
+/**
+ * KS-4449 / ADR-138 T10. Расширения для multipart-запросов: загрузка
+ * обложки (`coverFile`) и/или сброс уже привязанной (`coverReset`).
+ * Если ничего из них не задано — методы шлют обычный JSON, как раньше.
+ */
+export interface BlogPostCoverOptions {
+  coverFile?: File | null;
+  coverReset?: boolean;
+}
+
 export interface CreateBlogAuthorInput {
   handle: string;
   nameRu: string;
@@ -119,6 +129,77 @@ export const blogApi = {
 };
 
 /**
+ * KS-4449 / ADR-138 T10. Условие включения multipart-варианта для
+ * `POST/PUT /admin/blog/posts*`: либо приходит файл, либо явный
+ * сброс уже привязанной обложки. Без обоих — обычный JSON.
+ */
+function needsMultipart(cover?: BlogPostCoverOptions): boolean {
+  if (!cover) return false;
+  return Boolean(cover.coverFile) || cover.coverReset === true;
+}
+
+/**
+ * Собирает `FormData` для `POST/PUT /admin/blog/posts*`:
+ *   - примитивы (string/number/boolean) — как поля формы;
+ *   - `tags` — JSON-строкой (DTO принимает либо JSON, либо
+ *     полевые повторы; JSON безопаснее для пустого массива и
+ *     отсутствия экранирования);
+ *   - `coverFile` — отдельным полем `cover` (имя поля совпадает с
+ *     `@UploadedFile()` на бэкенде);
+ *   - `coverReset=true` — поле `coverReset='true'` (PATCH-сигнал «убрать»).
+ *
+ * Пустые/`undefined` значения не отправляем — это PATCH-семантика для
+ * update (бэкенд не меняет поля, которые не пришли). Для create
+ * обязательные поля у нас всегда заполнены; если их нет — это будет
+ * ошибка валидации DTO, не наша забота.
+ */
+function buildBlogPostFormData(
+  body: CreateBlogPostInput | UpdateBlogPostInput,
+  cover: BlogPostCoverOptions | undefined,
+): FormData {
+  const fd = new FormData();
+  const append = (key: string, value: unknown): void => {
+    if (value === undefined || value === null) return;
+    if (typeof value === 'boolean') {
+      fd.append(key, value ? 'true' : 'false');
+    } else if (Array.isArray(value)) {
+      fd.append(key, JSON.stringify(value));
+    } else {
+      fd.append(key, String(value));
+    }
+  };
+
+  // Порядок здесь не важен — backend читает по имени. Перечисляем
+  // все возможные поля; те, что не заданы, append-функция пропустит.
+  const fields: ReadonlyArray<keyof CreateBlogPostInput> = [
+    'slug',
+    'locale',
+    'title',
+    'description',
+    'bodyMd',
+    'coverUrl',
+    'coverAlt',
+    'tags',
+    'relatedRoute',
+    'authorId',
+    'status',
+    'publishedAt',
+  ];
+  for (const key of fields) {
+    append(key, (body as Record<string, unknown>)[key]);
+  }
+
+  if (cover?.coverFile) {
+    fd.append('cover', cover.coverFile, cover.coverFile.name);
+  }
+  if (cover?.coverReset) {
+    append('coverReset', true);
+  }
+
+  return fd;
+}
+
+/**
  * KS-4420. Админ-CRUD блога. Защита — `JwtAuthGuard + AdminUserGuard`
  * (backend, KS-4410). На фронте те же маршруты обёрнуты в `<AdminRoute>`
  * — это страховка от показа экрана не-админу, проверка прав — на бэке.
@@ -150,16 +231,34 @@ export const blogAdminApi = {
     );
   },
 
-  createPost(body: CreateBlogPostInput): Promise<BlogPostAdmin> {
+  createPost(
+    body: CreateBlogPostInput,
+    cover?: BlogPostCoverOptions,
+  ): Promise<BlogPostAdmin> {
+    if (needsMultipart(cover)) {
+      return api.postForm<BlogPostAdmin>(
+        `${ADMIN_BASE}/posts`,
+        buildBlogPostFormData(body, cover),
+      );
+    }
     return api.post<BlogPostAdmin>(`${ADMIN_BASE}/posts`, body);
   },
 
   /**
    * Backend ожидает PUT с PATCH-семантикой (см. UpdateBlogPostDto:
-   * все поля опц.). Если у нашего api-клиента есть метод `put` —
-   * используем его, иначе fallback на универсальный `request`.
+   * все поля опц.). При наличии файла/сброса обложки — multipart.
    */
-  updatePost(id: string, body: UpdateBlogPostInput): Promise<BlogPostAdmin> {
+  updatePost(
+    id: string,
+    body: UpdateBlogPostInput,
+    cover?: BlogPostCoverOptions,
+  ): Promise<BlogPostAdmin> {
+    if (needsMultipart(cover)) {
+      return api.putForm<BlogPostAdmin>(
+        `${ADMIN_BASE}/posts/${encodeURIComponent(id)}`,
+        buildBlogPostFormData(body, cover),
+      );
+    }
     return api.put<BlogPostAdmin>(
       `${ADMIN_BASE}/posts/${encodeURIComponent(id)}`,
       body,
