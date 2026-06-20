@@ -2615,12 +2615,11 @@ model TacticPuzzle {
   /// `reactive`/`preventive` — этих жанров в новом концепте нет.
   themes        String   @default("")
 
-  // Glicko-2 рейтинг пазла для подбора игроку (отдельная кривая от
-  // `puzzles.rating` lichess).
-  rating        Int      @default(1500)
-  ratingDev     Int      @default(350) @map("rating_dev")
-  popularity    Int      @default(0)
-  nbPlays       Int      @default(0) @map("nb_plays")
+  // KS-4379 / KS-4375. Поля `rating`, `ratingDev`, `popularity`,
+  // `nbPlays` удалены: рейтинг пазла как сущность убран (пересмотр
+  // ADR-135 §2.1/§2.4, коммит d12cf9e). Подбор идёт по mistakes →
+  // random, Glicko-апдейт пользователя — против фиксированного
+  // Maia-3 (`OPPONENT_RATING=2400` в сервисе).
 
   // Источник партии.
   sourceGameId   String? @map("source_game_id") @db.Uuid
@@ -2645,13 +2644,12 @@ model TacticPuzzle {
   attempts         TacticPuzzleAttempt[]
   mistakes         TacticUserMistake[]
 
-  @@index([rating])
+  // KS-4379 / KS-4375. Индекс `(rating)` удалён вместе с колонкой.
   @@index([themes])
   @@index([difficulty])
   @@index([gap])
   // KS-4370 / KS-4367. Композитный индекс `(objective, rating)` удалён
-  // вместе с колонкой; подбор пазлов идёт по `rating` (стандартный
-  // single-column индекс выше).
+  // вместе с колонкой.
   @@index([algorithmVersion])
   @@map("tactic_puzzles")
 }
@@ -2672,8 +2670,8 @@ model TacticPuzzleAttempt {
   // Игровой рейтинг пользователя по разделу «Точность» (см. UserTacticRating).
   ratingBefore        Int      @map("rating_before")
   ratingAfter         Int      @map("rating_after")
-  puzzleRatingBefore  Int?     @map("puzzle_rating_before")
-  puzzleRatingAfter   Int?     @map("puzzle_rating_after")
+  // KS-4379 / KS-4375. `puzzleRatingBefore` / `puzzleRatingAfter`
+  // удалены вместе с рейтингом пазла.
 
   /// Длина решённой линии (число полуходов пользователя). Не известна
   /// заранее — определяется во время игры. Клиент на каждом полуходе
