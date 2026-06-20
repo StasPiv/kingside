@@ -1771,12 +1771,12 @@
     "memberSince": "Member since {{date}}",
     "ratings": "Ratings",
     "tactic": {
-      "title": "Tactics",
+      "title": "Critical Moment",
       "rating": "Rating",
       "attempts": "Attempts",
       "solved": "Solved",
       "solvedPercent": "% solved",
-      "empty": "Solve your first puzzle to see your Tactics rating here.",
+      "empty": "Solve your first puzzle to see your Critical Moment rating here.",
       "fullStats": "Detailed stats"
     },
     "bullet": "Bullet",
@@ -2141,8 +2141,8 @@
     }
   },
   "tacticPuzzle": {
-    "title": "Tactics",
-    "intro": "Positions where a strong engine punishes any inaccuracy. Each puzzle continues only while the board still has a single best move.",
+    "title": "Critical Moment",
+    "intro": "One move decides the position. Can you see it?",
     "start": "Start training",
     "starting": "Starting…",
     "openPuzzle": "Open puzzle",
@@ -2177,7 +2177,7 @@
       "openWorkshop": "Open in workshop"
     },
     "subnav": {
-      "label": "Tactics sections",
+      "label": "Critical Moment sections",
       "catalog": "Catalog",
       "history": "History",
       "stats": "Stats",
@@ -2241,8 +2241,8 @@
       }
     },
     "stats": {
-      "title": "Stats — tactics training",
-      "intro": "Summary of your Tactics section: current rating, totals, and breakdowns by stop reason and difficulty.",
+      "title": "Stats — Critical Moment",
+      "intro": "Summary of your Critical Moment section: current rating, totals, and breakdowns by stop reason and difficulty.",
       "guestTitle": "Sign in to see stats",
       "guestMessage": "Stats are available to signed-in players only.",
       "empty": "Solve your first puzzle — stats will show up here.",
@@ -2284,7 +2284,7 @@
     },
     "history": {
       "title": "Attempt history",
-      "intro": "Every attempt you made in the Tactics section. Use the filters to narrow by date, outcome or rating range.",
+      "intro": "Every attempt you made in the Critical Moment section. Use the filters to narrow by date, outcome or rating range.",
       "empty": "No attempts yet. Solve one puzzle and it will appear here.",
       "guestTitle": "Sign in to see history",
       "guestMessage": "Attempt history is available to signed-in players only.",
@@ -4613,26 +4613,26 @@
     },
     "tacticPuzzles": {
       "list": {
-        "title": "Tactic puzzles — Maia + Stockfish chess problems — Kingside",
-        "description": "Chess puzzles where a strong engine punishes any inaccuracy. Difficulty is calibrated for Maia 2400 players; each puzzle continues only while the board still has a single best move."
+        "title": "Critical Moment — Chess Puzzles for the One Decisive Move | Kingside",
+        "description": "Train on positions where only one move works — and even a strong neural net misses it. Find the critical move."
       },
       "history": {
-        "title": "Attempt history — tactics training — Kingside",
-        "description": "Every tactics attempt you played on Kingside. Filter by date, outcome, stop reason or rating range. Open any attempt for a Stockfish breakdown."
+        "title": "Attempt history — Critical Moment — Kingside",
+        "description": "Every Critical Moment attempt you played on Kingside. Filter by date, outcome, stop reason or rating range. Open any attempt for a Stockfish breakdown."
       },
       "stats": {
-        "title": "Stats — tactics training — Kingside",
-        "description": "Current rating, totals and breakdowns by stop reason and difficulty — your personal Tactics summary on Kingside."
+        "title": "Stats — Critical Moment — Kingside",
+        "description": "Current rating, totals and breakdowns by stop reason and difficulty — your personal Critical Moment summary on Kingside."
       },
       "mistakes": {
-        "title": "Mistake review — tactics training — Kingside",
-        "description": "Puzzles you failed in the Tactics section. Solve them again — the list clears itself."
+        "title": "Mistake review — Critical Moment — Kingside",
+        "description": "Puzzles you failed in the Critical Moment section. Solve them again — the list clears itself."
       },
       "detail": {
-        "title": "{{playersTitle}} — tactic puzzle {{difficulty}}% — Kingside",
-        "titleNoPlayers": "Tactic puzzle #{{shortId}} — {{difficulty}}% difficulty — Kingside",
-        "description": "Tactic puzzle from {{playersTitle}}{{eventSuffix}}. Difficulty {{difficulty}}%. Find the single strong move on Kingside.",
-        "descriptionNoPlayers": "Kingside tactic puzzle (#{{shortId}}). Difficulty {{difficulty}}%. Find the only strong move and keep the line alive until the engine confirms a draw."
+        "title": "{{playersTitle}} — critical moment {{difficulty}}% — Kingside",
+        "titleNoPlayers": "Critical moment #{{shortId}} — {{difficulty}}% difficulty — Kingside",
+        "description": "Critical moment from {{playersTitle}}{{eventSuffix}}. Difficulty {{difficulty}}%. Find the single strong move on Kingside.",
+        "descriptionNoPlayers": "Kingside critical moment (#{{shortId}}). Difficulty {{difficulty}}%. Find the only strong move and keep the line alive until the engine confirms a draw."
       }
     }
   }

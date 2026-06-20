@@ -57,7 +57,7 @@ export function TacticPuzzleProfilePanel() {
       className="player-profile-section tactic-puzzle-profile"
       data-testid="tactic-puzzle-profile-section"
     >
-      <h2>{t('profile.tactic.title', 'Tactics')}</h2>
+      <h2>{t('profile.tactic.title', 'Critical Moment')}</h2>
       {loading || !stats ? (
         <p
           className="tactic-puzzle-profile__loading"

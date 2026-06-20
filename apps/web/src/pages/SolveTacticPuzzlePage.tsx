@@ -286,7 +286,7 @@ export function SolveTacticPuzzlePage() {
           className="puzzle-breadcrumbs__link"
           data-testid="tactic-puzzle-breadcrumbs-section"
         >
-          {t('tacticPuzzle.title', 'Tactics')}
+          {t('tacticPuzzle.title', 'Critical Moment')}
         </Link>
         {puzzleShortId && (
           <>

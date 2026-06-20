@@ -75,7 +75,7 @@ export function TacticPuzzlesSubNav() {
     <nav
       className="precision-subnav tactic-puzzles-subnav"
       role="tablist"
-      aria-label={t('tacticPuzzle.subnav.label', 'Tactics sections')}
+      aria-label={t('tacticPuzzle.subnav.label', 'Critical Moment sections')}
       data-testid="tactic-puzzles-subnav"
       data-guest={isGuest ? 'true' : 'false'}
     >
