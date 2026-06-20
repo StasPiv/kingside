@@ -1,15 +1,39 @@
 /**
  * KS-4409 / ADR-137 rev2. Публичные маршруты блога. Все эндпоинты
  * без авторизации — статьи публичны.
+ *
+ * KS-4469 / ADR-140 T3: `POST /blog/posts/:id/view` — учёт просмотра
+ * с Redis-дедупом и антибот-фильтром.
  */
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import { BlogService } from './blog.service';
+import { BlogViewService } from './blog-view.service';
 import { ListBlogPostsDto } from './dto/list-blog-posts.dto';
 import { GetBlogPostDto } from './dto/get-blog-post.dto';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
+import {
+  RedisRateLimitGuard,
+  RateLimit,
+} from '../common/redis-rate-limit.guard';
+import type { BlogViewResponse } from '@kingside/shared';
 
 @Controller('blog')
 export class BlogController {
-  constructor(private readonly service: BlogService) {}
+  constructor(
+    private readonly service: BlogService,
+    private readonly viewService: BlogViewService,
+  ) {}
 
   /** GET /blog/posts?locale=ru&page=1&tag=... */
   @Get('posts')
@@ -23,9 +47,73 @@ export class BlogController {
     return this.service.getPost(slug, query.locale);
   }
 
+  /**
+   * KS-4469 / ADR-140 §2.2.
+   * POST /blog/posts/:id/view — учёт просмотра статьи.
+   *
+   * - `OptionalJwtGuard`: если запрос авторизован, в `req.user.id` есть
+   *   userId — он используется как ключ дедупа; для гостя берётся
+   *   sha1(ip + UA).
+   * - `RedisRateLimitGuard @RateLimit(30, 60)`: per-IP лимит 30/60с —
+   *   защита от цикла из шелла.
+   * - Бот-UA и чужой Origin/Referer → 200 OK без инкремента
+   *   (`counted: false`), реальный счётчик возвращаем без изменений.
+   * - Возвращает `BlogViewResponse` — фронт обновляет UI без второго GET.
+   *
+   * Маршрут пишет в БД (`UPDATE views_count`), но семантически —
+   * idempotent в окне дедупа: повтор в течение 24ч не меняет состояние.
+   * Поэтому статус явно 200 OK (а не 201 Created), как в ADR.
+   */
+  @Post('posts/:id/view')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(OptionalJwtGuard, RedisRateLimitGuard)
+  @RateLimit(30, 60)
+  view(
+    @Param('id') id: string,
+    @Req() req: Request,
+  ): Promise<BlogViewResponse> {
+    return this.viewService.registerView({
+      postId: id,
+      userId: this.extractUserId(req),
+      ip: this.extractIp(req),
+      userAgent: this.extractUserAgent(req),
+      origin: this.extractHeader(req, 'origin'),
+      referer: this.extractHeader(req, 'referer'),
+    });
+  }
+
   /** GET /blog/authors/:handle */
   @Get('authors/:handle')
   author(@Param('handle') handle: string) {
     return this.service.getAuthor(handle);
+  }
+
+  // ─── helpers (Request → ViewRequestContext) ──────────────────────
+
+  private extractUserId(req: Request): string | null {
+    // OptionalJwtGuard кладёт passport-payload в req.user. У авторизованного
+    // в payload есть `id` (см. JwtStrategy). У гостя req.user === null.
+    const user = (req as Request & { user?: { id?: string } | null }).user;
+    return user?.id ?? null;
+  }
+
+  private extractIp(req: Request): string {
+    const xff = req.headers['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.length > 0) {
+      const first = xff.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    return req.socket.remoteAddress ?? 'unknown';
+  }
+
+  private extractUserAgent(req: Request): string {
+    const ua = req.headers['user-agent'];
+    return typeof ua === 'string' ? ua : '';
+  }
+
+  private extractHeader(req: Request, name: string): string | null {
+    const v = req.headers[name];
+    if (typeof v === 'string' && v.length > 0) return v;
+    return null;
   }
 }

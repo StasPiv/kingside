@@ -12,12 +12,14 @@ import { BlogAdminController } from './blog-admin.controller';
 import { BlogAdminService } from './blog-admin.service';
 // KS-4444 / ADR-138 §5: загрузка обложек статей в S3.
 import { BlogMediaService } from './blog-media.service';
+// KS-4469 / ADR-140 T3: подсчёт просмотров с Redis-дедупом и антибот-фильтром.
+import { BlogViewService } from './blog-view.service';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [AuthModule],
   controllers: [BlogController, BlogAdminController],
-  providers: [BlogService, BlogAdminService, BlogMediaService],
-  exports: [BlogService, BlogAdminService, BlogMediaService],
+  providers: [BlogService, BlogAdminService, BlogMediaService, BlogViewService],
+  exports: [BlogService, BlogAdminService, BlogMediaService, BlogViewService],
 })
 export class BlogModule {}
