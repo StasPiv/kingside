@@ -734,6 +734,8 @@
       "loading": "Loading the article…",
       "notFoundTitle": "Article not found",
       "notFoundMessage": "The link may be outdated, or the article has not been published yet.",
+      "errorTitle": "Failed to load the article",
+      "errorMessage": "Please try again in a moment.",
       "backToFeed": "Back to the blog",
       "readingTime": "{{count}} min read",
       "updatedAt": "updated {{date}}",

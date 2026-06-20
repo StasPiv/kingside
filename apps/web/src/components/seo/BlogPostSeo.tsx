@@ -1,29 +1,36 @@
 /**
- * KS-4398 / ADR-137 §2.4 T4. SEO-обёртка для страницы блога.
+ * KS-4398 → KS-4414 / ADR-137 rev2 T8. SEO-обёртка для страницы блога.
  *
- * `<PageSeo>` не подходит как есть — i18n-ключи у статьи не статичны
- * (их «ключ» — `slug` из frontmatter). Этот компонент берёт title /
- * description / og-image из `BlogIndexEntry`, собирает абсолютный
- * canonical (`https://kingside.site/blog/<slug>`, без локали — ADR-137
- * §2.4), hreflang-теги для всех доступных переводов и Article JSON-LD.
+ * Источник полей — `BlogPostDetail` из `@kingside/shared` (бэкенд-API),
+ * не локальный markdown-индекс. Canonical для всех локалей одинаков:
+ * `https://kingside.site/blog/<slug>` — locale выбирается рантаймом
+ * (ADR-137 §2.4).
+ *
+ * hreflang генерится только при наличии явного списка локалей у статьи
+ * (передаётся пропсом). Backend сейчас не отдаёт `alternateLocales` —
+ * на стороне страницы передаём `undefined`, и теги не добавляются.
+ *
+ * JSON-LD Article — `headline`/`description`/`datePublished`/
+ * `dateModified`/`image`/`author` из API-полей. Если у автора есть
+ * `nameRu`/`nameEn`, страница передаёт уже разрешённое имя пропсом.
  */
 import { SeoHelmet } from './SeoHelmet';
-import type { BlogIndexEntry, BlogLocale } from '../../types/blog';
+import type { BlogLocale, BlogPostDetail } from '@kingside/shared';
 
 const ORIGIN = 'https://kingside.site';
 const DEFAULT_COVER = '/og/blog-default.png';
 
 export interface BlogPostSeoProps {
-  post: BlogIndexEntry;
+  post: BlogPostDetail;
   /**
    * Локали, на которых статья реально опубликована. Для них
-   * добавляются `<link rel="alternate" hreflang>`.
+   * добавляются `<link rel="alternate" hreflang>`. Если не указано —
+   * hreflang-теги не выставляются.
    */
-  availableLocales: readonly BlogLocale[];
+  availableLocales?: readonly BlogLocale[];
   /**
-   * Имя автора для JSON-LD. Берётся из `_authors.json` по
-   * `post.author` через адаптер на странице — здесь принимаем уже
-   * разрешённое имя, чтобы компонент не лез в JSON-файл.
+   * Имя автора для JSON-LD. Передаём уже разрешённое по локали
+   * (`nameRu`/`nameEn`), чтобы компонент не повторял эту логику.
    */
   authorName: string;
 }
@@ -39,19 +46,13 @@ export function BlogPostSeo({
   authorName,
 }: BlogPostSeoProps) {
   const canonical = `${ORIGIN}/blog/${post.slug}`;
-  const ogImage = absoluteUrl(post.cover ?? DEFAULT_COVER);
+  const ogImage = absoluteUrl(post.coverUrl ?? DEFAULT_COVER);
   const ogImageAlt = post.coverAlt ?? post.title;
 
-  // hreflang: одна и та же URL'а — разные языковые «полки» одного и
-  // того же контента (ADR-137 §2.4). Добавляем x-default для роботов,
-  // которым нужно поведение «без региональной привязки».
   const hreflang =
-    availableLocales.length > 0
+    availableLocales && availableLocales.length > 0
       ? [
-          ...availableLocales.map((l) => ({
-            lang: l,
-            href: canonical,
-          })),
+          ...availableLocales.map((l) => ({ lang: l, href: canonical })),
           { lang: 'x-default', href: canonical },
         ]
       : undefined;
@@ -61,7 +62,9 @@ export function BlogPostSeo({
     '@type': 'Article',
     headline: post.title,
     description: post.description,
-    datePublished: post.publishedAt,
+    // ISO-8601. publishedAt у черновиков null — на публичной странице
+    // мы такие не показываем, но защищаемся явной проверкой.
+    ...(post.publishedAt ? { datePublished: post.publishedAt } : {}),
     dateModified: post.updatedAt,
     inLanguage: post.locale,
     keywords: [...post.tags],
