@@ -9,11 +9,20 @@
 import { Module } from '@nestjs/common';
 import { TacticPuzzleController } from './tactic-puzzle.controller';
 import { TacticPuzzleService } from './tactic-puzzle.service';
+import { TacticRatingSnapshotScheduler } from './tactic-rating-snapshot.scheduler';
 import { GlickoRatingService } from '../puzzle/glicko-rating.service';
+// KS-4357 / ADR-136 §3.6. RedisModule нужен distributed-lock'у
+// планировщика дневного снимка рейтинга (по образцу Sm2SchedulerService).
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
+  imports: [RedisModule],
   controllers: [TacticPuzzleController],
-  providers: [TacticPuzzleService, GlickoRatingService],
+  providers: [
+    TacticPuzzleService,
+    GlickoRatingService,
+    TacticRatingSnapshotScheduler,
+  ],
   exports: [TacticPuzzleService],
 })
 export class TacticPuzzleModule {}
