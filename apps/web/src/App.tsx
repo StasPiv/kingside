@@ -155,6 +155,12 @@ import { GUESS_ENTRY_ENABLED } from './config/guessFeature';
 import { useTrackNavStats } from './hooks/useNavStats';
 import { useAdminStatus } from './hooks/useAdminStatus';
 import { AdminFeatureFlagsPage } from './pages/AdminFeatureFlagsPage';
+// KS-4420 / ADR-137 rev2 T11. Админ-страницы блога — те же гарантии
+// `<AdminRoute>`, что и /admin/feature-flags.
+import { AdminBlogPostsPage } from './pages/admin/AdminBlogPostsPage';
+import { AdminBlogPostEditPage } from './pages/admin/AdminBlogPostEditPage';
+import { AdminBlogAuthorsPage } from './pages/admin/AdminBlogAuthorsPage';
+import { AdminBlogAuthorEditPage } from './pages/admin/AdminBlogAuthorEditPage';
 import {
   consumeAuthReturnUrl,
   setAuthReturnUrl,
@@ -597,6 +603,32 @@ export function App() {
         <Route
           path="/admin/feature-flags"
           element={<AdminRoute><AdminFeatureFlagsPage /></AdminRoute>}
+        />
+        {/* KS-4420 / ADR-137 rev2 T11. Админ-CRUD блога. Защита —
+            тот же `<AdminRoute>` + `AdminUserGuard` на бэке. */}
+        <Route
+          path="/admin/blog/posts"
+          element={<AdminRoute><AdminBlogPostsPage /></AdminRoute>}
+        />
+        <Route
+          path="/admin/blog/posts/new"
+          element={<AdminRoute><AdminBlogPostEditPage /></AdminRoute>}
+        />
+        <Route
+          path="/admin/blog/posts/:id"
+          element={<AdminRoute><AdminBlogPostEditPage /></AdminRoute>}
+        />
+        <Route
+          path="/admin/blog/authors"
+          element={<AdminRoute><AdminBlogAuthorsPage /></AdminRoute>}
+        />
+        <Route
+          path="/admin/blog/authors/new"
+          element={<AdminRoute><AdminBlogAuthorEditPage /></AdminRoute>}
+        />
+        <Route
+          path="/admin/blog/authors/:id"
+          element={<AdminRoute><AdminBlogAuthorEditPage /></AdminRoute>}
         />
         {/* KS-2218: `/puzzle-rush*` — отдельный раздел, ВНЕ `puzzlesEnabled`.
             KS-4157 / ADR-128 §5.13: /puzzle-rush открыт гостю — раунд
