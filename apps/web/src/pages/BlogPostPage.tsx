@@ -149,8 +149,17 @@ export function BlogPostPage() {
   const isFallback = Boolean(post.isLocaleFallback);
   const cover = post.coverUrl ?? DEFAULT_COVER;
   const coverAlt = post.coverAlt ?? post.title;
+  // KS-4434. Сравниваем по календарной дате, а не по полной ISO-строке:
+  // `updatedAt` и `publishedAt` могут различаться секундами (бэкенд
+  // ставит `now()` отдельно), но визуально это «тот же день» — пользователь
+  // тогда видит «20 июн. 2026 г. · обновлено 20 июн. 2026 г.», что мусор.
+  // В JSON-LD `dateModified` оставляем полный ISO как был (см. BlogPostSeo).
+  const sameDay = (a: string | null, b: string | null): boolean => {
+    if (!a || !b) return false;
+    return a.slice(0, 10) === b.slice(0, 10);
+  };
   const updatedAt =
-    post.updatedAt && post.updatedAt !== post.publishedAt
+    post.updatedAt && !sameDay(post.updatedAt, post.publishedAt)
       ? post.updatedAt
       : null;
 

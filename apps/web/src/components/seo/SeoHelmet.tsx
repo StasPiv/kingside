@@ -86,6 +86,14 @@ const DEDUPE_SELECTORS = [
   'meta[property="og:url"]',
   'meta[property="og:site_name"]',
   'link[rel="canonical"]',
+  // KS-4434: статический `<script type="application/ld+json">` в
+  // `apps/web/index.html` (WebApplication) дублировался на страницах,
+  // которые отдают свой per-page JSON-LD (Article на /blog/:slug и т.п.).
+  // Поведение дедупликатора — оставляем последний тег. На главной без
+  // per-page jsonLd останется только статический (matches.length == 1,
+  // ничего не удаляется); на странице со своим jsonLd статический
+  // уйдёт.
+  'script[type="application/ld+json"]',
 ] as const;
 
 const TITLE_LIMIT = 60;
