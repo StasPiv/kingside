@@ -106,6 +106,14 @@ async function loop(deps: Deps, abort: AbortSignal): Promise<void> {
     let batch: PrerenderEnvelope[];
     try {
       batch = await deps.queue.receive();
+      // KS-4348. Liveness = «SQS отвечает, я живой». До этого фикса
+      // `touchLiveness()` вызывался ТОЛЬКО после успешного рендера
+      // (см. processOne ниже). При редком трафике (пустая очередь
+      // >120s) ECS healthcheck помечал воркер unhealthy и перезапускал
+      // живой контейнер — это и был «много падений в консоли».
+      // Любой успешный ReceiveMessage (даже с пустым батчем) теперь
+      // обновляет liveness: процесс работает и обращается к AWS.
+      touchLiveness();
     } catch (e) {
       log(
         'error',
