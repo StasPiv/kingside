@@ -2173,6 +2173,53 @@
       "stats": "Stats",
       "mistakes": "Mistakes"
     },
+    "stats": {
+      "title": "Stats — tactics training",
+      "intro": "Summary of your Tactics section: current rating, totals, and breakdowns by stop reason, objective and difficulty.",
+      "guestTitle": "Sign in to see stats",
+      "guestMessage": "Stats are available to signed-in players only.",
+      "empty": "Solve your first puzzle — stats will show up here.",
+      "loadError": "Could not load stats.",
+      "rating": {
+        "title": "Rating",
+        "deviation": "Glicko deviation",
+        "attempts": "attempts",
+        "lastAttempt": "Last attempt",
+        "noLast": "not played yet"
+      },
+      "streak": {
+        "title": "Streak",
+        "current": "Current",
+        "best": "Best"
+      },
+      "totals": {
+        "title": "Totals",
+        "attempts": "Attempts",
+        "solved": "Solved",
+        "solvedPercent": "% solved",
+        "avgTime": "Avg time",
+        "avgLine": "Avg line length",
+        "avgGrade": "Avg grade"
+      },
+      "ratingHistory": {
+        "title": "Rating dynamics",
+        "rangeWeek": "Week",
+        "rangeMonth": "Month",
+        "rangeAll": "All time",
+        "noPoints": "No data points for the selected range."
+      },
+      "stopReason": {
+        "title": "Stop reasons"
+      },
+      "objective": {
+        "title": "Puzzle type",
+        "convertAdvantage": "Convert the advantage",
+        "saveEquality": "Save the draw"
+      },
+      "difficulty": {
+        "title": "Difficulty distribution"
+      }
+    },
     "history": {
       "title": "Attempt history",
       "intro": "Every attempt you made in the Tactics section. Use the filters to narrow by date, outcome or rating range.",
@@ -4510,6 +4557,10 @@
       "history": {
         "title": "Attempt history — tactics training — Kingside",
         "description": "Every tactics attempt you played on Kingside. Filter by date, outcome, stop reason or rating range. Open any attempt for a Stockfish breakdown."
+      },
+      "stats": {
+        "title": "Stats — tactics training — Kingside",
+        "description": "Current rating, totals and breakdowns by stop reason, objective and difficulty — your personal Tactics summary on Kingside."
       },
       "detail": {
         "title": "{{playersTitle}} — tactic puzzle {{difficulty}}% — Kingside",

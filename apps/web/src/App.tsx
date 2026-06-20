@@ -45,6 +45,8 @@ import { TacticPuzzlesPage } from './pages/TacticPuzzlesPage';
 import { SolveTacticPuzzlePage } from './pages/SolveTacticPuzzlePage';
 // KS-4359 (ADR-136 T7): история попыток раздела «Точность».
 import { TacticPuzzlesHistoryPage } from './pages/TacticPuzzlesHistoryPage';
+// KS-4360 (ADR-136 T8): личная статистика раздела «Точность».
+import { TacticPuzzlesStatsPage } from './pages/TacticPuzzlesStatsPage';
 // KS-2719 F4 / ADR-056 §5: detail-страница одной precision-попытки.
 import { PrecisionAttemptPage } from './pages/PrecisionAttemptPage';
 import { PuzzleStatsPage } from './pages/PuzzleStatsPage';
@@ -624,6 +626,12 @@ export function App() {
             <Route
               path="/tactic-puzzles/history"
               element={<TacticPuzzlesHistoryPage />}
+            />
+            {/* KS-4360 (ADR-136 T8). Личная статистика. Тоже выше
+                wildcard'а `/:id`. */}
+            <Route
+              path="/tactic-puzzles/stats"
+              element={<TacticPuzzlesStatsPage />}
             />
             <Route
               path="/tactic-puzzles/:id"

@@ -20,9 +20,25 @@ import type {
   TacticPuzzleBrowsePage,
   TacticPuzzleBrowseQuery,
   TacticPuzzleResponse,
+  TacticRatingPoint,
   TacticStopReason,
   TacticUserMistakesPage,
+  TacticUserStats,
 } from '@kingside/shared';
+
+/**
+ * KS-4360 / ADR-136 §3.5. Query-параметры для
+ * `GET /tactic-puzzles/stats/rating-history`. Контракт зеркалит
+ * backend DTO `RatingHistoryDto`.
+ */
+export interface RatingHistoryQuery {
+  /** ISO-8601 нижняя граница (включительно). */
+  from?: string;
+  /** ISO-8601 верхняя граница (включительно). */
+  to?: string;
+  /** Гранулярность — на этапе MVP только `'day'`. */
+  granularity?: 'day';
+}
 
 /**
  * KS-4359 / ADR-136 §3.8. Query-параметры для `GET /tactic-puzzles/attempts`.
@@ -101,6 +117,32 @@ export const tacticPuzzleApi = {
   /** Журнал текущих ошибок пользователя. */
   getMistakes(): Promise<TacticUserMistakesPage> {
     return api.get<TacticUserMistakesPage>(`${BASE}/mistakes`);
+  },
+
+  /**
+   * KS-4360 / ADR-136 §3.5. Агрегированная статистика текущего
+   * пользователя: рейтинг, тоталы, серия, разрезы.
+   */
+  getMyStats(): Promise<TacticUserStats> {
+    return api.get<TacticUserStats>(`${BASE}/stats/me`);
+  },
+
+  /**
+   * KS-4360 / ADR-136 §3.6. Точки графика рейтинга по дням.
+   * `from`/`to` опциональны — без них backend сам отдаёт разумный
+   * диапазон (см. KS-4356).
+   */
+  getRatingHistory(
+    params: RatingHistoryQuery = {},
+  ): Promise<TacticRatingPoint[]> {
+    const qs = new URLSearchParams();
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    if (params.granularity) qs.set('granularity', params.granularity);
+    const s = qs.toString();
+    return api.get<TacticRatingPoint[]>(
+      s ? `${BASE}/stats/rating-history?${s}` : `${BASE}/stats/rating-history`,
+    );
   },
 
   /**
