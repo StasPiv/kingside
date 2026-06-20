@@ -1,9 +1,17 @@
 /**
  * KS-4457 / ADR-139 T5. Интеграционный тест авторизации BlogAdminController.
  *
- * Проверяет реальную сборку `AdminOrServiceGuard` (JwtAuthGuard +
- * AdminUserGuard ИЛИ ServiceAccountGuard + scope) на mutating-эндпоинте
- * `DELETE /admin/blog/posts/:id`. Все 6 GWT-сценариев из задачи:
+ * Поднимает реальный NestJS bootstrap с импортом продакшен `AuthModule`
+ * (а не списком провайдеров inline). Это критично: предыдущая редакция
+ * теста перечисляла гарды в `providers: [...]`, из-за чего DI всегда
+ * собирался — даже когда `AuthModule.exports` забывал экспортировать
+ * `JwtAuthGuard`. Регрессия 31d3a7e4 (крэш-луп kingside-api task-def 573)
+ * прошла мимо. Теперь тест компилирует тот же граф зависимостей, что и
+ * прод: BlogAdminController → AuthModule (export JwtAuthGuard +
+ * AdminOrServiceGuard + ...) — и упадёт на `compile()`, если контракт
+ * `AuthModule.exports` снова сломают.
+ *
+ * Все 6 GWT-сценариев из задачи KS-4457:
  *
  *   1. human-admin с валидным JWT (whitelist KS_ADMIN_USERS)         → 200
  *   2. не-admin JWT (юзер вне whitelist)                              → 403
@@ -12,30 +20,31 @@
  *   5. service-account без scope `blog:write` (только `lessons:read`) → 403
  *   6. revoked service-account (revokedAt в прошлом)                  → 401
  *
- * `BlogAdminService` и `BlogMediaService` подменены mock'ами — тест
- * проверяет авторизационную поверхность, не доменную логику. `PrismaService`
- * тоже mock: для admin-цепочки нужен `user.findUnique`, для service-account
- * — `agentServiceAccount.findFirst`. Реальная БД не поднимается.
+ * Инфра-провайдеры (`PrismaService`, `RedisService`, `I18nService`) и
+ * доменные сервисы блога подменены mock'ами через `.overrideProvider()`
+ * — реальная БД/Redis не поднимается.
  */
 import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { JwtModule, JwtService } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
-import { Reflector } from '@nestjs/core';
+import {
+  Global,
+  INestApplication,
+  Module,
+  ValidationPipe,
+} from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { I18nService } from 'nestjs-i18n';
 import request from 'supertest';
 import type { Server } from 'http';
 import { createHash } from 'node:crypto';
 import { BlogAdminController } from './blog-admin.controller';
 import { BlogAdminService } from './blog-admin.service';
 import { BlogMediaService } from './blog-media.service';
-import { JwtStrategy } from '../auth/jwt.strategy';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminUserGuard } from '../auth/admin-user.guard';
-import { ServiceAccountGuard, SERVICE_ACCOUNT_PREFIX } from '../auth/service-account.guard';
-import { AdminOrServiceGuard } from '../auth/admin-or-service.guard';
+import { AuthModule } from '../auth/auth.module';
+import { SERVICE_ACCOUNT_PREFIX } from '../auth/service-account.guard';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 
 const JWT_SECRET = 'e2e-blog-admin-secret';
 const ADMIN_USERNAME = 'admin-alice';
@@ -52,14 +61,72 @@ function sha256(plain: string): string {
   return createHash('sha256').update(plain).digest('hex');
 }
 
+const adminDelete = jest.fn().mockResolvedValue(undefined);
+const userFindUnique = jest.fn();
+const agentFindFirst = jest.fn();
+const agentUpdate = jest.fn().mockResolvedValue({});
+
+/** @Global-модуль с заглушками для инфра-провайдеров, которые в проде
+ *  поднимаются глобальными модулями (`RedisModule` имеет `@Global()`,
+ *  `I18nModule` живёт в `AppModule`). В тесте мы AppModule не поднимаем,
+ *  поэтому глобально подсовываем mock'и под теми же токенами, чтобы
+ *  AuthService (нужен I18nService) и ScreenshotTokenRateLimitGuard
+ *  (нужен RedisService) разрешили зависимости при инстанцировании. */
+@Global()
+@Module({
+  providers: [
+    { provide: RedisService, useValue: {} },
+    {
+      provide: I18nService,
+      useValue: { t: jest.fn().mockReturnValue('mock') },
+    },
+  ],
+  exports: [RedisService, I18nService],
+})
+class TestGlobalInfraModule {}
+
+/** Модуль-обёртка повторяет прод-сценарий: контроллер блога живёт в
+ *  своём модуле, который импортирует `AuthModule`. Если экспорт
+ *  `AuthModule.exports` неполный, `compile()` упадёт — это и есть
+ *  e2e-проверка DI-контракта. */
+@Module({
+  imports: [AuthModule],
+  controllers: [BlogAdminController],
+  providers: [
+    {
+      provide: BlogAdminService,
+      useValue: {
+        listPosts: jest.fn(),
+        getPost: jest.fn(),
+        createPost: jest.fn(),
+        updatePost: jest.fn(),
+        deletePost: adminDelete,
+        setStatus: jest.fn(),
+        previewMarkdown: jest.fn(),
+        listAuthors: jest.fn(),
+        getAuthor: jest.fn(),
+        createAuthor: jest.fn(),
+        updateAuthor: jest.fn(),
+        deleteAuthor: jest.fn(),
+      },
+    },
+    {
+      provide: BlogMediaService,
+      useValue: {
+        isConfigured: jest.fn().mockReturnValue(false),
+        uploadCover: jest.fn(),
+        getAllowedMimeTypes: jest
+          .fn()
+          .mockReturnValue(['image/png', 'image/jpeg', 'image/webp']),
+      },
+    },
+  ],
+})
+class TestBlogConsumerModule {}
+
 describe('BlogAdminController · AdminOrServiceGuard (KS-4457 / ADR-139 T5)', () => {
   let app: INestApplication;
   let jwtService: JwtService;
-
-  const adminDelete = jest.fn().mockResolvedValue(undefined);
-  const userFindUnique = jest.fn();
-  const agentFindFirst = jest.fn();
-  const agentUpdate = jest.fn().mockResolvedValue({});
 
   beforeAll(async () => {
     process.env.JWT_SECRET = JWT_SECRET;
@@ -69,63 +136,19 @@ describe('BlogAdminController · AdminOrServiceGuard (KS-4457 / ADR-139 T5)', ()
     const module: TestingModule = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true }),
-        PassportModule,
-        JwtModule.registerAsync({
-          imports: [ConfigModule],
-          inject: [ConfigService],
-          useFactory: (config: ConfigService) => ({
-            secret: config.get<string>('JWT_SECRET'),
-            signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '15m') },
-          }),
-        }),
+        TestGlobalInfraModule,
+        TestBlogConsumerModule,
       ],
-      controllers: [BlogAdminController],
-      providers: [
-        Reflector,
-        JwtStrategy,
-        JwtAuthGuard,
-        AdminUserGuard,
-        ServiceAccountGuard,
-        AdminOrServiceGuard,
-        {
-          provide: BlogAdminService,
-          useValue: {
-            listPosts: jest.fn(),
-            getPost: jest.fn(),
-            createPost: jest.fn(),
-            updatePost: jest.fn(),
-            deletePost: adminDelete,
-            setStatus: jest.fn(),
-            previewMarkdown: jest.fn(),
-            listAuthors: jest.fn(),
-            getAuthor: jest.fn(),
-            createAuthor: jest.fn(),
-            updateAuthor: jest.fn(),
-            deleteAuthor: jest.fn(),
-          },
+    })
+      .overrideProvider(PrismaService)
+      .useValue({
+        user: { findUnique: userFindUnique },
+        agentServiceAccount: {
+          findFirst: agentFindFirst,
+          update: agentUpdate,
         },
-        {
-          provide: BlogMediaService,
-          useValue: {
-            isConfigured: jest.fn().mockReturnValue(false),
-            uploadCover: jest.fn(),
-            getAllowedMimeTypes: jest
-              .fn()
-              .mockReturnValue(['image/png', 'image/jpeg', 'image/webp']),
-          },
-        },
-        {
-          provide: PrismaService,
-          useValue: {
-            user: { findUnique: userFindUnique },
-            agentServiceAccount: {
-              findFirst: agentFindFirst,
-              update: agentUpdate,
-            },
-          },
-        },
-      ],
-    }).compile();
+      })
+      .compile();
 
     app = module.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
@@ -134,7 +157,7 @@ describe('BlogAdminController · AdminOrServiceGuard (KS-4457 / ADR-139 T5)', ()
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) await app.close();
   });
 
   beforeEach(() => {
@@ -143,27 +166,28 @@ describe('BlogAdminController · AdminOrServiceGuard (KS-4457 / ADR-139 T5)', ()
     agentFindFirst.mockReset();
     agentUpdate.mockClear();
 
-    // service-account lookup — реализация по tokenHash и revokedAt:null,
-    // совпадает с продакшн-фильтром `where: { tokenHash, revokedAt: null }`.
-    agentFindFirst.mockImplementation(async (args: { where: { tokenHash: string; revokedAt: null } }) => {
-      if (args.where.tokenHash === sha256(SA_VALID_TOKEN)) {
-        return {
-          id: 'sa-1',
-          handle: 'agent-blog-writer',
-          scopes: ['blog:write', 'blog:read'],
-        };
-      }
-      if (args.where.tokenHash === sha256(SA_NO_SCOPE_TOKEN)) {
-        return {
-          id: 'sa-2',
-          handle: 'agent-lessons-reader',
-          scopes: ['lessons:read'],
-        };
-      }
-      // SA_REVOKED_TOKEN: revokedAt IS NOT NULL → findFirst с
-      // фильтром `revokedAt: null` отдаёт null.
-      return null;
-    });
+    // service-account lookup — фильтр совпадает с продакшн-логикой
+    // (`where: { tokenHash, revokedAt: null }`).
+    agentFindFirst.mockImplementation(
+      async (args: { where: { tokenHash: string; revokedAt: null } }) => {
+        if (args.where.tokenHash === sha256(SA_VALID_TOKEN)) {
+          return {
+            id: 'sa-1',
+            handle: 'agent-blog-writer',
+            scopes: ['blog:write', 'blog:read'],
+          };
+        }
+        if (args.where.tokenHash === sha256(SA_NO_SCOPE_TOKEN)) {
+          return {
+            id: 'sa-2',
+            handle: 'agent-lessons-reader',
+            scopes: ['lessons:read'],
+          };
+        }
+        // SA_REVOKED_TOKEN: revokedAt IS NOT NULL → запись отфильтрована.
+        return null;
+      },
+    );
   });
 
   function signJwt(sub: string, username: string): string {
@@ -207,8 +231,6 @@ describe('BlogAdminController · AdminOrServiceGuard (KS-4457 / ADR-139 T5)', ()
 
     expect(res.status).toBe(401);
     expect(adminDelete).not.toHaveBeenCalled();
-    // Ни одна из веток гарда не должна была лезть в БД за конкретной записью:
-    // префикса ks_sa_ нет → service-account fall-through; JWT отсутствует → 401.
     expect(agentFindFirst).not.toHaveBeenCalled();
     expect(userFindUnique).not.toHaveBeenCalled();
   });
@@ -222,8 +244,6 @@ describe('BlogAdminController · AdminOrServiceGuard (KS-4457 / ADR-139 T5)', ()
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ deleted: true });
     expect(adminDelete).toHaveBeenCalledWith(POST_ID);
-    // JWT-цепочка не должна была включиться — токен распознан как
-    // service-account по префиксу ks_sa_.
     expect(userFindUnique).not.toHaveBeenCalled();
   });
 
@@ -246,8 +266,6 @@ describe('BlogAdminController · AdminOrServiceGuard (KS-4457 / ADR-139 T5)', ()
 
     expect(res.status).toBe(401);
     expect(adminDelete).not.toHaveBeenCalled();
-    // Префикс ks_sa_ был → service-account-ветка отработала и бросила
-    // 401, fall-through в JWT-цепочку запрещён.
     expect(userFindUnique).not.toHaveBeenCalled();
   });
 });

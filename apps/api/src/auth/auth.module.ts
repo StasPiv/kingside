@@ -85,6 +85,12 @@ import { McpExclude } from '../mcp/decorators';
     AdminUserService,
     InternalKeyGuard,
     ServiceAccountGuard,
+    // KS-4457 / ADR-139 T5: JwtAuthGuard экспортируется, иначе модули,
+    // импортирующие AuthModule и использующие `AdminOrServiceGuard` через
+    // `@UseGuards` (BlogModule), не могут разрешить транзитивную
+    // зависимость гарда (`AdminOrServiceGuard` инстанцируется в скоупе
+    // импортирующего модуля). Регрессия 31d3a7e4 → крэш-луп kingside-api.
+    JwtAuthGuard,
     AdminOrServiceGuard,
   ],
 })
