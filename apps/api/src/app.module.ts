@@ -25,6 +25,8 @@ import { PuzzleModule } from './puzzle/puzzle.module';
 // KS-4342 / ADR-135 §2.4: раздел «Точность» — отдельный модуль
 // /tactic-puzzles/*. Полностью изолирован от legacy PuzzleModule.
 import { TacticPuzzleModule } from './tactic-puzzle/tactic-puzzle.module';
+// KS-4409 / ADR-137 rev2: блог kingside.site/blog (публичные маршруты).
+import { BlogModule } from './blog/blog.module';
 import { PrecisionModule } from './precision/precision.module';
 import { GuessModule } from './guess/guess.module';
 import { BlindBoardModule } from './blind-board/blind-board.module';
@@ -109,6 +111,7 @@ import { HealthController } from './health.controller';
     ArchiveModule,
     PuzzleModule,
     TacticPuzzleModule,
+    BlogModule,
     PrecisionModule,
     GuessModule,
     BlindBoardModule,

@@ -13,6 +13,8 @@ export * from './types/tactic-drill.js';
 // KS-4342 / ADR-135 §2.4: контракты API /tactic-puzzles/* (раздел
 // «Точность» на Maia-difficulty).
 export * from './types/tactic-puzzle.js';
+// KS-4408 / ADR-137 rev2: контракты API /blog/*.
+export * from './types/blog.js';
 export * from './types/saved-filters.js';
 // KS-3269 (ADR-077): Opening Trainer.
 export * from './types/opening-trainer.js';
