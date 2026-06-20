@@ -176,6 +176,12 @@ model User {
   // KS-4354 / ADR-136 §3.6: дневной снимок рейтинга по разделу
   // «Точность» — источник графика динамики на /tactic-puzzles/stats.
   tacticRatingSnapshots     TacticRatingSnapshot[]
+  // KS-4467 / ADR-140 T1: лайки и комментарии под статьями блога.
+  // Лайк onDelete: Cascade — удаление пользователя сносит его лайки.
+  // Комментарий onDelete: Restrict — нельзя удалить пользователя с
+  // комментариями без явной обработки (см. ADR-140 §2.1).
+  blogPostLikes             BlogPostLike[]
+  blogPostComments          BlogPostComment[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -2840,10 +2846,23 @@ model BlogPost {
   status          String
   publishedAt     DateTime? @map("published_at") @db.Timestamptz(3)
   authorId        String    @map("author_id") @db.Uuid
+  /// KS-4467 / ADR-140 §2.1. Денормализованные счётчики — для быстрой
+  /// отдачи карточек ленты и страницы статьи без агрегатов. Источник
+  /// правды — детальные таблицы `blog_post_likes` / `blog_post_comments`
+  /// и Redis-дедупа просмотров (см. §2.2). Счётчики синхронизируются в
+  /// той же транзакции, что и запись детали; просмотры — атомарный
+  /// `UPDATE views_count = views_count + 1` после успешного дедупа.
+  /// T7-cron раз в сутки пересчитывает `likes_count`/`comments_count`
+  /// из COUNT(*), выправляя возможный дрейф после сбоев.
+  viewsCount      Int       @default(0) @map("views_count")
+  likesCount      Int       @default(0) @map("likes_count")
+  commentsCount   Int       @default(0) @map("comments_count")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime  @updatedAt       @map("updated_at") @db.Timestamptz(3)
 
-  author BlogAuthor @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  author   BlogAuthor        @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  likes    BlogPostLike[]
+  comments BlogPostComment[]
 
   @@unique([slug, locale])
   /// Сортировка ленты /blog: WHERE status='published' ORDER BY published_at DESC.
@@ -2852,6 +2871,68 @@ model BlogPost {
   /// GIN-индекс для поиска по тегам — `WHERE tags @> ARRAY[...]`.
   @@index([tags], type: Gin)
   @@map("blog_posts")
+}
+
+/// KS-4467 / ADR-140 §2.1. Лайк статьи блога. Один пользователь — один
+/// лайк на одну `BlogPost`-запись (по `post_id`). Лайки независимы между
+/// локалями: `post_id` указывает на конкретную локализованную статью
+/// (RU или EN); при переключении локали пользователь увидит её без
+/// своего лайка. Это сохраняет симметрию со счётчиками просмотров и
+/// комментариев — все три привязаны к (slug, locale).
+///
+/// `@@id([postId, userId])` — естественный составной ключ, исключает
+/// дубль на уровне БД и используется при идемпотентной вставке
+/// `INSERT ... ON CONFLICT DO NOTHING` (T4).
+///
+/// Индекс `@@index([userId])` — под будущий list «лайкнутые мной»:
+/// `SELECT post_id FROM blog_post_likes WHERE user_id = $1 ORDER BY created_at DESC`.
+model BlogPostLike {
+  postId    String   @map("post_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  post BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId])
+  @@index([userId])
+  @@map("blog_post_likes")
+}
+
+/// KS-4467 / ADR-140 §2.1. Комментарий к статье блога. MVP — плоская
+/// лента (без вложенных ответов). Привязка к конкретной (slug, locale):
+/// комментаторы пишут в той локали, которую читают.
+///
+/// Soft-delete через `deleted_at`: запись остаётся, чтобы не сбивать
+/// курсорную пагинацию и порядок ленты; текст в API заменяется
+/// плейсхолдером. Жёсткий `DELETE` не используется.
+///
+/// `onDelete` для `post` — Cascade (если статью сносят, комментарии
+/// теряют смысл); для `user` — Restrict (нельзя удалить пользователя с
+/// комментариями без явной обработки, см. ADR-140 §2.1).
+///
+/// Длина `body` валидируется на уровне сервиса (минимум 1, максимум
+/// 2000 символов в MVP) — БД хранит произвольный TEXT, чтобы не
+/// привязываться к лимиту на схему миграцией.
+///
+/// Индекс `@@index([postId, createdAt(Desc), id(Desc)])` — под cursor-
+/// пагинацию `(createdAt, id)` без tie-breaker'а: id выступает
+/// стабильным разрешением одинаковых createdAt (UUID v4 уникальны).
+model BlogPostComment {
+  id        String    @id @default(uuid()) @db.Uuid
+  postId    String    @map("post_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  body      String    @db.Text
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt       @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  post BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([postId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId])
+  @@map("blog_post_comments")
 }
 
 /// KS-4453 / ADR-139. Сервисный аккаунт агента (системного, не
