@@ -2166,6 +2166,13 @@
       "abort": "Resign",
       "openWorkshop": "Open in workshop"
     },
+    "subnav": {
+      "label": "Tactics sections",
+      "catalog": "Catalog",
+      "history": "History",
+      "stats": "Stats",
+      "mistakes": "Mistakes"
+    },
     "error": {
       "generic": "Engine error"
     }

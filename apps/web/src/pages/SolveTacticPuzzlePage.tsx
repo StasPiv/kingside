@@ -33,6 +33,7 @@ import {
 } from '../components/puzzle/TacticPuzzleRunner';
 import { PuzzleSourceGame } from '../components/puzzle/PuzzleSourceGame';
 import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
+import { TacticPuzzlesSubNav } from '../components/tactic-puzzles/TacticPuzzlesSubNav';
 
 /**
  * KS-4347. Адаптер `TacticPuzzleResponse.sourceHeaders` (PGN-headers) →
@@ -303,6 +304,7 @@ export function SolveTacticPuzzlePage() {
           </>
         )}
       </nav>
+      <TacticPuzzlesSubNav />
 
       {loading && (
         <p

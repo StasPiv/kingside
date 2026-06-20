@@ -23,6 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { PageSeo } from '../components/seo/PageSeo';
 import { useInfiniteTacticPuzzles } from '../hooks/useInfiniteTacticPuzzles';
 import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
+import { TacticPuzzlesSubNav } from '../components/tactic-puzzles/TacticPuzzlesSubNav';
 
 const LIMIT = 20;
 
@@ -143,6 +144,7 @@ export function TacticPuzzlesPage() {
       data-state={pageState}
     >
       <PageSeo ns="tacticPuzzles.list" path="/tactic-puzzles" />
+      <TacticPuzzlesSubNav />
       <header className="play-vs-engine-puzzles__header">
         <h1>{t('tacticPuzzle.title')}</h1>
         <p className="play-vs-engine-puzzles__intro">
