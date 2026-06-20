@@ -325,6 +325,7 @@ class AgentDaemon:
             "-e", f"AGENT_NAME={self.name}",
             "-e", f"VITE_DEV_BYPASS_SECRET={os.environ.get('VITE_DEV_BYPASS_SECRET', '')}",
             "-e", f"ELEVENLABS_API_KEY={os.environ.get('ELEVENLABS_API_KEY', '')}",
+            "-e", f"KINGSIDE_BLOG_TOKEN={os.environ.get('KINGSIDE_BLOG_TOKEN', '')}",
         ]
         for v in volumes:
             cmd.extend(["-v", v])
