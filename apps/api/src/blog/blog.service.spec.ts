@@ -57,6 +57,11 @@ function makePrisma() {
     blogAuthor: {
       findUnique: jest.fn().mockResolvedValue(null),
     },
+    // KS-4472 / ADR-140 T6: моки blogPostLike — для тестов на likedByMe.
+    blogPostLike: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
   };
 }
 
@@ -95,6 +100,53 @@ describe('BlogService.listPosts', () => {
     expect(arg.skip).toBe(12);
     expect(arg.take).toBe(12);
   });
+
+  // KS-4472 / ADR-140 T6.
+
+  it('счётчики из Prisma пробрасываются в items', async () => {
+    prisma.blogPost.count.mockResolvedValueOnce(1);
+    prisma.blogPost.findMany.mockResolvedValueOnce([
+      makePost({ viewsCount: 7, likesCount: 3, commentsCount: 5 }),
+    ]);
+    const r = await svc.listPosts({ locale: 'ru' });
+    expect(r.items[0]).toMatchObject({
+      viewsCount: 7,
+      likesCount: 3,
+      commentsCount: 5,
+    });
+  });
+
+  it('гость (viewerUserId не передан) → likedByMe=false, в БД не лезем', async () => {
+    prisma.blogPost.count.mockResolvedValueOnce(1);
+    prisma.blogPost.findMany.mockResolvedValueOnce([makePost()]);
+    const r = await svc.listPosts({ locale: 'ru' });
+    expect(r.items[0].likedByMe).toBe(false);
+    expect(prisma.blogPostLike.findMany).not.toHaveBeenCalled();
+  });
+
+  it('viewer передан → batched IN-query по blog_post_likes; likedByMe=true для попавших', async () => {
+    prisma.blogPost.count.mockResolvedValueOnce(2);
+    prisma.blogPost.findMany.mockResolvedValueOnce([
+      makePost({ id: 'p1' }),
+      makePost({ id: 'p2', slug: 'two' }),
+    ]);
+    prisma.blogPostLike.findMany.mockResolvedValueOnce([{ postId: 'p1' }]);
+
+    const r = await svc.listPosts({ locale: 'ru' }, 'viewer-id');
+
+    expect(r.items[0].likedByMe).toBe(true);
+    expect(r.items[1].likedByMe).toBe(false);
+    const args = prisma.blogPostLike.findMany.mock.calls[0][0];
+    expect(args.where.userId).toBe('viewer-id');
+    expect(args.where.postId.in).toEqual(['p1', 'p2']);
+  });
+
+  it('viewer передан, но страница пустая → blog_post_likes.findMany не вызывается', async () => {
+    prisma.blogPost.count.mockResolvedValueOnce(0);
+    prisma.blogPost.findMany.mockResolvedValueOnce([]);
+    await svc.listPosts({ locale: 'ru' }, 'viewer-id');
+    expect(prisma.blogPostLike.findMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('BlogService.getPost', () => {
@@ -126,6 +178,51 @@ describe('BlogService.getPost', () => {
   it('нет ни в одной локали → 404', async () => {
     prisma.blogPost.findFirst.mockResolvedValue(null);
     await expect(svc.getPost('missing', 'ru')).rejects.toThrow(/not found/);
+  });
+
+  // KS-4472 / ADR-140 T6.
+
+  it('гость → likedByMe=false, blog_post_likes.findUnique не вызывается', async () => {
+    prisma.blogPost.findFirst.mockResolvedValueOnce(makePost({ locale: 'ru' }));
+    const r = await svc.getPost('hello', 'ru');
+    expect(r.likedByMe).toBe(false);
+    expect(prisma.blogPostLike.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('viewer → likedByMe=true при наличии записи в blog_post_likes', async () => {
+    prisma.blogPost.findFirst.mockResolvedValueOnce(
+      makePost({ id: 'p1', locale: 'ru' }),
+    );
+    prisma.blogPostLike.findUnique.mockResolvedValueOnce({ postId: 'p1' });
+    const r = await svc.getPost('hello', 'ru', 'viewer-id');
+    expect(r.likedByMe).toBe(true);
+    const args = prisma.blogPostLike.findUnique.mock.calls[0][0];
+    expect(args.where.postId_userId).toEqual({
+      postId: 'p1',
+      userId: 'viewer-id',
+    });
+  });
+
+  it('viewer + локалевый fallback → likedByMe тоже проверяется (на fallback-id)', async () => {
+    prisma.blogPost.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(makePost({ id: 'p-en', locale: 'en' }));
+    prisma.blogPostLike.findUnique.mockResolvedValueOnce(null);
+    const r = await svc.getPost('hello', 'ru', 'viewer-id');
+    expect(r.likedByMe).toBe(false);
+    expect(r.isLocaleFallback).toBe(true);
+    const args = prisma.blogPostLike.findUnique.mock.calls[0][0];
+    expect(args.where.postId_userId.postId).toBe('p-en');
+  });
+
+  it('счётчики viewsCount/likesCount/commentsCount проброшены в detail', async () => {
+    prisma.blogPost.findFirst.mockResolvedValueOnce(
+      makePost({ viewsCount: 11, likesCount: 22, commentsCount: 33 }),
+    );
+    const r = await svc.getPost('hello', 'ru');
+    expect(r.viewsCount).toBe(11);
+    expect(r.likesCount).toBe(22);
+    expect(r.commentsCount).toBe(33);
   });
 });
 

@@ -49,16 +49,31 @@ export class BlogController {
     private readonly likeService: BlogLikeService,
   ) {}
 
-  /** GET /blog/posts?locale=ru&page=1&tag=... */
+  /**
+   * GET /blog/posts?locale=ru&page=1&tag=...
+   * KS-4472 / ADR-140 T6: `OptionalJwtGuard` — без токена работает,
+   *   но при валидном JWT в `likedByMe` приходят реальные значения
+   *   (batched IN-query по `blog_post_likes`).
+   */
   @Get('posts')
-  list(@Query() query: ListBlogPostsDto) {
-    return this.service.listPosts(query);
+  @UseGuards(OptionalJwtGuard)
+  list(@Query() query: ListBlogPostsDto, @Req() req: Request) {
+    return this.service.listPosts(query, this.extractUserId(req));
   }
 
-  /** GET /blog/posts/:slug?locale=ru */
+  /**
+   * GET /blog/posts/:slug?locale=ru
+   * KS-4472 / ADR-140 T6: `OptionalJwtGuard` — для авторизованного
+   *   `likedByMe` берётся из `blog_post_likes` по PK (postId, userId).
+   */
   @Get('posts/:slug')
-  get(@Param('slug') slug: string, @Query() query: GetBlogPostDto) {
-    return this.service.getPost(slug, query.locale);
+  @UseGuards(OptionalJwtGuard)
+  get(
+    @Param('slug') slug: string,
+    @Query() query: GetBlogPostDto,
+    @Req() req: Request,
+  ) {
+    return this.service.getPost(slug, query.locale, this.extractUserId(req));
   }
 
   /**
