@@ -61,6 +61,8 @@ function makePrismaMock(overrides: Record<string, unknown> = {}) {
   const tacticPuzzle = {
     findUnique: jest.fn(),
     findMany: jest.fn(),
+    findFirst: jest.fn(),
+    count: jest.fn().mockResolvedValue(0),
     update: jest.fn(),
   };
   const tacticPuzzleAttempt = {
@@ -74,6 +76,8 @@ function makePrismaMock(overrides: Record<string, unknown> = {}) {
   };
   const tacticUserMistake = {
     findMany: jest.fn(),
+    findFirst: jest.fn(),
+    count: jest.fn().mockResolvedValue(0),
     upsert: jest.fn(),
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),
   };
@@ -112,26 +116,50 @@ describe('TacticPuzzleService', () => {
   });
 
   describe('getNextForUser', () => {
-    it('исключает уже решённые пазлы и возвращает из ближайших по рейтингу', async () => {
+    it('приоритет mistakes: если есть unresolved — возвращает один из них', async () => {
+      const MISTAKE_PUZZLE_ID = 'cccccccc-cccc-4ccc-accc-cccccccccccc';
+      prisma.tacticUserMistake.count.mockResolvedValueOnce(2);
+      prisma.tacticUserMistake.findFirst.mockResolvedValueOnce({
+        id: 'mid',
+        userId: USER_ID,
+        puzzleId: MISTAKE_PUZZLE_ID,
+        resolved: false,
+        createdAt: new Date(),
+        puzzle: makePuzzleRow({ id: MISTAKE_PUZZLE_ID }),
+      });
+
+      const res = await service.getNextForUser(USER_ID);
+      expect(res.id).toBe(MISTAKE_PUZZLE_ID);
+      // По /next без mistakes-долга не дёргается ни count тестового банка,
+      // ни findMany solved.
+      expect(prisma.tacticPuzzle.count).not.toHaveBeenCalled();
+      expect(prisma.tacticPuzzleAttempt.findMany).not.toHaveBeenCalled();
+    });
+
+    it('нет mistakes → random из не-solved пазлов, исключая решённые', async () => {
+      prisma.tacticUserMistake.count.mockResolvedValueOnce(0);
       prisma.tacticPuzzleAttempt.findMany.mockResolvedValueOnce([
         { puzzleId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' },
       ]);
-      prisma.tacticPuzzle.findMany.mockResolvedValueOnce([makePuzzleRow()]);
-      prisma.userTacticRating.findUnique.mockResolvedValueOnce(null);
+      prisma.tacticPuzzle.count.mockResolvedValueOnce(10);
+      prisma.tacticPuzzle.findFirst.mockResolvedValueOnce(makePuzzleRow());
 
       const res = await service.getNextForUser(USER_ID);
       expect(res.id).toBe(PUZZLE_ID);
-      const whereArg = prisma.tacticPuzzle.findMany.mock.calls[0][0].where;
-      expect(whereArg.id).toEqual({
+      const countArg = prisma.tacticPuzzle.count.mock.calls[0][0];
+      expect(countArg.where.id).toEqual({
+        notIn: ['aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'],
+      });
+      const findArg = prisma.tacticPuzzle.findFirst.mock.calls[0][0];
+      expect(findArg.where.id).toEqual({
         notIn: ['aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'],
       });
     });
 
-    it('падает 404 если банк пуст', async () => {
+    it('падает 404 если банк пуст и mistakes нет', async () => {
+      prisma.tacticUserMistake.count.mockResolvedValueOnce(0);
       prisma.tacticPuzzleAttempt.findMany.mockResolvedValueOnce([]);
-      prisma.userTacticRating.findUnique.mockResolvedValueOnce(null);
-      // Первый запрос (диапазон ±200) и fallback оба пустые.
-      prisma.tacticPuzzle.findMany.mockResolvedValue([]);
+      prisma.tacticPuzzle.count.mockResolvedValueOnce(0);
 
       await expect(service.getNextForUser(USER_ID)).rejects.toThrow(
         /No tactic puzzles available/,

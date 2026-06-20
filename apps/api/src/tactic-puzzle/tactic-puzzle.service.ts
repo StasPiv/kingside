@@ -52,6 +52,15 @@ const MAX_BROWSE_LIMIT = 100;
 const DEFAULT_USER_RATING = 1500;
 const DEFAULT_USER_RD = 350;
 
+// KS-4378 / KS-4375. Glicko-обновление пользователя теперь идёт против
+// фиксированного «соперника» — Maia-3 на ELO 2400 (см. MAIA_ELO в
+// shared TACTIC_PUZZLE_GEN_DEFAULTS). Это упрощает рантайм (нет
+// собственного рейтинга пазлов, нет update/lock конкурирующих строк)
+// и сохраняет дифференциал «пользователь vs Maia», который и есть
+// концептуальный смысл рейтинга в разделе «Точность».
+const OPPONENT_RATING = 2400;
+const OPPONENT_RD = 50;
+
 @Injectable()
 export class TacticPuzzleService {
   constructor(
@@ -62,47 +71,55 @@ export class TacticPuzzleService {
   // ─── /next ──────────────────────────────────────────────────────
 
   /**
-   * Выдаёт следующий tactic-пазл для пользователя. Простейшая стратегия:
-   * ищем ближайший по рейтингу из непройденных. Подразумеваем небольшой
-   * банк (~единицы тысяч записей) — full-scan по `tactic_puzzles` с
-   * фильтром на «нерешённые» дешевле, чем сложный sampling-pipeline.
-   * Усложним на T8 после массовой генерации, если потребуется.
+   * KS-4378 / KS-4375. Новая стратегия подбора пазла:
+   *   1. Если в журнале есть нерешённые ошибки (`tactic_user_mistakes
+   *      WHERE resolved=false`) — берём случайную из них. Сначала
+   *      разбираем долги, потом новые позиции.
+   *   2. Иначе — случайный из не-solved пазлов (без фильтра по
+   *      рейтингу, т.к. рейтинг пазла удалён в T1; разнообразие даёт
+   *      Maia-difficulty и драгоценный gap).
+   *
+   * Реализация через `count + skip`-приём: cheap для PostgreSQL без
+   * сложного `ORDER BY random()` по большой таблице.
    */
   async getNextForUser(userId: string): Promise<TacticPuzzleResponse> {
-    const rating = await this.getOrCreateUserRating(userId);
+    // (1) Долг по ошибкам имеет приоритет.
+    const mistakesCount = await this.prisma.tacticUserMistake.count({
+      where: { userId, resolved: false },
+    });
+    if (mistakesCount > 0) {
+      const skip = Math.floor(Math.random() * mistakesCount);
+      const mistake = await this.prisma.tacticUserMistake.findFirst({
+        where: { userId, resolved: false },
+        orderBy: { id: 'asc' },
+        skip,
+        include: { puzzle: true },
+      });
+      if (mistake) return this.toResponse(mistake.puzzle);
+    }
 
+    // (2) Случайный из не-solved пазлов пользователя.
     const solvedIds = await this.prisma.tacticPuzzleAttempt.findMany({
       where: { userId, solved: true },
       select: { puzzleId: true },
     });
     const excludeIds = solvedIds.map((r) => r.puzzleId);
-
     const where: Prisma.TacticPuzzleWhereInput =
       excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {};
 
-    // Ближайший по рейтингу: берём top-50 «вокруг» нашего ratingу
-    // и выбираем рандомный из них для разнообразия между попытками.
-    const targetRating = Math.round(rating.rating);
-    const candidates = await this.prisma.tacticPuzzle.findMany({
-      where: {
-        ...where,
-        rating: { gte: targetRating - 200, lte: targetRating + 200 },
-      },
-      take: 50,
-      orderBy: { rating: 'asc' },
-    });
-    const pool = candidates.length > 0
-      ? candidates
-      : await this.prisma.tacticPuzzle.findMany({
-          where,
-          take: 50,
-          orderBy: { rating: 'asc' },
-        });
-
-    if (pool.length === 0) {
+    const total = await this.prisma.tacticPuzzle.count({ where });
+    if (total === 0) {
       throw new NotFoundException('No tactic puzzles available');
     }
-    const picked = pool[Math.floor(Math.random() * pool.length)];
+    const skip = Math.floor(Math.random() * total);
+    const picked = await this.prisma.tacticPuzzle.findFirst({
+      where,
+      orderBy: { id: 'asc' },
+      skip,
+    });
+    if (!picked) {
+      throw new NotFoundException('No tactic puzzles available');
+    }
     return this.toResponse(picked);
   }
 
@@ -136,12 +153,8 @@ export class TacticPuzzleService {
       where.difficulty = { gte: query.maiaDifficultyMin };
     }
     if (query.gapMin != null) where.gap = { gte: query.gapMin };
-    if (query.ratingMin != null || query.ratingMax != null) {
-      where.rating = {
-        ...(query.ratingMin != null ? { gte: query.ratingMin } : {}),
-        ...(query.ratingMax != null ? { lte: query.ratingMax } : {}),
-      };
-    }
+    // KS-4378 / KS-4375. Фильтр `where.rating` удалён вместе с полем
+    // `rating` пазла. Сложность фильтруется через difficulty/gap.
     if (query.themes && query.themes.length > 0) {
       // themes хранятся как `"a b c"`. Простейший подход — для каждого
       // тега запрашиваем `contains` (LIKE %tag%). Точный поиск можно
@@ -194,23 +207,21 @@ export class TacticPuzzleService {
     const userRating = await this.getOrCreateUserRating(userId);
     const solved = isSolvedStopReason(input.stopReason);
 
+    // KS-4378 / KS-4375. Соперник в Glicko-апдейте — фиксированный
+    // Maia-3 (`OPPONENT_RATING=2400`, `OPPONENT_RD=50`). Рейтинг
+    // пазла больше не существует, обратная сторона апдейта (puzzle
+    // rating/RD update) удалена.
     const userUpdate = this.glicko.updateUserRating(
       Math.round(userRating.rating),
       Math.round(userRating.deviation),
-      puzzle.rating,
-      puzzle.ratingDev,
-      solved,
-    );
-    const puzzleUpdate = this.glicko.updatePuzzleRating(
-      puzzle.rating,
-      puzzle.ratingDev,
-      Math.round(userRating.rating),
+      OPPONENT_RATING,
+      OPPONENT_RD,
       solved,
     );
 
     // KS-4356 / ADR-136. Mistake-резолв и mistake-add теперь в той же
-    // транзакции, что и attempt + рейтинги — атомарно и без расхождения
-    // состояний при падении одного из шагов.
+    // транзакции, что и attempt + user-rating — атомарно и без
+    // расхождения состояний при падении одного из шагов.
     const { attempt, addedToMistakes, autoResolvedMistake } =
       await this.prisma.$transaction(async (tx) => {
         const created = await tx.tacticPuzzleAttempt.create({
@@ -221,8 +232,8 @@ export class TacticPuzzleService {
             timeMs: input.timeMs,
             ratingBefore: Math.round(userRating.rating),
             ratingAfter: userUpdate.newRating,
-            puzzleRatingBefore: puzzle.rating,
-            puzzleRatingAfter: puzzleUpdate.newRating,
+            // KS-4378 / KS-4375. puzzleRatingBefore/After не пишем
+            // (поле уйдёт из БД на T4 миграции).
             lineHalfMoves: input.lineHalfMoves,
             userMoves: input.userMoves,
             stopReason: input.stopReason,
@@ -251,14 +262,10 @@ export class TacticPuzzleService {
           },
         });
 
-        await tx.tacticPuzzle.update({
-          where: { id: puzzleId },
-          data: {
-            rating: puzzleUpdate.newRating,
-            ratingDev: puzzleUpdate.newRD,
-            nbPlays: { increment: 1 },
-          },
-        });
+        // KS-4378 / KS-4375. tacticPuzzle.update удалён вместе с
+        // полями rating/ratingDev. nbPlays на этом этапе тоже не
+        // апдейтим — счётчик не используется UI и не нужен новой
+        // логике подбора (mistakes → random).
 
         // KS-4356 / ADR-136 п.6: авто-резолв при solved-попытке. Если
         // запись в журнале была — помечаем resolved=true и больше не
@@ -299,8 +306,7 @@ export class TacticPuzzleService {
       solved,
       ratingBefore: Math.round(userRating.rating),
       ratingAfter: userUpdate.newRating,
-      puzzleRatingBefore: puzzle.rating,
-      puzzleRatingAfter: puzzleUpdate.newRating,
+      // KS-4378 / KS-4375. puzzleRatingBefore/After из ответа убраны.
       addedToMistakes,
     };
   }
@@ -458,7 +464,7 @@ export class TacticPuzzleService {
         // KS-4369 / KS-4367. objective из карточки удалён.
         difficulty: p.difficulty,
         gap: p.gap,
-        rating: p.rating,
+        // KS-4378 / KS-4375. `rating` пазла из карточки удалён.
         themes: splitThemes(p.themes),
       },
       sourceGameId: p.sourceGameId,
@@ -637,8 +643,7 @@ export class TacticPuzzleService {
       themes: puzzle.themes
         ? puzzle.themes.split(/\s+/).filter(Boolean)
         : [],
-      rating: puzzle.rating,
-      ratingDev: puzzle.ratingDev,
+      // KS-4378 / KS-4375. Поля `rating` и `ratingDev` пазла удалены.
       difficulty: puzzle.difficulty,
       gap: puzzle.gap,
       bestE: puzzle.bestE,
@@ -660,7 +665,7 @@ export class TacticPuzzleService {
       puzzleId: p.id,
       fen: p.fen,
       bestMoveUci: p.bestMoveUci,
-      rating: p.rating,
+      // KS-4378 / KS-4375. `rating` пазла удалён.
       difficulty: p.difficulty,
       gap: p.gap,
       // KS-4369 / KS-4367. objective из карточки журнала ошибок удалён.
