@@ -81,6 +81,15 @@ export interface TacticPuzzleRunnerProps {
   /** Назад в каталог (с сохранением фильтров). */
   onBack?: () => void;
   /**
+   * KS-4347. Открыть позицию пазла в мастерской (анализ). Если задан —
+   * раннер показывает кнопку «Открыть в мастерской» рядом с доской.
+   * Семантика: засчитать попытку как сдачу (`stopReason='aborted'`) и
+   * перейти на маршрут мастерской. Отправку attempt и навигацию делает
+   * родительская страница; раннер только инициирует завершение через
+   * стандартный `finishAttempt` + сигнал.
+   */
+  onOpenWorkshop?: (data: TacticPuzzleRunnerSubmit) => void | Promise<void>;
+  /**
    * DI для тестов — позволяет подменить движок.
    * Production — `() => new WasmEngineAdapter(...)`.
    */
@@ -191,6 +200,7 @@ export function TacticPuzzleRunner({
   onSubmit,
   onNext,
   onBack,
+  onOpenWorkshop,
   engineFactory,
   maiaSource = defaultMaiaSource,
   analyzeDepth = 18,
@@ -718,6 +728,32 @@ export function TacticPuzzleRunner({
     void finishAttempt({ solved: false, stopReason: 'aborted' });
   }, [finishAttempt]);
 
+  /**
+   * KS-4347. Открыть позицию пазла в мастерской. По смыслу — сдача
+   * попытки + переход. Чтобы родительская страница могла одним вызовом
+   * и отправить attempt, и сделать `navigate`, собираем те же данные,
+   * что `finishAttempt` для `onSubmit`, но передаём в `onOpenWorkshop`.
+   * Дальше — сторона страницы решает порядок (submit + redirect).
+   */
+  const handleOpenWorkshop = useCallback(() => {
+    if (submittedRef.current || !onOpenWorkshop) return;
+    submittedRef.current = true;
+    stopLiveAnalysis();
+    const wdlEnd = latestWdl
+      ? (latestWdl.w + latestWdl.d / 2) / 1000
+      : null;
+    const data: TacticPuzzleRunnerSubmit = {
+      solved: false,
+      lineHalfMoves: halfMovesRef.current,
+      userMoves: userMovesRef.current.join(' '),
+      stopReason: 'aborted',
+      timeMs: Date.now() - startTimeRef.current,
+      wdlStart: wdlStartRef.current,
+      wdlEnd,
+    };
+    void onOpenWorkshop(data);
+  }, [latestWdl, onOpenWorkshop, stopLiveAnalysis]);
+
   // ── Render ────────────────────────────────────────────────────────
   if (engineLoadState === 'loading' || engineLoadState === 'error') {
     return (
@@ -805,15 +841,27 @@ export function TacticPuzzleRunner({
             </div>
           )}
 
-          {/* KS-4346: кнопка «Сдаться» во время решения — единый стиль
-              с `.puzzle-engine-runner__replay-btn` из /precision (та же
-              форма / отступы / hover/active-state), но с danger-окраской
-              текста и border'а — это деструктивное действие. */}
+          {/* KS-4346/KS-4347: кнопки во время решения. «Открыть в
+              мастерской» — переход в анализ (засчитывает попытку как
+              сдачу, перенаправляет на /analysis с FEN пазла). «Сдаться»
+              — закрыть попытку без перехода. Стиль `replay-btn` единый
+              с /precision; «Сдаться» с danger-окраской — деструктивное
+              действие. */}
           {isThinking && state === 'thinking' && (
             <div
               className="puzzle-engine-runner__actions tactic-puzzle-runner__abort-row"
               data-testid="tactic-puzzle-abort-row"
             >
+              {onOpenWorkshop && (
+                <button
+                  type="button"
+                  className="puzzle-engine-runner__replay-btn tactic-puzzle-runner__workshop"
+                  onClick={handleOpenWorkshop}
+                  data-testid="tactic-puzzle-workshop"
+                >
+                  {t('tacticPuzzle.actions.openWorkshop', 'Open in workshop')}
+                </button>
+              )}
               <button
                 type="button"
                 className="puzzle-engine-runner__replay-btn tactic-puzzle-runner__abort"

@@ -2163,7 +2163,8 @@
     "actions": {
       "skip": "Skip move",
       "finish": "Finish puzzle",
-      "abort": "Resign"
+      "abort": "Resign",
+      "openWorkshop": "Open in workshop"
     },
     "error": {
       "generic": "Engine error"
