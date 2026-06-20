@@ -75,9 +75,12 @@ model TacticPuzzle {
   /// найти сильнейший ход в позиции.
   themes           String   @default("")
 
-  /// Glicko-2 рейтинг пазла для подбора игроку.
-  rating           Int      @default(1500)
-  ratingDev        Int      @default(350) @map("rating_dev")
+  /// KS-4375: рейтинг самого пазла снят. Все пазлы создаются по
+  /// одному порогу difficulty > 0.9 на Maia ELO = 2400 — их
+  /// «сила противника» по построению одинакова. Подбор пазла
+  /// игроку — случайно из непройденных (см. §2.4). Glicko-апдейт
+  /// пользователя — против фиксированного opponent rating = MAIA_ELO
+  /// (см. §2.4).
   popularity       Int      @default(0)
   nbPlays          Int      @default(0) @map("nb_plays")
 
@@ -100,7 +103,6 @@ model TacticPuzzle {
   attempts         TacticPuzzleAttempt[]
   mistakes         TacticUserMistake[]
 
-  @@index([rating])
   @@index([themes])
   @@index([difficulty])
   @@index([gap])
@@ -115,11 +117,10 @@ model TacticPuzzleAttempt {
   solved             Boolean
   timeMs             Int      @map("time_ms")
 
-  // Игровой рейтинг пользователя по разделу «Точность» (свой, не общий /puzzles)
+  // Игровой рейтинг пользователя по разделу «Точность» (свой, не общий /puzzles).
+  // KS-4375: parity-поля puzzleRatingBefore/After убраны — у пазла рейтинга нет.
   ratingBefore       Int      @map("rating_before")
   ratingAfter        Int      @map("rating_after")
-  puzzleRatingBefore Int?     @map("puzzle_rating_before")
-  puzzleRatingAfter  Int?     @map("puzzle_rating_after")
 
   /// Длина решённой линии (число полуходов пользователя). Не известна
   /// заранее — определяется во время игры. Клиент на каждом полуходе
@@ -385,9 +386,27 @@ export async function processGameForTacticPuzzles(args: {
 Новый модуль `apps/api/src/tactic-puzzle/`:
 
 * `tactic-puzzle.controller.ts` — маршруты `/tactic-puzzles/next`, `/tactic-puzzles/:id`, `/tactic-puzzles/browse`, `/tactic-puzzles/attempts`, `/tactic-puzzles/mistakes`;
-* `tactic-puzzle.service.ts` — подбор по рейтингу/темам/сложности, регистрация попыток, расчёт precision-grade (ADR-065) встроенно (старый `PrecisionAttempt` не нужен);
-* DTO без полей `solutionMode`, `puzzlePhase`, `acceptedMoves`, `moves` — их в концепте нет;
-* отдельный пользовательский рейтинг «точности» (TacticRatingSnapshot или поле в User).
+* `tactic-puzzle.service.ts` — регистрация попыток, расчёт precision-grade (ADR-065) встроенно (старый `PrecisionAttempt` не нужен);
+* DTO без полей `solutionMode`, `puzzlePhase`, `acceptedMoves`, `moves`, `rating*` — их в концепте нет;
+* отдельный пользовательский рейтинг «точности» (`user_tactic_ratings`, ADR-135 §2.1).
+
+**Подбор `/tactic-puzzles/next` (KS-4375).** У пазлов нет рейтинга, подгонять не по чему. Алгоритм:
+
+1. `solvedIds` — пазлы, решённые пользователем хотя бы один раз (`tactic_puzzle_attempts.solved=true`).
+2. `mistakeIds` — пазлы из `tactic_user_mistakes WHERE userId=X AND resolved=false`. Приоритет — повторить ошибку.
+3. Если есть unresolved-mistakes → выбрать случайно один из них.
+4. Иначе — `SELECT id FROM tactic_puzzles WHERE id NOT IN (solvedIds) ORDER BY random() LIMIT 1`.
+
+Все пазлы созданы по одному порогу `difficulty > 0.9` на Maia ELO = 2400 — их «трудность» одного класса, дополнительная подгонка не нужна. Если по итогам T8 (массовая генерация) окажется, что банк всё-таки сильно разбросан по `difficulty`/`gap`, можно добавить bucket-фильтр — отдельной задачей после статистики, не в MVP.
+
+**Glicko-апдейт пользователя (KS-4375).** Все пазлы — opponent одинаковой силы:
+
+* `OPPONENT_RATING = 2400` (= `MAIA_ELO` из генератора);
+* `OPPONENT_RD = 50` (низкая неопределённость — Maia детерминирован, его «сила» точно известна).
+
+После каждой попытки: `glicko.applyResult(user.rating, user.rd, OPPONENT_RATING, OPPONENT_RD, score)`, где `score ∈ {0, 0.5, 1}` (mistake/early-skip / user-finished / solved). Никаких обновлений `tactic_puzzles.rating/ratingDev` — этих колонок больше нет. Пользователь по мере решений движется к 2400, при провалах — обратно.
+
+`OPPONENT_RATING` и `OPPONENT_RD` — константы в `tactic-puzzle.service.ts` (не в схеме БД), потому что они выводятся из параметров алгоритма генерации (`MAIA_ELO`), которые сегодня тоже захардкожены в `TACTIC_PUZZLE_GEN_DEFAULTS`. При смене `MAIA_ELO` в генераторе константы тоже обновляются.
 
 ### 2.5. Frontend
 
