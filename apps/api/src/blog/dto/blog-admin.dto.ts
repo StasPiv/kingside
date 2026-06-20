@@ -1,8 +1,15 @@
 /**
- * KS-4410 / ADR-137 rev2. DTO для админ-CRUD блога. На public
- * эндпоинтах эти типы недоступны — `BlogController` использует
- * только `ListBlogPostsDto` / `GetBlogPostDto`.
+ * KS-4410 / ADR-137 rev2 + KS-4446 / ADR-138 §7. DTO для админ-CRUD
+ * блога. На public эндпоинтах эти типы недоступны — `BlogController`
+ * использует только `ListBlogPostsDto` / `GetBlogPostDto`.
+ *
+ * Multipart-режим (KS-4445/KS-4446): текстовые поля в `multipart/form-
+ * data` всегда приходят как строки, поэтому массивы, числа и булевы
+ * нормализуются через `@Transform` (см. ниже `parseTagsArray`,
+ * `parseBooleanFlag`). На чистом JSON-запросе значения уже типизированы
+ * и `@Transform` проходит no-op.
  */
+import { BadRequestException } from '@nestjs/common';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -25,6 +32,61 @@ import type { BlogLocale, BlogPostStatus } from '@kingside/shared';
 
 const LOCALES: BlogLocale[] = ['ru', 'en'];
 const STATUSES: BlogPostStatus[] = ['draft', 'published'];
+
+// ─── transformers (KS-4446) ─────────────────────────────────────────
+
+/**
+ * KS-4446 / ADR-138 §7. Парсер `tags` из multipart-строки.
+ *   * чистый массив (JSON-режим) → пропускается без изменений;
+ *   * пустая строка / `undefined` → `undefined` (поле не задано);
+ *   * валидная JSON-строка массива → распарсенный массив;
+ *   * невалидный JSON или JSON, не массив → `400 BadRequest`.
+ *
+ * Невалидный JSON ловится тут, а не в `@IsArray`, чтобы сообщение
+ * было понятным («tags must be a JSON array string», а не «tags must
+ * be an array»).
+ */
+export function parseTagsArray(value: unknown): unknown {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null) return value;
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (err) {
+    throw new BadRequestException(
+      `tags must be a JSON array string (parse error: ${(err as Error).message})`,
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new BadRequestException(
+      `tags must be a JSON array; got ${typeof parsed}`,
+    );
+  }
+  return parsed;
+}
+
+/**
+ * KS-4446 / ADR-138 §7. Парсер булевых флагов из multipart-строк.
+ * Единая семантика для всех булевых полей (`coverReset`, будущие
+ * `isPinned`/`featured`/...) — наследуется от первой реализации в
+ * KS-4445.
+ */
+export function parseBooleanFlag(value: unknown): unknown {
+  if (typeof value === 'boolean') return value;
+  if (value === 'true' || value === '1' || value === 'on') return true;
+  if (
+    value === 'false' ||
+    value === '0' ||
+    value === 'off' ||
+    value === ''
+  ) {
+    return false;
+  }
+  return value;
+}
 
 // ─── posts ──────────────────────────────────────────────────────────
 
@@ -64,6 +126,7 @@ export class CreateBlogPostDto {
   coverAlt?: string;
 
   @IsOptional()
+  @Transform(({ value }) => parseTagsArray(value))
   @IsArray()
   @ArrayMaxSize(50)
   @IsString({ each: true })
@@ -130,6 +193,7 @@ export class UpdateBlogPostDto {
   coverAlt?: string | null;
 
   @IsOptional()
+  @Transform(({ value }) => parseTagsArray(value))
   @IsArray()
   @ArrayMaxSize(50)
   @IsString({ each: true })
@@ -162,13 +226,7 @@ export class UpdateBlogPostDto {
    * `{"coverReset": true}` без multipart.
    */
   @IsOptional()
-  @Transform(({ value }) => {
-    if (typeof value === 'boolean') return value;
-    if (value === 'true' || value === '1' || value === 'on') return true;
-    if (value === 'false' || value === '0' || value === 'off' || value === '')
-      return false;
-    return value;
-  })
+  @Transform(({ value }) => parseBooleanFlag(value))
   @IsBoolean()
   coverReset?: boolean;
 }
