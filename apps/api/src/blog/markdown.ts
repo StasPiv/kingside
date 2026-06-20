@@ -1,53 +1,83 @@
 /**
- * KS-4409 / ADR-137 rev2. Helper для рендера Markdown в HTML. Вызывается
- * из админ-CRUD (T3) на каждый save поста — результат кэшируется в
- * `blog_posts.body_html`. На публичных эндпоинтах рендер не делается,
- * отдаётся готовый HTML из БД.
+ * KS-4409 / KS-4410 / ADR-137 rev2. Преобразование Markdown в HTML
+ * + sanitize. Вызывается из админ-CRUD на каждый save поста —
+ * результат кэшируется в `blog_posts.body_html`. На публичных
+ * эндпоинтах рендер не делается, отдаётся готовый HTML из БД.
  *
- * MVP-имплементация: `marked` (md → HTML) + лёгкая sanitizе-обёртка
- * regex'ами — режем `<script>`, `<iframe>`, `<object>`, `<embed>`,
- * `on*=` атрибуты и `javascript:` URL. Этого достаточно для MVP, где
- * админ-CRUD доступен только команде Kingside (после T3 — JWT + role
- * check). Для следующей итерации задача завести `rehype-sanitize`
- * (KS-4409 follow-up: добавить unified/rehype-sanitize в зависимости
- * apps/api после согласования с devops).
+ * Стек:
+ *   unified → remark-parse → remark-rehype → rehype-sanitize →
+ *   rehype-stringify.
+ *
+ * rehype-sanitize по умолчанию (`defaultSchema`) разрешает только
+ * безопасные теги/атрибуты по схеме GitHub HTML — это закрывает
+ * `<script>`, inline event-handlers, `javascript:` URL, `<iframe>`
+ * и прочие XSS-векторы. Расширение списка тегов (если потребуется
+ * embedding YouTube / chess-доски) — отдельной задачей, через
+ * передачу `merge(defaultSchema, {...})` в плагин.
+ *
+ * Также вычисляется `readingTimeMin` — целое число минут чтения
+ * (250 слов в минуту, минимум 1). Используется в карточках списка.
  */
-import { marked } from 'marked';
+// unified / remark / rehype-sanitize — ESM-only пакеты. CommonJS-сборка
+// api (NestJS-cli) не может использовать статический `import` — TS
+// перепишет их в `require()`, который выбросит ERR_REQUIRE_ESM. Поэтому
+// держим dynamic `import()` через ленивый singleton: первый вызов
+// `renderMarkdownToHtml` собирает процессор, дальше он переиспользуется.
+type UnifiedProcessor = { process(md: string): Promise<{ toString(): string }> };
+let processorPromise: Promise<UnifiedProcessor> | null = null;
+
+async function getProcessor(): Promise<UnifiedProcessor> {
+  if (processorPromise) return processorPromise;
+  processorPromise = (async () => {
+    const [
+      { unified },
+      { default: remarkParse },
+      { default: remarkRehype },
+      { default: rehypeSanitize },
+      { default: rehypeStringify },
+    ] = await Promise.all([
+      import('unified'),
+      import('remark-parse'),
+      import('remark-rehype'),
+      import('rehype-sanitize'),
+      import('rehype-stringify'),
+    ]);
+    return unified()
+      .use(remarkParse)
+      .use(remarkRehype, { allowDangerousHtml: false })
+      .use(rehypeSanitize)
+      .use(rehypeStringify) as unknown as UnifiedProcessor;
+  })();
+  return processorPromise;
+}
+
+const READING_WORDS_PER_MINUTE = 250;
 
 /**
- * Удаляет потенциально опасные теги/атрибуты. Не пытается заменить
- * полноценный sanitizer (DOMPurify / rehype-sanitize) — этого делает
- * первая итерация, которая закроет случайный XSS в нашем
- * контролируемом контенте.
+ * Преобразовать Markdown в безопасный HTML. Промис возвращает
+ * строку, готовую к записи в `blog_posts.body_html` и отдаче через
+ * `dangerouslySetInnerHTML` на фронте.
  */
-function basicSanitize(html: string): string {
-  let out = html;
-  // Полностью удаляем содержимое опасных тегов вместе с тегами.
-  out = out.replace(
-    /<(script|style|iframe|object|embed|noscript|form)\b[^>]*>[\s\S]*?<\/\1>/gi,
-    '',
-  );
-  // Самозакрывающиеся варианты тех же тегов.
-  out = out.replace(
-    /<(script|style|iframe|object|embed|noscript|form)\b[^>]*\/?>(?!<\/\1>)/gi,
-    '',
-  );
-  // Inline-обработчики `on...=` (onclick / onerror / onload / ...).
-  out = out.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-  // `javascript:` URL в href / src.
-  out = out.replace(/\s(href|src)\s*=\s*("javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi, '');
-  // `data:text/html` URL — векторы для xss через <iframe data:...>.
-  out = out.replace(/\s(href|src)\s*=\s*("data:text\/html[^"]*"|'data:text\/html[^']*'|data:text\/html[^\s>]+)/gi, '');
-  return out;
+export async function renderMarkdownToHtml(md: string): Promise<string> {
+  const processor = await getProcessor();
+  const file = await processor.process(md);
+  return String(file);
 }
 
 /**
- * Преобразовать Markdown в HTML. Возвращает санитизированный HTML,
- * безопасный для встраивания в страницу через `dangerouslySetInnerHTML`.
+ * Грубая оценка времени чтения по числу слов. 250 слов в минуту —
+ * стандарт для англоязычной статьи, для русской чуть меньше, но
+ * для UI-карточки округление в большую сторону приемлемо.
+ *
+ * Минимум 1 (даже для пустой статьи / черновика — UI всегда
+ * показывает «1 мин»).
  */
-export async function renderMarkdownToHtml(md: string): Promise<string> {
-  const rawHtml = await Promise.resolve(
-    marked.parse(md, { async: false, breaks: false, gfm: true }) as string,
-  );
-  return basicSanitize(rawHtml);
+export function estimateReadingTimeMin(md: string): number {
+  const words = md
+    .replace(/[#*_`>[\]()!-]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+  if (words === 0) return 1;
+  return Math.max(1, Math.ceil(words / READING_WORDS_PER_MINUTE));
 }
