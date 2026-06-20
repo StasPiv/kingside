@@ -156,6 +156,10 @@ export const STATIC_PUBLIC_ROUTES: ReadonlyArray<
   // существуют на kingside.site и должны индексироваться.
   { loc: '/analyze-pgn-online', changefreq: 'monthly', priority: 0.8 },
   { loc: '/puzzles-from-your-games', changefreq: 'monthly', priority: 0.8 },
+  // KS-4402: главная блога. Отдельные статьи `/blog/<slug>` идут в
+  // `sitemap-blog.xml` (источник — `blog-sitemap-data.json` от
+  // frontend-сборки, см. `SitemapService.generateBlogXml`).
+  { loc: '/blog', changefreq: 'weekly', priority: 0.7 },
   { loc: '/login', changefreq: 'yearly', priority: 0.3 },
   { loc: '/register', changefreq: 'yearly', priority: 0.3 },
 ];

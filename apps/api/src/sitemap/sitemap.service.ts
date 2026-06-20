@@ -61,6 +61,10 @@ export const SITEMAP_FILES = [
   'sitemap-lectures.xml',
   'sitemap-archive-games.xml',
   'sitemap-archive-players.xml',
+  // KS-4402: блог. Источник — `blog-sitemap-data.json` от frontend-
+  // сборки (publish'ится в тот же S3 bucket рядом с sitemap'ами,
+  // ключ `blog-sitemap-data.json`).
+  'sitemap-blog.xml',
 ] as const;
 export type SitemapFile = (typeof SITEMAP_FILES)[number];
 
@@ -105,6 +109,9 @@ export class SitemapService {
       ['sitemap-lectures.xml', () => this.generateLecturesXml()],
       ['sitemap-archive-games.xml', () => this.generateArchiveGamesXml()],
       ['sitemap-archive-players.xml', () => this.generateArchivePlayersXml()],
+      // KS-4402: блог. Список статей читается из
+      // `blog-sitemap-data.json` в том же S3 bucket'е.
+      ['sitemap-blog.xml', () => this.generateBlogXml()],
     ];
 
     for (const [name, gen] of generators) {
@@ -274,6 +281,80 @@ export class SitemapService {
       return buildUrlset([]);
     }
     return buildUrlset([]);
+  }
+
+  /**
+   * KS-4402. `sitemap-blog.xml` — публикации блога. Источник — JSON,
+   * который frontend кладёт в тот же S3 bucket рядом с sitemap'ами
+   * по ключу `blog-sitemap-data.json`. Контракт:
+   *
+   *   { "articles": [{ "slug": "string", "lastmod"?: ISO-8601 string }] }
+   *
+   * При отсутствии файла или невалидном содержимом отдаём пустой
+   * `<urlset>` + warning в лог — sitemap-index всё равно ссылается на
+   * `sitemap-blog.xml`, отдавать 404 ради непустого списка
+   * нежелательно (Google пометит как ошибочный sitemap).
+   */
+  async generateBlogXml(): Promise<string> {
+    const base = this.baseUrl();
+    const articles = await this.fetchBlogArticles();
+    const entries: SitemapUrlEntry[] = articles.map((a) => ({
+      loc: `${base}/blog/${encodeURIComponent(a.slug)}`,
+      lastmod: a.lastmod ?? null,
+      changefreq: 'monthly',
+      priority: 0.6,
+    }));
+    return buildUrlset(entries);
+  }
+
+  private async fetchBlogArticles(): Promise<
+    Array<{ slug: string; lastmod?: string | null }>
+  > {
+    const key = 'blog-sitemap-data.json';
+    try {
+      const sdk = await import('@aws-sdk/client-s3');
+      const client = new sdk.S3Client({ region: this.region() });
+      try {
+        const resp = await client.send(
+          new sdk.GetObjectCommand({ Bucket: this.bucket(), Key: key }),
+        );
+        const body = await resp.Body?.transformToString();
+        if (!body) {
+          this.logger.warn(`sitemap-blog: ${key} empty body`);
+          return [];
+        }
+        const parsed: unknown = JSON.parse(body);
+        if (
+          !parsed ||
+          typeof parsed !== 'object' ||
+          !Array.isArray((parsed as { articles?: unknown }).articles)
+        ) {
+          this.logger.warn(`sitemap-blog: ${key} missing "articles" array`);
+          return [];
+        }
+        const articles: Array<{ slug: string; lastmod?: string | null }> = [];
+        for (const item of (parsed as { articles: unknown[] }).articles) {
+          if (!item || typeof item !== 'object') continue;
+          const slug = (item as { slug?: unknown }).slug;
+          if (typeof slug !== 'string' || slug.length === 0) continue;
+          const lastmodRaw = (item as { lastmod?: unknown }).lastmod;
+          const lastmod =
+            typeof lastmodRaw === 'string' && lastmodRaw.length > 0
+              ? lastmodRaw
+              : null;
+          articles.push({ slug, lastmod });
+        }
+        return articles;
+      } finally {
+        client.destroy();
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      this.logger.warn(
+        `sitemap-blog: failed to read ${key}: ${msg} (отдаём пустой urlset)`,
+      );
+      return [];
+    }
   }
 
   // ─── S3 publish ────────────────────────────────────────────────────
