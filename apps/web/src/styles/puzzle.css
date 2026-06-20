@@ -7573,3 +7573,111 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
   .tactic-stats__totals { grid-template-columns: 1fr; }
   .tactic-stats__bar-row { grid-template-columns: 100px 1fr 70px; }
 }
+
+/* ============================================================
+ * KS-4361 / ADR-136 T9 — страница /tactic-puzzles/attempts/:id.
+ * Раскладка: доска слева + сайдбар с метаданными и действиями.
+ * ============================================================ */
+.tactic-puzzle-attempt {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tactic-puzzle-attempt__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tactic-puzzle-attempt__date {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.tactic-puzzle-attempt__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 20px;
+}
+@media (max-width: 960px) {
+  .tactic-puzzle-attempt__layout { grid-template-columns: 1fr; }
+}
+
+.tactic-puzzle-attempt__board-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tactic-puzzle-attempt__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tactic-puzzle-attempt__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tactic-puzzle-attempt__meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  margin: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.tactic-puzzle-attempt__meta dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.tactic-puzzle-attempt__meta dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.tactic-puzzle-attempt__outcome--solved { color: var(--success, #22c55e); }
+.tactic-puzzle-attempt__outcome--failed { color: var(--danger, #ef4444); }
+
+.tactic-puzzle-attempt__delta--up { color: var(--success, #22c55e); }
+.tactic-puzzle-attempt__delta--down { color: var(--danger, #ef4444); }
+.tactic-puzzle-attempt__delta--flat { color: var(--text-secondary); }
+
+.tactic-puzzle-attempt__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tactic-puzzle-attempt__status {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 16px;
+}
+.tactic-puzzle-attempt__status--error { color: var(--danger); }
+
+.tactic-puzzle-attempt__not-found {
+  text-align: center;
+  padding: 24px;
+}
+.tactic-puzzle-attempt__guest {
+  text-align: center;
+  padding: 24px;
+}
+.tactic-puzzle-attempt__guest-cta {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 600;
+}

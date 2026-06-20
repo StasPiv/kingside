@@ -16,6 +16,7 @@ import { api } from '../api';
 import type {
   SubmitTacticAttemptInput,
   SubmitTacticAttemptResponse,
+  TacticAttemptDetail,
   TacticAttemptListPage,
   TacticPuzzleBrowsePage,
   TacticPuzzleBrowseQuery,
@@ -142,6 +143,17 @@ export const tacticPuzzleApi = {
     const s = qs.toString();
     return api.get<TacticRatingPoint[]>(
       s ? `${BASE}/stats/rating-history?${s}` : `${BASE}/stats/rating-history`,
+    );
+  },
+
+  /**
+   * KS-4361 / ADR-136 §3.8. Детали одной попытки (для разбора).
+   * Возвращает 404 на чужую/несуществующую — родитель ловит и
+   * показывает понятную заглушку.
+   */
+  getAttemptDetail(id: string): Promise<TacticAttemptDetail> {
+    return api.get<TacticAttemptDetail>(
+      `${BASE}/attempts/${encodeURIComponent(id)}`,
     );
   },
 

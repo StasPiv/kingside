@@ -2173,6 +2173,42 @@
       "stats": "Stats",
       "mistakes": "Mistakes"
     },
+    "attempt": {
+      "title": "Attempt review #{{id}}",
+      "playedAt": "Played",
+      "notFoundTitle": "Attempt not found",
+      "notFoundMessage": "The link may be outdated, the attempt was removed, or it belongs to another user.",
+      "backToHistory": "Back to history",
+      "loadError": "Could not load attempt review.",
+      "controls": {
+        "play": "Play user moves",
+        "playing": "Playing…",
+        "stop": "Stop",
+        "reset": "Reset to start",
+        "showBest": "Show best move",
+        "next": "Next move",
+        "previous": "Previous move"
+      },
+      "labels": {
+        "outcome": "Outcome",
+        "stopReason": "Stop reason",
+        "lineLength": "User moves",
+        "duration": "Time",
+        "movesAccuracy": "Move accuracy",
+        "precisionGrade": "Grade",
+        "wdlStart": "WDL start",
+        "wdlEnd": "WDL end",
+        "rating": "Rating",
+        "ratingDelta": "Δ rating",
+        "objective": "Objective",
+        "themes": "Themes"
+      },
+      "actions": {
+        "openWorkshop": "Open in workshop",
+        "replay": "Replay puzzle",
+        "back": "Back to history"
+      }
+    },
     "stats": {
       "title": "Stats — tactics training",
       "intro": "Summary of your Tactics section: current rating, totals, and breakdowns by stop reason, objective and difficulty.",
