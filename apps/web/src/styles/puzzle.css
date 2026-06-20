@@ -7847,3 +7847,193 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
 .tactic-puzzle-profile__loading {
   color: var(--text-secondary);
 }
+
+/* ============================================================
+ * KS-4364 / ADR-136 T12 — доводка 4 страниц раздела «Точность»
+ * (`/tactic-puzzles/history`, `/stats`, `/mistakes`, `/attempts/:id`).
+ *
+ * Цель — паритет по образцу `/precision/*`: единая ширина обёртки,
+ * выравнивание шапки (заголовок слева + CTA справа), компактное
+ * интро, единый стиль гостевых блоков. Существующие per-page стили
+ * выше переопределяются точечно, без дублирования карточек/чипов.
+ * ============================================================ */
+.tactic-puzzles-history,
+.tactic-puzzles-stats,
+.tactic-puzzles-mistakes,
+.tactic-puzzle-attempt {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  color: var(--text-primary);
+  gap: 16px;
+}
+
+/* Шапка страницы: заголовок слева, CTA справа в одной строке
+   (на узких экранах оборачивается на новую строку через flex-wrap).
+   Совпадает с `.precision-history-page__header`. Переопределяет
+   `flex-direction: column;` из per-page правил выше. */
+.tactic-puzzles-history__header,
+.tactic-puzzles-stats__header,
+.tactic-puzzles-mistakes__header,
+.tactic-puzzle-attempt__header {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 20px;
+  margin: 0 0 16px;
+  text-align: left;
+}
+
+/* Заголовок H1 у всех страниц — единый размер/вес, как у
+   `.precision-history-page__title`. На мобилях ниже сжимается до 20px.
+   Без `flex` — H1 занимает естественную ширину, CTA справа уходит
+   на правый край благодаря `justify-content: space-between`. */
+.tactic-puzzles-history__header > h1,
+.tactic-puzzles-stats__header > h1,
+.tactic-puzzles-mistakes__header > h1,
+.tactic-puzzle-attempt__header > h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+  flex: 0 1 auto;
+}
+
+/* Интро под заголовком — секондарное и не перетягивает на себя
+   внимание. На /precision аналога нет, но если оставлять — пусть
+   будет такого же масштаба, как secondary-описания в Лабиринтах
+   /stats и /history. */
+.tactic-puzzles-history__intro,
+.tactic-puzzles-stats__intro,
+.tactic-puzzles-mistakes__intro {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* CTA «Начать тренировку →» — выровнен с аналогом `.precision-
+   history-page__start-cta` (accent-цвет, без подчёркивания, hover —
+   accent-hover + underline). */
+.tactic-puzzles-history__start,
+.tactic-puzzles-stats__start,
+.tactic-puzzles-mistakes__start {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  align-self: auto;
+  transition: color 0.12s ease;
+}
+.tactic-puzzles-history__start:hover,
+.tactic-puzzles-stats__start:hover,
+.tactic-puzzles-mistakes__start:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+.tactic-puzzles-history__start:focus-visible,
+.tactic-puzzles-stats__start:focus-visible,
+.tactic-puzzles-mistakes__start:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ov-accent-25, rgba(124, 131, 255, 0.35));
+  border-radius: 4px;
+}
+
+/* Guest-блок — карточка с CTA «Войти», такая же, как
+   `.precision-history-page__guest`. Полностью переопределяет
+   per-page `text-align: center` выше, чтобы кнопка и текст были
+   слева и читались как карточка, а не модальное окошко. */
+.tactic-puzzles-history__guest,
+.tactic-puzzles-stats__guest,
+.tactic-puzzles-mistakes__guest {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 0 0 24px;
+  padding: 20px;
+  background: var(--bg-deep, var(--bg-canvas, #0f172a));
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  text-align: left;
+}
+.tactic-puzzles-history__guest > h2,
+.tactic-puzzles-stats__guest > h2,
+.tactic-puzzles-mistakes__guest > h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.tactic-puzzles-history__guest > p,
+.tactic-puzzles-stats__guest > p,
+.tactic-puzzles-mistakes__guest > p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.tactic-puzzles-history__guest-cta,
+.tactic-puzzles-stats__guest-cta,
+.tactic-puzzles-mistakes__guest-cta {
+  display: inline-block;
+  margin-top: 0;
+  padding: 8px 16px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent, #fff);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.tactic-puzzles-history__guest-cta:hover,
+.tactic-puzzles-stats__guest-cta:hover,
+.tactic-puzzles-mistakes__guest-cta:hover {
+  background: var(--accent-hover);
+}
+
+/* Empty/loading/error статус — централизованный, без жёсткого
+   text-align: center в одиночных правилах выше; объединяем сюда. */
+.tactic-puzzles-history__status,
+.tactic-puzzles-stats__status,
+.tactic-puzzles-mistakes__status {
+  margin: 24px 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* Сетка карточек stats — выровнена по образцу `precision-stats`. */
+.tactic-puzzles-stats__grid {
+  margin: 0;
+}
+
+/* Шапка раздела детали попытки — title крупнее, под ним строка с
+   метаданными. На /precision аналог — `.precision-attempt-page__header`. */
+.tactic-puzzle-attempt__header {
+  margin-bottom: 12px;
+}
+.tactic-puzzle-attempt__date {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .tactic-puzzles-history,
+  .tactic-puzzles-stats,
+  .tactic-puzzles-mistakes,
+  .tactic-puzzle-attempt {
+    padding: 16px 12px 32px;
+  }
+  .tactic-puzzles-history__header > h1,
+  .tactic-puzzles-stats__header > h1,
+  .tactic-puzzles-mistakes__header > h1,
+  .tactic-puzzle-attempt__header > h1 {
+    font-size: 20px;
+  }
+}
