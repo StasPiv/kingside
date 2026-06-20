@@ -7811,3 +7811,39 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+ * KS-4363 / ADR-136 T11 — секция «Точность» в публичном профиле.
+ * Стиль наследует .player-profile-rating-card; добавляем сетку +
+ * подпись Glicko deviation и футер со ссылкой.
+ * ============================================================ */
+.tactic-puzzle-profile__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.tactic-puzzle-profile__rating-card .tactic-puzzle-profile__rating-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.tactic-puzzle-profile__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  color: var(--text-secondary);
+}
+.tactic-puzzle-profile__cta,
+.tactic-puzzle-profile__link {
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+.tactic-puzzle-profile__footer {
+  margin-top: 10px;
+  text-align: right;
+}
+.tactic-puzzle-profile__loading {
+  color: var(--text-secondary);
+}

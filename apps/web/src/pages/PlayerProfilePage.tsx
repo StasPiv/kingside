@@ -8,6 +8,8 @@ import { RatingHistoryChart } from '../components/RatingHistoryChart';
 import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
 // KS-2236 (ADR-035 §7, E3): drill-статистика на собственном профиле.
 import { DrillStatsPanel } from '../components/drills';
+// KS-4363 (ADR-136 T11): секция «Точность» на собственном профиле.
+import { TacticPuzzleProfilePanel } from '../components/tactic-puzzles/TacticPuzzleProfilePanel';
 // KS-3738 (ADR-110 §8): секция «Мои live-трансляции» на собственном профиле.
 import { useFeatureFlag } from '../context/FeatureFlagsContext';
 import type { PlayerProfileResponse } from '@kingside/shared';
@@ -439,6 +441,14 @@ export function PlayerProfilePage() {
         <div className="player-profile-section">
           <DrillStatsPanel />
         </div>
+      )}
+
+      {/* KS-4363 (ADR-136 T11): секция «Точность». Только владельцу
+          профиля — `/tactic-puzzles/stats/me` доступен только
+          авторизованному пользователю. Публичной выдачи рейтинга по
+          username пока нет — добавление эндпоинта отдельной задачей. */}
+      {currentUser && currentUser.id === profile.id && (
+        <TacticPuzzleProfilePanel />
       )}
 
       {/* KS-3781: секция «Мои live-трансляции» убрана из профиля —

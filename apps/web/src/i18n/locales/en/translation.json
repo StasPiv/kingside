@@ -1770,6 +1770,15 @@
     "loadError": "Failed to load profile",
     "memberSince": "Member since {{date}}",
     "ratings": "Ratings",
+    "tactic": {
+      "title": "Tactics",
+      "rating": "Rating",
+      "attempts": "Attempts",
+      "solved": "Solved",
+      "solvedPercent": "% solved",
+      "empty": "Solve your first puzzle to see your Tactics rating here.",
+      "fullStats": "Detailed stats"
+    },
     "bullet": "Bullet",
     "blitz": "Blitz",
     "rapid": "Rapid",
