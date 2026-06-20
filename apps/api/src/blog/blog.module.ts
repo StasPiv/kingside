@@ -9,12 +9,14 @@ import { BlogService } from './blog.service';
 // AdminUserGuard (whitelist KS_ADMIN_USERS).
 import { BlogAdminController } from './blog-admin.controller';
 import { BlogAdminService } from './blog-admin.service';
+// KS-4444 / ADR-138 §5: загрузка обложек статей в S3.
+import { BlogMediaService } from './blog-media.service';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [AuthModule],
   controllers: [BlogController, BlogAdminController],
-  providers: [BlogService, BlogAdminService],
-  exports: [BlogService, BlogAdminService],
+  providers: [BlogService, BlogAdminService, BlogMediaService],
+  exports: [BlogService, BlogAdminService, BlogMediaService],
 })
 export class BlogModule {}
