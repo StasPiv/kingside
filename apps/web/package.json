@@ -3,9 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "vite build && node scripts/prerender.mjs",
+    "build": "vite build && node scripts/prerender.mjs && node scripts/sitemap-build.mjs",
     "build:no-prerender": "vite build",
     "prerender": "node scripts/prerender.mjs",
+    "sitemap": "node scripts/sitemap-build.mjs",
     "dev": "vite",
     "lint": "eslint src/ --max-warnings 207",
     "test": "vitest run",
