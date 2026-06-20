@@ -5288,18 +5288,12 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
 
 /* ============================================================
  * KS-4344 — карточка /tactic-puzzles. Дополнения к
- * `.play-vs-engine-card`: чип «жанра» в meta-блоке и блок статистики
- * (Difficulty / Rating). Цветовая шкала и типографика выровнены с
- * `__side` (KS-2972 / KS-2754).
+ * `.play-vs-engine-card`: блок статистики (Difficulty / Rating).
+ * Цветовая шкала и типографика выровнены с `__side`
+ * (KS-2972 / KS-2754). KS-4374 (T7 декомпозиции KS-4367): удалён
+ * стиль `.play-vs-engine-card__objective` — поле objective больше
+ * не используется в каталоге /tactic-puzzles.
  * ============================================================ */
-.play-vs-engine-card__objective {
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
-  color: var(--accent-primary, #7c83ff);
-}
-
 .play-vs-engine-card__stats {
   display: flex;
   flex-wrap: wrap;
@@ -7771,12 +7765,9 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
   font-size: 12px;
   color: var(--text-secondary);
 }
-.tactic-puzzles-mistakes__objective {
-  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
-  color: var(--accent-primary, #7c83ff);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
+/* KS-4374 (T7 декомпозиции KS-4367): стиль
+ * `.tactic-puzzles-mistakes__objective` удалён — поле objective
+ * больше не используется в журнале ошибок. */
 
 .tactic-puzzles-mistakes__last-reason {
   font-size: 12px;
