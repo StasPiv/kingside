@@ -1,9 +1,18 @@
 /**
- * KS-2775. После успешного TWIC-импорта запускаем ECS run-task
- * `tactic-worker` с параметрами `--import-id=<свежий>` `--exclude-used`
- * `--min-rating=2400`, чтобы автоматически генерировать PVE-пазлы
- * на новых партиях. Запуск идёт строго по событию импорта — без
- * polling'а или cron'а.
+ * KS-2775 + KS-4388. После успешного TWIC-импорта запускаем ECS run-task
+ * `tactic-worker` для автоматической генерации пазлов раздела
+ * /critical-moment (Maia-difficulty, ADR-135).
+ *
+ * KS-4388: команда переведена со старого `generate-puzzles` (blunder-
+ * пайплайн для /precision) на `generate-tactic-puzzles-from-twic`
+ * (Maia-difficulty pipeline, KS-4340). /precision как раздел остаётся
+ * на старых данных, но новыми задачами не пополняется. Фильтр выборки
+ * партий (`white_elo>=2600 AND black_elo>=2600 AND
+ * time_control_category='classical'`) зашит в SQL самого CLI; идемпотентность
+ * — по `tactic_puzzles.source_game_id`, повторный запуск не задвоит.
+ *
+ * Шардирование — `PVE_SHARD_COUNT` (имя env сохранено для совместимости
+ * с прод-инфрой). По KS-4388 рекомендованное значение — 8.
  *
  * Feature-flag `AUTO_TRIGGER_PVE_GEN`:
  *   - `'true'` / `'1'` / `'on'` — триггер активен.
@@ -11,7 +20,7 @@
  *
  * Безопасность: при отсутствии env или ошибке AWS-SDK логируем
  * warning и возвращаем `{triggered: false}` — TWIC-импорт ОСТАЁТСЯ
- * успешным. Регенерация — best-effort: при провале её можно перезапустить
+ * успешным. Генерация — best-effort: при провале её можно перезапустить
  * руками или подождать следующего цикла.
  */
 import type { Logger } from '@nestjs/common';
@@ -69,55 +78,50 @@ function isFlagOn(v: string | undefined): boolean {
 }
 
 /**
- * Собирает массив argv для `node dist/main.js generate-puzzles ...`.
- * Зафиксированный набор флагов соответствует запросу пользователя:
- * play-vs-engine, --min-rating=2400, --nodes=10000000, --half-moves-n=6.
+ * KS-4388. Команда для нового CLI `generate-tactic-puzzles-from-twic`
+ * (Maia-difficulty pipeline, KS-4340). Фильтр выборки (`white_elo>=2600
+ * AND black_elo>=2600 AND time_control_category='classical'`) и
+ * идемпотентность по `source_game_id` зашиты в самом CLI. `--limit=none`
+ * снимает default-ограничение в 100 партий, нужное только для smoke-
+ * прогона.
  *
- * KS-3364: серверная prod-генерация переведена с `--time-ms=400` на
- * `--nodes=10_000_000` ради детерминизма и качества WDL.
+ * `importId` сохраняется в сигнатуре для логирования (контекст «после
+ * какого импорта запущен tick»), но в команду не пробрасывается —
+ * новый CLI не оперирует понятием import-batch, он идёт по всему
+ * archive_games и пропускает уже обработанные партии.
  *
- * KS-3398: откат к `--time-ms=1000` (movetime 1 сек на позицию, как у
- * клиента). Причина (KS-3397): на 10M nodes движок уходит слишком
- * глубоко и чаще видит защиту/компенсацию → ход перестаёт быть зевком
- * (deltaW < порога) → аномально низкий выход пазлов (единицы/час против
- * ~4/партия на клиенте). Решение пользователя — уравнять строгость
- * отбора с клиентской; финальное качество страхует клиентский глубокий
- * реалтайм-анализ при решении (analyzeLive, KS-3391/3394). Нативный
- * сервер за 1 сек уходит чуть глубже WASM-клиента — это принято как ОК.
- *
- * KS-3396: при `shard` (shardCount>1) добавляем `--shard=i/N` — задача
- * берёт только свою непересекающуюся долю партий. Без shard (или N≤1)
- * флаг не добавляется — поведение прежнее (вся база в одной задаче).
+ * Шардирование: при `count>1` добавляем `--shard-index=i --shard-count=N`
+ * (раздельные флаги, отличие от старого `--shard=i/N`). В новом CLI
+ * шардирование идёт по тому же `hashtext(id)%N`, что и в старом —
+ * непересекающееся разбиение.
  */
 function buildTacticCommand(
-  importId: string,
+  _importId: string,
   shard?: { index: number; count: number },
 ): string[] {
   const cmd = [
     'node',
     'dist/main.js',
-    'generate-puzzles',
-    '--solution-mode=play-vs-engine',
-    `--import-id=${importId}`,
-    '--exclude-used',
-    '--min-rating=2400',
-    '--max-games=inf',
-    '--time-ms=1000',
-    '--half-moves-n=6',
+    'generate-tactic-puzzles-from-twic',
+    '--limit=none',
   ];
   if (shard && shard.count > 1) {
-    cmd.push(`--shard=${shard.index}/${shard.count}`);
+    cmd.push(`--shard-index=${shard.index}`);
+    cmd.push(`--shard-count=${shard.count}`);
   }
   return cmd;
 }
 
 /**
- * KS-3396. Число шардов из env `PVE_SHARD_COUNT`. default 1 (без
- * шардинга). Невалидное / <1 → 1.
+ * KS-4388. Число шардов из env `PVE_SHARD_COUNT` (имя сохранено для
+ * совместимости с прод-инфрой). Default 8 — рекомендованное значение
+ * для нового /critical-moment-генератора (4037 партий, 110 с/партия на
+ * 1 поток → ~19 ч на полный первый прогон в 8 шардов; после первого
+ * проходит ~30 мин/импорт на свежих партиях). Невалидное / <1 → 8.
  */
 function resolveShardCount(env: NodeJS.ProcessEnv): number {
-  const raw = Number(env.PVE_SHARD_COUNT ?? 1);
-  if (!Number.isFinite(raw) || raw < 1) return 1;
+  const raw = Number(env.PVE_SHARD_COUNT ?? 8);
+  if (!Number.isFinite(raw) || raw < 1) return 8;
   return Math.floor(raw);
 }
 

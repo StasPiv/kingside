@@ -71,7 +71,9 @@ describe('triggerPveGeneration (KS-2775)', () => {
     const r = await triggerPveGeneration({
       importId: '5597fa39-1f6d-4308-8ade-9d1d6ad03c80',
       logger,
-      env: ENV_OK,
+      // PVE_SHARD_COUNT=1 → один RunTask без шард-флагов, чтобы тест
+      // не ловил 8-кратный fan-out (см. отдельный тест на дефолт-8).
+      env: { ...ENV_OK, PVE_SHARD_COUNT: '1' },
       ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
       runTaskCommandFactory: cmdFactory,
     });
@@ -107,17 +109,12 @@ describe('triggerPveGeneration (KS-2775)', () => {
       'sg-xxx',
     ]);
     expect(input.overrides.containerOverrides[0].name).toBe('tactic-worker');
+    // KS-4388: команда переключена на новый CLI Maia-difficulty.
     expect(input.overrides.containerOverrides[0].command).toEqual([
       'node',
       'dist/main.js',
-      'generate-puzzles',
-      '--solution-mode=play-vs-engine',
-      '--import-id=5597fa39-1f6d-4308-8ade-9d1d6ad03c80',
-      '--exclude-used',
-      '--min-rating=2400',
-      '--max-games=inf',
-      '--time-ms=1000',
-      '--half-moves-n=6',
+      'generate-tactic-puzzles-from-twic',
+      '--limit=none',
     ]);
 
     expect(logger.log).toHaveBeenCalledWith(
@@ -187,7 +184,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
 
   // ─── KS-3396: горизонтальный шардинг ──────────────────────────────
 
-  it('PVE_SHARD_COUNT=3 → 3 RunTask с --shard=0/3,1/3,2/3', async () => {
+  it('PVE_SHARD_COUNT=3 → 3 RunTask с --shard-index=i --shard-count=3', async () => {
     const logger = makeLogger();
     let n = 0;
     const ecsClient = {
@@ -211,19 +208,45 @@ describe('triggerPveGeneration (KS-2775)', () => {
     expect(r.reason).toBeUndefined();
     expect(cmdFactory).toHaveBeenCalledTimes(3);
 
-    // Каждый RunTask несёт корректный --shard=i/3.
+    // Каждый RunTask несёт корректный --shard-index=i + --shard-count=3.
     const shardFlags = cmdFactory.mock.calls.map((c) => {
       const input = c[0] as {
         overrides: { containerOverrides: Array<{ command: string[] }> };
       };
-      return input.overrides.containerOverrides[0].command.find((a) =>
-        a.startsWith('--shard='),
-      );
+      const cmd = input.overrides.containerOverrides[0].command;
+      const idx = cmd.find((a) => a.startsWith('--shard-index='));
+      const cnt = cmd.find((a) => a.startsWith('--shard-count='));
+      return { idx, cnt };
     });
-    expect(shardFlags).toEqual(['--shard=0/3', '--shard=1/3', '--shard=2/3']);
+    expect(shardFlags).toEqual([
+      { idx: '--shard-index=0', cnt: '--shard-count=3' },
+      { idx: '--shard-index=1', cnt: '--shard-count=3' },
+      { idx: '--shard-index=2', cnt: '--shard-count=3' },
+    ]);
   });
 
-  it('PVE_SHARD_COUNT=1 (default) → один RunTask без --shard', async () => {
+  it('PVE_SHARD_COUNT не задан → дефолт 8 шардов (KS-4388)', async () => {
+    const logger = makeLogger();
+    let n = 0;
+    const ecsClient = {
+      send: jest.fn().mockImplementation(async () => ({
+        tasks: [{ taskArn: `arn:task/shard-${n++}` }],
+      })),
+    };
+    const cmdFactory = jest.fn().mockImplementation((input) => ({ __cmd: input }));
+    const r = await triggerPveGeneration({
+      importId: 'imp-default-shard',
+      logger,
+      env: ENV_OK, // без PVE_SHARD_COUNT
+      ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
+      runTaskCommandFactory: cmdFactory,
+    });
+    expect(r.triggered).toBe(true);
+    expect(r.shardCount).toBe(8);
+    expect(r.taskArns).toHaveLength(8);
+  });
+
+  it('PVE_SHARD_COUNT=1 → один RunTask без --shard-index/--shard-count', async () => {
     const logger = makeLogger();
     const ecsClient = {
       send: jest.fn().mockResolvedValue({ tasks: [{ taskArn: 'arn:task/solo' }] }),
@@ -244,7 +267,8 @@ describe('triggerPveGeneration (KS-2775)', () => {
       overrides: { containerOverrides: Array<{ command: string[] }> };
     };
     const cmd = input.overrides.containerOverrides[0].command;
-    expect(cmd.some((a) => a.startsWith('--shard='))).toBe(false);
+    expect(cmd.some((a) => a.startsWith('--shard-index='))).toBe(false);
+    expect(cmd.some((a) => a.startsWith('--shard-count='))).toBe(false);
   });
 
   it('частичный успех: один шард упал → triggered=true, reason=partial, taskArns только успешные', async () => {
