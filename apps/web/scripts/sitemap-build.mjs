@@ -22,15 +22,11 @@ const APP_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(APP_DIR, 'dist');
 const ROUTES_FILE = path.join(APP_DIR, 'src/config/publicRoutes.ts');
 const TARGET = path.join(DIST_DIR, 'sitemap.xml');
-// KS-4403 → KS-4418 (ADR-137 rev2 T10). JSON-файл `blog-sitemap-data.json`
-// раньше содержал срез статей блога для бекенд-секции `sitemap-blog.xml`.
-// После перевода блога в БД (T1/T7/T8) backend читает статьи из БД
-// напрямую — этот JSON больше не источник правды. Пока оставляем
-// генерацию пустого файла `{"articles":[]}` ради совместимости с
-// `scripts/deploy-aws.sh` (он публикует файл в bucket
-// `kingside-prerender-store`); саму публикацию и эту запись уберёт
-// T14 единой правкой с devops.
-const BLOG_SITEMAP_DATA_TARGET = path.join(DIST_DIR, 'blog-sitemap-data.json');
+// KS-4403 → KS-4418 → KS-4422 (ADR-137 rev2 T14). Раньше скрипт писал
+// `dist/blog-sitemap-data.json` для бекенд-секции `sitemap-blog.xml`.
+// В rev2 backend читает статьи из БД напрямую (T5), JSON-файл
+// больше не нужен и его публикация уже снята из `scripts/deploy-aws.sh`.
+// Здесь генерация файла удалена.
 
 const PUBLIC_BASE_URL = (
   process.env.PUBLIC_BASE_URL || 'https://kingside.site'
@@ -117,24 +113,6 @@ function build() {
   fs.writeFileSync(TARGET, lines.join('\n'), 'utf-8');
   console.log(
     `sitemap: ok (${publicRoutes.length} public routes → ${path.relative(APP_DIR, TARGET)})`,
-  );
-
-  // KS-4418 / ADR-137 rev2 T10. Источник статей блога переехал в БД,
-  // backend читает их напрямую — публикуем пустой массив; реальная
-  // sitemap-секция блога живёт в `sitemap-blog.xml` на стороне API.
-  // Сам факт публикации этого JSON в S3 (`scripts/deploy-aws.sh`)
-  // и эту запись уберёт T14.
-  const articles = [];
-  fs.writeFileSync(
-    BLOG_SITEMAP_DATA_TARGET,
-    `${JSON.stringify({ articles }, null, 2)}\n`,
-    'utf-8',
-  );
-  console.log(
-    `blog-sitemap-data: ok (${articles.length} articles → ${path.relative(
-      APP_DIR,
-      BLOG_SITEMAP_DATA_TARGET,
-    )})`,
   );
 }
 
