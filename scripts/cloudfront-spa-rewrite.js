@@ -3,6 +3,10 @@
 // для всего остального.
 //
 // Логика:
+//   - URI вида /tactic-puzzles или /tactic-puzzles/... → 301-перенаправление
+//     на /critical-moment$1 с сохранением query-string (KS-4386, T3 KS-4383).
+//     API /api/tactic-puzzles/* идёт к backend через другой Behavior CF и
+//     этой функцией не обрабатывается — для него правило не применяется.
 //   - URI содержит точку (статика: .js/.css/.png/...) → пропускаем как есть
 //   - URI === "/" → пропускаем (DefaultRootObject отдаст /index.html)
 //   - URI вида "/<route>" или "/<route>/" и <route> в publicRoutes
@@ -15,6 +19,41 @@
 function handler(event) {
     var request = event.request;
     var uri = request.uri;
+
+    // KS-4386: 301 /tactic-puzzles(/.*)? → /critical-moment$1
+    // Условие: URI == '/tactic-puzzles' либо начинается с '/tactic-puzzles/'.
+    // Hash (#…) браузер серверу не шлёт — сохранится автоматически на стороне
+    // клиента при следовании 301-ответу. Query-string копируем явно.
+    if (uri === '/tactic-puzzles' || uri.indexOf('/tactic-puzzles/') === 0) {
+        var newUri = '/critical-moment' + uri.substring('/tactic-puzzles'.length);
+        var qsString = '';
+        var qs = request.querystring;
+        if (qs) {
+            var parts = [];
+            for (var k in qs) {
+                if (qs[k].multiValue) {
+                    for (var i = 0; i < qs[k].multiValue.length; i++) {
+                        parts.push(k + '=' + qs[k].multiValue[i].value);
+                    }
+                } else if (qs[k].value !== undefined) {
+                    parts.push(k + '=' + qs[k].value);
+                } else {
+                    parts.push(k);
+                }
+            }
+            if (parts.length > 0) {
+                qsString = '?' + parts.join('&');
+            }
+        }
+        return {
+            statusCode: 301,
+            statusDescription: 'Moved Permanently',
+            headers: {
+                'location': { value: newUri + qsString },
+                'cache-control': { value: 'public, max-age=3600' }
+            }
+        };
+    }
 
     if (uri.indexOf('.') !== -1) {
         return request;
