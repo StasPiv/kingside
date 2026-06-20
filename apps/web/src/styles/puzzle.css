@@ -7681,3 +7681,133 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
   text-decoration: none;
   font-weight: 600;
 }
+
+/* ============================================================
+ * KS-4362 / ADR-136 T10 — страница /tactic-puzzles/mistakes.
+ * Сетка карточек нерешённых ошибок (по образцу .tactic-puzzles-history).
+ * ============================================================ */
+.tactic-puzzles-mistakes {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tactic-puzzles-mistakes__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tactic-puzzles-mistakes__intro {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.tactic-puzzles-mistakes__status {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 16px;
+}
+.tactic-puzzles-mistakes__status--error { color: var(--danger); }
+.tactic-puzzles-mistakes__status--empty { color: var(--text-secondary); }
+
+.tactic-puzzles-mistakes__guest {
+  text-align: center;
+  padding: 24px;
+}
+.tactic-puzzles-mistakes__guest-cta {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.tactic-puzzles-mistakes__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.tactic-puzzles-mistakes__card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.tactic-puzzles-mistakes__card[data-resolved="true"] {
+  opacity: 0.6;
+}
+
+.tactic-puzzles-mistakes__board {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  text-decoration: none;
+}
+.tactic-puzzles-mistakes__board > * { pointer-events: none; }
+
+.tactic-puzzles-mistakes__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.tactic-puzzles-mistakes__players {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.tactic-puzzles-mistakes__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.tactic-puzzles-mistakes__objective {
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  color: var(--accent-primary, #7c83ff);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tactic-puzzles-mistakes__last-reason {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.tactic-puzzles-mistakes__stop-reason {
+  color: var(--danger, #ef4444);
+  font-weight: 600;
+}
+
+.tactic-puzzles-mistakes__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.tactic-puzzles-mistakes__added {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.tactic-puzzles-mistakes__actions {
+  display: flex;
+  gap: 6px;
+}
+
+@media (max-width: 600px) {
+  .tactic-puzzles-mistakes__list {
+    grid-template-columns: 1fr;
+  }
+}

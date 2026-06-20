@@ -18,6 +18,7 @@ import type {
   SubmitTacticAttemptResponse,
   TacticAttemptDetail,
   TacticAttemptListPage,
+  TacticMistakeListPage,
   TacticPuzzleBrowsePage,
   TacticPuzzleBrowseQuery,
   TacticPuzzleResponse,
@@ -115,9 +116,44 @@ export const tacticPuzzleApi = {
     );
   },
 
-  /** Журнал текущих ошибок пользователя. */
+  /**
+   * Legacy-журнал ошибок (ADR-135 §2.4). Сохранён для обратной
+   * совместимости. Новые UI (KS-4362) ходят в `listMistakes`.
+   */
   getMistakes(): Promise<TacticUserMistakesPage> {
     return api.get<TacticUserMistakesPage>(`${BASE}/mistakes`);
+  },
+
+  /**
+   * KS-4362 / ADR-136 T10. Журнал нерешённых ошибок текущего
+   * пользователя с cursor-пагинацией. Контракт — `TacticMistakeListPage`
+   * (включает `playersTitle` и `lastStopReason` для UI «работа над
+   * ошибками»).
+   */
+  listMistakes(
+    cursor: string | null = null,
+    limit = 30,
+    signal?: AbortSignal,
+  ): Promise<TacticMistakeListPage> {
+    const qs = new URLSearchParams();
+    qs.set('limit', String(limit));
+    if (cursor) qs.set('cursor', cursor);
+    return api.get<TacticMistakeListPage>(
+      `${BASE}/mistakes?${qs.toString()}`,
+      signal ? { signal } : undefined,
+    );
+  },
+
+  /**
+   * KS-4362. Ручной резолв ошибки — пользователь сам отметил, что
+   * больше не хочет видеть пазл в журнале. После `solved=true` в
+   * `submitAttempt` backend резолвит автоматически.
+   */
+  resolveMistake(puzzleId: string): Promise<{ resolved: true }> {
+    return api.post<{ resolved: true }>(
+      `${BASE}/mistakes/${encodeURIComponent(puzzleId)}/resolve`,
+      {},
+    );
   },
 
   /**

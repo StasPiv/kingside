@@ -2173,6 +2173,27 @@
       "stats": "Stats",
       "mistakes": "Mistakes"
     },
+    "mistakes": {
+      "title": "Mistake review",
+      "intro": "Puzzles you failed and have not closed yet. Solve them again and they will drop from the list automatically.",
+      "empty": "Your mistakes journal is empty. Keep practicing and revisit failed puzzles here.",
+      "guestTitle": "Sign in to see your mistakes",
+      "guestMessage": "The mistakes journal is available to signed-in players only.",
+      "loadError": "Could not load mistakes.",
+      "playersFallback": "No source game",
+      "labels": {
+        "difficulty": "Difficulty",
+        "lastStopReason": "Last attempt",
+        "addedAt": "Added",
+        "themes": "Themes"
+      },
+      "actions": {
+        "replay": "Replay",
+        "resolve": "Remove",
+        "resolving": "Removing…"
+      },
+      "resolveError": "Could not remove puzzle from the list."
+    },
     "attempt": {
       "title": "Attempt review #{{id}}",
       "playedAt": "Played",
@@ -4597,6 +4618,10 @@
       "stats": {
         "title": "Stats — tactics training — Kingside",
         "description": "Current rating, totals and breakdowns by stop reason, objective and difficulty — your personal Tactics summary on Kingside."
+      },
+      "mistakes": {
+        "title": "Mistake review — tactics training — Kingside",
+        "description": "Puzzles you failed in the Tactics section. Solve them again — the list clears itself."
       },
       "detail": {
         "title": "{{playersTitle}} — tactic puzzle {{difficulty}}% — Kingside",
