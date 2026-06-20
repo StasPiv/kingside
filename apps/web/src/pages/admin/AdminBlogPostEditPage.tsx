@@ -19,7 +19,7 @@
  * slug: при пустом значении в режиме create — автогенерация из
  * `title` (kebab-case, латиница). Пользователь может перезаписать.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -36,13 +36,29 @@ import {
 
 const PREVIEW_DEBOUNCE_MS = 500;
 
+// KS-4447 / ADR-138 T9. Клиентская валидация обложки. Серверный
+// whitelist (BlogMediaService) шире не делаем — должен совпадать.
+const COVER_MAX_BYTES = 5 * 1024 * 1024;
+const COVER_ALLOWED_MIME = ['image/png', 'image/jpeg', 'image/webp'] as const;
+const COVER_ACCEPT = COVER_ALLOWED_MIME.join(',');
+
 interface FormState {
   slug: string;
   locale: BlogLocale;
   title: string;
   description: string;
   bodyMd: string;
+  // KS-4447. Текущая обложка статьи (присылается с GET и обновляется
+  // ответом T10). Просто URL — отображается как `<img src>` рядом с
+  // file-input.
   coverUrl: string;
+  // KS-4447. Новый файл, выбранный пользователем в этой сессии. Если
+  // не `null` — отправляется в FormData (логика отправки — T10).
+  coverFile: File | null;
+  // KS-4447. Флаг «убрать текущую обложку» (без замены). Ставится
+  // кнопкой «Убрать обложку»; обнуляется выбором нового файла.
+  // T10 передаст его на бэк как отдельное поле формы.
+  coverReset: boolean;
   coverAlt: string;
   tags: string; // comma-separated в UI; в API уходит string[]
   relatedRoute: string;
@@ -58,6 +74,8 @@ const EMPTY: FormState = {
   description: '',
   bodyMd: '',
   coverUrl: '',
+  coverFile: null,
+  coverReset: false,
   coverAlt: '',
   tags: '',
   relatedRoute: '',
@@ -133,6 +151,8 @@ export function AdminBlogPostEditPage() {
           description: res.description,
           bodyMd: res.bodyMd,
           coverUrl: res.coverUrl ?? '',
+          coverFile: null,
+          coverReset: false,
           coverAlt: res.coverAlt ?? '',
           tags: res.tags.join(', '),
           relatedRoute: res.relatedRoute ?? '',
@@ -183,6 +203,89 @@ export function AdminBlogPostEditPage() {
       window.clearTimeout(handle);
     };
   }, [form.bodyMd]);
+
+  // ─── Cover (KS-4447) ───────────────────────────────────────────────
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [coverError, setCoverError] = useState<string | null>(null);
+  // Объект-URL живёт пока выбран coverFile. На смене файла (или при
+  // размонтировании) обязательно revoke — иначе утечка blob в памяти.
+  const coverPreviewUrl = useMemo<string | null>(() => {
+    if (!form.coverFile) return null;
+    return URL.createObjectURL(form.coverFile);
+  }, [form.coverFile]);
+  useEffect(() => {
+    if (!coverPreviewUrl) return;
+    return () => {
+      URL.revokeObjectURL(coverPreviewUrl);
+    };
+  }, [coverPreviewUrl]);
+
+  const validateCoverFile = useCallback(
+    (file: File): string | null => {
+      if (!(COVER_ALLOWED_MIME as readonly string[]).includes(file.type)) {
+        return t(
+          'admin.blog.edit.coverInvalidMime',
+          'Only PNG, JPEG, WebP supported',
+        );
+      }
+      if (file.size > COVER_MAX_BYTES) {
+        return t('admin.blog.edit.coverTooLarge', 'File larger than 5 MB');
+      }
+      return null;
+    },
+    [t],
+  );
+
+  const onCoverFileSelected = useCallback(
+    (file: File | null) => {
+      if (!file) {
+        setForm((prev) => ({ ...prev, coverFile: null }));
+        setCoverError(null);
+        return;
+      }
+      const err = validateCoverFile(file);
+      if (err) {
+        setCoverError(err);
+        setForm((prev) => ({ ...prev, coverFile: null }));
+        // Сбрасываем сам инпут, чтобы повторный выбор того же файла
+        // снова срабатывал.
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+      setCoverError(null);
+      // Выбор нового файла снимает «убрать обложку» и заменит старую.
+      setForm((prev) => ({ ...prev, coverFile: file, coverReset: false }));
+    },
+    [validateCoverFile],
+  );
+
+  const onCoverPickClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const onCoverClear = useCallback(() => {
+    setCoverError(null);
+    setForm((prev) => ({ ...prev, coverFile: null }));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
+  const onCoverRemoveExisting = useCallback(() => {
+    setCoverError(null);
+    setForm((prev) => ({
+      ...prev,
+      coverFile: null,
+      coverReset: true,
+    }));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
+  const onCoverUndoRemove = useCallback(() => {
+    setForm((prev) => ({ ...prev, coverReset: false }));
+  }, []);
+
+  const hasExistingCover = Boolean(form.coverUrl) && !form.coverReset;
+  const hasNewCover = Boolean(form.coverFile);
+  const coverAltRequired = hasNewCover || hasExistingCover;
 
   // ─── Handlers ──────────────────────────────────────────────────────
   const update = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -391,26 +494,167 @@ export function AdminBlogPostEditPage() {
             </select>
           </label>
 
-          <div className="admin-blog-edit__row">
-            <label className="admin-blog-edit__row-item">
-              <span>{t('admin.blog.edit.fieldCoverUrl', 'Cover URL')}</span>
-              <input
-                type="text"
-                value={form.coverUrl}
-                onChange={(e) => update('coverUrl', e.target.value)}
-                maxLength={2000}
-                data-testid="admin-blog-edit-cover-url"
-              />
-            </label>
-            <label className="admin-blog-edit__row-item">
-              <span>{t('admin.blog.edit.fieldCoverAlt', 'Cover alt')}</span>
+          {/* KS-4447 / ADR-138 T9. Обложка статьи. Состояния:
+              — нет старой / новой → только кнопка выбора файла;
+              — есть только сохранённая (`coverUrl`) → её img + «Заменить»/«Убрать»;
+              — выбрана новая (`coverFile`) → её предпросмотр + «Удалить выбор»;
+              — стоит `coverReset` (старую убрали, новой нет) → плашка
+                «обложка будет удалена» + кнопка «Отменить».
+              Сама отправка multipart — T10. */}
+          <div
+            className="admin-blog-edit__cover"
+            data-testid="admin-blog-edit-cover"
+          >
+            <div className="admin-blog-edit__cover-label">
+              <span>{t('admin.blog.edit.fieldCover', 'Cover image')}</span>
+              <span className="admin-blog-edit__cover-hint">
+                {t(
+                  'admin.blog.edit.coverHint',
+                  'PNG / JPEG / WebP, up to 5 MB',
+                )}
+              </span>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={COVER_ACCEPT}
+              hidden
+              onChange={(e) =>
+                onCoverFileSelected(e.target.files?.[0] ?? null)
+              }
+              data-testid="admin-blog-edit-cover-file"
+            />
+
+            {hasNewCover && coverPreviewUrl && (
+              <div
+                className="admin-blog-edit__cover-preview"
+                data-testid="admin-blog-edit-cover-preview-new"
+              >
+                <img
+                  src={coverPreviewUrl}
+                  alt={
+                    form.coverAlt ||
+                    t('admin.blog.edit.coverPreviewAlt', 'Cover preview')
+                  }
+                />
+                <div className="admin-blog-edit__cover-actions">
+                  <button
+                    type="button"
+                    className="play-btn play-btn--compact"
+                    onClick={onCoverPickClick}
+                  >
+                    {t('admin.blog.edit.coverReplace', 'Replace')}
+                  </button>
+                  <button
+                    type="button"
+                    className="play-btn play-btn--compact play-btn--ghost"
+                    onClick={onCoverClear}
+                    data-testid="admin-blog-edit-cover-clear-new"
+                  >
+                    {t('admin.blog.edit.coverClearNew', 'Discard selection')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!hasNewCover && hasExistingCover && (
+              <div
+                className="admin-blog-edit__cover-preview"
+                data-testid="admin-blog-edit-cover-preview-existing"
+              >
+                <img
+                  src={form.coverUrl}
+                  alt={
+                    form.coverAlt ||
+                    t('admin.blog.edit.coverCurrentAlt', 'Current cover')
+                  }
+                />
+                <div className="admin-blog-edit__cover-actions">
+                  <button
+                    type="button"
+                    className="play-btn play-btn--compact"
+                    onClick={onCoverPickClick}
+                  >
+                    {t('admin.blog.edit.coverReplace', 'Replace')}
+                  </button>
+                  <button
+                    type="button"
+                    className="play-btn play-btn--compact play-btn--danger"
+                    onClick={onCoverRemoveExisting}
+                    data-testid="admin-blog-edit-cover-remove"
+                  >
+                    {t('admin.blog.edit.coverRemove', 'Remove cover')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!hasNewCover && !hasExistingCover && form.coverReset && (
+              <div
+                className="admin-blog-edit__cover-reset-notice"
+                data-testid="admin-blog-edit-cover-reset-notice"
+              >
+                <span>
+                  {t(
+                    'admin.blog.edit.coverResetNotice',
+                    'Cover will be removed on save.',
+                  )}
+                </span>
+                <button
+                  type="button"
+                  className="play-btn play-btn--compact play-btn--ghost"
+                  onClick={onCoverUndoRemove}
+                >
+                  {t('admin.blog.edit.coverResetUndo', 'Undo')}
+                </button>
+              </div>
+            )}
+
+            {!hasNewCover && !hasExistingCover && !form.coverReset && (
+              <button
+                type="button"
+                className="play-btn play-btn--compact"
+                onClick={onCoverPickClick}
+                data-testid="admin-blog-edit-cover-pick"
+              >
+                {t('admin.blog.edit.coverPick', 'Choose file')}
+              </button>
+            )}
+
+            {coverError && (
+              <p
+                className="admin-blog-edit__cover-error"
+                data-testid="admin-blog-edit-cover-error"
+              >
+                {coverError}
+              </p>
+            )}
+
+            <label className="admin-blog-edit__cover-alt">
+              <span>
+                {t('admin.blog.edit.fieldCoverAlt', 'Cover alt')}
+                {coverAltRequired && ' *'}
+              </span>
               <input
                 type="text"
                 value={form.coverAlt}
                 onChange={(e) => update('coverAlt', e.target.value)}
                 maxLength={500}
+                required={coverAltRequired}
                 data-testid="admin-blog-edit-cover-alt"
               />
+              <span className="admin-blog-edit__cover-hint">
+                {coverAltRequired
+                  ? t(
+                      'admin.blog.edit.coverAltRequired',
+                      'Alt text is required when an image is attached.',
+                    )
+                  : t(
+                      'admin.blog.edit.coverAltOptional',
+                      'Optional when there is no image.',
+                    )}
+              </span>
             </label>
           </div>
 
