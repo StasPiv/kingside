@@ -16,7 +16,6 @@ import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
 import type {
   TacticPuzzleBrowseQuery,
-  TacticPuzzleObjective,
   TacticPuzzleResponse,
 } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
@@ -47,12 +46,6 @@ export function TacticPuzzlesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const objectiveParam = searchParams.get('objective');
-  const objective: TacticPuzzleObjective | 'all' =
-    objectiveParam === 'convertAdvantage' || objectiveParam === 'saveEquality'
-      ? objectiveParam
-      : 'all';
-
   // KS-4366: фильтр по «решал/не решал». Гостю backend параметр
   // игнорирует — поэтому переключатель показываем только авторизованным.
   const solvedParam = searchParams.get('solved');
@@ -65,14 +58,13 @@ export function TacticPuzzlesPage() {
 
   const filters = useMemo<TacticPuzzleBrowseQuery>(
     () => ({
-      objective: objective === 'all' ? undefined : objective,
       solved:
         !user || solvedFilter === 'all'
           ? undefined
           : solvedFilter === 'solved',
       limit: LIMIT,
     }),
-    [objective, solvedFilter, user],
+    [solvedFilter, user],
   );
 
   const { puzzles, loading, loadingMore, error, hasMore, loadMore } =
@@ -186,42 +178,6 @@ export function TacticPuzzlesPage() {
             {startError}
           </p>
         )}
-
-        <nav
-          className="precision-objective-segments"
-          data-testid="tactic-puzzles-objective-segments"
-          aria-label={t('tacticPuzzle.objective.label')}
-          role="tablist"
-        >
-          {(['all', 'convertAdvantage', 'saveEquality'] as const).map((key) => {
-            const active = objective === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={`precision-objective-segment${
-                  active ? ' precision-objective-segment--active' : ''
-                }`}
-                data-testid={`tactic-puzzles-objective-${key}`}
-                data-active={active ? 'true' : 'false'}
-                onClick={() => {
-                  const sp = new URLSearchParams(searchParams);
-                  if (key === 'all') sp.delete('objective');
-                  else sp.set('objective', key);
-                  setSearchParams(sp, { replace: false });
-                }}
-              >
-                {key === 'all'
-                  ? t('tacticPuzzle.objective.all')
-                  : key === 'convertAdvantage'
-                    ? t('puzzle.objective.convertAdvantage')
-                    : t('puzzle.objective.saveEquality')}
-              </button>
-            );
-          })}
-        </nav>
 
         {/* KS-4366: фильтр-сегмент по «решал/не решал». Гостю backend
             параметр игнорирует, поэтому переключатель скрыт. */}
@@ -356,14 +312,6 @@ export function TacticPuzzlesPage() {
                       {orientation === 'white'
                         ? t('drills.side.whiteToMove')
                         : t('drills.side.blackToMove')}
-                    </span>
-                    <span
-                      className="play-vs-engine-card__objective"
-                      data-objective={p.objective}
-                    >
-                      {p.objective === 'convertAdvantage'
-                        ? t('puzzle.objective.convertAdvantage')
-                        : t('puzzle.objective.saveEquality')}
                     </span>
                   </div>
                   <div

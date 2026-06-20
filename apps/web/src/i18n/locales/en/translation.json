@@ -2151,10 +2151,6 @@
     "gridEmpty": "No puzzles yet — the bank is still being filled.",
     "difficulty": "Difficulty",
     "rating": "Rating",
-    "objective": {
-      "label": "Puzzle type",
-      "all": "All"
-    },
     "solvedFilter": {
       "label": "Progress",
       "all": "All",
