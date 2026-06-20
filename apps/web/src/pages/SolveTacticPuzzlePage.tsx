@@ -26,6 +26,7 @@ import type {
 } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { PageSeo } from '../components/seo/PageSeo';
+import { SeoHelmet } from '../components/seo/SeoHelmet';
 import {
   TacticPuzzleRunner,
   type TacticPuzzleRunnerSubmit,
@@ -221,13 +222,62 @@ export function SolveTacticPuzzlePage() {
 
   const puzzleShortId = puzzle ? puzzle.id.slice(0, 8) : '';
 
+  /**
+   * KS-4351. SEO-теги собираем динамически по `puzzle`. Если у пазла
+   * есть имена белых/чёрных в `sourceHeaders` — шаблон с фамилиями
+   * («Kuzubov,Y − Kasimdzhanov,R — задача …»); иначе — запасной с
+   * коротким идентификатором.
+   */
+  const hasPlayers = Boolean(
+    puzzle?.sourceHeaders?.White || puzzle?.sourceHeaders?.Black,
+  );
+  const seoVars = puzzle
+    ? {
+        playersTitle: `${puzzle.sourceHeaders?.White ?? '?'} − ${
+          puzzle.sourceHeaders?.Black ?? '?'
+        }`,
+        eventSuffix: puzzle.sourceHeaders?.Event
+          ? ` (${puzzle.sourceHeaders.Event}${
+              puzzle.sourceHeaders?.Date
+                ? `, ${puzzle.sourceHeaders.Date}`
+                : ''
+            })`
+          : '',
+        difficulty: Math.round(puzzle.difficulty * 100),
+        shortId: puzzleShortId,
+      }
+    : {};
+  const seoTitleKey = hasPlayers
+    ? 'seo.tacticPuzzles.detail.title'
+    : 'seo.tacticPuzzles.detail.titleNoPlayers';
+  const seoDescriptionKey = hasPlayers
+    ? 'seo.tacticPuzzles.detail.description'
+    : 'seo.tacticPuzzles.detail.descriptionNoPlayers';
+  const seoCanonical = puzzle
+    ? `https://kingside.site/tactic-puzzles/${puzzle.id}`
+    : 'https://kingside.site/tactic-puzzles';
+
   return (
     <div
       className="puzzle-page tactic-puzzle-solve"
       data-testid="tactic-puzzle-solve"
       data-state={loading ? 'loading' : error ? 'error' : 'ready'}
     >
-      <PageSeo ns="tacticPuzzle.solve" path="/tactic-puzzles" />
+      {/* KS-4351. На странице решения title/description зависят от
+          данных пазла (имена игроков, сложность). Используем SeoHelmet
+          напрямую — PageSeo рассчитан на статический ns без выбора
+          между двумя шаблонами «с игроками / без». Пока пазл грузится,
+          оставляем статический SEO раздела. */}
+      {puzzle ? (
+        <SeoHelmet
+          title={t(seoTitleKey, seoVars)}
+          description={t(seoDescriptionKey, seoVars)}
+          canonical={seoCanonical}
+          ogType="article"
+        />
+      ) : (
+        <PageSeo ns="tacticPuzzles.list" path="/tactic-puzzles" />
+      )}
       {/* KS-4347: хлебные крошки «Главная / Точность / Задача #...»
           по образцу /precision (`PuzzlePage.renderHeader`). Используем
           существующие CSS-классы `.puzzle-breadcrumbs*` — единый стиль. */}

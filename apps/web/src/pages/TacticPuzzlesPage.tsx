@@ -142,7 +142,7 @@ export function TacticPuzzlesPage() {
       data-testid="tactic-puzzles"
       data-state={pageState}
     >
-      <PageSeo ns="tacticPuzzle.list" path="/tactic-puzzles" />
+      <PageSeo ns="tacticPuzzles.list" path="/tactic-puzzles" />
       <header className="play-vs-engine-puzzles__header">
         <h1>{t('tacticPuzzle.title')}</h1>
         <p className="play-vs-engine-puzzles__intro">

@@ -61,6 +61,12 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   { path: '/drills', priority: 0.5, changefreq: 'weekly' },
   { path: '/lessons', priority: 0.7, changefreq: 'daily' },
   { path: '/precision', priority: 0.6, changefreq: 'weekly' },
+  // KS-4351: новый раздел «Точность» на схеме tactic_puzzles (ADR-135).
+  // SEO-теги собираются в `TacticPuzzlesPage`/`SolveTacticPuzzlePage`
+  // через `PageSeo`/`SeoHelmet` (ключи `seo.tacticPuzzles.*`). prerender
+  // снимет snapshot каталога; страницы решения (`:id`) индексируются
+  // через SPA-канонические URL'ы.
+  { path: '/tactic-puzzles', priority: 0.6, changefreq: 'weekly' },
   { path: '/games/live', priority: 0.5, changefreq: 'daily' },
   // KS-4272: страницы inline-footer на гостевом лендинге. Без prerender
   // CloudFront/S3 отдавал `dist/index.html` (снимок главной с тем же

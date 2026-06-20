@@ -4447,6 +4447,18 @@
         "title": "Watch chess game — Kingside",
         "description": "Watch a chess game live on Kingside."
       }
+    },
+    "tacticPuzzles": {
+      "list": {
+        "title": "Tactic puzzles — Maia + Stockfish chess problems — Kingside",
+        "description": "Chess puzzles where a strong engine punishes any inaccuracy. Difficulty is calibrated for Maia 2400 players; each puzzle continues only while the board still has a single best move."
+      },
+      "detail": {
+        "title": "{{playersTitle}} — tactic puzzle {{difficulty}}% — Kingside",
+        "titleNoPlayers": "Tactic puzzle #{{shortId}} — {{difficulty}}% difficulty — Kingside",
+        "description": "Tactic puzzle from {{playersTitle}}{{eventSuffix}}. Difficulty {{difficulty}}%. Find the single strong move on Kingside.",
+        "descriptionNoPlayers": "Kingside tactic puzzle (#{{shortId}}). Difficulty {{difficulty}}%. Find the only strong move and keep the line alive until the engine confirms a draw."
+      }
     }
   }
 }
