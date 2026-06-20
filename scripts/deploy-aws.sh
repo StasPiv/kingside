@@ -140,23 +140,59 @@ deploy_scope_lock_file() {
 
 # Описание holder'а: читаем метаданные из lock-файла + вычисляем возраст.
 # Аргументы: $1 — путь к lock-файлу, $2 — префикс лога ("master" / "scope/api").
+#
+# KS-4341/KS-4354: добавлен детект «реально ли занят lock». flock(2) — это
+# advisory lock на fd, ядро освобождает его при смерти flock-parent
+# автоматически. Файл-метаданные после crash может остаться пустым или с
+# мёртвым PID — это НЕ блокировка, просто визуальный мусор. Если probe
+# в acquire_deploy_locks выдал «busy», но holder PID мёртв или файл пуст —
+# реальная проблема НЕ в lock-файле (значит другой живой процесс держит
+# fd, race на старте). Печатаем явно, чтобы не вводить читателя в
+# заблуждение.
 _deploy_lock_print_holder() {
     local lock_file="$1"
     local label="$2"
-    local holder_info lock_mtime now age
+    local holder_info lock_mtime now age holder_pid pid_status file_size
     holder_info="$(cat "$lock_file" 2>/dev/null || echo '<no metadata>')"
     if ! lock_mtime=$(stat -c '%Y' "$lock_file" 2>/dev/null); then
         lock_mtime=$(stat -f '%m' "$lock_file" 2>/dev/null || echo 0)
+    fi
+    if ! file_size=$(stat -c '%s' "$lock_file" 2>/dev/null); then
+        file_size=$(stat -f '%z' "$lock_file" 2>/dev/null || echo 0)
     fi
     now=$(date +%s)
     age=$((now - lock_mtime))
     echo "[deploy-lock $label] Holder metadata:" >&2
     echo "$holder_info" | sed 's/^/  /' >&2
     echo "[deploy-lock $label] Lock age: ${age}s" >&2
-    if [ "$age" -gt "$DEPLOY_LOCK_STALE_WARN_SEC" ]; then
-        echo "[deploy-lock $label] WARN: lock is older than ${DEPLOY_LOCK_STALE_WARN_SEC}s — holder may be hung." >&2
-        echo "[deploy-lock $label] If you're sure the holder is dead, kill its PID — flock releases automatically." >&2
+
+    # Извлекаем PID из метаданных и проверяем — жив ли процесс.
+    holder_pid=$(echo "$holder_info" | grep -oE '^pid=[0-9]+' | head -1 | cut -d= -f2)
+    if [ "$file_size" = "0" ]; then
+        echo "[deploy-lock $label] DIAG: lock file is EMPTY — previous holder crashed before writing metadata." >&2
+        echo "[deploy-lock $label] DIAG: flock(2) on fd is the real lock; file content is informational only." >&2
+        pid_status="empty-file"
+    elif [ -n "$holder_pid" ]; then
+        if kill -0 "$holder_pid" 2>/dev/null; then
+            echo "[deploy-lock $label] DIAG: holder PID $holder_pid is ALIVE — real deploy in progress." >&2
+            pid_status="alive"
+        else
+            echo "[deploy-lock $label] DIAG: holder PID $holder_pid is DEAD — flock(2) on file is already released by kernel." >&2
+            echo "[deploy-lock $label] DIAG: if probe still fails, another (live) process is mid-acquire (race), retry in a moment." >&2
+            pid_status="dead"
+        fi
     else
+        echo "[deploy-lock $label] DIAG: no parseable pid= line in metadata; cannot verify holder liveness." >&2
+        pid_status="unparseable"
+    fi
+
+    if [ "$age" -gt "$DEPLOY_LOCK_STALE_WARN_SEC" ]; then
+        echo "[deploy-lock $label] WARN: lock is older than ${DEPLOY_LOCK_STALE_WARN_SEC}s." >&2
+        if [ "$pid_status" = "alive" ]; then
+            echo "[deploy-lock $label] WARN: holder may be hung — check what PID $holder_pid is doing." >&2
+        fi
+    fi
+    if [ "$pid_status" = "alive" ]; then
         echo "[deploy-lock $label] Retry after the current deploy completes." >&2
     fi
 }
@@ -197,7 +233,16 @@ acquire_deploy_locks() {
             # metadata показывала правильный режим).
             primary_lock_file="$(deploy_scope_lock_file "$scope")"
         fi
-        : > "$primary_lock_file"
+        # KS-4341/KS-4354: атомарная запись метаданных. Старый вариант
+        # `: > file; echo ... >> file` оставлял окно: если процесс убит
+        # между truncate и финальным append (SIGKILL, OOM, MCP-wrapper
+        # таймаут), файл остаётся пустым или полупустым. flock(2) сам
+        # освобождается ядром, но визуально файл «как будто заблокирован
+        # мёртвым PID» вводит читателя в заблуждение.
+        # Через mktemp+mv `mv` атомарен в пределах одной FS (renameat2):
+        # либо старое содержимое, либо полное новое — никакого окна.
+        local _meta_tmp
+        _meta_tmp="$(mktemp "${primary_lock_file}.XXXXXX")"
         {
             echo "pid=$$"
             echo "scope=$scope"
@@ -205,7 +250,8 @@ acquire_deploy_locks() {
             echo "started_at=$(date -Iseconds 2>/dev/null || date)"
             echo "started_unix=$(date +%s)"
             echo "host=$(hostname 2>/dev/null || echo unknown)"
-        } >> "$primary_lock_file"
+        } > "$_meta_tmp"
+        mv -f "$_meta_tmp" "$primary_lock_file"
         trap '_deploy_lock_release_trap' EXIT
         echo "[deploy-lock] Acquired (scope=$scope, pid=$$, agent=${AGENT_NAME:-${USER:-unknown}})"
         return 0
