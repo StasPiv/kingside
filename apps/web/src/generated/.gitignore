@@ -1,4 +1,0 @@
-# KS-4393 / ADR-137 T1. Содержимое генерируется vite-blog-plugin.mjs
-# на каждом dev/build — в репо не нужно.
-*
-!.gitignore

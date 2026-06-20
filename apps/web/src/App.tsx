@@ -554,7 +554,7 @@ export function App() {
             покрывает /blog (PUBLIC_ROUTES). */}
         <Route path="/blog" element={<BlogFeedPage />} />
         {/* KS-4398 (ADR-137 T4). Страница одной статьи. Slug-маршруты
-            добавляются в prerender через generated/blog-routes.ts на T6. */}
+            подгружаются с API; prerender перенесён на API в T13. */}
         <Route path="/blog/:slug" element={<BlogPostPage />} />
         {/* KS-4142 / ADR-128 §4: зал открыт гостю. Все игровые
             действия (matchmaking / challenge / Play vs Bot) обёрнуты

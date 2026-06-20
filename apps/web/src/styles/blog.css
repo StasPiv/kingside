@@ -176,7 +176,7 @@
 /* ============================================================
  * KS-4397 / ADR-137 T7. Страница одной статьи `/blog/:slug`.
  *
- * Тело статьи приходит из vite-blog-plugin как готовый HTML и
+ * Тело статьи приходит с API (`bodyHtml`, ADR-137 rev2) как готовый HTML и
  * рендерится через `dangerouslySetInnerHTML` внутри
  * `.blog-article__body`. Все теги (`h2`/`h3`/`p`/`ul`/`ol`/
  * `blockquote`/`pre`/`code`/`figure`/`img`/`table`/`a`/`hr`)

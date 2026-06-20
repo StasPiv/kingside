@@ -4,9 +4,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 import { execSync } from 'child_process';
 import fs from 'fs';
-// KS-4393 / ADR-137 T1. Блог-плагин: парсит content/blog/*.md +
-// держит generated/blog-index.ts + generated/blog-routes.ts.
-import vitePluginBlog from './scripts/vite-blog-plugin.mjs';
+// KS-4418 / ADR-137 rev2 T10. Прежний `vitePluginBlog` парсил
+// `content/blog/*.md` и держал авто-сгенерированный индекс. После
+// перевода блога на API (T7/T8) и удаления `lib/blog` (T9) плагин
+// больше ничего не питает — удалён вместе с генерируемыми файлами.
 
 function getVersion(): string {
   const now = new Date();
@@ -55,7 +56,6 @@ for (const key of Object.keys(perAppEnv)) {
 export default defineConfig({
   plugins: [
     versionPlugin(),
-    vitePluginBlog(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',

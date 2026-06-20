@@ -52,11 +52,12 @@ const __dirname = path.dirname(__filename);
 const APP_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(APP_DIR, 'dist');
 const ROUTES_FILE = path.join(APP_DIR, 'src/config/publicRoutes.ts');
-// KS-4400 / ADR-137 T6. Список статей блога генерируется vite-blog-plugin
-// (`buildStart`) и попадает в этот файл. Каждый элемент — конкретный
-// `/blog/<slug>`; локаль выбирается рантаймом, поэтому пререндерим
-// одну страницу на slug.
-const BLOG_ROUTES_FILE = path.join(APP_DIR, 'src/generated/blog-routes.ts');
+// KS-4418 / ADR-137 rev2 T10. Прежний источник блог-маршрутов —
+// файл с сгенерированным списком статей. После переезда блога в БД
+// (T7/T8) этого файла нет; конвейер предварительной отрисовки
+// блог-маршрутов будет перенесён на API в T13. Сейчас в реестре
+// только статичные маршруты из `publicRoutes.ts` (лента `/blog`
+// там уже есть).
 
 /* ------------------------- routes registry ------------------------- */
 
@@ -78,17 +79,6 @@ function loadRoutes() {
     throw new Error('prerender: PUBLIC_ROUTES is empty');
   }
   return routes;
-}
-
-function loadBlogRoutes() {
-  if (!fs.existsSync(BLOG_ROUTES_FILE)) return [];
-  const text = fs.readFileSync(BLOG_ROUTES_FILE, 'utf-8');
-  const m = text.match(/BLOG_ROUTES[^=]*=\s*\[([\s\S]*?)\];/);
-  if (!m) return [];
-  const re = /['"]([^'"]+)['"]/g;
-  const out = [];
-  for (const mm of m[1].matchAll(re)) out.push(mm[1]);
-  return out;
 }
 
 /* ------------------------- static server -------------------------- */
@@ -339,20 +329,9 @@ async function main() {
   if (!fs.existsSync(DIST_DIR) || !fs.existsSync(path.join(DIST_DIR, 'index.html'))) {
     throw new Error(`prerender: dist/ не собран. Запусти 'vite build' до prerender.`);
   }
-  const publicRoutes = loadRoutes();
-  const blogRoutes = loadBlogRoutes();
-  // Дедуп: если /blog уже в PUBLIC_ROUTES (лента), не дублируем.
-  const seen = new Set(publicRoutes);
-  const merged = [...publicRoutes];
-  for (const r of blogRoutes) {
-    if (!seen.has(r)) {
-      merged.push(r);
-      seen.add(r);
-    }
-  }
-  const routes = merged;
+  const routes = loadRoutes();
   console.log(
-    `prerender: ${routes.length} routes (${publicRoutes.length} public + ${blogRoutes.length} blog)`,
+    `prerender: ${routes.length} routes from ${path.relative(APP_DIR, ROUTES_FILE)}`,
   );
 
   const port = 4173;
