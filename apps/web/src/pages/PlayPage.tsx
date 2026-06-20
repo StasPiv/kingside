@@ -283,7 +283,8 @@ export function PlayPage() {
           >
             {searching ? t('lobby.cancelSearch') : t('lobby.play')}
           </button>
-          {searching && !noOpponents && <p className="searching">{t('lobby.searching')}</p>}
+          {/* KS-4429: дублирующая строка «Поиск…» под кнопкой убрана —
+              сама кнопка уже сообщает статус («Отменить поиск…»). */}
           {searching && matchmaking.serverBusy && <ServerBusyBanner />}
           {noOpponents && (
             <NoOpponentsBlock
