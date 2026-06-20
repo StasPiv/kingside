@@ -53,12 +53,26 @@ export function TacticPuzzlesPage() {
       ? objectiveParam
       : 'all';
 
+  // KS-4366: фильтр по «решал/не решал». Гостю backend параметр
+  // игнорирует — поэтому переключатель показываем только авторизованным.
+  const solvedParam = searchParams.get('solved');
+  const solvedFilter: 'all' | 'unsolved' | 'solved' =
+    solvedParam === 'true'
+      ? 'solved'
+      : solvedParam === 'false'
+        ? 'unsolved'
+        : 'all';
+
   const filters = useMemo<TacticPuzzleBrowseQuery>(
     () => ({
       objective: objective === 'all' ? undefined : objective,
+      solved:
+        !user || solvedFilter === 'all'
+          ? undefined
+          : solvedFilter === 'solved',
       limit: LIMIT,
     }),
-    [objective],
+    [objective, solvedFilter, user],
   );
 
   const { puzzles, loading, loadingMore, error, hasMore, loadMore } =
@@ -208,6 +222,42 @@ export function TacticPuzzlesPage() {
             );
           })}
         </nav>
+
+        {/* KS-4366: фильтр-сегмент по «решал/не решал». Гостю backend
+            параметр игнорирует, поэтому переключатель скрыт. */}
+        {user && (
+          <nav
+            className="precision-objective-segments"
+            data-testid="tactic-puzzles-solved-segments"
+            aria-label={t('tacticPuzzle.solvedFilter.label')}
+            role="tablist"
+          >
+            {(['all', 'unsolved', 'solved'] as const).map((key) => {
+              const active = solvedFilter === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`precision-objective-segment${
+                    active ? ' precision-objective-segment--active' : ''
+                  }`}
+                  data-testid={`tactic-puzzles-solved-${key}`}
+                  data-active={active ? 'true' : 'false'}
+                  onClick={() => {
+                    const sp = new URLSearchParams(searchParams);
+                    if (key === 'all') sp.delete('solved');
+                    else sp.set('solved', key === 'solved' ? 'true' : 'false');
+                    setSearchParams(sp, { replace: false });
+                  }}
+                >
+                  {t(`tacticPuzzle.solvedFilter.${key}`)}
+                </button>
+              );
+            })}
+          </nav>
+        )}
       </header>
 
       {pageState === 'loading' && (

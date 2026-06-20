@@ -79,6 +79,10 @@ function buildBrowseQs(
   if (filters.ratingMax != null) qs.set('ratingMax', String(filters.ratingMax));
   if (filters.themes && filters.themes.length > 0)
     qs.set('themes', filters.themes.join(','));
+  // KS-4366: фильтр решённости. Гость передавать может, но backend
+  // (KS-4365) проигнорирует без JWT.
+  if (typeof filters.solved === 'boolean')
+    qs.set('solved', String(filters.solved));
   return qs.toString();
 }
 

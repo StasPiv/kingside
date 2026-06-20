@@ -38,6 +38,8 @@ function buildFiltersKey(filters: TacticPuzzleBrowseQuery): string {
     ratingMin: filters.ratingMin,
     ratingMax: filters.ratingMax,
     themes: filters.themes,
+    // KS-4366: смена «решал/не решал/все» должна перезапросить страницу.
+    solved: filters.solved,
     limit: filters.limit,
   });
 }

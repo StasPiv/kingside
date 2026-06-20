@@ -2155,6 +2155,12 @@
       "label": "Puzzle type",
       "all": "All"
     },
+    "solvedFilter": {
+      "label": "Progress",
+      "all": "All",
+      "unsolved": "Unsolved",
+      "solved": "Solved"
+    },
     "startError": {
       "guest": "Sign in to start a training session.",
       "noPuzzles": "No puzzles match the current filters.",
