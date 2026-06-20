@@ -33,6 +33,13 @@ const DIST_DIR = path.join(APP_DIR, 'dist');
 const ROUTES_FILE = path.join(APP_DIR, 'src/config/publicRoutes.ts');
 const BLOG_INDEX_FILE = path.join(APP_DIR, 'src/generated/blog-index.ts');
 const TARGET = path.join(DIST_DIR, 'sitemap.xml');
+// KS-4403. Backend (`apps/api`, sitemap-blog.xml) читает этот JSON
+// из S3 bucket `kingside-prerender-store`. Контракт зафиксирован
+// в комментарии KS-4402: `{ articles: [{ slug, lastmod? (ISO-8601) }] }`.
+// `slug` обязателен; `lastmod` опционален — если в frontmatter нет
+// даты, ключ не выставляется. Файл публикуется в нужный bucket
+// шагом deploy (зона devops, scripts/deploy-aws.sh).
+const BLOG_SITEMAP_DATA_TARGET = path.join(DIST_DIR, 'blog-sitemap-data.json');
 
 const PUBLIC_BASE_URL = (
   process.env.PUBLIC_BASE_URL || 'https://kingside.site'
@@ -160,6 +167,37 @@ function build() {
   fs.writeFileSync(TARGET, lines.join('\n'), 'utf-8');
   console.log(
     `sitemap: ok (${publicRoutes.length} public + ${blogSorted.length} blog → ${path.relative(APP_DIR, TARGET)})`,
+  );
+
+  // KS-4403. JSON-данные для бекенд-секции sitemap-blog.xml.
+  // `lastmod` приводим к ISO-8601 datetime (UTC полночь), если в
+  // frontmatter была голая дата `YYYY-MM-DD`. Пустые/невалидные slug
+  // не публикуем — бекенд их всё равно отфильтрует, но дешевле сразу.
+  const articles = [];
+  for (const b of blogSorted) {
+    const slug = typeof b.slug === 'string' ? b.slug.trim() : '';
+    if (!slug) continue;
+    const article = { slug };
+    const raw = b.lastmod;
+    if (raw) {
+      // YYYY-MM-DD  → YYYY-MM-DDT00:00:00Z; ISO-строка с T — как есть.
+      const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? `${raw}T00:00:00Z`
+        : raw;
+      article.lastmod = iso;
+    }
+    articles.push(article);
+  }
+  fs.writeFileSync(
+    BLOG_SITEMAP_DATA_TARGET,
+    `${JSON.stringify({ articles }, null, 2)}\n`,
+    'utf-8',
+  );
+  console.log(
+    `blog-sitemap-data: ok (${articles.length} articles → ${path.relative(
+      APP_DIR,
+      BLOG_SITEMAP_DATA_TARGET,
+    )})`,
   );
 }
 
