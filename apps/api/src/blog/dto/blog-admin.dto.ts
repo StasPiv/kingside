@@ -3,10 +3,11 @@
  * эндпоинтах эти типы недоступны — `BlogController` использует
  * только `ListBlogPostsDto` / `GetBlogPostDto`.
  */
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsISO8601,
   IsInt,
@@ -150,6 +151,26 @@ export class UpdateBlogPostDto {
   @IsOptional()
   @IsISO8601()
   publishedAt?: string | null;
+
+  /**
+   * KS-4445 / ADR-138 §6. Многочастная семантика обнуления обложки:
+   * `coverReset=true` (как boolean или строка) в теле PATCH обнуляет
+   * `coverUrl` (и снимает её привязку с CDN). Если одновременно
+   * пришёл файл `cover` — приоритет у файла, reset игнорируется.
+   *
+   * В JSON-режиме параметр тоже работает: фронт может слать
+   * `{"coverReset": true}` без multipart.
+   */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (value === 'true' || value === '1' || value === 'on') return true;
+    if (value === 'false' || value === '0' || value === 'off' || value === '')
+      return false;
+    return value;
+  })
+  @IsBoolean()
+  coverReset?: boolean;
 }
 
 export class UpdateBlogPostStatusDto {
