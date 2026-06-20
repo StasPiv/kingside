@@ -20,6 +20,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { BlogPostSeo } from '../components/seo/BlogPostSeo';
+import { LikeButton } from '../components/blog/LikeButton';
 import { blogApi } from '../api/api-blog';
 import { useBlogPost } from '../hooks/useBlogPost';
 import {
@@ -312,6 +313,19 @@ export function BlogPostPage() {
         )}
         <h1 className="blog-article__title">{post.title}</h1>
         <p className="blog-article__subtitle">{post.description}</p>
+        {/* KS-4475 / ADR-140 T9. Кнопка лайка над мета-блоком — у
+            заголовка, чтобы пользователь видел до начала чтения.
+            `key={post.id}` форсирует remount при смене статьи —
+            внутренний state LikeButton сбрасывается на новые
+            `initialLikedByMe`/`initialLikesCount`. */}
+        <div className="blog-article__actions">
+          <LikeButton
+            key={post.id}
+            postId={post.id}
+            initialLikedByMe={post.likedByMe}
+            initialLikesCount={post.likesCount}
+          />
+        </div>
         <div
           className="blog-article__meta"
           data-testid="blog-post-meta"

@@ -12,6 +12,7 @@
 import { api } from '../api';
 import type {
   BlogAuthor,
+  BlogLikeResponse,
   BlogLocale,
   BlogPostAdmin,
   BlogPostDetail,
@@ -150,6 +151,37 @@ export const blogApi = {
     return api.post<BlogViewResponse>(
       `${BASE}/posts/${encodeURIComponent(postId)}/view`,
       {},
+    );
+  },
+
+  /**
+   * KS-4475 / ADR-140 §2.1 T9. Поставить лайк статье.
+   *
+   * Идемпотентен: повторный POST того же пользователя не инкрементит
+   * `likesCount`, но возвращает актуальные значения. Требует
+   * авторизации (backend `JwtAuthGuard`) — для гостя вызывать не надо,
+   * gating через `useRequireAuth` на стороне UI.
+   *
+   * Per-user rate-limit на бэке (`UserRateLimit 20/60s`). На фронте
+   * дополнительно дизейблим кнопку на короткий debounce — см.
+   * `LikeButton`.
+   */
+  likePost(postId: string): Promise<BlogLikeResponse> {
+    return api.post<BlogLikeResponse>(
+      `${BASE}/posts/${encodeURIComponent(postId)}/like`,
+      {},
+    );
+  },
+
+  /**
+   * KS-4475 / ADR-140 §2.1 T9. Снять лайк со статьи.
+   *
+   * Идемпотентен: повторный DELETE при отсутствии лайка не падает,
+   * возвращает текущий `likesCount` и `likedByMe:false`.
+   */
+  unlikePost(postId: string): Promise<BlogLikeResponse> {
+    return api.delete<BlogLikeResponse>(
+      `${BASE}/posts/${encodeURIComponent(postId)}/like`,
     );
   },
 };

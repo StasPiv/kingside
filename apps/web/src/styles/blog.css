@@ -258,6 +258,53 @@
   opacity: 0.45;
 }
 
+/* KS-4475 / ADR-140 T9. Контейнер активных действий над статьёй
+   (сейчас только LikeButton, в T11 здесь же будет ShareButton). */
+.blog-article__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+/* KS-4475. Кнопка лайка. Состояние «лайкнул» подсвечивается
+   акцентным цветом сердца и слегка усиленной обводкой. */
+.blog-like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--bg-elevated, #25253d);
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  border-radius: 999px;
+  color: var(--text-primary, #f5f5f5);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.blog-like-btn:hover:not(:disabled) {
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.12));
+}
+.blog-like-btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+.blog-like-btn__icon {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary, #94a3b8);
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+.blog-like-btn--liked {
+  border-color: var(--c-ef4444, #ef4444);
+  color: var(--c-ef4444, #ef4444);
+}
+.blog-like-btn--liked .blog-like-btn__icon {
+  color: var(--c-ef4444, #ef4444);
+  transform: scale(1.05);
+}
+
 .blog-article__tags {
   display: flex;
   flex-wrap: wrap;
