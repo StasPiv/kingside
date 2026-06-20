@@ -77,7 +77,10 @@ function handler(event) {
         '/lectures': 1,
         '/feedback': 1,
         '/features': 1,
-        '/login': 1
+        '/login': 1,
+        // KS-4448 / ADR-137. Лента блога — пророс через prerender.mjs
+        // (snapshot из BLOG_ROUTES + статика).
+        '/blog': 1
     };
 
     var normalized = uri;
@@ -86,6 +89,23 @@ function handler(event) {
     }
 
     if (publicRoutes[normalized]) {
+        request.uri = normalized + '/index.html';
+        return request;
+    }
+
+    // KS-4448 / ADR-137 T6. Статьи блога — динамические URL вида
+    // `/blog/<slug>`. prerender.mjs кладёт каждую в
+    // `dist/blog/<slug>/index.html` (см. BLOG_ROUTES из
+    // generated/blog-routes.ts). Без этой ветки путь уходит в
+    // SPA-fallback на корневой `/index.html` (landing-разметка),
+    // и snapshot со статьёй вообще не показывается ботам/первому
+    // заходу. Условие — URI начинается с `/blog/` и в нём ровно
+    // один сегмент после префикса (нет вложенного слеша).
+    // Несуществующий slug → S3 вернёт 404, CloudFront-фолбэк
+    // (Custom Error Response) отдаст корневой `/index.html`.
+    if (normalized.indexOf('/blog/') === 0
+        && normalized.indexOf('/', '/blog/'.length) === -1
+        && normalized.length > '/blog/'.length) {
         request.uri = normalized + '/index.html';
         return request;
     }
