@@ -284,77 +284,64 @@ export class SitemapService {
   }
 
   /**
-   * KS-4402. `sitemap-blog.xml` — публикации блога. Источник — JSON,
-   * который frontend кладёт в тот же S3 bucket рядом с sitemap'ами
-   * по ключу `blog-sitemap-data.json`. Контракт:
+   * KS-4402 / KS-4412 / ADR-137 rev2. `sitemap-blog.xml` — публикации
+   * блога. Источник — таблица `blog_posts` (ADR-137 rev2: статьи живут
+   * в БД, не во фронтовом markdown и не в S3-JSON-выгрузке frontend'а
+   * как было в первой итерации KS-4402).
    *
-   *   { "articles": [{ "slug": "string", "lastmod"?: ISO-8601 string }] }
+   * Дедупликация: на пары `(slug, ru)` и `(slug, en)` берём один URL
+   * `/blog/<slug>` — публичный путь не дифференцирует локаль (фронт
+   * выбирает локаль через query / Accept-Language). `lastmod` — максимум
+   * из `updatedAt` всех найденных локалей: Google интересует «когда
+   * последний раз менялся контент по этому URL».
    *
-   * При отсутствии файла или невалидном содержимом отдаём пустой
-   * `<urlset>` + warning в лог — sitemap-index всё равно ссылается на
-   * `sitemap-blog.xml`, отдавать 404 ради непустого списка
-   * нежелательно (Google пометит как ошибочный sitemap).
+   * При пустой таблице — пустой `<urlset>`, sitemap-index всё равно
+   * ссылается на `sitemap-blog.xml`.
    */
   async generateBlogXml(): Promise<string> {
     const base = this.baseUrl();
     const articles = await this.fetchBlogArticles();
     const entries: SitemapUrlEntry[] = articles.map((a) => ({
       loc: `${base}/blog/${encodeURIComponent(a.slug)}`,
-      lastmod: a.lastmod ?? null,
+      lastmod: a.lastmod,
       changefreq: 'monthly',
       priority: 0.6,
     }));
     return buildUrlset(entries);
   }
 
+  /**
+   * KS-4412. Читает published-статьи из `blog_posts` и сворачивает в
+   * `{ slug, lastmod }` с дедупом по slug.
+   */
   private async fetchBlogArticles(): Promise<
-    Array<{ slug: string; lastmod?: string | null }>
+    Array<{ slug: string; lastmod: Date }>
   > {
-    const key = 'blog-sitemap-data.json';
-    try {
-      const sdk = await import('@aws-sdk/client-s3');
-      const client = new sdk.S3Client({ region: this.region() });
-      try {
-        const resp = await client.send(
-          new sdk.GetObjectCommand({ Bucket: this.bucket(), Key: key }),
-        );
-        const body = await resp.Body?.transformToString();
-        if (!body) {
-          this.logger.warn(`sitemap-blog: ${key} empty body`);
-          return [];
-        }
-        const parsed: unknown = JSON.parse(body);
-        if (
-          !parsed ||
-          typeof parsed !== 'object' ||
-          !Array.isArray((parsed as { articles?: unknown }).articles)
-        ) {
-          this.logger.warn(`sitemap-blog: ${key} missing "articles" array`);
-          return [];
-        }
-        const articles: Array<{ slug: string; lastmod?: string | null }> = [];
-        for (const item of (parsed as { articles: unknown[] }).articles) {
-          if (!item || typeof item !== 'object') continue;
-          const slug = (item as { slug?: unknown }).slug;
-          if (typeof slug !== 'string' || slug.length === 0) continue;
-          const lastmodRaw = (item as { lastmod?: unknown }).lastmod;
-          const lastmod =
-            typeof lastmodRaw === 'string' && lastmodRaw.length > 0
-              ? lastmodRaw
-              : null;
-          articles.push({ slug, lastmod });
-        }
-        return articles;
-      } finally {
-        client.destroy();
+    const rows = await this.prisma.blogPost.findMany({
+      where: { status: 'published' },
+      select: { slug: true, publishedAt: true, updatedAt: true },
+      take: 50_000,
+    });
+
+    const bySlug = new Map<string, Date>();
+    for (const row of rows) {
+      const candidate =
+        row.updatedAt instanceof Date
+          ? row.updatedAt
+          : row.publishedAt instanceof Date
+            ? row.publishedAt
+            : null;
+      if (!candidate) continue;
+      const existing = bySlug.get(row.slug);
+      if (!existing || candidate.getTime() > existing.getTime()) {
+        bySlug.set(row.slug, candidate);
       }
-    } catch (e) {
-      const msg = (e as Error).message;
-      this.logger.warn(
-        `sitemap-blog: failed to read ${key}: ${msg} (отдаём пустой urlset)`,
-      );
-      return [];
     }
+
+    return Array.from(bySlug.entries()).map(([slug, lastmod]) => ({
+      slug,
+      lastmod,
+    }));
   }
 
   // ─── S3 publish ────────────────────────────────────────────────────

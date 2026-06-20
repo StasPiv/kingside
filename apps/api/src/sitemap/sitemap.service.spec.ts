@@ -13,6 +13,7 @@ interface PrismaMock {
   arenaTournament: { findMany: jest.Mock };
   user: { findMany: jest.Mock };
   lecture: { findMany: jest.Mock };
+  blogPost: { findMany: jest.Mock };
 }
 
 function makePrismaMock(): PrismaMock {
@@ -21,6 +22,7 @@ function makePrismaMock(): PrismaMock {
     arenaTournament: { findMany: jest.fn().mockResolvedValue([]) },
     user: { findMany: jest.fn().mockResolvedValue([]) },
     lecture: { findMany: jest.fn().mockResolvedValue([]) },
+    blogPost: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 
@@ -191,5 +193,57 @@ describe('SitemapService.generateAllAndPublish', () => {
     expect(Array.isArray(result.failed)).toBe(true);
     // Все упавшие БД + S3-фейл => хотя бы один failed-entry.
     expect(result.failed.length).toBeGreaterThan(0);
+  });
+});
+
+describe('SitemapService.generateBlogXml (KS-4412)', () => {
+  it('пустой результат → пустой <urlset>', async () => {
+    const { service, prisma } = await createService();
+    prisma.blogPost.findMany.mockResolvedValueOnce([]);
+    const xml = await service.generateBlogXml();
+    expect(xml).toContain('<urlset');
+    expect(xml).not.toContain('<url>');
+  });
+
+  it('одна статья → один <url> с loc и lastmod', async () => {
+    const { service, prisma } = await createService();
+    prisma.blogPost.findMany.mockResolvedValueOnce([
+      {
+        slug: 'hello',
+        publishedAt: new Date('2026-06-01T00:00:00Z'),
+        updatedAt: new Date('2026-06-15T00:00:00Z'),
+      },
+    ]);
+    const xml = await service.generateBlogXml();
+    expect(xml).toContain('https://kingside.site/blog/hello');
+    expect(xml).toContain('<lastmod>2026-06-15</lastmod>');
+  });
+
+  it('две локали одного slug → один <url> с максимальным lastmod', async () => {
+    const { service, prisma } = await createService();
+    prisma.blogPost.findMany.mockResolvedValueOnce([
+      {
+        slug: 'shared',
+        publishedAt: new Date('2026-06-01T00:00:00Z'),
+        updatedAt: new Date('2026-06-10T00:00:00Z'),
+      },
+      {
+        slug: 'shared',
+        publishedAt: new Date('2026-06-05T00:00:00Z'),
+        updatedAt: new Date('2026-06-20T00:00:00Z'),
+      },
+    ]);
+    const xml = await service.generateBlogXml();
+    const urlMatches = xml.match(/<url>/g) ?? [];
+    expect(urlMatches).toHaveLength(1);
+    expect(xml).toContain('<lastmod>2026-06-20</lastmod>');
+  });
+
+  it('фильтр status=published пробрасывается в where', async () => {
+    const { service, prisma } = await createService();
+    prisma.blogPost.findMany.mockResolvedValueOnce([]);
+    await service.generateBlogXml();
+    const arg = prisma.blogPost.findMany.mock.calls[0][0];
+    expect(arg.where).toEqual({ status: 'published' });
   });
 });
