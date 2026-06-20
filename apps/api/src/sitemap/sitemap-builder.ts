@@ -33,6 +33,19 @@ export type ChangeFreq =
   | 'yearly'
   | 'never';
 
+/**
+ * Языковая альтернатива (`<xhtml:link rel="alternate" hreflang="…" href="…"/>`)
+ * для блока `<url>` — KS-4462. Используется когда у одной публикации есть
+ * несколько локалей: каждый `<url>` перечисляет все локали как alternates
+ * (включая `x-default`).
+ */
+export interface SitemapAlternate {
+  /** ISO-код языка (`en`, `ru`) или служебный `x-default`. */
+  hreflang: string;
+  /** Полный абсолютный URL соответствующей локализованной версии. */
+  href: string;
+}
+
 export interface SitemapUrlEntry {
   /** Полный абсолютный URL — `<loc>`. */
   loc: string;
@@ -42,6 +55,12 @@ export interface SitemapUrlEntry {
   changefreq?: ChangeFreq;
   /** 0.0–1.0; default 0.5. */
   priority?: number;
+  /**
+   * KS-4462. Список языковых версий этого URL. Если хотя бы один
+   * entry содержит непустой `alternates`, корневой `<urlset>` получает
+   * namespace `xmlns:xhtml="http://www.w3.org/1999/xhtml"`.
+   */
+  alternates?: SitemapAlternate[];
 }
 
 export interface SitemapIndexEntry {
@@ -86,9 +105,17 @@ export function buildUrlset(entries: SitemapUrlEntry[]): string {
       `Sitemap urlset exceeds ${SITEMAP_MAX_URLS} entries (got ${entries.length}); split into multiple files`,
     );
   }
+  // KS-4462: namespace `xhtml` нужен только если хотя бы один entry
+  // несёт alternates — иначе остаётся минимальный заголовок.
+  const hasAlternates = entries.some(
+    (e) => Array.isArray(e.alternates) && e.alternates.length > 0,
+  );
+  const urlsetOpen = hasAlternates
+    ? '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+    : '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">';
   const lines: string[] = [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    urlsetOpen,
   ];
   for (const entry of entries) {
     lines.push('  <url>');
@@ -101,6 +128,15 @@ export function buildUrlset(entries: SitemapUrlEntry[]): string {
     if (entry.priority !== undefined) {
       const p = Math.max(0, Math.min(1, entry.priority)).toFixed(1);
       lines.push(`    <priority>${p}</priority>`);
+    }
+    if (entry.alternates && entry.alternates.length > 0) {
+      for (const alt of entry.alternates) {
+        lines.push(
+          `    <xhtml:link rel="alternate" hreflang="${escapeXml(
+            alt.hreflang,
+          )}" href="${escapeXml(alt.href)}"/>`,
+        );
+      }
     }
     lines.push('  </url>');
   }

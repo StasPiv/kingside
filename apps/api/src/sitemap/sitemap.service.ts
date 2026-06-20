@@ -284,16 +284,19 @@ export class SitemapService {
   }
 
   /**
-   * KS-4402 / KS-4412 / ADR-137 rev2. `sitemap-blog.xml` — публикации
-   * блога. Источник — таблица `blog_posts` (ADR-137 rev2: статьи живут
-   * в БД, не во фронтовом markdown и не в S3-JSON-выгрузке frontend'а
-   * как было в первой итерации KS-4402).
+   * KS-4402 / KS-4412 / KS-4460 / KS-4462 / ADR-137 rev2. `sitemap-blog.xml`
+   * — публикации блога. Источник — таблица `blog_posts` (ADR-137 rev2:
+   * статьи живут в БД, не во фронтовом markdown и не в S3-JSON-выгрузке
+   * frontend'а как было в первой итерации KS-4402).
    *
-   * Дедупликация: на пары `(slug, ru)` и `(slug, en)` берём один URL
-   * `/blog/<slug>` — публичный путь не дифференцирует локаль (фронт
-   * выбирает локаль через query / Accept-Language). `lastmod` — максимум
-   * из `updatedAt` всех найденных локалей: Google интересует «когда
-   * последний раз менялся контент по этому URL».
+   * KS-4460: фронт перевёл блог на префиксные URL `/en/blog/<slug>` и
+   * `/ru/blog/<slug>`. Дефолтный язык — `en`.
+   *
+   * KS-4462: для каждой статьи отдаём ОБА URL'а — `/en/blog/<slug>`
+   * и `/ru/blog/<slug>`, каждый с блоком hreflang-alternates на оба
+   * языка плюс `x-default` → `en`. Дедупликация по `slug` (на пары
+   * `(slug, en)` и `(slug, ru)` сжимаем в один slug, `lastmod` —
+   * максимум из найденных локалей).
    *
    * При пустой таблице — пустой `<urlset>`, sitemap-index всё равно
    * ссылается на `sitemap-blog.xml`.
@@ -301,12 +304,34 @@ export class SitemapService {
   async generateBlogXml(): Promise<string> {
     const base = this.baseUrl();
     const articles = await this.fetchBlogArticles();
-    const entries: SitemapUrlEntry[] = articles.map((a) => ({
-      loc: `${base}/blog/${encodeURIComponent(a.slug)}`,
-      lastmod: a.lastmod,
-      changefreq: 'monthly',
-      priority: 0.6,
-    }));
+    const entries: SitemapUrlEntry[] = [];
+    for (const a of articles) {
+      const slug = encodeURIComponent(a.slug);
+      const enHref = `${base}/en/blog/${slug}`;
+      const ruHref = `${base}/ru/blog/${slug}`;
+      // Один общий блок alternates на обе локализованные записи —
+      // согласно sitemaps.org/hreflang: каждая локаль должна указывать
+      // на себя и на остальные, плюс x-default.
+      const alternates = [
+        { hreflang: 'en', href: enHref },
+        { hreflang: 'ru', href: ruHref },
+        { hreflang: 'x-default', href: enHref },
+      ];
+      entries.push({
+        loc: enHref,
+        lastmod: a.lastmod,
+        changefreq: 'monthly',
+        priority: 0.6,
+        alternates,
+      });
+      entries.push({
+        loc: ruHref,
+        lastmod: a.lastmod,
+        changefreq: 'monthly',
+        priority: 0.6,
+        alternates,
+      });
+    }
     return buildUrlset(entries);
   }
 

@@ -103,6 +103,54 @@ describe('buildUrlset', () => {
     const xml = buildUrlset([{ loc: 'https://x' }]);
     expect(xml.endsWith('\n')).toBe(true);
   });
+
+  // KS-4462: hreflang alternates.
+  it('без alternates → корневой <urlset> БЕЗ xmlns:xhtml', () => {
+    const xml = buildUrlset([{ loc: 'https://x' }]);
+    expect(xml).not.toContain('xmlns:xhtml');
+    expect(xml).not.toContain('<xhtml:link');
+  });
+
+  it('хотя бы одна запись с alternates → корневой <urlset> с xmlns:xhtml', () => {
+    const xml = buildUrlset([
+      {
+        loc: 'https://kingside.site/en/blog/hello',
+        alternates: [
+          { hreflang: 'en', href: 'https://kingside.site/en/blog/hello' },
+          { hreflang: 'ru', href: 'https://kingside.site/ru/blog/hello' },
+          { hreflang: 'x-default', href: 'https://kingside.site/en/blog/hello' },
+        ],
+      },
+    ]);
+    expect(xml).toContain(
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">',
+    );
+    expect(xml).toContain(
+      '<xhtml:link rel="alternate" hreflang="en" href="https://kingside.site/en/blog/hello"/>',
+    );
+    expect(xml).toContain(
+      '<xhtml:link rel="alternate" hreflang="ru" href="https://kingside.site/ru/blog/hello"/>',
+    );
+    expect(xml).toContain(
+      '<xhtml:link rel="alternate" hreflang="x-default" href="https://kingside.site/en/blog/hello"/>',
+    );
+  });
+
+  it('пустой массив alternates → ведёт себя как без alternates', () => {
+    const xml = buildUrlset([{ loc: 'https://x', alternates: [] }]);
+    expect(xml).not.toContain('xmlns:xhtml');
+    expect(xml).not.toContain('<xhtml:link');
+  });
+
+  it('экранирует href и hreflang в alternates', () => {
+    const xml = buildUrlset([
+      {
+        loc: 'https://x',
+        alternates: [{ hreflang: 'en', href: 'https://x?a=1&b=2' }],
+      },
+    ]);
+    expect(xml).toContain('href="https://x?a=1&amp;b=2"');
+  });
 });
 
 describe('buildSitemapIndex', () => {
