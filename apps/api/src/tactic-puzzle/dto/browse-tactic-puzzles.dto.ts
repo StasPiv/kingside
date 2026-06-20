@@ -45,17 +45,11 @@ export class BrowseTacticPuzzlesDto implements TacticPuzzleBrowseQuery {
   @Max(1)
   gapMin?: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  ratingMin?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  ratingMax?: number;
+  // KS-4377 / KS-4375. `ratingMin`/`ratingMax` удалены вместе с
+  // полем `rating` пазла. Сложность фильтруется через
+  // `maiaDifficultyMin` / `gapMin`. Аналогичный фильтр по
+  // пользовательскому рейтингу остаётся в `ListTacticAttemptsDto`
+  // (другая сущность — пользовательский рейтинг).
 
   /** KS-4365. `?solved=true|false` — фильтр по факту успешной попытки
    *  текущего пользователя. Для гостя сервис игнорирует. */
