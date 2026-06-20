@@ -1,41 +1,42 @@
 /**
- * KS-4396 / ADR-137 T3. Лента блога `/blog`.
+ * KS-4396 → KS-4413 / ADR-137 rev2. Лента блога `/blog`.
  *
- * Источник данных: `BLOG_INDEX` из `lib/blog` (генерируется на сборке
- * `vite-blog-plugin.mjs`, KS-4393). По текущей локали `i18n.language`
- * выбираем по одной карточке на slug через `filterByLocale` (KS-4394),
- * фолбэки помечаются плашкой «не переведено».
+ * Источник данных — публичный API `GET /blog/posts` (хук
+ * `useBlogPosts`, KS-4413). До rev2 страница читала статичный
+ * `BLOG_INDEX`, собранный `vite-blog-plugin.mjs`; теперь источник
+ * правды — БД через API (см. ADR-137 rev2 §1).
  *
- * Пагинация числовая `?page=N`, 12 статей на страницу — без infinite
- * scroll, чтобы prerender (статичный) гарантированно покрывал каждую
- * страницу (см. ADR-137 §2.6).
+ * Пагинация числовая `?page=N`, 12 статей на страницу (фиксировано
+ * backend'ом, см. PAGE_SIZE в `apps/api/src/blog/blog.service.ts`).
+ * Этого хватает для статичного prerender'а — каждая страница имеет
+ * стабильный URL (ADR-137 §2.6).
+ *
+ * Фильтр по тегу через `?tag=<name>`. Сейчас единственный способ
+ * выставить тег — внешняя ссылка/перезапись URL; кнопок-фильтров
+ * на ленте пока нет (могут появиться в отдельной задаче — карточки
+ * статей уже рендерят `tags` ссылками).
  */
-import { useMemo } from 'react';
+import { useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { PageSeo } from '../components/seo/PageSeo';
-import {
-  BLOG_INDEX,
-  filterByLocale,
-  type BlogListEntry,
-  type BlogLocale,
-} from '../lib/blog';
+import { useBlogPosts } from '../hooks/useBlogPosts';
+import type { BlogLocale } from '@kingside/shared';
 
-const PAGE_SIZE = 12;
 const DEFAULT_COVER = '/og/blog-default.png';
 
 function isLocale(value: string | undefined): BlogLocale {
   return value === 'ru' ? 'ru' : 'en';
 }
 
-function formatDate(iso: string, locale: BlogLocale): string {
+function formatDate(iso: string | null, locale: BlogLocale): string {
+  if (!iso) return '';
   try {
-    return new Date(iso).toLocaleDateString(locale === 'ru' ? 'ru-RU' : 'en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    return new Date(iso).toLocaleDateString(
+      locale === 'ru' ? 'ru-RU' : 'en-US',
+      { year: 'numeric', month: 'short', day: 'numeric' },
+    );
   } catch {
     return iso;
   }
@@ -46,33 +47,46 @@ export function BlogFeedPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const locale = isLocale(i18n.language);
 
-  const entries = useMemo<BlogListEntry[]>(
-    () => filterByLocale(BLOG_INDEX, locale),
-    [locale],
+  const rawPage = parseInt(searchParams.get('page') ?? '1', 10);
+  const page = Number.isFinite(rawPage) ? Math.max(1, rawPage) : 1;
+  const tag = searchParams.get('tag') ?? '';
+
+  const { items, totalPages, loading, error } = useBlogPosts(
+    locale,
+    page,
+    tag,
   );
 
-  const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
-  const rawPage = parseInt(searchParams.get('page') ?? '1', 10);
-  const page = Number.isFinite(rawPage)
-    ? Math.min(Math.max(1, rawPage), totalPages)
-    : 1;
-  const start = (page - 1) * PAGE_SIZE;
-  const slice = entries.slice(start, start + PAGE_SIZE);
+  const goToPage = useCallback(
+    (next: number) => {
+      const sp = new URLSearchParams(searchParams);
+      if (next <= 1) sp.delete('page');
+      else sp.set('page', String(next));
+      setSearchParams(sp, { replace: false });
+    },
+    [searchParams, setSearchParams],
+  );
 
-  const goToPage = (next: number) => {
+  const clearTag = useCallback(() => {
     const sp = new URLSearchParams(searchParams);
-    if (next <= 1) sp.delete('page');
-    else sp.set('page', String(next));
+    sp.delete('tag');
+    sp.delete('page');
     setSearchParams(sp, { replace: false });
-  };
+  }, [searchParams, setSearchParams]);
 
-  const isEmpty = entries.length === 0;
+  const state = loading
+    ? 'loading'
+    : error
+      ? 'error'
+      : items.length === 0
+        ? 'empty'
+        : 'ready';
 
   return (
     <div
       className="blog-feed"
       data-testid="blog-feed"
-      data-state={isEmpty ? 'empty' : 'ready'}
+      data-state={state}
     >
       <PageSeo ns="blog.feed" path="/blog" />
 
@@ -84,21 +98,59 @@ export function BlogFeedPage() {
             'Stories, technical write-ups and updates from Kingside.',
           )}
         </p>
+        {tag && (
+          <div
+            className="blog-feed__tag-filter"
+            data-testid="blog-feed-tag-filter"
+          >
+            <span className="blog-feed__tag-filter-label">
+              {t('blog.feed.tagFilter', 'Tag: #{{tag}}', { tag })}
+            </span>
+            <button
+              type="button"
+              className="blog-feed__tag-filter-clear"
+              onClick={clearTag}
+              data-testid="blog-feed-tag-clear"
+            >
+              {t('blog.feed.tagFilterClear', 'Clear')}
+            </button>
+          </div>
+        )}
       </header>
 
-      {isEmpty && (
+      {state === 'loading' && (
+        <p
+          className="blog-feed__status blog-feed__status--loading"
+          data-testid="blog-feed-loading"
+        >
+          {t('blog.feed.loading', 'Loading…')}
+        </p>
+      )}
+
+      {state === 'error' && (
+        <p
+          className="blog-feed__status blog-feed__status--error"
+          data-testid="blog-feed-error"
+        >
+          {t('blog.feed.error', 'Failed to load posts. Please try again later.')}
+        </p>
+      )}
+
+      {state === 'empty' && (
         <p
           className="blog-feed__status blog-feed__status--empty"
           data-testid="blog-feed-empty"
         >
-          {t('blog.feed.empty', 'No posts yet. Stay tuned.')}
+          {tag
+            ? t('blog.feed.emptyTag', 'No posts with this tag.')
+            : t('blog.feed.empty', 'No posts yet. Stay tuned.')}
         </p>
       )}
 
-      {!isEmpty && (
+      {state === 'ready' && (
         <ul className="blog-feed__list" data-testid="blog-feed-list">
-          {slice.map((post) => {
-            const cover = post.cover ?? DEFAULT_COVER;
+          {items.map((post) => {
+            const cover = post.coverUrl ?? DEFAULT_COVER;
             const coverAlt = post.coverAlt ?? post.title;
             return (
               <li
@@ -127,10 +179,7 @@ export function BlogFeedPage() {
                         className="blog-feed__card-fallback"
                         data-testid="blog-feed-card-fallback"
                       >
-                        {t(
-                          'blog.feed.fallbackBadge',
-                          'Not translated yet',
-                        )}
+                        {t('blog.feed.fallbackBadge', 'Not translated yet')}
                       </span>
                     )}
                     <h2 className="blog-feed__card-title">{post.title}</h2>
@@ -139,24 +188,25 @@ export function BlogFeedPage() {
                     </p>
                     <div className="blog-feed__card-meta">
                       <time
-                        dateTime={post.publishedAt}
+                        dateTime={post.publishedAt ?? undefined}
                         className="blog-feed__card-date"
                       >
                         {formatDate(post.publishedAt, locale)}
                       </time>
                       <span className="blog-feed__card-reading">
-                        {t(
-                          'blog.feed.readingTime',
-                          '{{count}} min',
-                          { count: post.readingTimeMin },
-                        )}
+                        {t('blog.feed.readingTime', '{{count}} min', {
+                          count: post.readingTimeMin,
+                        })}
                       </span>
                     </div>
                     {post.tags.length > 0 && (
                       <div className="blog-feed__card-tags">
-                        {post.tags.map((tag) => (
-                          <span key={tag} className="blog-feed__card-tag">
-                            #{tag}
+                        {post.tags.map((entry) => (
+                          <span
+                            key={entry}
+                            className="blog-feed__card-tag"
+                          >
+                            #{entry}
                           </span>
                         ))}
                       </div>
@@ -169,7 +219,7 @@ export function BlogFeedPage() {
         </ul>
       )}
 
-      {totalPages > 1 && (
+      {state === 'ready' && totalPages > 1 && (
         <nav
           className="blog-feed__pagination"
           aria-label={t('blog.feed.paginationLabel', 'Pagination')}

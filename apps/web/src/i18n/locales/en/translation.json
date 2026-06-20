@@ -717,7 +717,12 @@
     "feed": {
       "title": "Kingside Blog",
       "intro": "Technical write-ups, updates and stories from the team.",
+      "loading": "Loading…",
+      "error": "Failed to load posts. Please try again later.",
       "empty": "No posts yet. Stay tuned.",
+      "emptyTag": "No posts with this tag.",
+      "tagFilter": "Tag: #{{tag}}",
+      "tagFilterClear": "Clear",
       "fallbackBadge": "Not translated yet",
       "readingTime": "{{count}} min",
       "paginationLabel": "Pagination",
