@@ -26,6 +26,7 @@ interface LobbyCardItem {
     | 'puzzle-rush'
     | 'drills'
     | 'precision'
+    | 'critical-moment'
     | 'opening-trainer'
     | 'guess'
     | 'blind-board';
@@ -109,6 +110,21 @@ export function TrainLobbyPage() {
       descKey: 'train.lobby.precision.desc',
       descDefault: 'Play out puzzles vs Stockfish — measure precision.',
       enabled: puzzlesEnabled,
+    },
+    {
+      // KS-4430 / ADR-136. «Критический момент» — пазлы на единственный
+      // сильный ход, рейтинг по Maia-difficulty. Это не «Точность»
+      // (та про доигрывание против Stockfish) — отдельный раздел.
+      // Без gating'а: список публичен, попытки — под JwtAuthGuard на
+      // бэке. Иконка ⚡ — момент острого выбора.
+      id: 'critical-moment',
+      to: '/critical-moment',
+      icon: '⚡',
+      titleKey: 'train.lobby.criticalMoment.title',
+      titleDefault: 'Critical Moment',
+      descKey: 'train.lobby.criticalMoment.desc',
+      descDefault: 'Positions with a single winning move. Find it.',
+      enabled: true,
     },
     {
       // KS-3276 (ADR-077 M1): новая точка входа в Opening Trainer.

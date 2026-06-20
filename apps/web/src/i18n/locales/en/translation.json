@@ -25,6 +25,10 @@
         "title": "Precision",
         "desc": "Play out puzzles vs Stockfish — measure precision."
       },
+      "criticalMoment": {
+        "title": "Critical Moment",
+        "desc": "Positions with a single winning move. Find it."
+      },
       "openingTrainer": {
         "title": "Openings",
         "desc": "Train your own repertoire variations."
