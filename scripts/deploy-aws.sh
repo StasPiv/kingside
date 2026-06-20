@@ -1382,30 +1382,6 @@ if $DEPLOY_FRONTEND; then
     echo "  Synced to s3://$S3_BUCKET/ (root pruned, assets retained for lifecycle)"
     _perf_stamp "frontend_s3_sync_done"
 
-    # KS-4404 / ADR-137. `apps/web/dist/blog-sitemap-data.json`
-    # генерируется фронтом при vite build (KS-4403). Этот же файл нужен
-    # backend (api) для сборки `sitemap-blog.xml` через
-    # `SitemapScheduler` (KS-4402). Backend читает его из bucket
-    # `kingside-prerender-store`, ключ — `blog-sitemap-data.json`.
-    # Frontend-sync выше кладёт файл только в frontend-bucket
-    # ($S3_BUCKET), на api он не виден. Добавляем явный `s3 cp` в
-    # prerender-store, чтобы blog-sitemap всегда был согласован с
-    # выкатанным фронт-индексом блога.
-    BLOG_SITEMAP_SRC="$REPO_DIR/apps/web/dist/blog-sitemap-data.json"
-    BLOG_SITEMAP_DST="s3://kingside-prerender-store/blog-sitemap-data.json"
-    if [ -f "$BLOG_SITEMAP_SRC" ]; then
-        echo "[frontend] Publishing blog-sitemap-data.json → $BLOG_SITEMAP_DST..."
-        aws s3 cp "$BLOG_SITEMAP_SRC" "$BLOG_SITEMAP_DST" \
-            --content-type "application/json" \
-            --cache-control "no-cache" \
-            --quiet
-        echo "  Published. Trigger api SitemapScheduler regenerate to refresh sitemap-blog.xml."
-    else
-        echo "[frontend] WARN: $BLOG_SITEMAP_SRC not found — skipping blog-sitemap publish (KS-4404)."
-        echo "  (vite-blog-plugin может не отработать, если в apps/web/src/content/blog/ нет статей.)"
-    fi
-    _perf_stamp "frontend_blog_sitemap_publish_done"
-
     echo "[frontend] Invalidating CloudFront cache..."
     aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION" \
         --paths "/*" --query 'Invalidation.Id' --output text
