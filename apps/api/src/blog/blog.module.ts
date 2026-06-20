@@ -14,12 +14,26 @@ import { BlogAdminService } from './blog-admin.service';
 import { BlogMediaService } from './blog-media.service';
 // KS-4469 / ADR-140 T3: подсчёт просмотров с Redis-дедупом и антибот-фильтром.
 import { BlogViewService } from './blog-view.service';
+// KS-4470 / ADR-140 T4: лайки статей под JwtAuthGuard.
+import { BlogLikeService } from './blog-like.service';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [AuthModule],
   controllers: [BlogController, BlogAdminController],
-  providers: [BlogService, BlogAdminService, BlogMediaService, BlogViewService],
-  exports: [BlogService, BlogAdminService, BlogMediaService, BlogViewService],
+  providers: [
+    BlogService,
+    BlogAdminService,
+    BlogMediaService,
+    BlogViewService,
+    BlogLikeService,
+  ],
+  exports: [
+    BlogService,
+    BlogAdminService,
+    BlogMediaService,
+    BlogViewService,
+    BlogLikeService,
+  ],
 })
 export class BlogModule {}

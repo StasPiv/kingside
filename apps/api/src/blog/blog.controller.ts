@@ -4,9 +4,12 @@
  *
  * KS-4469 / ADR-140 T3: `POST /blog/posts/:id/view` — учёт просмотра
  * с Redis-дедупом и антибот-фильтром.
+ * KS-4470 / ADR-140 T4: `POST/DELETE /blog/posts/:id/like` —
+ * идемпотентные лайки под `JwtAuthGuard` + per-user rate-limit.
  */
 import {
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -19,20 +22,31 @@ import {
 import type { Request } from 'express';
 import { BlogService } from './blog.service';
 import { BlogViewService } from './blog-view.service';
+import { BlogLikeService } from './blog-like.service';
 import { ListBlogPostsDto } from './dto/list-blog-posts.dto';
 import { GetBlogPostDto } from './dto/get-blog-post.dto';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
   RedisRateLimitGuard,
   RateLimit,
 } from '../common/redis-rate-limit.guard';
-import type { BlogViewResponse } from '@kingside/shared';
+import {
+  UserRateLimitGuard,
+  UserRateLimit,
+} from '../common/user-rate-limit.guard';
+import type { AuthenticatedRequest } from '../common/authenticated-request';
+import type {
+  BlogLikeResponse,
+  BlogViewResponse,
+} from '@kingside/shared';
 
 @Controller('blog')
 export class BlogController {
   constructor(
     private readonly service: BlogService,
     private readonly viewService: BlogViewService,
+    private readonly likeService: BlogLikeService,
   ) {}
 
   /** GET /blog/posts?locale=ru&page=1&tag=... */
@@ -80,6 +94,49 @@ export class BlogController {
       origin: this.extractHeader(req, 'origin'),
       referer: this.extractHeader(req, 'referer'),
     });
+  }
+
+  /**
+   * KS-4470 / ADR-140 §2.1.
+   * POST /blog/posts/:id/like — поставить лайк.
+   *
+   * Идемпотентный: повторный вызов того же пользователя по тому же
+   * посту не инкрементит счётчик, но возвращает актуальный
+   * `likesCount` и `likedByMe:true`. Реализация — INSERT … ON CONFLICT
+   * DO NOTHING RETURNING + UPDATE likes_count в одной транзакции.
+   *
+   * `UserRateLimitGuard @UserRateLimit(20, 60)` — per-user 20/60с, чтобы
+   * закрыть зацикленные `like → unlike → like` от одного пользователя.
+   */
+  @Post('posts/:id/like')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, UserRateLimitGuard)
+  @UserRateLimit(20, 60)
+  like(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<BlogLikeResponse> {
+    return this.likeService.like(id, req.user.id);
+  }
+
+  /**
+   * KS-4470 / ADR-140 §2.1.
+   * DELETE /blog/posts/:id/like — снять лайк.
+   *
+   * Идемпотентный: повторный вызов без лайка не декрементит счётчик.
+   * Защита от ухода в минус — `GREATEST(likes_count - 1, 0)` прямо в
+   * SQL UPDATE. Реализация — DELETE … RETURNING + UPDATE likes_count в
+   * одной транзакции.
+   */
+  @Delete('posts/:id/like')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, UserRateLimitGuard)
+  @UserRateLimit(20, 60)
+  unlike(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<BlogLikeResponse> {
+    return this.likeService.unlike(id, req.user.id);
   }
 
   /** GET /blog/authors/:handle */
