@@ -24,7 +24,10 @@ import { PageSeo } from '../components/seo/PageSeo';
 import { useBlogPosts } from '../hooks/useBlogPosts';
 import type { BlogLocale } from '@kingside/shared';
 
-const DEFAULT_COVER = '/og/blog-default.png';
+// KS-4438: дефолтную картинку-плашку для карточки без обложки не
+// рендерим — файла `/og/blog-default.png` в проекте нет и заводить его
+// не будем. Когда у поста `coverUrl=null`, обёртка `.blog-feed__card-cover-wrap`
+// остаётся пустой (CSS даёт нейтральный фон-плейсхолдер, см. blog.css).
 
 function isLocale(value: string | undefined): BlogLocale {
   return value === 'ru' ? 'ru' : 'en';
@@ -150,7 +153,6 @@ export function BlogFeedPage() {
       {state === 'ready' && (
         <ul className="blog-feed__list" data-testid="blog-feed-list">
           {items.map((post) => {
-            const cover = post.coverUrl ?? DEFAULT_COVER;
             const coverAlt = post.coverAlt ?? post.title;
             return (
               <li
@@ -165,14 +167,20 @@ export function BlogFeedPage() {
                   className="blog-feed__card-link"
                   aria-label={post.title}
                 >
-                  <div className="blog-feed__card-cover-wrap">
-                    <img
-                      className="blog-feed__card-cover"
-                      src={cover}
-                      alt={coverAlt}
-                      loading="lazy"
-                    />
-                  </div>
+                  {/* KS-4438: `<img>` рендерим только при наличии coverUrl.
+                      Без обложки оставляем пустую обёртку — CSS-плейсхолдер
+                      (`.blog-feed__card-cover-wrap`) даёт нейтральный фон,
+                      битой иконки нет. */}
+                  {post.coverUrl && (
+                    <div className="blog-feed__card-cover-wrap">
+                      <img
+                        className="blog-feed__card-cover"
+                        src={post.coverUrl}
+                        alt={coverAlt}
+                        loading="lazy"
+                      />
+                    </div>
+                  )}
                   <div className="blog-feed__card-body">
                     {post.isLocaleFallback && (
                       <span

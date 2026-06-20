@@ -26,7 +26,9 @@ import type {
   BlogPostDetail,
 } from '@kingside/shared';
 
-const DEFAULT_COVER = '/og/blog-default.png';
+// KS-4438: дефолтный путь `/og/blog-default.png` убран — файла такого
+// в проекте нет (и не будет, см. тикет). Если у статьи нет `coverUrl`,
+// картинку в шапке не рендерим вовсе.
 
 function asLocale(value: string | undefined): BlogLocale {
   return value === 'ru' ? 'ru' : 'en';
@@ -147,7 +149,6 @@ export function BlogPostPage() {
   // ── ready ──────────────────────────────────────────────────────
   const authorName = pickAuthorName(post.author, locale);
   const isFallback = Boolean(post.isLocaleFallback);
-  const cover = post.coverUrl ?? DEFAULT_COVER;
   const coverAlt = post.coverAlt ?? post.title;
   // KS-4434. Сравниваем по календарной дате, а не по полной ISO-строке:
   // `updatedAt` и `publishedAt` могут различаться секундами (бэкенд
@@ -202,12 +203,15 @@ export function BlogPostPage() {
       )}
 
       <header className="blog-article__header">
-        <img
-          className="blog-article__cover"
-          src={cover}
-          alt={coverAlt}
-          loading="lazy"
-        />
+        {/* KS-4438: рендерим обложку только при наличии coverUrl. */}
+        {post.coverUrl && (
+          <img
+            className="blog-article__cover"
+            src={post.coverUrl}
+            alt={coverAlt}
+            loading="lazy"
+          />
+        )}
         <h1 className="blog-article__title">{post.title}</h1>
         <p className="blog-article__subtitle">{post.description}</p>
         <div

@@ -22,7 +22,11 @@ import { SeoHelmet } from './SeoHelmet';
 import type { BlogPostDetail } from '@kingside/shared';
 
 const ORIGIN = 'https://kingside.site';
-const DEFAULT_COVER = '/og/blog-default.png';
+// KS-4438: fallback для og:image — общий `/og/default.png` (он реально
+// лежит в `public/og/`). Прежний `/og/blog-default.png` отсутствовал;
+// социальные превью без `og:image` выглядят хуже, чем с обобщённой
+// заглушкой бренда, поэтому используем именно существующий файл.
+const DEFAULT_COVER = '/og/default.png';
 
 export interface BlogPostSeoProps {
   post: BlogPostDetail;
