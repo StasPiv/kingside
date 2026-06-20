@@ -226,6 +226,20 @@ function compareLifecycleSort(
 }
 
 /**
+ * KS-4401. Blacklist по названию: трансляции с подстрокой `tcec`
+ * (case-insensitive) исключаются из подборки pinned. TCEC — Top
+ * Chess Engine Championship, движки против движков; не интересны
+ * в общей людской подборке. Список можно расширять (CCCC, Stockfish
+ * Championship и т. п.) — пока только `tcec`.
+ *
+ * Возвращает `true` если broadcast должен быть исключён.
+ */
+export function isPinnedTitleExcluded(title: string | null | undefined): boolean {
+  if (!title) return false;
+  return title.toLowerCase().includes('tcec');
+}
+
+/**
  * KS-4395. Средний ELO топ-N игроков. Семантически совпадает с SQL-
  * агрегацией в `computeBroadcastMeta` (см. `avg_elo` подзапрос):
  *   * сортируем входной массив по убыванию;
@@ -434,10 +448,14 @@ export class BroadcastController {
       nearest_pending_at: Date | null;
       avg_elo: number | null;
       elo_games_count: number | string;
+      // KS-4401: title нужен для blacklist'а (TCEC — движковые
+      // турниры, не интересны в общей подборке pinned).
+      title: string;
     };
 
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT b.id::text as id,
+        b.title AS title,
         -- end_date прошёл (Lichess BCS-сигнал, не всегда точный — см. KS-2514).
         (b.end_date IS NOT NULL AND b.end_date < NOW()) AS end_date_passed,
         -- Первый тур (по starts_at ASC) начался: starts_at <= NOW() или ongoing
@@ -595,7 +613,13 @@ export class BroadcastController {
         lifecycleStatus = 'live';
       }
 
-      const isPinned = lifecycleStatus === 'live' && strongField;
+      // KS-4401: blacklist по подстроке `tcec` в title (case-insensitive).
+      // TCEC — Top Chess Engine Championship (движки), не для общей
+      // людской подборки pinned. Расширение фильтра — отдельной задачей
+      // (CCCC, Stockfish Championship и т. п.).
+      const titleExcluded = isPinnedTitleExcluded(row.title);
+      const isPinned =
+        lifecycleStatus === 'live' && strongField && !titleExcluded;
 
       result.set(row.id, {
         lifecycleStatus,

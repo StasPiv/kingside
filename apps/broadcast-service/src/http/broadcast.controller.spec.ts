@@ -1325,3 +1325,50 @@ describe('avgEloOfTopN (KS-4395)', () => {
     expect(avgEloOfTopN([2700, 2600], 0)).toBe(2700);
   });
 });
+
+describe('isPinnedTitleExcluded (KS-4401)', () => {
+  // Импорт делаем здесь, чтобы не плодить блок import выше; на запуске
+  // тестов модуль уже подтянулся.
+  const { isPinnedTitleExcluded } = jest.requireActual(
+    './broadcast.controller',
+  );
+
+  it('null / undefined / пустая строка → false', () => {
+    expect(isPinnedTitleExcluded(null)).toBe(false);
+    expect(isPinnedTitleExcluded(undefined)).toBe(false);
+    expect(isPinnedTitleExcluded('')).toBe(false);
+  });
+
+  it('точное "TCEC" → true', () => {
+    expect(isPinnedTitleExcluded('TCEC')).toBe(true);
+  });
+
+  it('lowercase tcec → true', () => {
+    expect(isPinnedTitleExcluded('tcec')).toBe(true);
+  });
+
+  it('смешанный регистр TcEc → true', () => {
+    expect(isPinnedTitleExcluded('TcEc')).toBe(true);
+  });
+
+  it('"TCEC Season 27" → true', () => {
+    expect(isPinnedTitleExcluded('TCEC Season 27')).toBe(true);
+  });
+
+  it('подстрока в середине → true', () => {
+    expect(isPinnedTitleExcluded('Top Chess Engine TCEC Cup')).toBe(true);
+  });
+
+  it('"not-tcec" → true (содержит подстроку)', () => {
+    // Намеренная семантика: ищем любое вхождение `tcec`. Если в проде
+    // появится «not-tcec» как реальное название — расширим до regex
+    // с границами слова.
+    expect(isPinnedTitleExcluded('not-tcec')).toBe(true);
+  });
+
+  it('человеческий турнир без tcec → false', () => {
+    expect(isPinnedTitleExcluded('Norway Chess 2026')).toBe(false);
+    expect(isPinnedTitleExcluded('Tata Steel Chess')).toBe(false);
+    expect(isPinnedTitleExcluded('Candidates')).toBe(false);
+  });
+});
