@@ -258,6 +258,10 @@ function GuestLandingHome() {
       {/* §5.6 Inline-footer — три ссылки. Селектор языка тут не нужен
           (есть в шапке, по решению layout/KS-4265). */}
       <footer className="landing-footer" data-testid="landing-footer">
+        <Link to="/blog" className="landing-footer__link">
+          {t('nav.blog', 'Blog')}
+        </Link>
+        <span className="landing-footer__sep" aria-hidden="true">·</span>
         <Link to="/terms" className="landing-footer__link">
           {t('landing.footerLinks.terms')}
         </Link>

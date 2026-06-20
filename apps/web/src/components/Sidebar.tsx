@@ -242,6 +242,14 @@ const NAV_ITEMS: NavItem[] = [
     match: ['/broadcasts'],
     featureFlag: 'broadcastsEnabled',
   },
+  // KS-4399 (ADR-137 T5): блог Kingside. Доступен гостям, без
+  // gating'а — статьи публичные. Match покрывает и /blog/:slug.
+  {
+    path: '/blog',
+    icon: '📰',
+    i18nKey: 'nav.blog',
+    match: ['/blog'],
+  },
   // KS-2800: групповой «Анализ». Workshop + Archive — без gating'а.
   // Match покрывает все подмаршруты обоих, чтобы при заходе на
   // /workshop, /analysis, /archive подсветка стояла на этом пункте.
