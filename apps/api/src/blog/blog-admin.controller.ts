@@ -1,7 +1,23 @@
 /**
- * KS-4410 / ADR-137 rev2 + KS-4445 / ADR-138 §6. Админ-маршруты блога.
- * Защита — `JwtAuthGuard + AdminUserGuard` (whitelist `KS_ADMIN_USERS`
- * env, KS-2108). Без авторизации → 401; не-админ → 403.
+ * KS-4410 / ADR-137 rev2 + KS-4445 / ADR-138 §6 + KS-4457 / ADR-139 T5.
+ * Админ-маршруты блога.
+ *
+ * Защита — единый `AdminOrServiceGuard` (KS-4455 / ADR-139 §3),
+ * принимающий ДВА типа аутентификации:
+ *   1. human-admin: `JwtAuthGuard` + whitelist `KS_ADMIN_USERS` (KS-2108).
+ *      Все эндпоинты — human-админ может читать и менять без ограничений.
+ *   2. service-account: Bearer `ks_sa_*` (KS-4454), проверка по
+ *      `agent_service_accounts` + scope из `@RequiredScope`.
+ *
+ * Scope-политика на этом контроллере (зафиксировано в KS-4457):
+ *   - mutating: `@RequiredScope('blog:write')` — POST/PUT/PATCH/DELETE
+ *     для posts и authors.
+ *   - read (GET `posts`, `posts/:id`, `authors`, `authors/:id`) — БЕЗ
+ *     scope. Сервис-аккаунт с любым непустым scope может читать.
+ *     Логика: read-эндпоинты не меняют состояние, выдача read-only
+ *     scope (`blog:read`) поднимется в дизайне отдельно, если такой
+ *     ограниченный агент появится.
+ *   - POST `posts/preview` — рендер markdown, БД не пишется. БЕЗ scope.
  *
  * Создание и обновление статьи принимают `multipart/form-data` (см.
  * KS-4445): текстовые поля в `Body`, бинарное поле `cover` —
@@ -26,8 +42,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminUserGuard } from '../auth/admin-user.guard';
+import { AdminOrServiceGuard } from '../auth/admin-or-service.guard';
+import { RequiredScope } from '../auth/required-scope.decorator';
 import { BlogAdminService } from './blog-admin.service';
 import {
   BlogMediaInvalidMimeError,
@@ -73,7 +89,7 @@ const COVER_INTERCEPTOR = FileInterceptor('cover', {
   },
 });
 
-@UseGuards(JwtAuthGuard, AdminUserGuard)
+@UseGuards(AdminOrServiceGuard)
 @Controller('admin/blog')
 export class BlogAdminController {
   constructor(
@@ -94,6 +110,7 @@ export class BlogAdminController {
   }
 
   @Post('posts')
+  @RequiredScope('blog:write')
   @UseInterceptors(COVER_INTERCEPTOR)
   async createPost(
     @Body() body: CreateBlogPostDto,
@@ -107,6 +124,7 @@ export class BlogAdminController {
   }
 
   @Put('posts/:id')
+  @RequiredScope('blog:write')
   @UseInterceptors(COVER_INTERCEPTOR)
   async updatePost(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -177,6 +195,7 @@ export class BlogAdminController {
   }
 
   @Delete('posts/:id')
+  @RequiredScope('blog:write')
   async deletePost(
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ deleted: true }> {
@@ -185,6 +204,7 @@ export class BlogAdminController {
   }
 
   @Patch('posts/:id/status')
+  @RequiredScope('blog:write')
   updateStatus(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateBlogPostStatusDto,
@@ -210,11 +230,13 @@ export class BlogAdminController {
   }
 
   @Post('authors')
+  @RequiredScope('blog:write')
   createAuthor(@Body() body: CreateBlogAuthorDto) {
     return this.admin.createAuthor(body);
   }
 
   @Put('authors/:id')
+  @RequiredScope('blog:write')
   updateAuthor(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateBlogAuthorDto,
@@ -223,6 +245,7 @@ export class BlogAdminController {
   }
 
   @Delete('authors/:id')
+  @RequiredScope('blog:write')
   async deleteAuthor(
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ deleted: true }> {
