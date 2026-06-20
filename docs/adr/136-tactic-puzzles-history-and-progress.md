@@ -145,9 +145,11 @@ GET /tactic-puzzles/attempts?cursor=&limit=&period=&stop=&rating=&solved=
     best: number,                 // лучший за всё время
   },
   stopReasonBreakdown: Record<StopReason, number>,
-  objectiveBreakdown: { convertAdvantage: number, saveEquality: number },
   difficultyBuckets: { '0.9-0.93': number, '0.93-0.96': number, '0.96-0.99': number, '0.99-1.0': number },
 }
+```
+
+KS-4367: жанровая разбивка `objectiveBreakdown` (`convertAdvantage`/`saveEquality`) снята — раздел «Точность» оценивает только умение находить сильнейший ход, без жанровых меток.
 ```
 
 **График рейтинга** `GET /tactic-puzzles/stats/rating-history`:
@@ -159,7 +161,7 @@ GET /tactic-puzzles/stats/rating-history?from=&to=&granularity=day
 
 Источник — новая таблица **`tactic_rating_snapshots`** (см. §3.6). По образцу `puzzle_rating_snapshots`: ежедневный снимок последнего значения `user_tactic_ratings.rating` + счётчики попыток за день. Скаппинг точек на пустые дни — линейная интерполяция или просто пропуск (фронт сам соединит).
 
-**Темы.** В новом концепте `themes` менее центральны (есть `objective`, `difficulty`, `gap`), но drill-tags (pin/fork/skewer/...) остаются для подбора и аналитики. Если drill-tags статистически малы — пропускаем, не делаем отдельный эндпоинт; иначе:
+**Темы.** В новом концепте `themes` менее центральны (есть `difficulty` и `gap`), но drill-tags (pin/fork/skewer/...) остаются для подбора и аналитики. Если drill-tags статистически малы — пропускаем, не делаем отдельный эндпоинт; иначе:
 
 ```
 GET /tactic-puzzles/stats/themes
@@ -267,7 +269,6 @@ export interface TacticUserStats {
   };
   streak: { current: number; best: number };
   stopReasonBreakdown: Record<TacticStopReason, number>;
-  objectiveBreakdown: { convertAdvantage: number; saveEquality: number };
   difficultyBuckets: Record<string, number>;
 }
 
@@ -328,7 +329,7 @@ T5. backend  (опц.) GET /tactic-puzzles/stats/themes — после смот�
 T6. frontend TacticPuzzlesSubNav компонент (по образцу PrecisionSubNav)
 T7. frontend TacticPuzzlesHistoryPage + маршрут /tactic-puzzles/history
 T8. frontend TacticPuzzlesStatsPage + график рейтинга
-             + распределения stopReason/objective/difficulty
+             + распределения stopReason/difficulty
 T9. frontend TacticPuzzleAttemptPage + маршрут /tactic-puzzles/attempts/:id
              (разбор одной попытки, опционально для MVP)
 T10. frontend TacticPuzzlesMistakesPage + маршрут /tactic-puzzles/mistakes

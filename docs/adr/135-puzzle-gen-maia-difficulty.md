@@ -69,11 +69,10 @@ model TacticPuzzle {
   wdlD             Int      @map("wdl_d")
   wdlL             Int      @map("wdl_l")
 
-  /// 'convertAdvantage' | 'saveEquality'. Определяется по WDL solver на fen.
-  objective        String
-
   /// Drill-теги (pin/fork/skewer/...) через пробел.
-  /// Без 'reactive'/'preventive' — этих жанров в новом концепте нет.
+  /// Без 'reactive'/'preventive' и без 'convertAdvantage'/'saveEquality' —
+  /// в новом концепте этих жанровых меток нет, цель пазла одна:
+  /// найти сильнейший ход в позиции.
   themes           String   @default("")
 
   /// Glicko-2 рейтинг пазла для подбора игроку.
@@ -105,7 +104,6 @@ model TacticPuzzle {
   @@index([themes])
   @@index([difficulty])
   @@index([gap])
-  @@index([objective, rating])
   @@index([algorithmVersion])
   @@map("tactic_puzzles")
 }
@@ -250,6 +248,8 @@ Lichess (`source='lichess'`, `solution_mode='forced-line'`) **не трогае�
 
 Параметр режима SF (`nodes` vs `infinite`) — на уровне обёртки над shared-модулем; алгоритм отбора `|strongSet|=1 / difficulty / gap` идентичен.
 
+**Жанровое разделение `objective` (`convertAdvantage`/`saveEquality`) — снято** (KS-4367). Суть раздела «Точность» — найти **сильнейший ход в позиции**, неважно, реализация перевеса это или удержание равенства. Поле `objective` убрано из контракта `TacticPuzzleCandidate`, схемы `tactic_puzzles`, фильтра `browse?objective=`, статистики `objectiveBreakdown`. Соответствующая миграция БД и правки кода — в задачах-наследниках KS-4367.
+
 **Источник партий для серверной генерации** — `archive_games` со следующими фильтрами:
 * `white_elo >= 2600 AND black_elo >= 2600` (оба игрока сильнее текущего `MAIA_ELO=2400` — это даёт партии, в которых трудные позиции возникают чаще);
 * `time_control_category = 'classical'` (классические партии — больше расчёта, чище позиции).
@@ -304,7 +304,6 @@ export interface TacticPuzzleCandidate {
   gap: number;
   wdl: { w: number; d: number; l: number };
   difficulty: number;
-  objective: 'convertAdvantage' | 'saveEquality';
 }
 
 export type TacticPuzzleRejectReason =
