@@ -712,6 +712,19 @@
       "desc": "Report bugs, suggest features, vote on ideas"
     }
   },
+  "blog": {
+    "feed": {
+      "title": "Kingside Blog",
+      "intro": "Technical write-ups, updates and stories from the team.",
+      "empty": "No posts yet. Stay tuned.",
+      "fallbackBadge": "Not translated yet",
+      "readingTime": "{{count}} min",
+      "paginationLabel": "Pagination",
+      "pageOf": "Page {{page}} of {{total}}",
+      "prev": "Previous",
+      "next": "Next"
+    }
+  },
   "common": {
     "loading": "Loading...",
     "all": "All",
@@ -4609,6 +4622,12 @@
       "watch": {
         "title": "Watch chess game — Kingside",
         "description": "Watch a chess game live on Kingside."
+      }
+    },
+    "blog": {
+      "feed": {
+        "title": "Kingside Blog — engineering write-ups and updates",
+        "description": "Stories from the Kingside team about chess engines, neural nets and product decisions."
       }
     },
     "tacticPuzzles": {

@@ -67,6 +67,9 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   // снимет snapshot каталога; страницы решения (`:id`) индексируются
   // через SPA-канонические URL'ы.
   { path: '/critical-moment', priority: 0.6, changefreq: 'weekly' },
+  // KS-4396 (ADR-137 T3). Лента блога. Конкретные статьи добавятся
+  // через `generated/blog-routes.ts` в T6 (devops/prerender).
+  { path: '/blog', priority: 0.6, changefreq: 'weekly' },
   { path: '/games/live', priority: 0.5, changefreq: 'daily' },
   // KS-4272: страницы inline-footer на гостевом лендинге. Без prerender
   // CloudFront/S3 отдавал `dist/index.html` (снимок главной с тем же

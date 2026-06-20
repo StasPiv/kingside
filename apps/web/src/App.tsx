@@ -42,6 +42,8 @@ import { PrecisionPage } from './pages/PrecisionPage';
 // KS-4343 (ADR-135 §2.5): новый раздел /tactic-puzzles на Maia-difficulty.
 // Сосуществует со старым /precision до T9/T10 cleanup'а.
 import { TacticPuzzlesPage } from './pages/TacticPuzzlesPage';
+// KS-4396 (ADR-137 T3): лента блога Kingside.
+import { BlogFeedPage } from './pages/BlogFeedPage';
 import { SolveTacticPuzzlePage } from './pages/SolveTacticPuzzlePage';
 // KS-4359 (ADR-136 T7): история попыток раздела «Точность».
 import { TacticPuzzlesHistoryPage } from './pages/TacticPuzzlesHistoryPage';
@@ -546,6 +548,10 @@ export function App() {
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/lobby" element={<LobbyPage />} />
+        {/* KS-4396 (ADR-137 T3). Лента блога. Доступна гостям, prerender
+            покрывает /blog (PUBLIC_ROUTES). Конкретные статьи /blog/:slug
+            подключатся в T4. */}
+        <Route path="/blog" element={<BlogFeedPage />} />
         {/* KS-4142 / ADR-128 §4: зал открыт гостю. Все игровые
             действия (matchmaking / challenge / Play vs Bot) обёрнуты
             через useRequireAuth в самом PlayPage. */}
