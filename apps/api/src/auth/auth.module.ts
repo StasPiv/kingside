@@ -19,6 +19,10 @@ import { InternalKeyGuard } from './internal-key.guard';
 // KS-4454 / ADR-139 T2: machine-to-machine аутентификация автономных
 // агентов через service-account токены `ks_sa_*`.
 import { ServiceAccountGuard } from './service-account.guard';
+// KS-4455 / ADR-139 T3: композитный гард admin OR service-account +
+// проверка scope из @RequiredScope.
+import { AdminOrServiceGuard } from './admin-or-service.guard';
+import { JwtAuthGuard } from './jwt-auth.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 import { McpExclude } from '../mcp/decorators';
 
@@ -69,6 +73,9 @@ import { McpExclude } from '../mcp/decorators';
     ScreenshotTokenRateLimitGuard,
     // KS-4454 / ADR-139 T2.
     ServiceAccountGuard,
+    // KS-4455 / ADR-139 T3.
+    JwtAuthGuard,
+    AdminOrServiceGuard,
   ],
   exports: [
     AuthService,
@@ -78,6 +85,7 @@ import { McpExclude } from '../mcp/decorators';
     AdminUserService,
     InternalKeyGuard,
     ServiceAccountGuard,
+    AdminOrServiceGuard,
   ],
 })
 export class AuthModule {}
