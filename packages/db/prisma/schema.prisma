@@ -2787,3 +2787,69 @@ model TacticRatingSnapshot {
   @@index([userId])
   @@map("tactic_rating_snapshots")
 }
+
+/// KS-4406 / ADR-137 rev2. Авторы блога kingside.site/blog. Для MVP —
+/// один сидовый автор `handle='kingside'`, при необходимости расширяется.
+/// FK с `blog_posts.author_id` идёт через `onDelete: Restrict` — пост
+/// без автора отображать нельзя, удаление автора должно явно
+/// переподвешивать его статьи (или быть невозможным до миграции).
+model BlogAuthor {
+  id        String   @id @default(uuid()) @db.Uuid
+  handle    String   @unique
+  nameRu    String   @map("name_ru")
+  nameEn    String   @map("name_en")
+  avatarUrl String?  @map("avatar_url")
+  bioRu     String?  @map("bio_ru")
+  bioEn     String?  @map("bio_en")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt       @map("updated_at") @db.Timestamptz(3)
+
+  posts BlogPost[]
+
+  @@map("blog_authors")
+}
+
+/// KS-4406 / ADR-137 rev2. Публикация блога. Источник правды — БД,
+/// а не markdown-файлы во фронте (rev2 пересмотр; см. коммит архитектора
+/// 96d5480 и task KS-4406). Поля:
+///   * `body_md` — исходный Markdown (редактируется через admin-эндпоинт);
+///   * `body_html` — кэш HTML после рендера unified+rehype-sanitize, для
+///     быстрой отдачи /blog/<slug> без рендера на лету;
+///   * `tags` — массив тегов, индекс GIN для поиска;
+///   * `related_route` — опц. ссылка на связанный раздел (например
+///     `/lectures/<id>`), отрисовывается как «По теме» под постом;
+///   * `status='draft'|'published'` — публикации только публичные;
+///   * `published_at` — момент первой публикации (используется для
+///     sitemap-lastmod и сортировки списка).
+model BlogPost {
+  id              String    @id @default(uuid()) @db.Uuid
+  slug            String
+  /// `'ru'` | `'en'`. UNIQUE(`slug`, `locale`) даёт один пост на язык.
+  locale          String
+  title           String
+  description     String
+  bodyMd          String    @map("body_md")
+  bodyHtml        String    @map("body_html")
+  coverUrl        String?   @map("cover_url")
+  coverAlt        String?   @map("cover_alt")
+  tags            String[]
+  relatedRoute    String?   @map("related_route")
+  readingTimeMin  Int       @map("reading_time_min")
+  /// `'draft'` | `'published'`. На публичные эндпоинты пускаются только
+  /// `'published'`.
+  status          String
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(3)
+  authorId        String    @map("author_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt       @map("updated_at") @db.Timestamptz(3)
+
+  author BlogAuthor @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@unique([slug, locale])
+  /// Сортировка ленты /blog: WHERE status='published' ORDER BY published_at DESC.
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([slug])
+  /// GIN-индекс для поиска по тегам — `WHERE tags @> ARRAY[...]`.
+  @@index([tags], type: Gin)
+  @@map("blog_posts")
+}
