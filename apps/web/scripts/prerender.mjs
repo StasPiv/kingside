@@ -52,12 +52,79 @@ const __dirname = path.dirname(__filename);
 const APP_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(APP_DIR, 'dist');
 const ROUTES_FILE = path.join(APP_DIR, 'src/config/publicRoutes.ts');
-// KS-4418 / ADR-137 rev2 T10. Прежний источник блог-маршрутов —
-// файл с сгенерированным списком статей. После переезда блога в БД
-// (T7/T8) этого файла нет; конвейер предварительной отрисовки
-// блог-маршрутов будет перенесён на API в T13. Сейчас в реестре
-// только статичные маршруты из `publicRoutes.ts` (лента `/blog`
-// там уже есть).
+// KS-4421 / ADR-137 rev2 T13. Адреса статей блога подмешиваются из
+// публичного API `GET /blog/posts?locale=...`. URL backend — из
+// `VITE_API_URL` (та же переменная, что у фронт-клиента; deploy-aws.sh
+// уже передаёт её в окружение `npm run build`). Если переменной нет
+// или API не доступен — пропускаем шаг и продолжаем со статичным
+// `PUBLIC_ROUTES` (предварительная отрисовка не должна валиться
+// из-за недоступного API, см. требование тикета).
+const BLOG_API_BASE_URL = (process.env.VITE_API_URL || '').replace(/\/+$/, '');
+const BLOG_API_TIMEOUT_MS = 5_000;
+const BLOG_API_PAGE_HARD_LIMIT = 50; // защита от петли при битом totalPages
+
+/* ------------------------- blog routes from API ------------------- */
+
+/**
+ * Один GET к публичному API блога с тайм-аутом 5с. Возвращает
+ * `null` при любой ошибке (сеть, не-2xx, JSON-parse, тайм-аут).
+ * Не бросает — вызывающая сторона смотрит на `null` и решает.
+ */
+async function fetchBlogPage(locale, page) {
+  if (!BLOG_API_BASE_URL) return null;
+  const url = `${BLOG_API_BASE_URL}/blog/posts?locale=${encodeURIComponent(locale)}&page=${page}`;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), BLOG_API_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ac.signal });
+    if (!res.ok) {
+      process.stderr.write(
+        `prerender: blog API ${url} → HTTP ${res.status}; пропускаю.\n`,
+      );
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      `prerender: blog API ${url} failed (${msg}); пропускаю.\n`,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Собирает уникальные `/blog/<slug>` со всех страниц обеих локалей.
+ * Любая отдельная ошибка (тайм-аут, 5xx, network) — не валит сборку,
+ * просто прекращает обход соответствующей локали и продолжает дальше.
+ */
+async function loadBlogRoutesFromApi() {
+  if (!BLOG_API_BASE_URL) {
+    process.stderr.write(
+      'prerender: VITE_API_URL не задан — статьи блога не подмешиваются.\n',
+    );
+    return [];
+  }
+  const slugs = new Set();
+  for (const locale of ['ru', 'en']) {
+    for (let page = 1; page <= BLOG_API_PAGE_HARD_LIMIT; page++) {
+      const data = await fetchBlogPage(locale, page);
+      if (!data || !Array.isArray(data.items)) break;
+      for (const item of data.items) {
+        if (item && typeof item.slug === 'string' && item.slug.length > 0) {
+          slugs.add(item.slug);
+        }
+      }
+      const totalPages = Number.isFinite(data.totalPages) ? data.totalPages : 1;
+      if (page >= totalPages) break;
+    }
+  }
+  return Array.from(slugs)
+    .sort()
+    .map((slug) => `/blog/${slug}`);
+}
 
 /* ------------------------- routes registry ------------------------- */
 
@@ -329,9 +396,19 @@ async function main() {
   if (!fs.existsSync(DIST_DIR) || !fs.existsSync(path.join(DIST_DIR, 'index.html'))) {
     throw new Error(`prerender: dist/ не собран. Запусти 'vite build' до prerender.`);
   }
-  const routes = loadRoutes();
+  const publicRoutes = loadRoutes();
+  const blogRoutes = await loadBlogRoutesFromApi();
+  const seen = new Set(publicRoutes);
+  const merged = [...publicRoutes];
+  for (const r of blogRoutes) {
+    if (!seen.has(r)) {
+      merged.push(r);
+      seen.add(r);
+    }
+  }
+  const routes = merged;
   console.log(
-    `prerender: ${routes.length} routes from ${path.relative(APP_DIR, ROUTES_FILE)}`,
+    `prerender: ${routes.length} routes (${publicRoutes.length} public + ${blogRoutes.length} blog from API)`,
   );
 
   const port = 4173;
