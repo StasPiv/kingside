@@ -27,7 +27,8 @@
     "drill:validate": "npx ts-node src/scripts/validate-drill-positions.ts",
     "drill:validate:bundle": "esbuild src/scripts/validate-drill-positions.ts --bundle --platform=node --target=node20 --format=cjs --outfile=/tmp/kingside-tools/validate-drill.js",
     "backfill:precision-score": "npx ts-node src/scripts/backfill-precision-score.ts",
-    "backfill:classification-wdl": "npx ts-node src/scripts/backfill-classification-wdl.ts"
+    "backfill:classification-wdl": "npx ts-node src/scripts/backfill-classification-wdl.ts",
+    "service-account": "npx ts-node src/scripts/service-account.cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
