@@ -11,6 +11,8 @@ import {
   type NavRoute,
 } from '../hooks/useNavStats';
 import { FeedbackModal } from './FeedbackModal';
+// KS-4460. Блог-URL с языковым префиксом.
+import { blogFeedPath, toBlogLocale } from '../utils/blogUrl';
 
 /**
  * KS-2373 → KS-2806 (ADR-058 §5.1, §6.3 T9).
@@ -33,7 +35,9 @@ import { FeedbackModal } from './FeedbackModal';
  */
 
 export function MobileBottomBar() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // KS-4460. Текущая локаль для построения URL'ов блога.
+  const blogPath = blogFeedPath(toBlogLocale(i18n.language));
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
   // KS-2807: feedback-модалка (как в Sidebar). Кнопка лежит в группе
@@ -175,8 +179,9 @@ export function MobileBottomBar() {
                     </Link>
                   );
                 })}
-                {/* KS-4426: блог. Лента публична — без gating'а. */}
-                <Link to="/blog" data-testid="mobile-more-blog">
+                {/* KS-4426: блог. Лента публична — без gating'а.
+                    KS-4460: URL с префиксом языка (`/<lang>/blog`). */}
+                <Link to={blogPath} data-testid="mobile-more-blog">
                   {t('nav.blog', 'Blog')}
                 </Link>
               </div>

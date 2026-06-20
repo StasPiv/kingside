@@ -15,12 +15,17 @@
  *   - `ready` — статья загружена. Если `isLocaleFallback=true` — над
  *     телом плашка «не переведено».
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { BlogPostSeo } from '../components/seo/BlogPostSeo';
 import { useBlogPost } from '../hooks/useBlogPost';
+import {
+  DEFAULT_BLOG_LOCALE,
+  blogFeedPath,
+  toBlogLocale,
+} from '../utils/blogUrl';
 import type {
   BlogLocale,
   BlogPostDetail,
@@ -29,10 +34,6 @@ import type {
 // KS-4438: дефолтный путь `/og/blog-default.png` убран — файла такого
 // в проекте нет (и не будет, см. тикет). Если у статьи нет `coverUrl`,
 // картинку в шапке не рендерим вовсе.
-
-function asLocale(value: string | undefined): BlogLocale {
-  return value === 'ru' ? 'ru' : 'en';
-}
 
 function formatDate(iso: string | null, locale: BlogLocale): string {
   if (!iso) return '';
@@ -56,15 +57,28 @@ function pickAuthorName(
 
 export function BlogPostPage() {
   const { t, i18n } = useTranslation();
-  const { slug = '' } = useParams<{ slug: string }>();
+  const { slug = '', lang } = useParams<{ slug: string; lang: string }>();
   const navigate = useNavigate();
-  const locale = asLocale(i18n.language);
+  // KS-4460. Локаль страницы — из URL (`/:lang/blog/:slug`), а не из
+  // `i18n.language`. Гость, попавший на `/ru/blog/<slug>` с дефолтным
+  // английским UI, должен увидеть русскую статью. См. BlogFeedPage с
+  // тем же контрактом.
+  const locale = toBlogLocale(lang ?? DEFAULT_BLOG_LOCALE);
+
+  // KS-4460. Подгоняем глобальный `i18n.language` под URL, чтобы шапка/
+  // меню/футер сразу показывались на нужном языке. Не откатываем на
+  // unmount — пользователь после статьи остаётся в выбранной локали.
+  useEffect(() => {
+    if (i18n.language !== locale) {
+      void i18n.changeLanguage(locale);
+    }
+  }, [i18n, locale]);
 
   const { post, status } = useBlogPost(slug, locale);
 
   const handleBack = useCallback(() => {
-    navigate('/blog');
-  }, [navigate]);
+    navigate(blogFeedPath(locale));
+  }, [navigate, locale]);
 
   // ── loading ────────────────────────────────────────────────────
   if (status === 'loading') {
@@ -173,13 +187,16 @@ export function BlogPostPage() {
       data-locale={post.locale}
       data-fallback={isFallback ? 'true' : 'false'}
     >
-      <BlogPostSeo post={post} authorName={authorName} />
+      <BlogPostSeo post={post} authorName={authorName} pageLocale={locale} />
 
       <nav
         className="blog-article__breadcrumbs"
         aria-label={t('breadcrumbs.label', 'Breadcrumbs')}
       >
-        <Link to="/blog" className="blog-article__breadcrumb-link">
+        <Link
+          to={blogFeedPath(locale)}
+          className="blog-article__breadcrumb-link"
+        >
           ← {t('blog.post.backToFeed', 'Back to the blog')}
         </Link>
       </nav>

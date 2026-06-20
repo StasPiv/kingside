@@ -418,8 +418,14 @@ export function AdminBlogPostEditPage() {
           </h1>
           {isEdit && form.slug && (
             <p className="admin-blog-page__subtitle">
-              <Link to={`/blog/${form.slug}`} target="_blank" rel="noreferrer">
-                /blog/{form.slug}
+              {/* KS-4460. Превью админки ведёт на URL с языковым
+                  префиксом — у каждой локали свой адрес. */}
+              <Link
+                to={`/${form.locale}/blog/${form.slug}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                /{form.locale}/blog/{form.slug}
               </Link>
             </p>
           )}

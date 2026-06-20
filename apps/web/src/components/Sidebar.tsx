@@ -8,6 +8,8 @@ import { useFeatureFlags } from '../context/FeatureFlagsContext';
 import { useAdminStatus } from '../hooks/useAdminStatus';
 import { useAuth } from '../context/AuthContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+// KS-4460. Блог-URL зависит от текущего языка (`/<lang>/blog`).
+import { blogFeedPath, toBlogLocale } from '../utils/blogUrl';
 
 interface NavItem {
   path: string;
@@ -243,12 +245,18 @@ const NAV_ITEMS: NavItem[] = [
     featureFlag: 'broadcastsEnabled',
   },
   // KS-4399 (ADR-137 T5): блог Kingside. Доступен гостям, без
-  // gating'а — статьи публичные. Match покрывает и /blog/:slug.
+  // gating'а — статьи публичные.
+  // KS-4460: путь блога теперь зависит от текущего языка
+  // (`/<lang>/blog`). Поле `path: '/blog'` — это маркер пункта; в
+  // `renderItem`/`renderFooterItem` для блога мы динамически собираем
+  // реальный URL через `blogFeedPath(toBlogLocale(i18n.language))`.
+  // Список `match` покрывает и старые `/blog[/<slug>]` (на которые
+  // ведёт CloudFront-редирект, см. App.tsx), и новые `/<lang>/blog*`.
   {
     path: '/blog',
     icon: '📰',
     i18nKey: 'nav.blog',
-    match: ['/blog'],
+    match: ['/blog', '/en/blog', '/ru/blog'],
   },
   // KS-2800: групповой «Анализ». Workshop + Archive — без gating'а.
   // Match покрывает все подмаршруты обоих, чтобы при заходе на
@@ -325,8 +333,13 @@ const FOOTER_NAV: NavItem[] = [
 ];
 
 export function Sidebar() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const location = useLocation();
+  // KS-4460. Префикс языка для блога. Подменяется в renderItem ниже —
+  // меняется при смене языка через `SettingsPage`/при переходе на
+  // `/<lang>/blog/*` (BlogFeedPage/BlogPostPage делают
+  // `i18n.changeLanguage`).
+  const blogPath = blogFeedPath(toBlogLocale(i18n.language));
   const [showFeedback, setShowFeedback] = useState(false);
   // KS-2840: какой submenu сейчас открыт (один за раз; null — все закрыты).
   const [openSubmenuId, setOpenSubmenuId] = useState<string | null>(null);
@@ -388,6 +401,12 @@ export function Sidebar() {
       }));
   };
 
+  // KS-4460. Реальный URL пункта: для блога — `/<lang>/blog`, для
+  // остальных — собственный `path`. Прячем подмену здесь, чтобы не
+  // менять структуру `NavItem` (значения `match`/`i18nKey` остаются).
+  const linkTargetFor = (item: NavItem): string =>
+    item.path === '/blog' ? blogPath : item.path;
+
   const renderItem = (item: NavItem) => {
     // KS-2840: пункт с подменю — рендерим SidebarSubmenu на desktop,
     // обычный Link на mobile (там submenu не показываем — Lobby
@@ -401,7 +420,7 @@ export function Sidebar() {
         return (
           <Link
             key={item.path}
-            to={item.path}
+            to={linkTargetFor(item)}
             className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
             title={t(item.i18nKey)}
           >
@@ -430,7 +449,7 @@ export function Sidebar() {
     return (
       <Link
         key={item.path}
-        to={item.path}
+        to={linkTargetFor(item)}
         className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
         title={t(item.i18nKey)}
       >

@@ -67,11 +67,13 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   // снимет snapshot каталога; страницы решения (`:id`) индексируются
   // через SPA-канонические URL'ы.
   { path: '/critical-moment', priority: 0.6, changefreq: 'weekly' },
-  // KS-4396 → KS-4413 (ADR-137 rev2). Лента блога. Конкретные статьи
-  // `/blog/<slug>` тут не перечисляем — источник правды по статьям
-  // переехал в API (T7/T8), а конвейер предварительной отрисовки
-  // блог-маршрутов будет переподключён к API в T13.
-  { path: '/blog', priority: 0.6, changefreq: 'weekly' },
+  // KS-4396 → KS-4413 (ADR-137 rev2). Лента блога.
+  // KS-4460: каждая локаль — отдельный URL (`/<lang>/blog`).
+  // Конкретные статьи `/<lang>/blog/<slug>` тут не перечисляем —
+  // источник правды по статьям в API (T7/T8), prerender блог-маршрутов
+  // в `scripts/prerender.mjs` снимает обе локали для каждого slug'а.
+  { path: '/en/blog', priority: 0.6, changefreq: 'weekly' },
+  { path: '/ru/blog', priority: 0.6, changefreq: 'weekly' },
   { path: '/games/live', priority: 0.5, changefreq: 'daily' },
   // KS-4272: страницы inline-footer на гостевом лендинге. Без prerender
   // CloudFront/S3 отдавал `dist/index.html` (снимок главной с тем же

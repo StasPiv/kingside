@@ -96,7 +96,13 @@ async function fetchBlogPage(locale, page) {
 }
 
 /**
- * Собирает уникальные `/blog/<slug>` со всех страниц обеих локалей.
+ * Собирает уникальные slug'и статей со всех страниц обеих локалей и
+ * раскладывает их в маршруты `/<lang>/blog/<slug>` для каждой
+ * поддерживаемой локали (KS-4460 — у каждой локали свой URL). Если
+ * статья опубликована только на одной локали, backend всё равно
+ * вернёт fallback при заходе на любой URL, поэтому генерируем
+ * snapshot для обеих локалей независимо от наличия перевода.
+ *
  * Любая отдельная ошибка (тайм-аут, 5xx, network) — не валит сборку,
  * просто прекращает обход соответствующей локали и продолжает дальше.
  */
@@ -108,7 +114,8 @@ async function loadBlogRoutesFromApi() {
     return [];
   }
   const slugs = new Set();
-  for (const locale of ['ru', 'en']) {
+  const LOCALES = ['en', 'ru'];
+  for (const locale of LOCALES) {
     for (let page = 1; page <= BLOG_API_PAGE_HARD_LIMIT; page++) {
       const data = await fetchBlogPage(locale, page);
       if (!data || !Array.isArray(data.items)) break;
@@ -121,9 +128,14 @@ async function loadBlogRoutesFromApi() {
       if (page >= totalPages) break;
     }
   }
-  return Array.from(slugs)
-    .sort()
-    .map((slug) => `/blog/${slug}`);
+  const sortedSlugs = Array.from(slugs).sort();
+  const routes = [];
+  for (const slug of sortedSlugs) {
+    for (const locale of LOCALES) {
+      routes.push(`/${locale}/blog/${slug}`);
+    }
+  }
+  return routes;
 }
 
 /* ------------------------- routes registry ------------------------- */
@@ -401,21 +413,22 @@ async function prerenderRoute(browser, baseUrl, route) {
     { timeout: 20_000 },
   );
 
-  // KS-4434. Для страниц статьи блога (`/blog/<slug>`) ждать общего
-  // условия выше недостаточно: BlogPostPage в loading-стейте показывает
-  // «Loading the article…» — это не подпадает под строгий «Loading»-
-  // регексп и общий wait возвращается раньше, чем сетевой запрос
-  // GET /blog/posts/:slug отработает. Без дополнительного ожидания в
-  // snapshot уезжает loading-разметка без Article JSON-LD/title/canonical,
-  // а статический WebApplication из index.html не вытесняется
-  // дедупликатором SeoHelmet (он работает только когда BlogPostSeo
-  // смонтирован). Ждём отдельно `[data-state="ready"]` (или 404/error).
+  // KS-4434 → KS-4460. Для страниц статьи блога (`/<lang>/blog/<slug>`)
+  // ждать общего условия выше недостаточно: BlogPostPage в loading-
+  // стейте показывает «Loading the article…» — это не подпадает под
+  // строгий «Loading»-регексп и общий wait возвращается раньше, чем
+  // сетевой запрос GET /blog/posts/:slug отработает. Без дополнительного
+  // ожидания в snapshot уезжает loading-разметка без Article JSON-LD/
+  // title/canonical, а статический WebApplication из index.html не
+  // вытесняется дедупликатором SeoHelmet (он работает только когда
+  // BlogPostSeo смонтирован). Ждём отдельно `[data-state="ready"]`
+  // (или 404/error).
   //
   // KS-4443: подробная диагностика, потому что на хосте сборки snapshot
   // уходит в landing-разметку, чего у меня локально не воспроизводится.
   // Логируем env, исход ожидания, итоговое `data-state` и наличие
   // `[data-testid="blog-post"]`.
-  const isBlogPost = /^\/blog\/[^/]+$/.test(route);
+  const isBlogPost = /^\/(?:en|ru)\/blog\/[^/]+$/.test(route);
   if (isBlogPost) {
     process.stderr.write(
       `  [prerender ${route}] VITE_API_URL=${process.env.VITE_API_URL ?? '(unset)'}\n`,

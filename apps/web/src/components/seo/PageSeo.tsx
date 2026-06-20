@@ -20,7 +20,7 @@
  */
 import { useTranslation } from 'react-i18next';
 
-import { SeoHelmet } from './SeoHelmet';
+import { SeoHelmet, type SeoHelmetHreflang } from './SeoHelmet';
 
 const ORIGIN = 'https://kingside.site';
 
@@ -39,6 +39,18 @@ export interface PageSeoProps {
   noindex?: boolean;
   /** Опциональный JSON-LD (объект или массив объектов). */
   jsonLd?: object | object[];
+  /**
+   * KS-4460. Альтернативные языковые версии (`<link rel="alternate"
+   * hreflang="..." href="...">`). Прокидывается без изменений в
+   * `SeoHelmet`. Передаётся страницами, у которых каждая локаль имеет
+   * собственный URL (например, блог: `/en/blog` и `/ru/blog`).
+   */
+  hreflang?: SeoHelmetHreflang[];
+  /**
+   * KS-4460. Язык страницы (атрибут `<html lang="...">`). Применяется
+   * императивно через `document.documentElement.lang` (см. SeoHelmet).
+   */
+  lang?: string;
 }
 
 export function PageSeo({
@@ -49,6 +61,8 @@ export function PageSeo({
   ogType = 'website',
   noindex,
   jsonLd,
+  hreflang,
+  lang,
 }: PageSeoProps) {
   const { t } = useTranslation();
   const title = t(`seo.${ns}.title`, vars);
@@ -63,6 +77,8 @@ export function PageSeo({
       ogImage={ogImage}
       noindex={noindex}
       jsonLd={jsonLd}
+      hreflang={hreflang}
+      lang={lang}
     />
   );
 }

@@ -16,22 +16,24 @@
  * на ленте пока нет (могут появиться в отдельной задаче — карточки
  * статей уже рендерят `tags` ссылками).
  */
-import { useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { PageSeo } from '../components/seo/PageSeo';
 import { useBlogPosts } from '../hooks/useBlogPosts';
+import {
+  DEFAULT_BLOG_LOCALE,
+  blogFeedPath,
+  blogPostPath,
+  toBlogLocale,
+} from '../utils/blogUrl';
 import type { BlogLocale } from '@kingside/shared';
 
 // KS-4438: дефолтную картинку-плашку для карточки без обложки не
 // рендерим — файла `/og/blog-default.png` в проекте нет и заводить его
 // не будем. Когда у поста `coverUrl=null`, обёртка `.blog-feed__card-cover-wrap`
 // остаётся пустой (CSS даёт нейтральный фон-плейсхолдер, см. blog.css).
-
-function isLocale(value: string | undefined): BlogLocale {
-  return value === 'ru' ? 'ru' : 'en';
-}
 
 function formatDate(iso: string | null, locale: BlogLocale): string {
   if (!iso) return '';
@@ -47,8 +49,29 @@ function formatDate(iso: string | null, locale: BlogLocale): string {
 
 export function BlogFeedPage() {
   const { t, i18n } = useTranslation();
+  const { lang } = useParams<{ lang: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const locale = isLocale(i18n.language);
+  // KS-4460. Источник правды по локали страницы — URL (`/:lang/blog`),
+  // а не глобальный `i18n.language`. Это нужно, чтобы:
+  //   1) при заходе на `/ru/blog` гость с дефолтным `en`-UI всё равно
+  //      получал русскую ленту (а не пустую/английскую);
+  //   2) prerender каждой локали снимал стабильный snapshot независимо
+  //      от языковой эвристики `i18n/index.ts`.
+  // `BlogLangGuard` в App.tsx гарантирует, что сюда придёт только
+  // валидное значение `lang`, но `toBlogLocale` даёт safe-fallback на
+  // случай ручного захода в обход guard'а (например, в тестах).
+  const locale = toBlogLocale(lang ?? DEFAULT_BLOG_LOCALE);
+
+  // KS-4460. Синхронизация i18n с URL: подменяем `i18n.language` под
+  // локаль маршрута, чтобы шапка/меню/футер тут же показывались на
+  // выбранном языке. На размонтировании язык не откатываем —
+  // пользователь, перешедший с `/ru/blog` куда-то ещё, ожидает
+  // оставаться в `ru` (тот же контракт, что у `SettingsPage`).
+  useEffect(() => {
+    if (i18n.language !== locale) {
+      void i18n.changeLanguage(locale);
+    }
+  }, [i18n, locale]);
 
   const rawPage = parseInt(searchParams.get('page') ?? '1', 10);
   const page = Number.isFinite(rawPage) ? Math.max(1, rawPage) : 1;
@@ -91,7 +114,22 @@ export function BlogFeedPage() {
       data-testid="blog-feed"
       data-state={state}
     >
-      <PageSeo ns="blog.feed" path="/blog" />
+      {/* KS-4460. Canonical/URL — на конкретную языковую версию ленты,
+          у каждой локали свой URL. hreflang передаём явно: на ленте две
+          языковые версии + `x-default` → дефолтная локаль. */}
+      <PageSeo
+        ns="blog.feed"
+        path={blogFeedPath(locale)}
+        hreflang={[
+          { lang: 'en', href: `https://kingside.site${blogFeedPath('en')}` },
+          { lang: 'ru', href: `https://kingside.site${blogFeedPath('ru')}` },
+          {
+            lang: 'x-default',
+            href: `https://kingside.site${blogFeedPath(DEFAULT_BLOG_LOCALE)}`,
+          },
+        ]}
+        lang={locale}
+      />
 
       <header className="blog-feed__header">
         <h1>{t('blog.feed.title', 'Blog')}</h1>
@@ -163,7 +201,7 @@ export function BlogFeedPage() {
                 data-fallback={post.isLocaleFallback ? 'true' : 'false'}
               >
                 <Link
-                  to={`/blog/${post.slug}`}
+                  to={blogPostPath(locale, post.slug)}
                   className="blog-feed__card-link"
                   aria-label={post.title}
                 >

@@ -165,6 +165,14 @@ import {
   consumeAuthReturnUrl,
   setAuthReturnUrl,
 } from './utils/authReturnUrl';
+// KS-4460. URL'ы блога с префиксом языка: `/<lang>/blog[/<slug>]`.
+// Старые `/blog[/<slug>]` редиректят на дефолтную локаль (см. ниже).
+import {
+  DEFAULT_BLOG_LOCALE,
+  blogFeedPath,
+  blogPostPath,
+  isBlogLocale,
+} from './utils/blogUrl';
 
 // Lazy-loaded heavy pages
 // KS-2747 / ADR-057 §2.1: /precision/stats и /precision/history содержат
@@ -405,6 +413,56 @@ function RedirectMyLesson() {
 }
 
 /**
+ * KS-4460. Редирект `/blog` → `/<DEFAULT_BLOG_LOCALE>/blog` (с query).
+ * Сохраняет query — пагинация/фильтры `?page=N&tag=...` не теряются.
+ *
+ * Это клиентский redirect (`<Navigate replace>`). Реальный HTTP-301 на
+ * статичные snapshot'ы (`/blog/index.html`, `/blog/<slug>/index.html`)
+ * не отдаётся: после KS-4460 prerender генерирует только
+ * `/<lang>/blog[/<slug>]`. Чтобы старые внешние ссылки на `/blog/<slug>`
+ * получили 301, отдельной задачей нужен CloudFront-redirect 301
+ * `^/blog(/.*)?$` → `/en/blog$1` (зона devops).
+ */
+function RedirectLegacyBlogFeed() {
+  const location = useLocation();
+  const target = blogFeedPath(DEFAULT_BLOG_LOCALE);
+  return <Navigate to={`${target}${location.search}`} replace />;
+}
+
+/**
+ * KS-4460. Редирект `/blog/:slug` → `/<DEFAULT_BLOG_LOCALE>/blog/:slug`
+ * (с сохранением query). Slug читается через `useParams`, поэтому при
+ * пустом slug (теоретически) уйдёт на ленту.
+ */
+function RedirectLegacyBlogPost() {
+  const { slug } = useParams<{ slug: string }>();
+  const location = useLocation();
+  const target = slug
+    ? blogPostPath(DEFAULT_BLOG_LOCALE, slug)
+    : blogFeedPath(DEFAULT_BLOG_LOCALE);
+  return <Navigate to={`${target}${location.search}`} replace />;
+}
+
+/**
+ * KS-4460. Если в URL передана неизвестная локаль (`/fr/blog/...`),
+ * редиректим на дефолтную, сохранив остаток пути и query — чтобы
+ * случайные шаблонные ссылки не давали 404. `BlogFeedPage` и
+ * `BlogPostPage` сами эту проверку дублируют (lang оттуда передаётся
+ * в i18n), но guard на роуте ловит случай до монтирования страницы.
+ */
+function BlogLangGuard({ children }: { children: React.ReactNode }) {
+  const { lang } = useParams<{ lang: string }>();
+  const location = useLocation();
+  if (!isBlogLocale(lang)) {
+    // Заменяем первый сегмент пути на дефолтную локаль.
+    const rest = location.pathname.replace(/^\/[^/]+/, '');
+    const target = `/${DEFAULT_BLOG_LOCALE}${rest}${location.search}`;
+    return <Navigate to={target} replace />;
+  }
+  return <>{children}</>;
+}
+
+/**
  * KS-2810 (ADR-058 §4.4, §6.5 T13): авторизованный пользователь на
  * корневом `/` сразу попадает на `/play` (вместо устаревшего `/lobby`).
  * `/lobby` остаётся доступен по прямому URL — это не редирект на
@@ -556,12 +614,33 @@ export function App() {
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/lobby" element={<LobbyPage />} />
-        {/* KS-4396 (ADR-137 T3). Лента блога. Доступна гостям, prerender
-            покрывает /blog (PUBLIC_ROUTES). */}
-        <Route path="/blog" element={<BlogFeedPage />} />
-        {/* KS-4398 (ADR-137 T4). Страница одной статьи. Slug-маршруты
-            подгружаются с API; prerender перенесён на API в T13. */}
-        <Route path="/blog/:slug" element={<BlogPostPage />} />
+        {/* KS-4460. Блог-маршруты с языковым префиксом
+            (`/<lang>/blog[/<slug>]`). Каждый язык — свой URL для SEO
+            (отдельные snapshot'ы в prerender, отдельные записи в
+            sitemap). Лента и статья доступны гостям без gating'а.
+            `BlogLangGuard` редиректит на дефолтную локаль при
+            неподдерживаемом значении `:lang` — до монтирования страницы.
+            KS-4396 (ADR-137 T3): лента; KS-4398 (T4): одна статья. */}
+        <Route
+          path="/:lang/blog"
+          element={
+            <BlogLangGuard>
+              <BlogFeedPage />
+            </BlogLangGuard>
+          }
+        />
+        <Route
+          path="/:lang/blog/:slug"
+          element={
+            <BlogLangGuard>
+              <BlogPostPage />
+            </BlogLangGuard>
+          }
+        />
+        {/* KS-4460. Старые URL'ы без префикса языка → редирект на
+            дефолтную локаль (`en`). Query сохраняется. */}
+        <Route path="/blog" element={<RedirectLegacyBlogFeed />} />
+        <Route path="/blog/:slug" element={<RedirectLegacyBlogPost />} />
         {/* KS-4142 / ADR-128 §4: зал открыт гостю. Все игровые
             действия (matchmaking / challenge / Play vs Bot) обёрнуты
             через useRequireAuth в самом PlayPage. */}

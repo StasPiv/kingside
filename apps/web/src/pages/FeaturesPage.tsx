@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router-dom';
 import { SeoHelmet } from '../components/seo/SeoHelmet';
 import { landingApi, type LandingStats } from '../api/landingApi';
+// KS-4460. Блог-URL с префиксом языка.
+import { blogFeedPath, toBlogLocale } from '../utils/blogUrl';
 
 const SECTIONS = ['play', 'analyze', 'puzzles', 'workshop', 'broadcasts', 'social', 'customize', 'rating'] as const;
 const ICONS: Record<string, string> = {
@@ -122,8 +124,10 @@ export function FeaturesPage({ variant = 'features' }: { variant?: 'home' | 'fea
  * и i18n-ключи `landing.*`.
  */
 function GuestLandingHome() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const stats = useLandingStats();
+  // KS-4460. Footer-ссылка на блог — на лен­ту текущего языка.
+  const blogPath = blogFeedPath(toBlogLocale(i18n.language));
 
   return (
     <>
@@ -258,7 +262,7 @@ function GuestLandingHome() {
       {/* §5.6 Inline-footer — три ссылки. Селектор языка тут не нужен
           (есть в шапке, по решению layout/KS-4265). */}
       <footer className="landing-footer" data-testid="landing-footer">
-        <Link to="/blog" className="landing-footer__link">
+        <Link to={blogPath} className="landing-footer__link">
           {t('nav.blog', 'Blog')}
         </Link>
         <span className="landing-footer__sep" aria-hidden="true">·</span>
