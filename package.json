@@ -12,8 +12,8 @@
   "scripts": {
     "preinstall": "bash scripts/prevent-worktree-install.sh",
     "build": "turbo run build",
-    "dev": "turbo run dev",
-    "start": "docker compose up -d && turbo run dev",
+    "dev": "turbo run dev --filter=!@kingside/prerender-service",
+    "start": "docker compose up -d && turbo run dev --filter=!@kingside/prerender-service",
     "lint": "turbo run lint && npm run test:tools && npm run check:features",
     "check:features": "node tools/check-features-catalog.mjs",
     "test:tools": "node --test tools/check-features-catalog.spec.mjs",
