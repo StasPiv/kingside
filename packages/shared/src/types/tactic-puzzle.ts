@@ -54,8 +54,11 @@ export interface TacticPuzzleResponse {
   /** side-to-move в `fen` — кто решает. */
   solverSide: 'w' | 'b';
   themes: string[];
-  rating: number;
-  ratingDev: number;
+  // KS-4376 / KS-4375. Рейтинг пазла и его deviation удалены: подбор
+  // идёт по Maia-difficulty (`difficulty`/`gap`), отдельный
+  // Glicko-рейтинг пазла не нужен (пересмотр ADR-135 §2.1/§2.4,
+  // коммит d12cf9e). Пользовательский рейтинг живёт отдельно
+  // (`tactic_user_ratings`), его поля не трогаем.
   difficulty: number;
   gap: number;
   bestE: number;
@@ -80,8 +83,9 @@ export interface TacticPuzzleBrowseQuery {
   maiaDifficultyMin?: number;
   /** Только пазлы с `gap >= gapMin`. */
   gapMin?: number;
-  ratingMin?: number;
-  ratingMax?: number;
+  // KS-4376 / KS-4375. `ratingMin`/`ratingMax` удалены (поле `rating`
+  // у пазла удалено вместе с T4 миграцией). Фильтр сложности теперь
+  // только через `maiaDifficultyMin` / `gapMin`.
   themes?: string[];
   /** KS-4365. Фильтр по тому, решал ли текущий пользователь:
    *  `true` — только решённые (есть `tactic_puzzle_attempts.solved=true`);
@@ -130,8 +134,9 @@ export interface SubmitTacticAttemptResponse {
   solved: boolean;
   ratingBefore: number;
   ratingAfter: number;
-  puzzleRatingBefore: number;
-  puzzleRatingAfter: number;
+  // KS-4376 / KS-4375. `puzzleRatingBefore`/`puzzleRatingAfter`
+  // удалены: у пазла нет своего рейтинга, Glicko-обновление идёт
+  // только в одну сторону — пользовательский рейтинг.
   /** Пазл попал в журнал ошибок (mistake/timeout/aborted при unsolved). */
   addedToMistakes: boolean;
 }
@@ -144,7 +149,7 @@ export interface TacticUserMistakeItem {
   puzzleId: string;
   fen: string;
   bestMoveUci: string;
-  rating: number;
+  // KS-4376 / KS-4375. Поле `rating` пазла удалено.
   difficulty: number;
   gap: number;
   themes: string[];
@@ -224,7 +229,7 @@ export interface TacticAttemptDetail extends TacticAttemptListItem {
     bestMoveUci: string;
     difficulty: number;
     gap: number;
-    rating: number;
+    // KS-4376 / KS-4375. Поле `rating` пазла удалено.
     themes: string[];
   };
   sourceGameId: string | null;
