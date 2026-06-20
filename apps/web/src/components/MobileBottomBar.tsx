@@ -146,13 +146,14 @@ export function MobileBottomBar() {
           {/* — Разделы (group-routes не в top-3, кроме broadcasts/profile) — */}
           {/* KS-3425: пункт «Угадай ход» отсюда удалён — основная точка
               входа теперь карточка в /train (KS-3423, TrainLobbyPage).
-              Поведение группы вернули к исходному: если sectionRoutes
-              пуст — секция не рендерится. */}
+              KS-4426: «Блог» добавлен как статичный пункт (лента публична,
+              не зависит от feature-flag). Секция рендерится, если есть
+              хотя бы один пункт — фиксированный «Блог» гарантирует это
+              всегда. */}
           {(() => {
             const sectionRoutes = moreRoutes.filter(
               (r) => r !== 'broadcasts' && r !== 'profile',
             );
-            if (sectionRoutes.length === 0) return null;
             return (
               <div
                 className="mobile-more-group"
@@ -174,9 +175,32 @@ export function MobileBottomBar() {
                     </Link>
                   );
                 })}
+                {/* KS-4426: блог. Лента публична — без gating'а. */}
+                <Link to="/blog" data-testid="mobile-more-blog">
+                  {t('nav.blog', 'Blog')}
+                </Link>
               </div>
             );
           })()}
+
+          {/* — Тренировка (фиксированные подпункты, аналог Sidebar
+              подменю). KS-4426: «Критический момент» (ADR-136) на
+              мобильном drawer'е отсутствовал — добавлен здесь рядом
+              со ссылкой на лобби «Тренировка». */}
+          <div
+            className="mobile-more-group"
+            data-testid="mobile-more-group-train"
+          >
+            <div className="mobile-more-group__title">
+              {t('nav.train', 'Train')}
+            </div>
+            <Link
+              to="/critical-moment"
+              data-testid="mobile-more-critical-moment"
+            >
+              {t('tacticPuzzle.title', 'Critical moment')}
+            </Link>
+          </div>
 
           {/* — Социум — */}
           {(() => {
