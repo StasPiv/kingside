@@ -10,17 +10,17 @@ import { useAuth } from '../../context/AuthContext';
  * `.precision-subnav` — единый внешний вид с `/precision`.
  *
  * Пункты:
- *   - «Каталог» → `/tactic-puzzles`;
- *   - «История» → `/tactic-puzzles/history` (auth-only);
- *   - «Статистика» → `/tactic-puzzles/stats` (auth-only);
- *   - «Ошибки» → `/tactic-puzzles/mistakes` (auth-only).
+ *   - «Каталог» → `/critical-moment`;
+ *   - «История» → `/critical-moment/history` (auth-only);
+ *   - «Статистика» → `/critical-moment/stats` (auth-only);
+ *   - «Ошибки» → `/critical-moment/mistakes` (auth-only).
  *
  * Гостю показывается только «Каталог»: остальные разделы требуют
  * авторизации и backend всё равно отдаст 401. Активный пункт
  * определяется по `useLocation().pathname` (точное совпадение).
  *
  * Сложные popover'ы (`ⓘ` + `⋮`) из `PrecisionSubNav` пока не
- * переносим — у /tactic-puzzles нет CTA «Генерация из PGN», intro
+ * переносим — у /critical-moment нет CTA «Генерация из PGN», intro
  * берётся прямо на странице. Если будут нужны — добавим тем же
  * паттерном отдельной задачей.
  */
@@ -34,28 +34,28 @@ type SubNavItem = {
 
 const ITEMS: readonly SubNavItem[] = [
   {
-    path: '/tactic-puzzles',
+    path: '/critical-moment',
     i18nKey: 'tacticPuzzle.subnav.catalog',
     fallback: 'Catalog',
     testKey: 'catalog',
     authOnly: false,
   },
   {
-    path: '/tactic-puzzles/history',
+    path: '/critical-moment/history',
     i18nKey: 'tacticPuzzle.subnav.history',
     fallback: 'History',
     testKey: 'history',
     authOnly: true,
   },
   {
-    path: '/tactic-puzzles/stats',
+    path: '/critical-moment/stats',
     i18nKey: 'tacticPuzzle.subnav.stats',
     fallback: 'Stats',
     testKey: 'stats',
     authOnly: true,
   },
   {
-    path: '/tactic-puzzles/mistakes',
+    path: '/critical-moment/mistakes',
     i18nKey: 'tacticPuzzle.subnav.mistakes',
     fallback: 'Mistakes',
     testKey: 'mistakes',

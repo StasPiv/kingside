@@ -618,39 +618,34 @@ export function App() {
             <Route path="/puzzles" element={<PuzzleBrowserPage />} />
             {/* KS-2538 / ADR-048: новый каноничный роут раздела. */}
             <Route path="/precision" element={<PrecisionPage />} />
-            {/* KS-4343 (ADR-135 §2.5). Новый раздел «Точность» на
+            {/* KS-4385 (T2). Раздел «Критический момент» на
                 Maia-difficulty: каталог + solve. Должен стоять ВЫШЕ
                 wildcard'ов раздела /puzzles ниже, чтобы маршрут не
                 перехватился. Старый /precision остаётся параллельно
-                до T9/T10 cleanup'а ADR-135. */}
-            <Route path="/tactic-puzzles" element={<TacticPuzzlesPage />} />
-            {/* KS-4359 (ADR-136 T7). История попыток. Должна стоять
-                ВЫШЕ wildcard'а `/tactic-puzzles/:id`, иначе раннер
-                ловит маршрут как UUID-пазл. */}
+                до T9/T10 cleanup'а ADR-135. URL переехал с
+                /tactic-puzzles → /critical-moment; 301-перенаправление
+                со старого URL отдельной задачей devops (KS-4386). */}
+            <Route path="/critical-moment" element={<TacticPuzzlesPage />} />
+            {/* История попыток. Должна стоять ВЫШЕ wildcard'а
+                `/critical-moment/:id`, иначе раннер ловит маршрут как UUID. */}
             <Route
-              path="/tactic-puzzles/history"
+              path="/critical-moment/history"
               element={<TacticPuzzlesHistoryPage />}
             />
-            {/* KS-4360 (ADR-136 T8). Личная статистика. Тоже выше
-                wildcard'а `/:id`. */}
             <Route
-              path="/tactic-puzzles/stats"
+              path="/critical-moment/stats"
               element={<TacticPuzzlesStatsPage />}
             />
-            {/* KS-4361 (ADR-136 T9). Разбор одной попытки. ВЫШЕ
-                wildcard'а `/tactic-puzzles/:id`. */}
             <Route
-              path="/tactic-puzzles/attempts/:id"
+              path="/critical-moment/attempts/:id"
               element={<TacticPuzzleAttemptPage />}
             />
-            {/* KS-4362 (ADR-136 T10). Журнал ошибок. ВЫШЕ wildcard'а
-                `/tactic-puzzles/:id`. */}
             <Route
-              path="/tactic-puzzles/mistakes"
+              path="/critical-moment/mistakes"
               element={<TacticPuzzlesMistakesPage />}
             />
             <Route
-              path="/tactic-puzzles/:id"
+              path="/critical-moment/:id"
               element={<SolveTacticPuzzlePage />}
             />
             {/* KS-2747 / ADR-057 §2.2: вынос статистики и истории

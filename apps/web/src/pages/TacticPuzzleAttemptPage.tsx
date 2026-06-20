@@ -1,8 +1,8 @@
 /**
- * KS-4361 / ADR-136 T9. Страница `/tactic-puzzles/attempts/:id` —
+ * KS-4361 / ADR-136 T9. Страница `/critical-moment/attempts/:id` —
  * разбор одной попытки текущего пользователя.
  *
- * Источник данных: `GET /tactic-puzzles/attempts/:id` (KS-4356) →
+ * Источник данных: `GET /critical-moment/attempts/:id` (KS-4356) →
  * `TacticAttemptDetail`. Включает стартовую позицию пазла,
  * `userMoves` через пробел (UCI), `bestMoveUci`, метрики попытки и
  * данные партии-источника.
@@ -259,10 +259,10 @@ export function TacticPuzzleAttemptPage() {
   }, [detail]);
   const handleReplay = useCallback(() => {
     if (!detail) return;
-    navigate(`/tactic-puzzles/${detail.puzzleId}`);
+    navigate(`/critical-moment/${detail.puzzleId}`);
   }, [detail, navigate]);
   const handleBack = useCallback(() => {
-    navigate('/tactic-puzzles/history');
+    navigate('/critical-moment/history');
   }, [navigate]);
 
   // ── Render ─────────────────────────────────────────────────────
@@ -295,7 +295,7 @@ export function TacticPuzzleAttemptPage() {
     >
       <PageSeo
         ns="tacticPuzzles.history"
-        path={`/tactic-puzzles/attempts/${id ?? ''}`}
+        path={`/critical-moment/attempts/${id ?? ''}`}
         noindex
       />
       <TacticPuzzlesSubNav />

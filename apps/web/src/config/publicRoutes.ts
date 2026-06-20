@@ -66,7 +66,7 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
   // через `PageSeo`/`SeoHelmet` (ключи `seo.tacticPuzzles.*`). prerender
   // снимет snapshot каталога; страницы решения (`:id`) индексируются
   // через SPA-канонические URL'ы.
-  { path: '/tactic-puzzles', priority: 0.6, changefreq: 'weekly' },
+  { path: '/critical-moment', priority: 0.6, changefreq: 'weekly' },
   { path: '/games/live', priority: 0.5, changefreq: 'daily' },
   // KS-4272: страницы inline-footer на гостевом лендинге. Без prerender
   // CloudFront/S3 отдавал `dist/index.html` (снимок главной с тем же

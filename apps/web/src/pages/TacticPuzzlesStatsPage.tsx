@@ -1,11 +1,11 @@
 /**
- * KS-4360 / ADR-136 T8. Страница `/tactic-puzzles/stats` — личная
+ * KS-4360 / ADR-136 T8. Страница `/critical-moment/stats` — личная
  * статистика по разделу «Точность».
  *
  * Источники данных:
- *   - `GET /tactic-puzzles/stats/me` → `TacticUserStats` (рейтинг + Glicko,
+ *   - `GET /critical-moment/stats/me` → `TacticUserStats` (рейтинг + Glicko,
  *     тоталы, серия, разрезы по stopReason/difficulty);
- *   - `GET /tactic-puzzles/stats/rating-history` → `TacticRatingPoint[]`
+ *   - `GET /critical-moment/stats/rating-history` → `TacticRatingPoint[]`
  *     (точки графика рейтинга по дням, фильтр `from`/`to`).
  *
  * Блоки:
@@ -320,7 +320,7 @@ export function TacticPuzzlesStatsPage() {
     >
       <PageSeo
         ns="tacticPuzzles.stats"
-        path="/tactic-puzzles/stats"
+        path="/critical-moment/stats"
         noindex
       />
       <TacticPuzzlesSubNav />

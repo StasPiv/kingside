@@ -1,11 +1,11 @@
 /**
- * KS-4362 / ADR-136 T10. Страница `/tactic-puzzles/mistakes` — журнал
+ * KS-4362 / ADR-136 T10. Страница `/critical-moment/mistakes` — журнал
  * нерешённых ошибок текущего пользователя.
  *
  * Источник данных:
- *   - `GET /tactic-puzzles/mistakes` — пагинированный список
+ *   - `GET /critical-moment/mistakes` — пагинированный список
  *     `TacticMistakeListItem`;
- *   - `POST /tactic-puzzles/mistakes/:puzzleId/resolve` — ручной
+ *   - `POST /critical-moment/mistakes/:puzzleId/resolve` — ручной
  *     резолв (после успешного решения backend резолвит сам).
  *
  * Раскладка:
@@ -95,7 +95,7 @@ export function TacticPuzzlesMistakesPage() {
 
   const handleReplay = useCallback(
     (item: TacticMistakeListItem) => {
-      navigate(`/tactic-puzzles/${item.puzzleId}`);
+      navigate(`/critical-moment/${item.puzzleId}`);
     },
     [navigate],
   );
@@ -158,7 +158,7 @@ export function TacticPuzzlesMistakesPage() {
     >
       <PageSeo
         ns="tacticPuzzles.mistakes"
-        path="/tactic-puzzles/mistakes"
+        path="/critical-moment/mistakes"
         noindex
       />
       <TacticPuzzlesSubNav />
@@ -261,7 +261,7 @@ export function TacticPuzzlesMistakesPage() {
                 data-resolved={m.resolved ? 'true' : 'false'}
               >
                 <Link
-                  to={`/tactic-puzzles/${m.puzzleId}`}
+                  to={`/critical-moment/${m.puzzleId}`}
                   className="tactic-puzzles-mistakes__board"
                   data-testid="tactic-puzzles-mistakes-card-board"
                   aria-label={t('tacticPuzzle.openPuzzle', 'Open puzzle')}

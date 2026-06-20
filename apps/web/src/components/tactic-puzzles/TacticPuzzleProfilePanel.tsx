@@ -2,7 +2,7 @@
  * KS-4363 / ADR-136 T11. Секция «Точность» в публичном профиле
  * пользователя (`/profile/:username`).
  *
- * Источник данных: `GET /tactic-puzzles/stats/me` (KS-4356) →
+ * Источник данных: `GET /critical-moment/stats/me` (KS-4356) →
  * `TacticUserStats`. Эндпоинт публичной выдачи на чужого пользователя
  * пока нет — поэтому панель показывается только при просмотре своего
  * профиля (та же логика, что у `DrillStatsPanel`).
@@ -10,7 +10,7 @@
  * Содержимое:
  *   - Текущий рейтинг + Glicko deviation.
  *   - Краткие totals: attempts, solved, % solved.
- *   - Ссылка «Подробная статистика» на `/tactic-puzzles/stats` —
+ *   - Ссылка «Подробная статистика» на `/critical-moment/stats` —
  *     для своего профиля.
  *
  * Если у пользователя ноль попыток (`attempts === 0`) — рендерим
@@ -77,7 +77,7 @@ export function TacticPuzzleProfilePanel() {
             )}
           </p>
           <Link
-            to="/tactic-puzzles"
+            to="/critical-moment"
             className="tactic-puzzle-profile__cta"
             data-testid="tactic-puzzle-profile-start"
           >
@@ -131,7 +131,7 @@ export function TacticPuzzleProfilePanel() {
         data-testid="tactic-puzzle-profile-footer"
       >
         <Link
-          to="/tactic-puzzles/stats"
+          to="/critical-moment/stats"
           className="tactic-puzzle-profile__link"
           data-testid="tactic-puzzle-profile-stats-link"
         >

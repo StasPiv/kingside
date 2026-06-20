@@ -86,7 +86,7 @@ export function TacticPuzzlesPage() {
     try {
       const next = await tacticPuzzleApi.pickNext();
       if (next) {
-        navigate(`/tactic-puzzles/${next.id}`);
+        navigate(`/critical-moment/${next.id}`);
       } else {
         setStartError(t('tacticPuzzle.startError.noPuzzles'));
       }
@@ -149,7 +149,7 @@ export function TacticPuzzlesPage() {
       data-testid="tactic-puzzles"
       data-state={pageState}
     >
-      <PageSeo ns="tacticPuzzles.list" path="/tactic-puzzles" />
+      <PageSeo ns="tacticPuzzles.list" path="/critical-moment" />
       <TacticPuzzlesSubNav />
       <header className="play-vs-engine-puzzles__header">
         <h1>{t('tacticPuzzle.title')}</h1>
@@ -253,7 +253,7 @@ export function TacticPuzzlesPage() {
         >
           {puzzles.map((p: TacticPuzzleResponse) => {
             const orientation = sideFromFen(p.fen);
-            const puzzleUrl = `/tactic-puzzles/${p.id}`;
+            const puzzleUrl = `/critical-moment/${p.id}`;
             const headers = p.sourceHeaders ?? null;
             const whiteName = headers?.White ?? null;
             const blackName = headers?.Black ?? null;

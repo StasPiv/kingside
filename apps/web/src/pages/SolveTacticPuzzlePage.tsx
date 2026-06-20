@@ -1,10 +1,10 @@
 /**
  * KS-4343 → KS-4346 → KS-4347 / ADR-135 §2.5. Страница решения одного
- * пазла раздела «Точность». Маршрут `/tactic-puzzles/:id`.
+ * пазла раздела «Точность». Маршрут `/critical-moment/:id`.
  *
  * Логика:
- *   1. Если есть `:id` — загружаем пазл через `/tactic-puzzles/:id`.
- *   2. Иначе — `/tactic-puzzles/next` (авто-подбор, JWT).
+ *   1. Если есть `:id` — загружаем пазл через `/critical-moment/:id`.
+ *   2. Иначе — `/critical-moment/next` (авто-подбор, JWT).
  *   3. Передаём в `TacticPuzzleRunner`. На submit отправляем attempt,
  *      затем загружаем следующий пазл (auto-pick).
  *
@@ -123,17 +123,17 @@ export function SolveTacticPuzzlePage() {
     try {
       const next = await tacticPuzzleApi.pickNext();
       if (next) {
-        navigate(`/tactic-puzzles/${next.id}`);
+        navigate(`/critical-moment/${next.id}`);
       } else {
-        navigate('/tactic-puzzles');
+        navigate('/critical-moment');
       }
     } catch {
-      navigate('/tactic-puzzles');
+      navigate('/critical-moment');
     }
   }, [navigate]);
 
   const handleBack = useCallback(() => {
-    navigate('/tactic-puzzles');
+    navigate('/critical-moment');
   }, [navigate]);
 
   /**
@@ -243,8 +243,8 @@ export function SolveTacticPuzzlePage() {
     ? 'seo.tacticPuzzles.detail.description'
     : 'seo.tacticPuzzles.detail.descriptionNoPlayers';
   const seoCanonical = puzzle
-    ? `https://kingside.site/tactic-puzzles/${puzzle.id}`
-    : 'https://kingside.site/tactic-puzzles';
+    ? `https://kingside.site/critical-moment/${puzzle.id}`
+    : 'https://kingside.site/critical-moment';
 
   return (
     <div
@@ -265,7 +265,7 @@ export function SolveTacticPuzzlePage() {
           ogType="article"
         />
       ) : (
-        <PageSeo ns="tacticPuzzles.list" path="/tactic-puzzles" />
+        <PageSeo ns="tacticPuzzles.list" path="/critical-moment" />
       )}
       {/* KS-4347: хлебные крошки «Главная / Точность / Задача #...»
           по образцу /precision (`PuzzlePage.renderHeader`). Используем
@@ -282,7 +282,7 @@ export function SolveTacticPuzzlePage() {
           /
         </span>
         <Link
-          to="/tactic-puzzles"
+          to="/critical-moment"
           className="puzzle-breadcrumbs__link"
           data-testid="tactic-puzzle-breadcrumbs-section"
         >

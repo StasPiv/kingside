@@ -1,18 +1,18 @@
 /**
- * KS-4359 / ADR-136 T7. Страница `/tactic-puzzles/history` — список
+ * KS-4359 / ADR-136 T7. Страница `/critical-moment/history` — список
  * истории попыток текущего пользователя.
  *
- * Источник данных: `GET /tactic-puzzles/attempts` (KS-4356), хук
+ * Источник данных: `GET /critical-moment/attempts` (KS-4356), хук
  * `useInfiniteTacticAttempts` (cursor-пагинация).
  *
  * Раскладка по образцу `PrecisionHistoryPage` (KS-2745):
  *   - `<TacticPuzzlesSubNav />` сверху (активный пункт «История»);
- *   - заголовок с CTA «Начать тренировку → /tactic-puzzles»;
+ *   - заголовок с CTA «Начать тренировку → /critical-moment»;
  *   - блок фильтров (период / исход / stopReason / диапазон рейтинга);
  *   - список карточек попыток с мини-доской, метаданными и переходом
  *     на разбор (страница появится в T9 KS-43xx).
  *
- * Гостям эндпоинт `/tactic-puzzles/attempts` вернёт 401 — показываем
+ * Гостям эндпоинт `/critical-moment/attempts` вернёт 401 — показываем
  * блок с приглашением войти.
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -230,7 +230,7 @@ export function TacticPuzzlesHistoryPage() {
     >
       <PageSeo
         ns="tacticPuzzles.history"
-        path="/tactic-puzzles/history"
+        path="/critical-moment/history"
         noindex
       />
       <TacticPuzzlesSubNav />
@@ -244,7 +244,7 @@ export function TacticPuzzlesHistoryPage() {
           )}
         </p>
         <Link
-          to="/tactic-puzzles"
+          to="/critical-moment"
           className="tactic-puzzles-history__start"
           data-testid="tactic-puzzles-history-start"
         >
@@ -463,7 +463,7 @@ export function TacticPuzzlesHistoryPage() {
                 data-stop-reason={a.stopReason}
               >
                 <Link
-                  to={`/tactic-puzzles/attempts/${a.id}`}
+                  to={`/critical-moment/attempts/${a.id}`}
                   className="tactic-puzzles-history__board"
                   aria-label={t('tacticPuzzle.history.openReview', 'Open review')}
                   data-testid="tactic-puzzles-history-card-board"
@@ -542,7 +542,7 @@ export function TacticPuzzlesHistoryPage() {
                       {formatPlayedAt(a.createdAt, i18n.language)}
                     </time>
                     <Link
-                      to={`/tactic-puzzles/attempts/${a.id}`}
+                      to={`/critical-moment/attempts/${a.id}`}
                       className="tactic-puzzles-history__open-review"
                       data-testid="tactic-puzzles-history-card-open"
                     >
