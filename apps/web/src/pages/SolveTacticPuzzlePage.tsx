@@ -161,10 +161,15 @@ export function SolveTacticPuzzlePage() {
     (data: TacticPuzzleRunnerSubmit) => {
       if (!puzzle) return;
       const targetUrl = `/analysis?fen=${encodeURIComponent(puzzle.fen)}`;
-      // Открываем синхронно — обязательное условие user-gesture для
-      // pop-up политик. Если заблокировано — переходим в той же вкладке.
-      const tab = window.open(targetUrl, '_blank', 'noopener,noreferrer');
-      if (!tab) window.location.href = targetUrl;
+      // KS-4407. Открываем синхронно — обязательное условие user-gesture
+      // для pop-up политик. С флагом `noopener` `window.open` ВСЕГДА
+      // возвращает `null` по спецификации (не «pop-up заблокирован»,
+      // а «вкладка изолирована»), поэтому раньше fallback на
+      // `window.location.href` срабатывал каждый раз → анализ открывался
+      // одновременно в новой и в текущей вкладке. Fallback убран:
+      // если pop-up реально заблокирован, браузер покажет индикатор
+      // в адресной строке — пользователь даст разрешение и повторит.
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
 
       // attempt отправляем только если ещё не отправляли для этого пазла.
       if (
