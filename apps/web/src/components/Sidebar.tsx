@@ -135,7 +135,7 @@ const NAV_ITEMS: NavItem[] = [
     path: '/train',
     icon: '🧠',
     i18nKey: 'nav.train',
-    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision', '/opening-trainer', '/guess', '/blind-board'],
+    match: ['/train', '/puzzles', '/puzzle', '/puzzle-rush', '/drills', '/precision', '/critical-moment', '/opening-trainer', '/guess', '/blind-board'],
     // KS-3276: Opening Trainer всегда доступен (нет отдельного флага),
     // поэтому пункт «Тренировка» теперь виден даже если
     // puzzlesEnabled=false и drillsEnabled=false.
@@ -177,6 +177,18 @@ const NAV_ITEMS: NavItem[] = [
         i18nFallback: 'Precision',
         match: ['/precision'],
         featureFlag: 'puzzlesEnabled',
+      },
+      {
+        // KS-4387: пункт «Критический момент». Новый раздел
+        // /critical-moment (ADR-136), решение задачи одним сильным
+        // ходом. Иконка «мишень в красном» — отделяет от соседнего
+        // «🎯 Precision». i18n-ключ `tacticPuzzle.title` уже даёт
+        // правильный заголовок RU/EN.
+        path: '/critical-moment',
+        icon: '🔥',
+        i18nKey: 'tacticPuzzle.title',
+        i18nFallback: 'Critical Moment',
+        match: ['/critical-moment'],
       },
       {
         // KS-3276: Opening Trainer (ADR-077 M1). Без feature-flag'а —
