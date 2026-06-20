@@ -1,318 +1,423 @@
-# ADR-137: Блог Kingside — концепт и архитектура
+# ADR-137: Блог Kingside — концепт и архитектура (rev2: БД-хранилище)
 
-Связанные тикеты: KS-4392.
+Связанные тикеты: KS-4392 (исходный концепт), KS-4405 (пересмотр на БД).
 Связанные ADR: 128 (PageSeo), KS-4116 (prerender).
+Связанные тикеты-реализация: KS-4393 — KS-4404 (первая версия инфраструктуры на Markdown в репо).
 
 ## 1. Контекст
 
-На сайте нет раздела блога. Накопились статьи (5 заготовок в `/project/.agent-tmp/seo-texts/`, в т.ч. `05-blog-free-alternatives-to-chesscom.md`), будут ещё. Нужно постоянное место под публикации с поддержкой RU/EN, SEO-индексацией и интеграцией с разделами проекта.
+Первая редакция ADR-137 (Markdown в репо, vite-plugin-md, `blog-index.ts`) реализована в KS-4393..KS-4404. На практике обнаружились архитектурные ограничения:
 
-В проекте уже работают:
+* каждая публикация требует PR + сборку + деплой фронта;
+* нет редакторского интерфейса для контент-инженера / маркетолога без доступа к репо;
+* нет нормального процесса публикации (draft → review → publish);
+* sitemap-блога зависит от посредника `blog-sitemap-data.json` в S3, который синхронизируется отдельным шагом deploy (KS-4403/KS-4404);
+* контент перемешан с кодом, нагрузка на CI.
 
-* `<PageSeo ns="..." path="..." />` — обёртка над `<SeoHelmet>`, читает `seo.<ns>.title|description` из i18n;
-* `<SeoHelmet>` — title/description/canonical/og-теги/JSON-LD;
-* build-time prerender через Playwright (`apps/web/scripts/prerender.mjs`) — снимает HTML каждого публичного маршрута;
-* реестр публичных маршрутов `apps/web/src/config/publicRoutes.ts` (исп. в prerender и sitemap);
-* статичный `apps/web/public/sitemap.xml`;
-* i18n локали `apps/web/src/i18n/locales/{en,ru}`;
-* маркетинговые лендинги (`/analyze-pgn-online`, `/puzzles-from-your-games`, `/play/local-bot`) — другая сущность, не блог.
+Пользователь принял решение: статьи живут в БД, редактируются через админ-интерфейс, публикуются без деплоя.
 
-Блога нет ни как маршрута, ни как контентного слоя.
+В проекте уже работают (rev1, остаются полезными):
+
+* `<PageSeo>` / `<SeoHelmet>` — title/description/canonical/og/JSON-LD;
+* build-time prerender через Playwright (`apps/web/scripts/prerender.mjs`);
+* реестр публичных маршрутов `apps/web/src/config/publicRoutes.ts`;
+* backend-sitemap (`apps/api/src/sitemap/sitemap.service.ts`) с динамической сборкой `sitemap-blog.xml`;
+* админ-модуль `apps/api/src/admin/` с `AdminApiKeyGuard`;
+* CSS-стили карточек/типографики из KS-4396, KS-4398, KS-4399 (T7 первой редакции).
 
 ## 2. Решение
 
-### 2.1. Где живёт контент
+### 2.1. Хранилище — Prisma в основной БД
 
-**Markdown-файлы в репо** с YAML-фронтматтером. Путь:
+Новые модели в `packages/db/prisma/schema.prisma`:
 
-```
-apps/web/src/content/blog/<slug>.<locale>.md
-```
+```prisma
+/// KS-4405 / ADR-137 rev2. Автор статьи. MVP — один автор «kingside»,
+/// структура поддерживает несколько (гостевые посты, разные редакторы).
+model BlogAuthor {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Slug-имя автора (`kingside`, `john-doe`). Lowercase-дефис, для URL.
+  handle    String   @unique
+  nameRu    String   @map("name_ru")
+  nameEn    String   @map("name_en")
+  /// URL аватара (S3-bucket для изображений или внешний CDN).
+  avatarUrl String?  @map("avatar_url")
+  bioRu     String?  @map("bio_ru")  @db.Text
+  bioEn     String?  @map("bio_en")  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt       @map("updated_at")
 
-Пример:
+  posts BlogPost[]
 
-```
-apps/web/src/content/blog/
-  free-alternatives-to-chesscom.ru.md
-  free-alternatives-to-chesscom.en.md
-  why-maia-puzzles.ru.md
-  why-maia-puzzles.en.md
-```
+  @@map("blog_authors")
+}
 
-Slug — латиница-дефис, lowercase, регистронезависимое сравнение. Locale — двухбуквенный код (`ru`, `en`).
+/// KS-4405 / ADR-137 rev2. Статья блога. Одна запись = одна локализация
+/// одной статьи; пара RU+EN одной статьи связана общим `slug`.
+model BlogPost {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// Slug статьи (латиница-дефис, lowercase). Один slug → до двух локалей.
+  /// Уникальность — пара (slug, locale).
+  slug        String
+  /// `'ru' | 'en'`.
+  locale      String
 
-**Сборка индекса.** Vite-плагин (или `glob` + статический импорт через `import.meta.glob`) сканирует папку при build, генерирует `apps/web/src/generated/blog-index.ts` с массивом мета (`slug`, `locale`, `frontmatter`, путь к телу). Рантайм страница `/blog` импортирует этот индекс синхронно; `/blog/:slug` lazy-импортирует тело конкретной статьи (`import.meta.glob` с `eager: false`).
+  title       String
+  description String   @db.Text
+  /// Тело статьи в Markdown. Render-в-HTML делает backend через
+  /// унифицированный pipeline (см. §2.3).
+  bodyMd      String   @db.Text @map("body_md")
+  /// Render-кэш HTML. Обновляется при каждом save. Опционально (UI
+  /// может рендерить сам, но prerender и SEO снимок берут готовый).
+  bodyHtml    String?  @db.Text @map("body_html")
 
-**Парсинг Markdown.** Существующая инфраструктура vite. Достаточно одного из:
-* `vite-plugin-md` — простая интеграция, frontmatter через `gray-matter`;
-* собственный loader через `unified` + `remark-html` — даёт больше контроля, можно подмешивать кастомные плагины (подсветка кода, шахматные диаграммы из FEN).
+  /// URL обложки (1200×630). NULL → дефолт `/og/blog-default.png`.
+  coverUrl    String?  @map("cover_url")
+  coverAlt    String?  @map("cover_alt")
 
-В MVP — `vite-plugin-md` (минимум собственного кода). При появлении нужды в кастомных компонентах (шахматный блок прямо в статье) — переходим на MDX (`vite-plugin-mdx`) отдельной задачей.
+  /// Теги (lowercase-дефис), массив строк.
+  tags        String[] @default([])
 
-**Обоснование выбора.**
+  /// Маршрут для CTA-блока «Попробовать в разделе» (опц.).
+  relatedRoute String? @map("related_route")
 
-| Опция | Плюсы | Минусы |
-|---|---|---|
-| Markdown в репо (выбрано) | Версионирование статей через git, ревью через PR, локально открывается в любом редакторе, не нужен бэкенд | Каждое обновление — деплой. Нет роли «редактор без доступа к репо» |
-| MDX в репо | Можно встраивать React-компоненты (шахматные диаграммы, виджеты) | Сложнее парсить, дороже сопровождать |
-| Headless CMS (Strapi, Sanity) | Редактор-интерфейс без git | Отдельный сервис + БД, overhead для одного разработчика и редких публикаций |
-| Собственная БД-схема + админка | Полный контроль | Нужны: миграция, API, админка-UI, авторизация. Слишком много кода ради 1–2 статей в месяц |
+  /// Расчётное время чтения, минуты. Считается при save из body_md
+  /// (200 wpm RU / 250 wpm EN).
+  readingTimeMin Int  @map("reading_time_min")
 
-Объём публикаций (несколько статей сейчас + ~1 в месяц прогнозируемо) не оправдывает CMS/БД. Markdown в репо — стандарт для product blog'ов небольших команд (Vercel, Stripe blog, Linear), хорошо ложится на нашу инфру (prerender + i18n уже есть).
+  /// Статус публикации: `'draft' | 'published'`. Только `published`
+  /// возвращается публичным API; обе видимы админу.
+  status      String   @default("draft")
+  /// Момент перевода в `published`. NULL у черновиков.
+  publishedAt DateTime? @map("published_at")
 
-### 2.2. Маршруты
+  authorId    String   @map("author_id") @db.Uuid
+  author      BlogAuthor @relation(fields: [authorId], references: [id], onDelete: Restrict)
 
-```
-/blog              — лента (список карточек)
-/blog/:slug        — отдельная статья
-/blog/tag/:tag     — фильтр по тегу (опционально, MVP без него)
-```
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt       @map("updated_at")
 
-**Формат адреса:** латиница-дефис, lowercase, регистронезависимое сравнение. Кириллица в slug — НЕТ (повышает риск ошибок в копировании ссылок, плюс часть ботов не умеет с percent-encoded URL). Заголовок на русском — в frontmatter.
-
-Slug привязан к статье, не к локали. Один slug → две локализации одной статьи (`<slug>.ru.md`, `<slug>.en.md`). Если только одна локаль есть, страница на другой локали показывает плашку «эта статья пока не переведена» + ссылку на доступную версию.
-
-### 2.3. Локализация RU/EN
-
-**Раздельные файлы на статью.** Один `<slug>.ru.md` + один `<slug>.en.md`. Это проще, чем секции внутри одного файла:
-
-* parser не нужен специальный;
-* git diff читается линейно для каждой локали;
-* можно публиковать только RU или только EN, не блокируя друг друга;
-* контент-инженер видит «свой» файл, не путается в чужой локали.
-
-**Какая локаль показывается.** Зависит от `i18n.language` (UI-язык, уже работает в проекте). Если файл для текущей локали отсутствует — fallback на доступную с плашкой.
-
-**Переключатель на странице статьи** — не нужен. Пользователь переключает язык интерфейса в Header, статья переключается вместе.
-
-### 2.4. SEO и prerender
-
-Каждая статья → отдельная страница, prerendered в build:
-
-* `<PageSeo>` использовать нельзя как есть — i18n-ключи у статьи не статичны. Делаем `<BlogPostSeo>` — обёртку над `<SeoHelmet>`, которая берёт title/description из frontmatter статьи.
-* `canonical = https://kingside.site/blog/<slug>` (без локали в URL — локаль выбирается языком интерфейса; canonical один на статью, hreflang теги добавляются для RU/EN).
-* `og:type = "article"`, `og:image = frontmatter.cover ?? '/og/blog-default.png'`.
-* JSON-LD `Article` schema.org с `author`, `datePublished`, `dateModified`, `headline`, `image`.
-
-**Prerender** — в `apps/web/scripts/prerender.mjs` нужна автогенерация маршрутов блога. Сейчас он читает `publicRoutes.ts` через regex (literal-массив). Решение: автогенерировать блог-маршруты в `publicRoutes.ts` через build-step (тот же vite-плагин, что строит `blog-index.ts`, дописывает в файл блок `BLOG_ROUTES`). prerender перечитывает publicRoutes как обычно.
-
-**Sitemap.** Сейчас `public/sitemap.xml` ручной. Отдельный планируемый тикет — автогенерация. Блог в неё добавляется одновременно: блог-плагин при build генерирует sitemap-секцию.
-
-**hreflang.** Добавить теги `<link rel="alternate" hreflang="ru" href=".../blog/<slug>" />` и `hreflang="en"` для всех статей, где есть обе локали (один path, разные hreflang — стандарт для same-URL мультиязыка).
-
-**Robots:** статьи индексируются (без `noindex`). Папка `apps/web/src/content/blog/` через `.gitattributes` помечена `linguist-language=Markdown` — для git-статистики и подсветки.
-
-### 2.5. Метаданные статьи
-
-YAML-фронтматтер:
-
-```yaml
----
-title: "Бесплатные альтернативы Chess.com"
-description: "Короткий SEO-описательный абзац до 160 символов."
-slug: free-alternatives-to-chesscom        # дублирует filename для устойчивости при рефакторинге
-locale: ru                                  # дублирует filename, для self-check
-publishedAt: 2026-06-20                     # YYYY-MM-DD
-updatedAt: 2026-06-20                       # YYYY-MM-DD, не показывается если равен publishedAt
-author: kingside                            # ID автора из apps/web/src/content/blog/_authors.json
-tags: [seo, marketing, chess-platforms]     # массив, lowercase-дефис
-cover: /blog-covers/free-alternatives.jpg   # абсолютный путь от корня сайта
-coverAlt: "Скриншот доски Kingside"          # для og:image:alt и <img alt=>
-relatedRoute: /puzzles                      # ссылка на раздел проекта (опц.), фронт рендерит CTA-блок
-draft: false                                # true → не попадает в build prerender и sitemap
----
-
-# Заголовок статьи
-
-Тело статьи в Markdown.
-```
-
-**Поля:**
-
-| Поле | Обязательное | Назначение |
-|---|---|---|
-| `title` | да | `<title>`, заголовок карточки, og:title |
-| `description` | да | meta description, og:description |
-| `slug` | да | sanity-check filename |
-| `locale` | да | sanity-check filename |
-| `publishedAt` | да | сортировка ленты, og `article:published_time`, JSON-LD `datePublished` |
-| `updatedAt` | да | JSON-LD `dateModified`, бейдж «обновлено» в карточке если ≠ publishedAt |
-| `author` | да | ссылка в `_authors.json` (имя, аватар, био) |
-| `tags` | да | массив, фильтр ленты, JSON-LD `keywords` |
-| `cover` | нет | дефолт `/og/blog-default.png` |
-| `coverAlt` | если есть `cover` | a11y + og:image:alt |
-| `relatedRoute` | нет | если задан — рендерится блок «Попробовать в разделе» внизу статьи |
-| `draft` | нет, default false | true → исключается из сборки |
-
-**Reading time.** Расчёт автоматически: количество слов / 200 wpm для RU, / 250 wpm для EN, округление вверх. Делается в build-плагине, кладётся в индекс. В frontmatter не хранится.
-
-**Авторы.** `apps/web/src/content/blog/_authors.json`:
-
-```json
-{
-  "kingside": {
-    "name": "Команда Kingside",
-    "name_en": "Kingside Team",
-    "avatar": "/blog/authors/kingside.png",
-    "bio_ru": "Команда платформы.",
-    "bio_en": "The platform team."
-  }
+  @@unique([slug, locale])
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([slug])
+  @@index([tags], type: Gin)
+  @@map("blog_posts")
 }
 ```
 
-MVP — один автор `kingside`. Структура держится на вырост.
+**Решения:**
 
-### 2.6. Лента `/blog`
+* **Одна строка на локаль** (а не JSON-поля внутри одной записи). Это даёт независимое редактирование RU/EN, простые индексы по `(status, publishedAt)`, естественный fallback запросом «найти запись с тем же `slug` в другой локали».
+* **Markdown в `body_md`**, HTML-кэш в `body_html`. Render — на backend (см. §2.3). Это позволяет: единый источник истины, безопасная санитизация, переключение на MDX/другой парсер без миграции данных.
+* **Без отдельной таблицы тегов.** Postgres `String[]` + GIN-индекс хватает для фильтра `tags && '{seo,puzzle}'`. Отдельная нормализация — только при появлении тег-страниц с собственной мета.
+* **`status` enum как строка**, не enum-тип Prisma. Меньше миграционной возни при добавлении статусов (`scheduled`, `archived`) позже.
+* **`onDelete: Restrict` для автора** — нельзя удалить автора с публикациями; админка показывает счётчик и требует переноса.
 
-**Сортировка:** `publishedAt DESC` (сначала свежие). Дополнительной сортировки в MVP нет.
+### 2.2. Что выкидывается из rev1
 
-**Фильтры:**
-* по тегу — `/blog/tag/:tag` (опционально, можно отложить);
-* по году — `?year=2026` (опционально).
+Деинсталлируется полностью:
 
-**Пагинация:** числовая, `?page=2`. Размер страницы 12 статей. Infinite scroll **не используем** — он плохо ладит с prerender (нужны отдельные snapshot'ы для каждой пагинированной страницы, lazy-load уводит контент за пределы snapshot).
+* `apps/web/src/content/blog/*.md` (кроме `_authors.json` — переезжает в БД через seeder);
+* `apps/web/src/content/blog/.gitkeep` — больше не нужен;
+* vite-plugin-md (зависимость + конфиг в `vite.config.ts`) — KS-4393;
+* `apps/web/src/generated/blog-index.ts` (build artifact);
+* `apps/web/src/generated/blog-routes.ts` (расширение `publicRoutes.ts` из KS-4400);
+* `apps/web/src/lib/blog/filterByLocale.ts` и `findPost.ts` — их роль переходит к API; `readingTime.ts` — остаётся как утилита (используется backend через shared);
+* публикация `blog-sitemap-data.json` в S3 (KS-4403 — frontend-часть, KS-4404 — devops-часть);
+* чтение `blog-sitemap-data.json` из S3 в `apps/api/src/sitemap/sitemap.service.ts:fetchBlogArticles` — заменяется прямым запросом к БД.
 
-При первой выкатке (5 статей) пагинация не активируется — все в одной странице.
+Остаётся:
 
-**RSS-feed:** опционально. `/blog/rss.xml` генерируется тем же vite-плагином в build. MVP — оставляем как T-опциональное.
+* `BlogFeedPage.tsx`, `BlogPostPage.tsx` — UI компоненты;
+* CSS-стили карточек и типографики (`blog.css`, классы `.blog-card`, `.blog-untranslated`, `.blog-related-cta` и т.д.);
+* `<BlogPostSeo>` (SEO-компонент) — продолжает работу, источник данных меняется;
+* ссылка `/blog` в навигации (KS-4399);
+* sitemap-индекс `sitemap-blog.xml` (KS-4402) — генерация остаётся, но источник меняется (из БД, без S3).
 
-### 2.7. Связи с разделами
+### 2.3. API
 
-Двусторонняя:
+Модуль `apps/api/src/blog/`:
 
-1. **Статья → раздел.** Если у статьи в frontmatter есть `relatedRoute: /puzzles`, в конце статьи рендерится CTA-блок: «Попробовать в разделе „Пазлы"» со ссылкой и краткой иллюстрацией.
-2. **Раздел → статьи.** На каталоге раздела (например, `TacticPuzzlesPage`) можно показывать блок «Из блога: [3 последних статьи с tag = puzzles]». Это **не MVP**, отдельной задачей после набора контента.
+```
+blog.module.ts
+blog.controller.ts          — публичные маршруты
+blog-admin.controller.ts    — админ-маршруты (AdminApiKeyGuard)
+blog.service.ts             — выборки, фильтры, render Markdown→HTML
+markdown-renderer.ts        — обёртка над unified + remark-html + sanitize
+blog.dto.ts                 — DTOs (входные и выходные)
+blog.seeder.ts              — однократный seeder из .agent-tmp/seo-texts/
+                              и существующих apps/web/src/content/blog/*.md
+                              (если они уже наполнены — KS-4390)
+```
 
-### 2.8. Что НЕ в MVP
+**Публичные маршруты:**
 
-* CMS / админка.
-* MDX (только обычный Markdown).
-* Шахматные диаграммы прямо в статье — через картинку, не через FEN-компонент.
-* Комментарии — нет.
-* Поиск по статьям — нет.
-* RSS-feed — опционально (отдельная задача).
-* Фильтр `/blog/tag/:tag` — опционально.
-* Связь «раздел → статьи» — отдельная задача после набора контента.
+```
+GET  /blog/posts?locale=&page=&tag=
+        → 200 { items: BlogPostListItem[], total: number, page: number, pageSize: number }
+        — публичная лента. status='published' only.
+        Фильтр по tag — exact match в массиве tags.
+        Сортировка publishedAt DESC. Размер страницы 12.
 
-## 3. Контракты
+GET  /blog/posts/:slug?locale=
+        → 200 BlogPostDetail
+        — одна статья. Если у запрошенной локали нет — fallback на
+          существующую с пометкой isLocaleFallback=true;
+          если статьи нет вообще → 404.
+        Render: backend отдаёт body_html (из кэша).
 
-### 3.1. Типы в `apps/web/src/types/blog.ts`
+GET  /blog/authors/:handle
+        → 200 BlogAuthor
+        — публичный профиль автора (для будущей страницы /blog/by/:author).
+```
+
+**Админ-маршруты** (под `AdminApiKeyGuard`):
+
+```
+GET    /admin/blog/posts?status=&locale=&q=
+            → admin-лента. Видит draft и published.
+POST   /admin/blog/posts
+            → создать статью (черновик).
+GET    /admin/blog/posts/:id
+            → получить статью по id (включая body_md).
+PUT    /admin/blog/posts/:id
+            → редактировать (slug/locale можно менять с проверкой
+              UNIQUE; body_md → пересчёт body_html и reading_time_min).
+PATCH  /admin/blog/posts/:id/status
+            → перевод между draft ↔ published; при переходе в published
+              записываем publishedAt=now (если ещё null).
+DELETE /admin/blog/posts/:id
+            → удаление (soft через status='archived' планируется отд.;
+              MVP — hard delete с подтверждением в UI).
+
+POST   /admin/blog/posts/:id/preview
+            → рендер body_md без сохранения, возвращает HTML.
+
+GET    /admin/blog/authors
+POST   /admin/blog/authors
+PUT    /admin/blog/authors/:id
+DELETE /admin/blog/authors/:id
+            → CRUD для авторов.
+
+POST   /admin/blog/sitemap/regenerate
+            → дёрнуть пересборку `sitemap-blog.xml`. Уже существует
+              похожий маршрут — переиспользовать SitemapService.
+```
+
+**Render Markdown → HTML.**
+
+Backend использует `unified` + `remark-parse` + `remark-gfm` + `remark-rehype` + `rehype-sanitize` + `rehype-stringify`. Sanitize-схема разрешает: заголовки, абзацы, списки, цитаты, инлайн-код, code-блоки, ссылки (target=_blank rel=noopener для внешних), `<img>` с ограничением src по разрешённым хостам (kingside-frontend bucket + CDN). Скрипты и iframe запрещены. Кастомные классы — только белый список (`.blog-callout`, `.blog-quote`).
+
+Render выполняется на каждом save (`bodyHtml` обновляется). Публичный `GET /blog/posts/:slug` отдаёт готовый HTML без рендера в каждом запросе.
+
+**Sitemap из БД:**
+
+`SitemapService.fetchBlogArticles` (apps/api/src/sitemap/sitemap.service.ts:310) переключается с чтения S3-JSON на `prisma.blogPost.findMany({ where: { status: 'published' }, select: { slug, updatedAt }, distinct: ['slug'] })`. Прежний механизм с `blog-sitemap-data.json` удаляется.
+
+### 2.4. Админ-интерфейс
+
+Маршрут `/admin/blog` на фронтенде. Гард — admin-only (по тому же ключу, что используют другие админ-страницы — там сейчас `AdminApiKeyGuard` на backend; на фронте проверка роли).
+
+Страницы:
+
+```
+/admin/blog/posts            — таблица статей (status, locale, title, author, updatedAt)
+/admin/blog/posts/new        — создать черновик
+/admin/blog/posts/:id/edit   — редактор + предпросмотр
+/admin/blog/authors          — таблица авторов
+/admin/blog/authors/:id/edit — редактор автора
+```
+
+**Редактор статьи.** Markdown-textarea + live-предпросмотр справа. Компонент `<BlogMarkdownEditor>`:
+
+* левая колонка — `<textarea>` с подсветкой через `react-simplemde-editor` или просто моноширинная textarea + кнопки шорткатов (bold/italic/link/heading/list);
+* правая колонка — `<BlogPostBody html={previewHtml} />` (тот же компонент рендера, что на публичной странице);
+* предпросмотр обновляется с debounce 500 мс через `POST /admin/blog/posts/:id/preview`;
+* отдельная панель frontmatter-полей (title, description, slug, locale, tags, cover, related_route, status).
+
+Решение по парадигме редактора: **Markdown + live-предпросмотр**, а не WYSIWYG. Контент-инженер уже работает с Markdown (KS-4390 готовился в Markdown), нет смысла строить WYSIWYG для одного редактора в месяц.
+
+### 2.5. Импорт существующих статей
+
+Однократный seeder `blog.seeder.ts`:
+
+1. Читает `apps/web/src/content/blog/*.{ru,en}.md` (созданные KS-4390 и при разработке).
+2. Парсит frontmatter (`gray-matter` или собственный — той же зависимостью, что использовал rev1 vite-plugin).
+3. Создаёт автора `kingside` из `_authors.json`, если отсутствует.
+4. Для каждой статьи создаёт `BlogPost` с `status='published'`, `publishedAt=frontmatter.publishedAt`, `body_md=raw markdown`, рендерит `body_html`.
+5. Идемпотентность — `INSERT ... ON CONFLICT (slug, locale) DO UPDATE` (или Prisma upsert).
+
+Запуск — CLI `apps/api/src/blog/blog.seeder.ts` через `nest run`. После переноса данных файлы `.md` удаляются из репо (это T в декомпозиции).
+
+Для будущих миграций (если придётся ещё что-то залить) — этот же seeder с параметром `--source <path>`.
+
+### 2.6. Frontend — переход на API
+
+* `BlogFeedPage.tsx` — вместо импорта `BLOG_INDEX` теперь `useBlogPosts({locale, page, tag})` через `useQuery` (react-query) к `GET /blog/posts`. Пагинация по `?page=N` остаётся. Пустое состояние и плашка fallback остаются.
+* `BlogPostPage.tsx` — вместо `loadBlogBody(slug, locale)` теперь `useBlogPost(slug, locale)` к `GET /blog/posts/:slug`. Если в ответе `isLocaleFallback=true` — рендерится плашка «не переведено». `body_html` приходит готовым из API, рендерится через `dangerouslySetInnerHTML` (HTML уже санитизирован backend).
+* Кэш на клиенте — стандартный react-query (staleTime 60s для ленты, 5min для статьи). Сторонний CDN-кэш не вводим (БД в той же сети, латентность копеечная).
+* SEO — `<BlogPostSeo>` берёт данные из ответа API, остальное без изменений.
+
+### 2.7. Prerender
+
+`prerender.mjs` сейчас читает `publicRoutes.ts` + `generated/blog-routes.ts`. В rev2:
+
+* `generated/blog-routes.ts` удаляется;
+* `prerender.mjs` перед запуском получает список slug из API (`GET /blog/posts?page=1&pageSize=10000`) или из БД напрямую (если build-сервер имеет доступ);
+* для каждого `/blog/<slug>` снимается snapshot;
+* `/blog` (лента) снимается как обычно.
+
+Конкретный механизм (HTTP к staging-API vs прямой Prisma в build) — на T6 (devops). По умолчанию HTTP — проще и не требует доступа к БД на frontend-build-step.
+
+### 2.8. Совместимость с KS-4393..KS-4404
+
+| Задача | Что делать |
+|---|---|
+| KS-4393 (T1, vite-plugin-md) | Откатить: удалить плагин, конфиг, generated/blog-index.ts |
+| KS-4394 (T2, типы + утилиты) | Частично откатить: `filterByLocale`, `findPost` удалить; типы `BlogPostFrontmatter`, `BlogIndexEntry` заменить на `BlogPostListItem`/`BlogPostDetail` из API; `readingTime` оставить как утилиту |
+| KS-4396 (T3, BlogFeedPage) | Перевести на API (см. §2.6). Базовый UI оставить |
+| KS-4398 (T4, BlogPostPage) | Перевести на API (см. §2.6). Базовый UI и SEO оставить |
+| KS-4399 (T5, ссылка в навигации) | Оставить как есть |
+| KS-4400 (T6, prerender + sitemap) | Изменить: prerender-источник → API/БД (§2.7); sitemap-blog.xml → БД (§2.3) |
+| KS-4402 (sitemap backend) | Переписать `SitemapService.fetchBlogArticles` на чтение из БД, убрать S3 |
+| KS-4403 (frontend → S3 blog-sitemap-data.json) | Полностью откатить — больше не нужно |
+| KS-4404 (devops sync в bucket) | Полностью откатить (если уже сделано, удалить шаг из deploy-aws.sh) |
+| KS-4390 (статья «Критический момент») | Перенести через seeder. После переноса — удалить `.md` файлы |
+
+## 3. Контракты типов (API)
 
 ```ts
-export interface BlogPostFrontmatter {
-  title: string;
-  description: string;
-  slug: string;
-  locale: 'ru' | 'en';
-  publishedAt: string;        // ISO date
-  updatedAt: string;
-  author: string;             // ID в _authors.json
-  tags: string[];
-  cover?: string;
-  coverAlt?: string;
-  relatedRoute?: string;
-  draft?: boolean;
-}
+// shared/src/types/blog.ts (новый)
 
-export interface BlogPost extends BlogPostFrontmatter {
-  readingTimeMin: number;     // build-computed
-  /** Дин. импорт тела в HTML (`vite-plugin-md` отдаёт компонент). */
-  body: React.ComponentType;
-}
-
-export interface BlogIndexEntry extends BlogPostFrontmatter {
-  readingTimeMin: number;
-}
+export type BlogLocale = 'ru' | 'en';
+export type BlogPostStatus = 'draft' | 'published';
 
 export interface BlogAuthor {
   id: string;
-  name: string;
-  name_en?: string;
-  avatar?: string;
-  bio_ru?: string;
-  bio_en?: string;
+  handle: string;
+  nameRu: string;
+  nameEn: string;
+  avatarUrl?: string | null;
+  bioRu?: string | null;
+  bioEn?: string | null;
+}
+
+export interface BlogPostListItem {
+  id: string;
+  slug: string;
+  locale: BlogLocale;
+  title: string;
+  description: string;
+  coverUrl: string | null;
+  coverAlt: string | null;
+  tags: string[];
+  readingTimeMin: number;
+  publishedAt: string | null;
+  updatedAt: string;
+  author: Pick<BlogAuthor, 'handle' | 'nameRu' | 'nameEn' | 'avatarUrl'>;
+}
+
+export interface BlogPostDetail extends BlogPostListItem {
+  bodyHtml: string;
+  relatedRoute: string | null;
+  /** В какой локали реально пришёл ответ (если запрашивали другую — fallback). */
+  isLocaleFallback: boolean;
+  /** Список локалей, в которых статья существует (для hreflang-тегов). */
+  availableLocales: BlogLocale[];
+}
+
+export interface BlogPostsPage {
+  items: BlogPostListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// Admin-only:
+export interface BlogPostAdmin extends BlogPostDetail {
+  bodyMd: string;
+  status: BlogPostStatus;
 }
 ```
 
-### 3.2. Build-артефакты
+## 4. Что делаем и в каком порядке
 
-* `apps/web/src/generated/blog-index.ts` — массив `BlogIndexEntry[]`, генерируется vite-плагином;
-* `apps/web/src/generated/blog-routes.ts` — массив `string[]` для prerender (дополнение к `publicRoutes.ts`);
-* `apps/web/dist/sitemap.xml` — собирается с блог-секцией.
+### Шаг 1. Backend (создание)
 
-## 4. План задач-наследников
+| T | Кому | Задача |
+|---|---|---|
+| T1 | backend | Prisma миграция: `blog_posts`, `blog_authors`, индексы. Сидовый `BlogAuthor` `kingside` (через миграцию или seeder) |
+| T2 | backend | `apps/api/src/blog/` — модуль с публичными маршрутами `GET /blog/posts`, `GET /blog/posts/:slug`, `GET /blog/authors/:handle`. Markdown-render через unified+rehype-sanitize, кэш `body_html` на save |
+| T3 | backend | Админ-контроллер `BlogAdminController` под `AdminApiKeyGuard`: CRUD статей, CRUD авторов, `POST /admin/blog/posts/:id/preview`, перевод status |
+| T4 | backend | `blog.seeder.ts` — однократный импорт из `apps/web/src/content/blog/*.md` и `.agent-tmp/seo-texts/`. CLI-команда, идемпотентная (upsert по `(slug, locale)`) |
+| T5 | backend | `SitemapService.fetchBlogArticles` → БД. Удалить S3-чтение `blog-sitemap-data.json`. `sitemap-blog.xml` теперь генерится из `prisma.blogPost.findMany(status='published')` |
+| T6 | shared | Типы в `packages/shared/src/types/blog.ts` (см. §3). Контракты доступны фронту и backend |
 
-```
-T1. devops    vite-plugin-md или собственный loader в vite.config.ts —
-              парсинг content/blog/**/*.md, генерация blog-index.ts
-              + dynamic-import body-компонента
-T2. frontend  Типы apps/web/src/types/blog.ts, утилиты readingTime,
-              filter-by-locale fallback
-T3. frontend  BlogFeedPage (/blog) — список карточек, пагинация,
-              i18n-fallback с плашкой
-T4. frontend  BlogPostPage (/blog/:slug) — рендер тела, BlogPostSeo
-              (title/description/og/Article JSON-LD/hreflang), блок
-              relatedRoute CTA, навигация назад в ленту
-T5. frontend  Интеграция в App.tsx, ссылка в Header/Footer
-T6. devops    Расширение prerender.mjs/publicRoutes.ts — автодобавление
-              блог-маршрутов из generated/blog-routes.ts. Расширение
-              sitemap-build на блог-секцию (если автосайтмап ещё не
-              реализован — добавить параллельно)
-T7. layout    Типографика статьи (puzzle.css аналог для blog.css):
-              заголовки, списки, цитаты, код-блоки, изображения,
-              читаемая ширина строки, тёмная тема. Карточка ленты:
-              cover-image, мета (автор/дата/reading time), бейдж тегов
-T8. content   Перенос 5 заготовок из .agent-tmp/seo-texts/ в
-              apps/web/src/content/blog/<slug>.ru.md.
-              Подготовка EN-версий (опционально, можно поэтапно).
-              _authors.json с кингсайд-командой
-T9. content   Подготовка cover-обложек 1200×630 для каждой статьи
-              (og:image формат)
-T10. marketing Финальная вычитка SEO-полей (title ≤ 60 символов,
-              description ≤ 160 символов), tagging, расстановка
-              relatedRoute, JSON-LD проверка через Rich Results Test
-T11. devops   После выкатки — добавить /blog/* в robots.txt allow,
-              проверить prerender snapshots в dist/blog/*/index.html
-T12. layout   (опц.) Обложка ленты, hero-блок с featured article,
-              визуальная связь с brand-цветами Kingside
-T13. frontend (опц.) Фильтр /blog/tag/:tag — отдельная страница со
-              своим SEO
-T14. frontend (опц.) RSS-feed /blog/rss.xml, ссылка в head
-T15. frontend (опц.) Блок «Из блога» на каталогах разделов
-              (TacticPuzzlesPage, /puzzles, /analysis) — последние
-              3 статьи с соответствующим тегом
-```
+### Шаг 2. Frontend (переключение)
 
-**Точки безопасной остановки:**
+| T | Кому | Задача |
+|---|---|---|
+| T7 | frontend | `BlogFeedPage` → `useBlogPosts` через `GET /blog/posts`. Удалить импорт `BLOG_INDEX`. Пагинация остаётся, плашка fallback остаётся |
+| T8 | frontend | `BlogPostPage` → `useBlogPost` через `GET /blog/posts/:slug`. `body_html` из API через `dangerouslySetInnerHTML`. `<BlogPostSeo>` берёт данные из ответа |
+| T9 | frontend | Удалить `apps/web/src/lib/blog/filterByLocale.ts`, `findPost.ts`. Утилита `readingTime.ts` остаётся, но больше не вызывается на клиенте — переезжает в shared при необходимости backend (см. T2) |
+| T10 | frontend | Удалить `apps/web/src/generated/blog-index.ts`, `blog-routes.ts`. Удалить ссылку из `publicRoutes.ts` на `blog-routes` |
+| T11 | frontend | Админ-страницы `/admin/blog/posts`, `/admin/blog/posts/new`, `/admin/blog/posts/:id/edit`, `/admin/blog/authors*`. Markdown-редактор с live-предпросмотром (см. §2.4) |
 
-* после T7 — техническая база готова, контента нет → блог пуст с заглушкой;
-* после T8+T9+T10 — MVP-выкатка, 5 статей опубликованы;
-* T11 — финальная проверка и переключение в prod;
-* T12–T15 — отдельные итерации после смотра реакции.
+### Шаг 3. Инфраструктура
 
-**Порядок:** T1 → T2 → T3+T4 (параллельно) + T7 (layout параллельно фронту) → T5 → T6 → T8+T9+T10 (контент параллельно) → T11 → выкатка.
+| T | Кому | Задача |
+|---|---|---|
+| T12 | devops | Удалить шаг `aws s3 cp blog-sitemap-data.json ...` из `scripts/deploy-aws.sh` (KS-4404). Удалить файл из bucket `kingside-prerender-store` |
+| T13 | devops | `prerender.mjs` — источник списка slug из API (`GET /blog/posts`), не из generated/blog-routes |
+| T14 | frontend | Удалить vite-plugin-md из `vite.config.ts` + `package.json`. Удалить `apps/web/scripts/sitemap-build.mjs` или обновить (без блог-секции — он теперь у backend) |
 
-**Откат:** до T11 (включение в robots) — выключаем фича-флаг или убираем маршруты из `publicRoutes.ts`. После выкатки — статья помечается `draft: true` в frontmatter, при следующем build исчезает из ленты и sitemap.
+### Шаг 4. Контент и cleanup
+
+| T | Кому | Задача |
+|---|---|---|
+| T15 | backend | Запустить `blog.seeder.ts` на прод-БД. Подтвердить наличие KS-4390 «Критический момент» в новой таблице |
+| T16 | content | Перенести оставшиеся заготовки из `.agent-tmp/seo-texts/` в админку через `/admin/blog/posts/new` — это вместо seeder для будущих публикаций |
+| T17 | frontend | Удалить `apps/web/src/content/blog/*.md` и `_authors.json` (после успешного T15) |
+| T18 | marketing | Финальная вычитка перенесённых статей в админке, проставление tags и `relatedRoute` |
+
+### Точки безопасной остановки
+
+* **После T2+T6** — публичные маршруты API готовы, фронт ещё на старой реализации (`BLOG_INDEX`). Откат: удалить модуль на backend.
+* **После T8** — фронт уже на API, контента нет (если миграции T15 не было) — лента пустая.
+* **После T15** — статья переехала, фронт показывает её через API. Старые `.md` ещё в репо как страховка.
+* **После T17** — Markdown-репо удалён, точка невозврата к rev1.
+
+### Порядок
+
+T1 → T2+T6 (shared параллельно) → T3 → T4 → T5 (backend готов) → T7+T8+T9+T10 (frontend параллельно после T6) → T15 → T11 (админка) → T12+T13+T14 (cleanup) → T17 → T16+T18 (контент).
+
+### Откат
+
+* До T15 — реверт-коммитом всех изменений; данные в БД пусты, пользователю показывается rev1 как раньше.
+* После T15 (данные в БД) — можно откатить только фронт (вернуть rev1 `BLOG_INDEX`), оставив таблицы в БД. Контент-инженер сможет работать через rev1 до повторной попытки.
+* После T17 (удаление `.md`) — точка невозврата к rev1, откат означает экспорт из БД обратно в Markdown через утилиту-обратку.
 
 ## 5. Последствия
 
 **Плюсы.**
 
-* Никакой новой инфраструктуры — Markdown, vite, существующий prerender и i18n.
-* Версионирование через git, ревью статей через PR.
-* Полная контролируемость SEO (frontmatter + JSON-LD).
-* Низкий порог входа для контент-инженера — `*.md` в редакторе.
-* Никаких миграций БД, новых endpoints API, новых таблиц.
+* Публикация без деплоя — редактор работает в UI.
+* Версионирование через `updatedAt` + (опционально позже) отдельная таблица `BlogPostRevision`.
+* SEO/sitemap — динамически из БД, без посредников в S3.
+* Единый процесс для всех типов контента (привычная для команды БД-схема).
+* Возможность будущих фич (комментарии, лайки, аналитика) без структурной перестройки.
 
-**Минусы.**
+**Минусы / риски.**
 
-* Каждая публикация = коммит + деплой. Без редакторской админки.
-* Контент-инженер должен уметь работать с git (либо ему помогает координатор).
-* Один из путей развития (MDX, шахматные диаграммы) требует ручного перехода — но это обозримая отдельная задача.
+* Текущая Markdown-инфраструктура (KS-4393..KS-4404) частично выбрасывается. Это работа, которая уже сделана; чтобы её обнулить осознанно — оформляется как декомпозиция.
+* Backend становится зависим от блога: статья без API недоступна. Раньше fallback был «vite build снимает snapshot». Теперь — кэш фронта (react-query) + prerender-snapshot. Полный outage API → невозможность открыть новую статью; уже снятые prerender-snapshot выживают.
+* Markdown-редактор и live-предпросмотр — новый компонент, требует тестов и UX-итераций.
+* Sanitize-схема — критична для безопасности. XSS через сохранённый markdown-контент админом — единственный реальный риск; sanitize обязателен.
 
 ## 6. Открытые вопросы
 
-1. **Один автор или несколько.** Сейчас MVP с одним. Если планируем гостевых авторов — `_authors.json` уже готов на это.
-2. **Vite-plugin-md vs unified+remark.** Точный выбор парсера — на T1, после смотра требований к подсветке кода и обработке frontmatter.
-3. **OG-картинки.** Делать вручную в Figma (требует дизайнерского времени) или автогенерация через скрипт (по образцу `generate-og-images.mjs`, который уже есть для других страниц). MVP — вручную (1–2 в месяц не нагрузка); автогенерацию — отдельной задачей если поток статей вырастет.
-4. **Локальная превью.** Нужен ли отдельный dev-URL для черновиков (`/blog/_drafts/:slug` за фича-флагом). Альтернатива — `draft: false` локально перед PR. Решается на T1.
+1. **Многоверсионность статей** — нужна ли таблица `BlogPostRevision` (для отката правок)? MVP — нет, `updatedAt` на одной записи. Решается по запросу.
+2. **Расписание публикации** (`scheduled`-статус с `publishAt > now`) — нужен ли cron-апдейтер. MVP — нет, переход в `published` ручной.
+3. **Загрузка обложек** — пока через прямой URL в `cover_url` (картинку загружает сам редактор куда-то и вставляет). Полноценный uploader в админку (с S3-bucket для blog-images) — отдельной задачей.
+4. **Аналитика просмотров** — отдельная таблица `BlogPostView` или внешний инструмент (Plausible/Yandex.Metrica). MVP — внешний.
+5. **Комментарии** — не в MVP. Если появятся — отдельная таблица `BlogComment` + модерация.
