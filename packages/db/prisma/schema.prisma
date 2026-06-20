@@ -173,6 +173,9 @@ model User {
   tacticPuzzleAttempts      TacticPuzzleAttempt[]
   tacticUserMistakes        TacticUserMistake[]
   tacticRating              UserTacticRating?
+  // KS-4354 / ADR-136 §3.6: дневной снимок рейтинга по разделу
+  // «Точность» — источник графика динамики на /tactic-puzzles/stats.
+  tacticRatingSnapshots     TacticRatingSnapshot[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -2759,4 +2762,28 @@ model UserTacticRating {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_tactic_ratings")
+}
+
+/// KS-4354 / ADR-136 §3.6. Дневной снимок рейтинга пользователя в
+/// разделе «Точность». Источник графика динамики рейтинга на
+/// /tactic-puzzles/stats. Точка пишется ежедневным шедулером (одна
+/// запись на пользователя в сутки — UNIQUE(userId, date)).
+///
+/// По образцу `puzzle_rating_snapshots` (ADR-082), отличия:
+///   * `rating: Float` (а не Int) — UserTacticRating.rating тоже Float;
+///   * FK на User с `onDelete: Cascade` — удаление пользователя
+///     синхронно сносит его рейтинг-историю по «Точности».
+model TacticRatingSnapshot {
+  id       String   @id @default(uuid()) @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  rating   Float
+  date     DateTime @db.Date
+  attempts Int      @default(0)
+  solved   Int      @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@map("tactic_rating_snapshots")
 }
