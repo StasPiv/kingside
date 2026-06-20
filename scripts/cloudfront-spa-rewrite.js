@@ -7,6 +7,8 @@
 //     на /critical-moment$1 с сохранением query-string (KS-4386, T3 KS-4383).
 //     API /api/tactic-puzzles/* идёт к backend через другой Behavior CF и
 //     этой функцией не обрабатывается — для него правило не применяется.
+//   - URI вида /blog или /blog/... → 301-перенаправление на /en/blog$1
+//     (legacy блог-URL после KS-4460, дефолтный язык — en).
 //   - URI содержит точку (статика: .js/.css/.png/...) → пропускаем как есть
 //   - URI === "/" → пропускаем (DefaultRootObject отдаст /index.html)
 //   - URI вида "/<route>" или "/<route>/" и <route> в publicRoutes
@@ -16,6 +18,35 @@
 // Список publicRoutes синхронизируется с apps/web/src/config/publicRoutes.ts (KS-4116).
 // При изменении состава публичных маршрутов — обновить этот файл и публикацию функции
 // (см. scripts/cloudfront-deploy-spa-rewrite.sh).
+function redirect301(newUri, qs) {
+    var qsString = '';
+    if (qs) {
+        var parts = [];
+        for (var k in qs) {
+            if (qs[k].multiValue) {
+                for (var i = 0; i < qs[k].multiValue.length; i++) {
+                    parts.push(k + '=' + qs[k].multiValue[i].value);
+                }
+            } else if (qs[k].value !== undefined) {
+                parts.push(k + '=' + qs[k].value);
+            } else {
+                parts.push(k);
+            }
+        }
+        if (parts.length > 0) {
+            qsString = '?' + parts.join('&');
+        }
+    }
+    return {
+        statusCode: 301,
+        statusDescription: 'Moved Permanently',
+        headers: {
+            'location': { value: newUri + qsString },
+            'cache-control': { value: 'public, max-age=3600' }
+        }
+    };
+}
+
 function handler(event) {
     var request = event.request;
     var uri = request.uri;
@@ -26,33 +57,17 @@ function handler(event) {
     // клиента при следовании 301-ответу. Query-string копируем явно.
     if (uri === '/tactic-puzzles' || uri.indexOf('/tactic-puzzles/') === 0) {
         var newUri = '/critical-moment' + uri.substring('/tactic-puzzles'.length);
-        var qsString = '';
-        var qs = request.querystring;
-        if (qs) {
-            var parts = [];
-            for (var k in qs) {
-                if (qs[k].multiValue) {
-                    for (var i = 0; i < qs[k].multiValue.length; i++) {
-                        parts.push(k + '=' + qs[k].multiValue[i].value);
-                    }
-                } else if (qs[k].value !== undefined) {
-                    parts.push(k + '=' + qs[k].value);
-                } else {
-                    parts.push(k);
-                }
-            }
-            if (parts.length > 0) {
-                qsString = '?' + parts.join('&');
-            }
-        }
-        return {
-            statusCode: 301,
-            statusDescription: 'Moved Permanently',
-            headers: {
-                'location': { value: newUri + qsString },
-                'cache-control': { value: 'public, max-age=3600' }
-            }
-        };
+        return redirect301(newUri, request.querystring);
+    }
+
+    // KS-4461: 301 /blog(/.*)? → /en/blog$1 (legacy блог-URL после KS-4460).
+    // После KS-4460 фронт перевёл блог на префиксные `/en/blog` и `/ru/blog`,
+    // старые `/blog[/<slug>]` редиректили только клиентским `<Navigate>` —
+    // поисковики без JS этого не видят. Дефолтный язык — `en` (зафиксировано
+    // во фронте, не cookie/Accept-Language).
+    if (uri === '/blog' || uri.indexOf('/blog/') === 0) {
+        var blogNewUri = '/en/blog' + uri.substring('/blog'.length);
+        return redirect301(blogNewUri, request.querystring);
     }
 
     if (uri.indexOf('.') !== -1) {
@@ -77,10 +92,12 @@ function handler(event) {
         '/lectures': 1,
         '/feedback': 1,
         '/features': 1,
-        '/login': 1,
-        // KS-4448 / ADR-137. Лента блога — пророс через prerender.mjs
-        // (snapshot из BLOG_ROUTES + статика).
-        '/blog': 1
+        '/login': 1
+        // KS-4461: блог переехал на префиксные `/en/blog` и `/ru/blog`
+        // (KS-4460), старый `/blog` редиректит выше 301-м — в publicRoutes
+        // больше не нужен. Поддержка SEO-prerender'а для `/en/blog`,
+        // `/ru/blog` и `/<lang>/blog/<slug>` — отдельной фронт-задачей
+        // (сейчас эти URI уходят в SPA-fallback `/index.html`).
     };
 
     var normalized = uri;
@@ -89,23 +106,6 @@ function handler(event) {
     }
 
     if (publicRoutes[normalized]) {
-        request.uri = normalized + '/index.html';
-        return request;
-    }
-
-    // KS-4448 / ADR-137 T6. Статьи блога — динамические URL вида
-    // `/blog/<slug>`. prerender.mjs кладёт каждую в
-    // `dist/blog/<slug>/index.html` (см. BLOG_ROUTES из
-    // generated/blog-routes.ts). Без этой ветки путь уходит в
-    // SPA-fallback на корневой `/index.html` (landing-разметка),
-    // и snapshot со статьёй вообще не показывается ботам/первому
-    // заходу. Условие — URI начинается с `/blog/` и в нём ровно
-    // один сегмент после префикса (нет вложенного слеша).
-    // Несуществующий slug → S3 вернёт 404, CloudFront-фолбэк
-    // (Custom Error Response) отдаст корневой `/index.html`.
-    if (normalized.indexOf('/blog/') === 0
-        && normalized.indexOf('/', '/blog/'.length) === -1
-        && normalized.length > '/blog/'.length) {
         request.uri = normalized + '/index.html';
         return request;
     }
