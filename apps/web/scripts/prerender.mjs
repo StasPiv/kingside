@@ -297,6 +297,48 @@ async function setupApiMocks(page) {
     }),
   );
 
+  // KS-4443. Блог-API живёт по `https://api.kingside.site/blog/posts/...`
+  // (без `/api/`-префикса) и не покрыт универсальным `**/api/**`-моком.
+  // Headless Chrome из prerender зовёт его с origin `http://127.0.0.1:4173`;
+  // прод-секрет `CORS_ORIGIN` для api такой origin не разрешает —
+  // ответ приходит без `access-control-allow-origin`, браузер режет,
+  // `useBlogPost` уходит в catch → `data-state="error"`, snapshot
+  // оказывается без Article JSON-LD/title/canonical.
+  //
+  // Обход: проксируем запрос через `node fetch` (Node-у CORS неведом),
+  // возвращаем тело Playwright'у через `route.fulfill`. Браузер думает,
+  // что получил CORS-валидный ответ от same-origin сервера.
+  // Покрываем оба публичных эндпоинта (`/blog/posts`, `/blog/posts/:slug`).
+  await page.route('**/blog/posts**', async (route) => {
+    const requestUrl = route.request().url();
+    try {
+      const upstream = await fetch(requestUrl, {
+        headers: { accept: 'application/json' },
+      });
+      const body = await upstream.text();
+      await route.fulfill({
+        status: upstream.status,
+        contentType:
+          upstream.headers.get('content-type') ?? 'application/json',
+        body,
+      });
+    } catch (e) {
+      // Сеть/тайм-аут — отдадим 404 (страница покажет «не найдено»,
+      // что лучше чем «ошибка загрузки»; snapshot всё равно получит
+      // Article-DOM с состоянием not_found, либо просто пустой root).
+      process.stderr.write(
+        `  [prerender] blog API proxy ${requestUrl} failed: ${
+          e instanceof Error ? e.message : String(e)
+        }\n`,
+      );
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: '{}',
+      });
+    }
+  });
+
   // Любой остальной /api/* — пустой 200, чтобы консоль не сыпала
   // ошибками и страница не зависала на «loading» из-за конкретных
   // эндпоинтов (например, /nav-stats или /profile/me/admin-status).
