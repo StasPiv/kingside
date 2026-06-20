@@ -359,6 +359,32 @@ async function prerenderRoute(browser, baseUrl, route) {
     { timeout: 20_000 },
   );
 
+  // KS-4434. Для страниц статьи блога (`/blog/<slug>`) ждать общего
+  // условия выше недостаточно: BlogPostPage в loading-стейте показывает
+  // «Loading the article…» — это не подпадает под строгий «Loading»-
+  // регексп и общий wait возвращается раньше, чем сетевой запрос
+  // GET /blog/posts/:slug отработает. Без дополнительного ожидания в
+  // snapshot уезжает loading-разметка без Article JSON-LD/title/canonical,
+  // а статический WebApplication из index.html не вытесняется
+  // дедупликатором SeoHelmet (он работает только когда BlogPostSeo
+  // смонтирован). Ждём отдельно `[data-state="ready"]` (или 404/error).
+  const isBlogPost = /^\/blog\/[^/]+$/.test(route);
+  if (isBlogPost) {
+    await page
+      .waitForSelector(
+        '[data-testid="blog-post"][data-state="ready"], [data-testid="blog-post"][data-state="not-found"], [data-testid="blog-post"][data-state="error"]',
+        { timeout: 15_000 },
+      )
+      .catch(() => {
+        // Не валим сборку — отдадим то, что есть; в худшем случае
+        // получим текущий loading-snapshot, что не хуже предыдущего
+        // поведения.
+        process.stderr.write(
+          `  [prerender ${route}] timeout waiting blog-post data-state; falling back to current DOM\n`,
+        );
+      });
+  }
+
   // Дать асинхронным `useEffect`ам с микротасками шанс дорисовать
   // заголовки/баннеры/мета-теги. Безопасный фиксированный буфер.
   await page.waitForTimeout(500);
