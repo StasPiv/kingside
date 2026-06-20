@@ -368,21 +368,42 @@ async function prerenderRoute(browser, baseUrl, route) {
   // а статический WebApplication из index.html не вытесняется
   // дедупликатором SeoHelmet (он работает только когда BlogPostSeo
   // смонтирован). Ждём отдельно `[data-state="ready"]` (или 404/error).
+  //
+  // KS-4443: подробная диагностика, потому что на хосте сборки snapshot
+  // уходит в landing-разметку, чего у меня локально не воспроизводится.
+  // Логируем env, исход ожидания, итоговое `data-state` и наличие
+  // `[data-testid="blog-post"]`.
   const isBlogPost = /^\/blog\/[^/]+$/.test(route);
   if (isBlogPost) {
-    await page
+    process.stderr.write(
+      `  [prerender ${route}] VITE_API_URL=${process.env.VITE_API_URL ?? '(unset)'}\n`,
+    );
+    const waitResult = await page
       .waitForSelector(
         '[data-testid="blog-post"][data-state="ready"], [data-testid="blog-post"][data-state="not-found"], [data-testid="blog-post"][data-state="error"]',
         { timeout: 15_000 },
       )
-      .catch(() => {
-        // Не валим сборку — отдадим то, что есть; в худшем случае
-        // получим текущий loading-snapshot, что не хуже предыдущего
-        // поведения.
-        process.stderr.write(
-          `  [prerender ${route}] timeout waiting blog-post data-state; falling back to current DOM\n`,
-        );
-      });
+      .then(() => 'matched')
+      .catch(() => 'timeout');
+    const diag = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="blog-post"]');
+      const hasArticle = Array.from(
+        document.querySelectorAll('script[type="application/ld+json"]'),
+      ).some((s) => (s.textContent ?? '').includes('"Article"'));
+      const title =
+        document.querySelector('title')?.textContent ?? '(no title)';
+      return {
+        present: Boolean(el),
+        dataState: el?.getAttribute('data-state') ?? null,
+        rootBytes: document.getElementById('root')?.innerHTML?.length ?? 0,
+        hasArticleJsonLd: hasArticle,
+        title,
+        pathname: location.pathname,
+      };
+    });
+    process.stderr.write(
+      `  [prerender ${route}] wait=${waitResult} diag=${JSON.stringify(diag)}\n`,
+    );
   }
 
   // Дать асинхронным `useEffect`ам с микротасками шанс дорисовать
