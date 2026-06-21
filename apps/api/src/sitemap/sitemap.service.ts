@@ -22,10 +22,6 @@
  *   `AWS_REGION`                — default `eu-central-1`.
  *   `PUBLIC_BASE_URL`           — default `https://kingside.site`,
  *                                 база для абсолютных URL в `<loc>`.
- *   `ARCHIVE_SITEMAP_ENABLED`   — `true` чтобы заполнять
- *                                 `sitemap-archive-*.xml` без
- *                                 policy-фильтра (#13). Default
- *                                 `false` — пустой `<urlset>`.
  *
  * Лимит 50 000 URL на файл (требование sitemaps.org): для текущих
  * объёмов kingside.site не достигается, но если поток `lectures` /
@@ -59,11 +55,16 @@ export const SITEMAP_FILES = [
   'sitemap-players.xml',
   'sitemap-coaches.xml',
   'sitemap-lectures.xml',
-  'sitemap-archive-games.xml',
-  'sitemap-archive-players.xml',
-  // KS-4402: блог. Источник — `blog-sitemap-data.json` от frontend-
-  // сборки (publish'ится в тот же S3 bucket рядом с sitemap'ами,
-  // ключ `blog-sitemap-data.json`).
+  // KS-4484: `sitemap-archive-games.xml` и `sitemap-archive-players.xml`
+  // удалены из index'а. До реализации policy-фильтра (ADR-128 §7.4.3
+  // task #13 — индексировать только партии с avgElo ≥ 2400 / TWIC
+  // top-1000) генераторы возвращали пустой `<urlset>` всегда. Google
+  // Search Console на пустой `<urlset>` пишет «1 ошибка, 0 URL» —
+  // GSC ожидает либо валидные `<url>`, либо отсутствие файла в index.
+  // Возвращать sitemap, когда задача #13 будет реализована, и тогда
+  // же добавить файлы обратно в этот массив.
+  // KS-4402: блог. Источник — таблица `blog_posts` (см.
+  // `generateBlogXml`).
   'sitemap-blog.xml',
 ] as const;
 export type SitemapFile = (typeof SITEMAP_FILES)[number];
@@ -107,10 +108,10 @@ export class SitemapService {
       ['sitemap-players.xml', () => this.generatePlayersXml()],
       ['sitemap-coaches.xml', () => this.generateCoachesXml()],
       ['sitemap-lectures.xml', () => this.generateLecturesXml()],
-      ['sitemap-archive-games.xml', () => this.generateArchiveGamesXml()],
-      ['sitemap-archive-players.xml', () => this.generateArchivePlayersXml()],
-      // KS-4402: блог. Список статей читается из
-      // `blog-sitemap-data.json` в том же S3 bucket'е.
+      // KS-4484: archive-games / archive-players убраны вместе с
+      // самими файлами из `SITEMAP_FILES`. Вернуть, когда #13 (policy-
+      // фильтр §7.4.3) будет реализована.
+      // KS-4402: блог. Список статей читается из `blog_posts`.
       ['sitemap-blog.xml', () => this.generateBlogXml()],
     ];
 
@@ -263,25 +264,12 @@ export class SitemapService {
     return buildUrlset(entries);
   }
 
-  async generateArchiveGamesXml(): Promise<string> {
-    // §7.4.3 policy-фильтр (avgElo ≥ 2400 / TWIC top-1000) — это #13.
-    // До его реализации ARCHIVE_SITEMAP_ENABLED по умолчанию false
-    // → отдаём пустой `<urlset>`, чтобы Google знал что эндпоинт
-    // существует, но без флуда миллионами URL.
-    if (!this.archiveEnabled()) {
-      return buildUrlset([]);
-    }
-    // Подключение policy-фильтра — задача #13; здесь пока тоже пусто,
-    // чтобы случайное включение флага не повесило прод.
-    return buildUrlset([]);
-  }
-
-  async generateArchivePlayersXml(): Promise<string> {
-    if (!this.archiveEnabled()) {
-      return buildUrlset([]);
-    }
-    return buildUrlset([]);
-  }
+  // KS-4484: методы `generateArchiveGamesXml` / `generateArchivePlayersXml`
+  // удалены. До реализации policy-фильтра (#13) они возвращали пустой
+  // `<urlset>` всегда, что воспринималось Google Search Console как
+  // ошибка («Тег XML отсутствует»). Файлы убраны из `SITEMAP_FILES`
+  // и из массива генераторов в `generateAllAndPublish`. Возвращать
+  // вместе с #13.
 
   /**
    * KS-4402 / KS-4412 / KS-4460 / KS-4462 / KS-4483 / ADR-137 rev2.
@@ -453,12 +441,5 @@ export class SitemapService {
 
   private region(): string {
     return this.config.get<string>('AWS_REGION') ?? DEFAULT_REGION;
-  }
-
-  private archiveEnabled(): boolean {
-    const v = (this.config.get<string>('ARCHIVE_SITEMAP_ENABLED') ?? '')
-      .toString()
-      .toLowerCase();
-    return v === 'true' || v === '1';
   }
 }

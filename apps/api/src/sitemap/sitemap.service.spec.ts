@@ -153,24 +153,18 @@ describe('SitemapService.generateLecturesXml', () => {
   });
 });
 
-describe('SitemapService.generateArchive* — env-флаг', () => {
-  it('ARCHIVE_SITEMAP_ENABLED не задан → пустой <urlset>', async () => {
-    const { service } = await createService({});
-    const games = await service.generateArchiveGamesXml();
-    const players = await service.generateArchivePlayersXml();
-    expect(games).toContain('<urlset');
-    expect(games).not.toContain('<url>');
-    expect(players).toContain('<urlset');
-    expect(players).not.toContain('<url>');
-  });
+// KS-4484: тесты `generateArchive* — env-флаг` удалены вместе с
+// методами `generateArchiveGamesXml` / `generateArchivePlayersXml` и
+// env-флагом `ARCHIVE_SITEMAP_ENABLED`. До реализации policy-фильтра
+// (#13) sitemap'ы archive-* убраны из `SITEMAP_FILES` — GSC больше
+// не получает пустые `<urlset>`, на которые ругался.
 
-  it('ARCHIVE_SITEMAP_ENABLED=true тоже пустой (до #13 policy)', async () => {
-    const { service } = await createService({
-      ARCHIVE_SITEMAP_ENABLED: 'true',
-    });
-    const games = await service.generateArchiveGamesXml();
-    expect(games).toContain('<urlset');
-    expect(games).not.toContain('<url>');
+describe('SitemapService.SITEMAP_FILES (KS-4484)', () => {
+  it('SITEMAP_FILES не содержит archive-* до реализации policy-фильтра', async () => {
+    // Импорт здесь, чтобы избежать «used before defined» в readability.
+    const { SITEMAP_FILES } = await import('./sitemap.service');
+    expect(SITEMAP_FILES).not.toContain('sitemap-archive-games.xml');
+    expect(SITEMAP_FILES).not.toContain('sitemap-archive-players.xml');
   });
 });
 
