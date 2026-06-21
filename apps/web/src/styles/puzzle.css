@@ -6232,6 +6232,23 @@ input[type='range'].precision-difficulty-filter__range:focus-visible::-moz-range
     display: block;
   }
 
+  /* KS-4491. На `/critical-moment` chips-bar нет, поэтому фильтр
+     «решал/не решал» должен оставаться видимым на мобильном. Селектор
+     с двумя классами специфичнее, чем правило hide выше, и переопределяет
+     `display:none`. Раскладка как у 480px-варианта для precision (full-
+     width, флекс-стрейч по сегментам), чтобы кнопки уложились в одну
+     строку без скролла. */
+  .precision-objective-segments.precision-objective-segments--tactic-puzzles {
+    display: flex;
+    width: 100%;
+    margin: 8px 0 12px;
+  }
+  .precision-objective-segments--tactic-puzzles
+    .precision-objective-segment {
+    flex: 1 1 0;
+    text-align: center;
+  }
+
   /* KS-3243: chips-bar — horizontal scroll, sticky под SubNav. */
   .precision-filter-chips-bar {
     display: flex;

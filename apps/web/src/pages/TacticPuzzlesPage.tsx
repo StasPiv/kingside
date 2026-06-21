@@ -40,6 +40,13 @@ function extractYear(date: string | undefined | null): string {
   return m ? m[1] : '';
 }
 
+// KS-4491. Ключ localStorage-флага «пользователь хотя бы раз заходил
+// на /critical-moment». Используется только чтобы выставить дефолтный
+// фильтр «Не решал» на самом первом заходе. После первого визита
+// поведение прежнее: пустой URL = `all`, явный URL-параметр = выбор
+// пользователя. Флаг ставится ровно при первой авто-подмене URL'а.
+const VISITED_LS_KEY = 'kingside:critical-moment:visited';
+
 export function TacticPuzzlesPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -55,6 +62,44 @@ export function TacticPuzzlesPage() {
       : solvedParam === 'false'
         ? 'unsolved'
         : 'all';
+
+  // KS-4491. На самом первом заходе авторизованного пользователя
+  // (нет ни URL-параметра, ни visited-флага в localStorage) — выставляем
+  // фильтр `solved=false` (только нерешённые), `replace:true` чтобы не
+  // создавать лишнюю запись в истории. Флаг ставим ДО navigate — после
+  // первого заполнения URL'а компонент перерендерится, эффект повторно
+  // не сработает.
+  //
+  // На последующих заходах:
+  //   - есть URL-параметр (`?solved=...`) → не трогаем, всегда главнее;
+  //   - нет URL-параметра, но visited=true → дефолт `all` (как было);
+  //   - нет visited (например, чистый incognito) → снова auto-default.
+  //
+  // Гостю никакого auto-redirect не делаем: backend параметр игнорирует,
+  // переключатель скрыт, и подменять URL у незалогиненного нет смысла.
+  useEffect(() => {
+    if (!user) return;
+    if (solvedParam !== null) return;
+    if (typeof window === 'undefined') return;
+    let visited = false;
+    try {
+      visited = window.localStorage.getItem(VISITED_LS_KEY) === '1';
+    } catch {
+      // localStorage может быть недоступен (Safari private + ITP).
+      // Считаем «не посещал», подменим URL — это безвреднее, чем
+      // показать пустой каталог в обход дефолта.
+      visited = false;
+    }
+    if (visited) return;
+    try {
+      window.localStorage.setItem(VISITED_LS_KEY, '1');
+    } catch {
+      /* см. catch выше */
+    }
+    const sp = new URLSearchParams(searchParams);
+    sp.set('solved', 'false');
+    setSearchParams(sp, { replace: true });
+  }, [user, solvedParam, searchParams, setSearchParams]);
 
   const filters = useMemo<TacticPuzzleBrowseQuery>(
     () => ({
@@ -180,10 +225,15 @@ export function TacticPuzzlesPage() {
         )}
 
         {/* KS-4366: фильтр-сегмент по «решал/не решал». Гостю backend
-            параметр игнорирует, поэтому переключатель скрыт. */}
+            параметр игнорирует, поэтому переключатель скрыт.
+            KS-4491: модификатор `--tactic-puzzles` нужен, чтобы
+            переопределить mobile-hide из media-query `.precision-
+            objective-segments { display: none }` (он завязан на
+            chips-bar у /precision; на /critical-moment chips-bar нет,
+            фильтр должен оставаться видимым на мобильном). */}
         {user && (
           <nav
-            className="precision-objective-segments"
+            className="precision-objective-segments precision-objective-segments--tactic-puzzles"
             data-testid="tactic-puzzles-solved-segments"
             aria-label={t('tacticPuzzle.solvedFilter.label')}
             role="tablist"
