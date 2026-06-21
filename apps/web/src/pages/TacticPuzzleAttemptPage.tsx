@@ -34,7 +34,12 @@ import { TacticPuzzlesSubNav } from '../components/tactic-puzzles/TacticPuzzlesS
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { PuzzleSourceGame } from '../components/puzzle/PuzzleSourceGame';
 import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
+import { api } from '../api';
 import { ApiError } from '../ApiError';
+// KS-4492. PGN-сборка для открытия в мастерской через POST /analyses
+// (унификация с Precision; см. SolveTacticPuzzlePage и
+// PrecisionAttemptPage).
+import { buildTacticPuzzlePgn } from '../utils/buildTacticPuzzlePgn';
 
 function sideFromFen(fen: string): 'w' | 'b' {
   return fen.split(' ')[1] === 'b' ? 'b' : 'w';
@@ -251,12 +256,62 @@ export function TacticPuzzleAttemptPage() {
   const handleStop = useCallback(() => setPlaying(false), []);
 
   // ── Действия ───────────────────────────────────────────────────
+  //
+  // KS-4492. Открытие в мастерской: для авторизованного — POST /analyses
+  // c полным PGN (стартовая FEN + теги партии-источника + ходы
+  // пользователя из попытки), затем `/analysis/<id>`. Унифицировано с
+  // Precision (`PrecisionAttemptPage.handleOpenWorkshop`). Раньше
+  // передавали `?fen=` — теги партии и нумерация ходов терялись, в
+  // мастерской дерево показывалось со старта «1.», читалось как
+  // сбитая нотация. Гостю эта страница недоступна (pageState='guest'),
+  // но на всякий случай оставляем `?fen=` fallback.
   const handleOpenWorkshop = useCallback(() => {
     if (!detail) return;
-    const url = `/analysis?fen=${encodeURIComponent(detail.puzzle.fen)}`;
-    const tab = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!tab) window.location.href = url;
-  }, [detail]);
+    const fallbackUrl = `/analysis?fen=${encodeURIComponent(detail.puzzle.fen)}`;
+    const tab = window.open('about:blank', '_blank');
+    const redirect = (url: string) => {
+      if (tab) {
+        try {
+          tab.location.href = url;
+        } catch {
+          window.location.href = url;
+        }
+      } else {
+        window.location.href = url;
+      }
+    };
+    if (!user) {
+      redirect(fallbackUrl);
+      return;
+    }
+    // KS-4492. `TacticAttemptDetail` наследует `TacticAttemptListItem` —
+    // у попытки поле `id`, у пазла — `puzzle.id`; теги партии-источника
+    // живут на верхнем уровне `detail.sourceHeaders`.
+    const shortId = detail.id.slice(0, 8);
+    const pgn = buildTacticPuzzlePgn({
+      initialFen: detail.puzzle.fen,
+      userMovesUci: detail.userMoves,
+      headers: detail.sourceHeaders,
+    });
+    const title = t(
+      'tacticAttempt.workshopTitle',
+      'Critical Moment attempt #{{id}}',
+      { id: shortId, defaultValue: 'Critical Moment attempt #{{id}}' },
+    );
+    api
+      .post<{ id: string }>(
+        '/analyses',
+        { pgn, title, category: 'analysis' },
+      )
+      .then((created) => redirect(`/analysis/${created.id}`))
+      .catch((e) => {
+        console.warn(
+          'TacticPuzzleAttemptPage: POST /analyses failed, fallback to ?fen=',
+          e,
+        );
+        redirect(fallbackUrl);
+      });
+  }, [detail, user, t]);
   const handleReplay = useCallback(() => {
     if (!detail) return;
     navigate(`/critical-moment/${detail.puzzleId}`);

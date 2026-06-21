@@ -33,6 +33,11 @@ import {
 } from '../components/puzzle/TacticPuzzleRunner';
 import { PuzzleSourceGame } from '../components/puzzle/PuzzleSourceGame';
 import { tacticPuzzleApi } from '../api/api-tactic-puzzle';
+import { api } from '../api';
+// KS-4492. PGN-сборка по образцу Precision: открываем мастерскую через
+// `/analyses` + `/analysis/<id>`, чтобы AnalysisPage парсил корректные
+// `[SetUp][FEN]`-теги и нумерацию ходов от позиции-источника.
+import { buildTacticPuzzlePgn } from '../utils/buildTacticPuzzlePgn';
 import { TacticPuzzlesSubNav } from '../components/tactic-puzzles/TacticPuzzlesSubNav';
 
 /**
@@ -137,39 +142,81 @@ export function SolveTacticPuzzlePage() {
   }, [navigate]);
 
   /**
-   * KS-4347 → KS-4350 → KS-4353. «Открыть в мастерской».
+   * KS-4347 → KS-4350 → KS-4353 → KS-4492. «Открыть в мастерской».
    *
-   * Открываем СТАРТОВУЮ позицию пазла (FEN) в мастерской в новой
-   * вкладке. Не партию-источник, не POST `/analyses` — пользователь
-   * хочет разобрать конкретно задачу.
+   * KS-4492. Для авторизованного — сохраняем PGN-снимок задачи через
+   * `POST /analyses` и открываем `/analysis/<id>`. То же, что делает
+   * Precision (см. PrecisionAttemptPage). Раньше передавали только
+   * `?fen=` — у мастерской терялись теги партии-источника и нумерация
+   * ходов начиналась с «1.», что пользователь воспринимал как сбитую
+   * нотацию. PGN включает `[SetUp][FEN]` + `Source*`-теги +
+   * пользовательские ходы (если успел сделать).
    *
+   * Для гостя (нельзя POST'нуть `/analyses`) — fallback на старый
+   * путь `?fen=`. Гостю всё равно нельзя сохранить анализ; разница
+   * с нотацией для него менее заметна (нет окружения «карточки
+   * партии в мастерской», в которое ложатся теги).
+   *
+   * attempt-логика прежняя:
    *   - если попытка ещё не отправлена (раннер передал данные на клик
    *     по кнопке во время решения), параллельно шлём `attempt`
    *     с `stopReason='aborted'`;
-   *   - если попытка уже завершена (на экране результата), раннер
-   *     передаёт уже зафиксированные данные, но `submittedRef` в нём
-   *     не даёт повторного вызова `onOpenWorkshop`. Здесь же мы можем
-   *     получить data с любым stopReason — повторно отправлять не
-   *     нужно, и `attempt` не уходит.
-   *
-   * Защита от двойной отправки: храним `submittedAttemptRef` —
-   * по `puzzle.id` запоминаем, что для этого пазла попытку уже
-   * отправляли, при повторном клике пропускаем submit.
+   *   - если уже отправлена — `submittedAttemptRef` пропускает повтор.
    */
   const submittedAttemptRef = useRef<string | null>(null);
   const handleOpenWorkshop = useCallback(
     (data: TacticPuzzleRunnerSubmit) => {
       if (!puzzle) return;
-      const targetUrl = `/analysis?fen=${encodeURIComponent(puzzle.fen)}`;
-      // KS-4407. Открываем синхронно — обязательное условие user-gesture
-      // для pop-up политик. С флагом `noopener` `window.open` ВСЕГДА
-      // возвращает `null` по спецификации (не «pop-up заблокирован»,
-      // а «вкладка изолирована»), поэтому раньше fallback на
-      // `window.location.href` срабатывал каждый раз → анализ открывался
-      // одновременно в новой и в текущей вкладке. Fallback убран:
-      // если pop-up реально заблокирован, браузер покажет индикатор
-      // в адресной строке — пользователь даст разрешение и повторит.
-      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+
+      // KS-4492. Открываем вкладку СИНХРОННО (требование pop-up
+      // политик) на about:blank, а потом переадресуем — либо на
+      // /analysis/<id> после POST, либо на fallback /analysis?fen=
+      // если POST упал/гость.
+      const tab = window.open('about:blank', '_blank');
+      const fallbackUrl = `/analysis?fen=${encodeURIComponent(puzzle.fen)}`;
+
+      const redirect = (url: string) => {
+        if (tab) {
+          try {
+            tab.location.href = url;
+          } catch {
+            // Если новая вкладка изолирована (rare), отдадим в текущей.
+            window.location.href = url;
+          }
+        } else {
+          window.location.href = url;
+        }
+      };
+
+      if (user) {
+        const shortId = puzzle.id.slice(0, 8);
+        const pgn = buildTacticPuzzlePgn({
+          initialFen: puzzle.fen,
+          userMovesUci: data.userMoves,
+          headers: puzzle.sourceHeaders,
+        });
+        const title = t('tacticPuzzle.workshopTitle', 'Critical Moment #{{id}}', {
+          id: shortId,
+          defaultValue: 'Critical Moment #{{id}}',
+        });
+        api
+          .post<{ id: string }>(
+            '/analyses',
+            { pgn, title, category: 'analysis' },
+          )
+          .then((created) => {
+            redirect(`/analysis/${created.id}`);
+          })
+          .catch((e) => {
+            console.warn(
+              'SolveTacticPuzzlePage: POST /analyses failed, fallback to ?fen=',
+              e,
+            );
+            redirect(fallbackUrl);
+          });
+      } else {
+        redirect(fallbackUrl);
+      }
 
       // attempt отправляем только если ещё не отправляли для этого пазла.
       if (
@@ -194,7 +241,7 @@ export function SolveTacticPuzzlePage() {
           });
       }
     },
-    [puzzle, user],
+    [puzzle, user, t],
   );
 
   // Сбрасываем «уже отправили» при смене пазла.
