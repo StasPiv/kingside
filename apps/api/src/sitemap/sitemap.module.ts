@@ -13,11 +13,13 @@ import { SitemapService } from './sitemap.service';
 import { SitemapScheduler } from './sitemap.scheduler';
 import { SitemapController } from './sitemap.controller';
 import { SitemapAdminController } from './sitemap-admin.controller';
+// KS-4486: автоматическая инвалидация CloudFront после S3-записи.
+import { CloudFrontInvalidationService } from './cloudfront-invalidation.service';
 
 @Module({
   imports: [ConfigModule],
   controllers: [SitemapController, SitemapAdminController],
-  providers: [SitemapService, SitemapScheduler],
+  providers: [SitemapService, SitemapScheduler, CloudFrontInvalidationService],
   exports: [SitemapService],
 })
 export class SitemapModule {}

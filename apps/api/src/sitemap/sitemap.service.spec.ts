@@ -7,6 +7,7 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { SitemapService } from './sitemap.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CloudFrontInvalidationService } from './cloudfront-invalidation.service';
 
 interface PrismaMock {
   $queryRawUnsafe: jest.Mock;
@@ -35,8 +36,18 @@ function configMock(env: Record<string, string>): ConfigService {
 async function createService(env: Record<string, string> = {}): Promise<{
   service: SitemapService;
   prisma: PrismaMock;
+  cloudfront: { invalidateSitemapPaths: jest.Mock };
 }> {
   const prisma = makePrismaMock();
+  // KS-4486: мок CloudFront-инвалидации — по умолчанию skipped:true,
+  // чтобы существующие тесты не падали на DI-цепочке.
+  const cloudfront = {
+    invalidateSitemapPaths: jest.fn().mockResolvedValue({
+      id: null,
+      skipped: true,
+      reason: 'mock',
+    }),
+  };
   const moduleRef = await Test.createTestingModule({
     providers: [
       SitemapService,
@@ -45,9 +56,10 @@ async function createService(env: Record<string, string> = {}): Promise<{
         provide: ConfigService,
         useValue: configMock({ PUBLIC_BASE_URL: 'https://kingside.site', ...env }),
       },
+      { provide: CloudFrontInvalidationService, useValue: cloudfront },
     ],
   }).compile();
-  return { service: moduleRef.get(SitemapService), prisma };
+  return { service: moduleRef.get(SitemapService), prisma, cloudfront };
 }
 
 describe('SitemapService.generateBroadcastsXml', () => {
@@ -173,7 +185,7 @@ describe('SitemapService.generateAllAndPublish', () => {
   // `await import` в самом сервисе, jest.doMock с динамическим
   // импортом ненадёжен. Здесь проверяем что вызов не бросает и
   // возвращает summary; полные интеграционные сценарии — в DEV.
-  it('возвращает summary {published, failed}, не бросает на ошибках', async () => {
+  it('возвращает summary {published, failed, cloudfrontInvalidation}, не бросает на ошибках', async () => {
     const { service, prisma } = await createService();
     prisma.$queryRawUnsafe.mockRejectedValue(new Error('DB down'));
     prisma.arenaTournament.findMany.mockRejectedValue(new Error('DB down'));
@@ -187,6 +199,27 @@ describe('SitemapService.generateAllAndPublish', () => {
     expect(Array.isArray(result.failed)).toBe(true);
     // Все упавшие БД + S3-фейл => хотя бы один failed-entry.
     expect(result.failed.length).toBeGreaterThan(0);
+    // KS-4486: invalidation в summary всегда присутствует.
+    expect(result.cloudfrontInvalidation).toBeDefined();
+    expect(typeof result.cloudfrontInvalidation.skipped).toBe('boolean');
+  });
+
+  // KS-4486.
+  it('если ничего не опубликовано → invalidation skipped с reason "nothing"', async () => {
+    const { service, prisma, cloudfront } = await createService();
+    // Все S3 PUT и БД будут падать; index тоже упадёт (нет S3 mock'а).
+    prisma.$queryRawUnsafe.mockRejectedValue(new Error('DB down'));
+    prisma.arenaTournament.findMany.mockRejectedValue(new Error('DB down'));
+    prisma.user.findMany.mockRejectedValue(new Error('DB down'));
+    prisma.lecture.findMany.mockRejectedValue(new Error('DB down'));
+
+    const result = await service.generateAllAndPublish();
+    // Если published пуст и index упал — invalidation не вызывается.
+    if (result.published.length === 0 && result.failed.some((f) => f.name === 'sitemap.xml')) {
+      expect(cloudfront.invalidateSitemapPaths).not.toHaveBeenCalled();
+      expect(result.cloudfrontInvalidation.skipped).toBe(true);
+      expect(result.cloudfrontInvalidation.reason).toMatch(/nothing/);
+    }
   });
 });
 

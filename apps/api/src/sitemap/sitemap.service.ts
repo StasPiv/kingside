@@ -38,6 +38,10 @@ import {
   buildUrlset,
   type SitemapUrlEntry,
 } from './sitemap-builder';
+import {
+  CloudFrontInvalidationService,
+  type CloudFrontInvalidationResult,
+} from './cloudfront-invalidation.service';
 
 const DEFAULT_BUCKET = 'kingside-prerender-store';
 const DEFAULT_REGION = 'eu-central-1';
@@ -83,16 +87,23 @@ export class SitemapService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    // KS-4486: после записи в S3 сбрасываем CloudFront-кэш через
+    // CreateInvalidation. Если distribution не настроен / SDK не
+    // установлен / IAM не выдан — сервис вернёт `skipped:true`, и
+    // регенерация всё равно отдаст 200, см. контракт сервиса.
+    private readonly cloudfront: CloudFrontInvalidationService,
   ) {}
 
   /**
-   * Сгенерировать все 8 sitemap'ов + index и опубликовать в S3.
-   * Каждый файл публикуется независимо: ошибка на одном не валит
-   * остальные. Возвращает summary для caller-логирования.
+   * Сгенерировать все sitemap'ы + index и опубликовать в S3, после
+   * чего сбросить CloudFront-кэш для путей `/sitemap*.xml`. Каждый
+   * файл публикуется независимо: ошибка на одном не валит остальные.
+   * Возвращает summary для caller-логирования.
    */
   async generateAllAndPublish(): Promise<{
     published: SitemapFile[];
     failed: Array<{ name: SitemapFile | 'sitemap.xml'; error: string }>;
+    cloudfrontInvalidation: CloudFrontInvalidationResult;
   }> {
     const published: SitemapFile[] = [];
     const failed: Array<{ name: SitemapFile | 'sitemap.xml'; error: string }> = [];
@@ -129,6 +140,7 @@ export class SitemapService {
 
     // Index публикуем после остальных, даже если кто-то упал —
     // частично заполненный sitemap-index лучше чем отсутствие.
+    let indexPublished = false;
     try {
       const indexXml = buildSitemapIndex(
         SITEMAP_FILES.map((file) => ({
@@ -137,13 +149,32 @@ export class SitemapService {
         })),
       );
       await this.publishToS3('sitemap.xml', indexXml);
+      indexPublished = true;
     } catch (e) {
       const msg = (e as Error).message;
       this.logger.error(`sitemap.xml index failed: ${msg}`);
       failed.push({ name: 'sitemap.xml', error: msg });
     }
 
-    return { published, failed };
+    // KS-4486. CloudFront-инвалидация ПОСЛЕ всех S3-записей —
+    // иначе CDN может закешировать промежуточное состояние. Если
+    // ни один файл не записался — инвалидировать нечего; вернём
+    // skipped с причиной. В остальных случаях инвалидируем как
+    // sub-sitemap'ы, так и сам index (даже если index упал —
+    // старая версия в CDN не валидна, лучше очистить).
+    const paths: string[] = [];
+    for (const name of published) paths.push(`/${name}`);
+    if (indexPublished) paths.push('/sitemap.xml');
+
+    const cloudfrontInvalidation = paths.length
+      ? await this.cloudfront.invalidateSitemapPaths(paths)
+      : {
+          id: null,
+          skipped: true,
+          reason: 'no sitemap published — nothing to invalidate',
+        };
+
+    return { published, failed, cloudfrontInvalidation };
   }
 
   // ─── per-entity generators ────────────────────────────────────────

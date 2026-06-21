@@ -33,12 +33,17 @@ export class SitemapAdminController {
   ): Promise<{
     published: string[];
     failed: Array<{ name: string; error: string }>;
+    cloudfrontInvalidation: {
+      id: string | null;
+      skipped: boolean;
+      reason?: string;
+    };
   }> {
     this.assertAuth(token);
     this.logger.log('[sitemap-admin] manual regenerate triggered');
     const result = await this.sitemap.generateAllAndPublish();
     this.logger.log(
-      `[sitemap-admin] done: published=${result.published.length} failed=${result.failed.length}`,
+      `[sitemap-admin] done: published=${result.published.length} failed=${result.failed.length} invalidation=${result.cloudfrontInvalidation.id ?? '<skipped>'}`,
     );
     return result;
   }
