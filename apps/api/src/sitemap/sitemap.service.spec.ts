@@ -2,7 +2,31 @@
  * KS-4209. Тесты `SitemapService` — выборки из Prisma и
  * сборка XML. S3-публикация мокается на уровне импорта sdk
  * (jest.doMock + async dynamic import).
+ *
+ * KS-4487: после установки реального `@aws-sdk/client-s3` динамический
+ * import успешно подгружает SDK, и тест `generateAllAndPublish` пытался
+ * аутентифицироваться по IMDS → таймаут. Перед всеми тестами этого
+ * spec'а ставим fake AWS-creds и короткий таймаут — SDK прекращает
+ * искать настоящие credentials и сразу падает синтетической ошибкой,
+ * что и нужно тесту (он не валидирует S3, а только проверяет, что
+ * сервис возвращает summary).
  */
+const PREV_ENV = {
+  AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+  AWS_EC2_METADATA_DISABLED: process.env.AWS_EC2_METADATA_DISABLED,
+};
+beforeAll(() => {
+  process.env.AWS_ACCESS_KEY_ID = 'test';
+  process.env.AWS_SECRET_ACCESS_KEY = 'test';
+  // Отключает IMDS-проверку (на CI её нет → длинный таймаут).
+  process.env.AWS_EC2_METADATA_DISABLED = 'true';
+});
+afterAll(() => {
+  process.env.AWS_ACCESS_KEY_ID = PREV_ENV.AWS_ACCESS_KEY_ID;
+  process.env.AWS_SECRET_ACCESS_KEY = PREV_ENV.AWS_SECRET_ACCESS_KEY;
+  process.env.AWS_EC2_METADATA_DISABLED = PREV_ENV.AWS_EC2_METADATA_DISABLED;
+});
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { SitemapService } from './sitemap.service';
