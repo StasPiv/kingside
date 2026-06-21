@@ -192,10 +192,13 @@ export const STATIC_PUBLIC_ROUTES: ReadonlyArray<
   // существуют на kingside.site и должны индексироваться.
   { loc: '/analyze-pgn-online', changefreq: 'monthly', priority: 0.8 },
   { loc: '/puzzles-from-your-games', changefreq: 'monthly', priority: 0.8 },
-  // KS-4402: главная блога. Отдельные статьи `/blog/<slug>` идут в
-  // `sitemap-blog.xml` (источник — `blog-sitemap-data.json` от
-  // frontend-сборки, см. `SitemapService.generateBlogXml`).
-  { loc: '/blog', changefreq: 'weekly', priority: 0.7 },
+  // KS-4485 (после KS-4460/KS-4461): легаси `/blog` без языкового
+  // префикса убран. Сами листинги `/en/blog` и `/ru/blog` живут в
+  // `sitemap-blog.xml` (KS-4483) — с hreflang-блоком между локалями.
+  // Здесь дублировать их не нужно: дубль `loc` в разных sitemap'ах
+  // путает Google, а hreflang всё равно работает только когда обе
+  // локали находятся в одном `<url>`-блоке. Отдельные статьи —
+  // тоже в `sitemap-blog.xml`.
   { loc: '/login', changefreq: 'yearly', priority: 0.3 },
   { loc: '/register', changefreq: 'yearly', priority: 0.3 },
 ];
