@@ -15,10 +15,11 @@
 // переписываем URI на `/__prerender-bypass`. S3-prerender 404 → CER → /index.html
 // → актуальный SPA-shell из frontend bucket. Разрывает петлю воркера.
 //
-// KS-4484: для удалённых архивных sitemap'ов (`sitemap-archive-games.xml`,
-// `sitemap-archive-players.xml`) возвращаем 410 Gone — без этой ветки
-// CER на S3-404 отдал бы 200 + `/index.html`, и Google продолжил бы
-// считать sitemap валидным. 410 — явный сигнал «убрать из индекса».
+// KS-4489: для удалённого `sitemap-players.xml` возвращаем 410 Gone —
+// без этой ветки CER на S3-404 отдал бы 200 + `/index.html`, и Google
+// продолжил бы считать sitemap валидным. 410 — явный сигнал «убрать
+// из индекса». Архивные `sitemap-archive-*.xml` в KS-4488 backend
+// вернул в индекс — их 410-исключение, добавленное в KS-4484, снято.
 
 function handler(event) {
     var request = event.request;
@@ -33,8 +34,8 @@ function handler(event) {
         return request;
     }
 
-    // KS-4484: 410 Gone для удалённых архивных sitemap'ов.
-    if (uri === '/sitemap-archive-games.xml' || uri === '/sitemap-archive-players.xml') {
+    // KS-4489: 410 Gone для удалённого `sitemap-players.xml`.
+    if (uri === '/sitemap-players.xml') {
         return {
             statusCode: 410,
             statusDescription: 'Gone',
