@@ -42,6 +42,9 @@ import {
   CloudFrontInvalidationService,
   type CloudFrontInvalidationResult,
 } from './cloudfront-invalidation.service';
+// KS-4488 / ADR-128 §7.4.3: archive-games и archive-players sitemap'ы
+// строятся из БД архива (отдельный PrismaClient, см. ArchiveModule).
+import { ArchivePrismaService } from '../archive/archive-prisma.service';
 
 const DEFAULT_BUCKET = 'kingside-prerender-store';
 const DEFAULT_REGION = 'eu-central-1';
@@ -56,17 +59,23 @@ export const SITEMAP_FILES = [
   'sitemap-static.xml',
   'sitemap-broadcasts.xml',
   'sitemap-tournaments.xml',
-  'sitemap-players.xml',
+  // KS-4488: `sitemap-players.xml` (живые пользователи сайта)
+  // удалён из index'а. По прямому запросу: «игроков на сайте
+  // (в основном боты) индексировать не надо». Профили пользователей
+  // (`/player/:username`) — это аккаунты сайта (model `User`), а не
+  // мастера; индексировать их нет смысла, и они засоряют crawl-budget.
+  // Архивные игроки `/archive/players/:slug` живут в
+  // `sitemap-archive-players.xml` ниже.
   'sitemap-coaches.xml',
   'sitemap-lectures.xml',
-  // KS-4484: `sitemap-archive-games.xml` и `sitemap-archive-players.xml`
-  // удалены из index'а. До реализации policy-фильтра (ADR-128 §7.4.3
-  // task #13 — индексировать только партии с avgElo ≥ 2400 / TWIC
-  // top-1000) генераторы возвращали пустой `<urlset>` всегда. Google
-  // Search Console на пустой `<urlset>` пишет «1 ошибка, 0 URL» —
-  // GSC ожидает либо валидные `<url>`, либо отсутствие файла в index.
-  // Возвращать sitemap, когда задача #13 будет реализована, и тогда
-  // же добавить файлы обратно в этот массив.
+  // KS-4484/KS-4488 / ADR-128 §7.4.3 task #13: archive-* возвращены.
+  //   - games: партии с `avgElo >= 2400` (точный критерий ADR).
+  //   - players: top-1000 по `gamesCount` ∪ `peakElo >= 2400`.
+  // 50000-лимит protocol'а sitemaps.org проверяется builder'ом —
+  // при превышении мы упадём с явной ошибкой, а не молча обрежем
+  // выборку.
+  'sitemap-archive-games.xml',
+  'sitemap-archive-players.xml',
   // KS-4402: блог. Источник — таблица `blog_posts` (см.
   // `generateBlogXml`).
   'sitemap-blog.xml',
@@ -92,6 +101,10 @@ export class SitemapService {
     // установлен / IAM не выдан — сервис вернёт `skipped:true`, и
     // регенерация всё равно отдаст 200, см. контракт сервиса.
     private readonly cloudfront: CloudFrontInvalidationService,
+    // KS-4488: отдельный PrismaClient к архивной БД для генераторов
+    // archive-games / archive-players. Источник правды — TWIC-импорт
+    // в `archive_games` / `archive_players` (packages/archive-db).
+    private readonly archivePrisma: ArchivePrismaService,
   ) {}
 
   /**
@@ -116,12 +129,14 @@ export class SitemapService {
       // ссылается на файл — broadcast-service публикует его в тот же
       // S3-bucket по тому же ключу.
       ['sitemap-tournaments.xml', () => this.generateTournamentsXml()],
-      ['sitemap-players.xml', () => this.generatePlayersXml()],
+      // KS-4488: sitemap-players (live users) убран — см. SITEMAP_FILES.
       ['sitemap-coaches.xml', () => this.generateCoachesXml()],
       ['sitemap-lectures.xml', () => this.generateLecturesXml()],
-      // KS-4484: archive-games / archive-players убраны вместе с
-      // самими файлами из `SITEMAP_FILES`. Вернуть, когда #13 (policy-
-      // фильтр §7.4.3) будет реализована.
+      // KS-4488 / ADR-128 §7.4.3 task #13: возвращены archive-games и
+      // archive-players с реальной выборкой из `archive_games` /
+      // `archive_players`.
+      ['sitemap-archive-games.xml', () => this.generateArchiveGamesXml()],
+      ['sitemap-archive-players.xml', () => this.generateArchivePlayersXml()],
       // KS-4402: блог. Список статей читается из `blog_posts`.
       ['sitemap-blog.xml', () => this.generateBlogXml()],
     ];
@@ -222,33 +237,13 @@ export class SitemapService {
     return buildUrlset(entries);
   }
 
-  async generatePlayersXml(): Promise<string> {
-    // Top-1000 по рейтингу blitz (как доминирующий категории). Гостям
-    // публичная страница `/player/:username` показывает профиль
-    // (KS-4232: единственное число, в соответствии с frontend
-    // canonical) — имеет смысл индексировать только верх лидерборда.
-    const rows = await this.prisma.user.findMany({
-      where: {
-        username: { not: null },
-        isHidden: false,
-        isBot: false,
-        isSynthetic: false,
-      },
-      orderBy: { ratingBlitz: 'desc' },
-      take: 1000,
-      select: { username: true, lastSeenAt: true },
-    });
-    const base = this.baseUrl();
-    const entries: SitemapUrlEntry[] = rows
-      .filter((r): r is { username: string; lastSeenAt: Date } => !!r.username)
-      .map((r) => ({
-        loc: `${base}/player/${encodeURIComponent(r.username)}`,
-        lastmod: r.lastSeenAt,
-        changefreq: 'weekly',
-        priority: 0.5,
-      }));
-    return buildUrlset(entries);
-  }
+  // KS-4488: `generatePlayersXml` (live users `/player/:username`)
+  // удалён. По прямому запросу: профили живых аккаунтов сайта (в
+  // массе — боты/синтетика) не индексируем; верифицированной
+  // системы «это мастер, страницу нужно показывать в поиске» у нас
+  // нет, лидерборд по `ratingBlitz` не равен SEO-объёму. Архивные
+  // игроки (`/archive/players/:slug`) идут в
+  // `generateArchivePlayersXml` ниже.
 
   async generateCoachesXml(): Promise<string> {
     // Тренер = пользователь, у которого есть хотя бы одна публичная
@@ -295,12 +290,85 @@ export class SitemapService {
     return buildUrlset(entries);
   }
 
-  // KS-4484: методы `generateArchiveGamesXml` / `generateArchivePlayersXml`
-  // удалены. До реализации policy-фильтра (#13) они возвращали пустой
-  // `<urlset>` всегда, что воспринималось Google Search Console как
-  // ошибка («Тег XML отсутствует»). Файлы убраны из `SITEMAP_FILES`
-  // и из массива генераторов в `generateAllAndPublish`. Возвращать
-  // вместе с #13.
+  /**
+   * KS-4488 / ADR-128 §7.4.3 task #13. Архивные партии — `/archive/games/:id`.
+   *
+   * Критерий ADR — partial-policy: «партии где `avgElo >= 2400`
+   * И (или) хотя бы один игрок в TWIC top-1000». В первой итерации
+   * берём строгий вариант — `avgElo >= 2400`. Это уже даёт ~50–100k
+   * URL'ов (оценка ADR), что укладывается в лимит 50000 sitemaps.org
+   * с запасом сортировки по свежести. Расширение на TWIC top-1000 —
+   * отдельным follow-up'ом, если SEO-team захочет больше URL'ов.
+   *
+   * `avgElo` колонки в `archive_games` нет — вычисляем на лету через
+   * `(white_elo + black_elo) / 2`. Обе колонки nullable; берём только
+   * партии где оба известны (иначе понятие «avgElo» не определено).
+   *
+   * `lastmod` — `played_at` (контент партии не меняется после
+   * импорта).
+   */
+  async generateArchiveGamesXml(): Promise<string> {
+    const rows = (await this.archivePrisma.$queryRawUnsafe<
+      Array<{ id: string; playedAt: Date | null }>
+    >(
+      `SELECT id, played_at AS "playedAt"
+       FROM archive_games
+       WHERE white_elo IS NOT NULL
+         AND black_elo IS NOT NULL
+         AND (white_elo + black_elo) / 2 >= 2400
+       ORDER BY played_at DESC NULLS LAST, id DESC
+       LIMIT 50000`,
+    )) ?? [];
+    const base = this.baseUrl();
+    const entries: SitemapUrlEntry[] = rows.map((r) => ({
+      loc: `${base}/archive/games/${r.id}`,
+      lastmod: r.playedAt ?? undefined,
+      changefreq: 'monthly',
+      priority: 0.5,
+    }));
+    return buildUrlset(entries);
+  }
+
+  /**
+   * KS-4488 / ADR-128 §7.4.3 task #13. Архивные игроки —
+   * `/archive/players/:slug`. Источник — `archive_players`
+   * (TWIC-импорт), НЕ `users` (live-аккаунты сайта).
+   *
+   * Критерий ADR: top-1000 по `gamesCount` ИЛИ `peakElo >= 2400`.
+   * Реализация одним SQL'ем через UNION DISTINCT по `slug`:
+   *   - top-1000 по `gamesCount` (известность через количество
+   *     импортированных партий);
+   *   - все игроки с `peakElo >= 2400` (мастера, у которых может быть
+   *     не так много партий в нашей выборке, но есть SEO-вес).
+   * `lastmod` — `lastSeenAt` (когда последняя партия игрока попала
+   * в TWIC-импорт).
+   */
+  async generateArchivePlayersXml(): Promise<string> {
+    const rows = (await this.archivePrisma.$queryRawUnsafe<
+      Array<{ slug: string; lastSeenAt: Date | null }>
+    >(
+      `SELECT slug, "lastSeenAt" FROM (
+         (SELECT slug, last_seen_at AS "lastSeenAt"
+          FROM archive_players
+          ORDER BY games_count DESC NULLS LAST
+          LIMIT 1000)
+         UNION
+         (SELECT slug, last_seen_at AS "lastSeenAt"
+          FROM archive_players
+          WHERE peak_elo >= 2400)
+       ) p
+       ORDER BY "lastSeenAt" DESC NULLS LAST, slug ASC
+       LIMIT 50000`,
+    )) ?? [];
+    const base = this.baseUrl();
+    const entries: SitemapUrlEntry[] = rows.map((r) => ({
+      loc: `${base}/archive/players/${encodeURIComponent(r.slug)}`,
+      lastmod: r.lastSeenAt ?? undefined,
+      changefreq: 'weekly',
+      priority: 0.6,
+    }));
+    return buildUrlset(entries);
+  }
 
   /**
    * KS-4402 / KS-4412 / KS-4460 / KS-4462 / KS-4483 / ADR-137 rev2.

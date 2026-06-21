@@ -32,6 +32,7 @@ import { ConfigService } from '@nestjs/config';
 import { SitemapService } from './sitemap.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CloudFrontInvalidationService } from './cloudfront-invalidation.service';
+import { ArchivePrismaService } from '../archive/archive-prisma.service';
 
 interface PrismaMock {
   $queryRawUnsafe: jest.Mock;
@@ -39,6 +40,10 @@ interface PrismaMock {
   user: { findMany: jest.Mock };
   lecture: { findMany: jest.Mock };
   blogPost: { findMany: jest.Mock };
+}
+
+interface ArchivePrismaMock {
+  $queryRawUnsafe: jest.Mock;
 }
 
 function makePrismaMock(): PrismaMock {
@@ -51,6 +56,12 @@ function makePrismaMock(): PrismaMock {
   };
 }
 
+function makeArchivePrismaMock(): ArchivePrismaMock {
+  return {
+    $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+  };
+}
+
 function configMock(env: Record<string, string>): ConfigService {
   return {
     get: jest.fn((key: string) => env[key]),
@@ -60,9 +71,11 @@ function configMock(env: Record<string, string>): ConfigService {
 async function createService(env: Record<string, string> = {}): Promise<{
   service: SitemapService;
   prisma: PrismaMock;
+  archivePrisma: ArchivePrismaMock;
   cloudfront: { invalidateSitemapPaths: jest.Mock };
 }> {
   const prisma = makePrismaMock();
+  const archivePrisma = makeArchivePrismaMock();
   // KS-4486: мок CloudFront-инвалидации — по умолчанию skipped:true,
   // чтобы существующие тесты не падали на DI-цепочке.
   const cloudfront = {
@@ -81,9 +94,15 @@ async function createService(env: Record<string, string> = {}): Promise<{
         useValue: configMock({ PUBLIC_BASE_URL: 'https://kingside.site', ...env }),
       },
       { provide: CloudFrontInvalidationService, useValue: cloudfront },
+      { provide: ArchivePrismaService, useValue: archivePrisma },
     ],
   }).compile();
-  return { service: moduleRef.get(SitemapService), prisma, cloudfront };
+  return {
+    service: moduleRef.get(SitemapService),
+    prisma,
+    archivePrisma,
+    cloudfront,
+  };
 }
 
 describe('SitemapService.generateBroadcastsXml', () => {
@@ -130,44 +149,9 @@ describe('SitemapService.generateTournamentsXml', () => {
   });
 });
 
-describe('SitemapService.generatePlayersXml', () => {
-  it('фильтрует ботов/синтетиков, сортирует по ratingBlitz desc, take=1000', async () => {
-    const { service, prisma } = await createService();
-    prisma.user.findMany.mockResolvedValueOnce([]);
-    await service.generatePlayersXml();
-    const args = prisma.user.findMany.mock.calls[0][0];
-    expect(args.where).toMatchObject({
-      isHidden: false,
-      isBot: false,
-      isSynthetic: false,
-    });
-    expect(args.orderBy).toEqual({ ratingBlitz: 'desc' });
-    expect(args.take).toBe(1000);
-  });
-
-  it('пропускает users без username (вдруг ускользнули от where)', async () => {
-    const { service, prisma } = await createService();
-    prisma.user.findMany.mockResolvedValueOnce([
-      { username: 'alice', lastSeenAt: new Date('2026-06-15T00:00:00Z') },
-      { username: null, lastSeenAt: new Date('2026-06-14T00:00:00Z') },
-      { username: 'bob', lastSeenAt: new Date('2026-06-13T00:00:00Z') },
-    ]);
-    const xml = await service.generatePlayersXml();
-    expect(xml).toContain('/player/alice');
-    expect(xml).toContain('/player/bob');
-    // null-username не попадает.
-    expect(xml.match(/<url>/g)?.length).toBe(2);
-  });
-
-  it('encodeURIComponent в username (на случай экзотики)', async () => {
-    const { service, prisma } = await createService();
-    prisma.user.findMany.mockResolvedValueOnce([
-      { username: 'alice space', lastSeenAt: new Date() },
-    ]);
-    const xml = await service.generatePlayersXml();
-    expect(xml).toContain('/player/alice%20space');
-  });
-});
+// KS-4488: `generatePlayersXml` (живые users `/player/:username`)
+// удалён. См. SITEMAP_FILES — `sitemap-players.xml` исключён из
+// index'а по прямому запросу пользователя.
 
 describe('SitemapService.generateLecturesXml', () => {
   it('фильтрует только visibility=public + статусы scheduled/live/recorded', async () => {
@@ -189,18 +173,106 @@ describe('SitemapService.generateLecturesXml', () => {
   });
 });
 
-// KS-4484: тесты `generateArchive* — env-флаг` удалены вместе с
-// методами `generateArchiveGamesXml` / `generateArchivePlayersXml` и
-// env-флагом `ARCHIVE_SITEMAP_ENABLED`. До реализации policy-фильтра
-// (#13) sitemap'ы archive-* убраны из `SITEMAP_FILES` — GSC больше
-// не получает пустые `<urlset>`, на которые ругался.
-
-describe('SitemapService.SITEMAP_FILES (KS-4484)', () => {
-  it('SITEMAP_FILES не содержит archive-* до реализации policy-фильтра', async () => {
-    // Импорт здесь, чтобы избежать «used before defined» в readability.
+describe('SitemapService.SITEMAP_FILES (KS-4488)', () => {
+  it('включает archive-games / archive-players, не включает live players', async () => {
     const { SITEMAP_FILES } = await import('./sitemap.service');
-    expect(SITEMAP_FILES).not.toContain('sitemap-archive-games.xml');
-    expect(SITEMAP_FILES).not.toContain('sitemap-archive-players.xml');
+    expect(SITEMAP_FILES).toContain('sitemap-archive-games.xml');
+    expect(SITEMAP_FILES).toContain('sitemap-archive-players.xml');
+    // Живые пользователи сайта по запросу удалены.
+    expect(SITEMAP_FILES).not.toContain('sitemap-players.xml');
+  });
+});
+
+describe('SitemapService.generateArchiveGamesXml (KS-4488)', () => {
+  it('пустой результат → пустой <urlset>', async () => {
+    const { service, archivePrisma } = await createService();
+    archivePrisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+    const xml = await service.generateArchiveGamesXml();
+    expect(xml).toContain('<urlset');
+    expect(xml).not.toContain('<url>');
+  });
+
+  it('SQL содержит фильтр avgElo >= 2400 и LIMIT 50000', async () => {
+    const { service, archivePrisma } = await createService();
+    archivePrisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+    await service.generateArchiveGamesXml();
+    const sql = archivePrisma.$queryRawUnsafe.mock.calls[0][0] as string;
+    expect(sql).toContain('archive_games');
+    expect(sql).toContain('white_elo IS NOT NULL');
+    expect(sql).toContain('black_elo IS NOT NULL');
+    expect(sql).toMatch(/\(white_elo \+ black_elo\) \/ 2 >= 2400/);
+    expect(sql).toContain('LIMIT 50000');
+    expect(sql).toContain('played_at DESC NULLS LAST');
+  });
+
+  it('каждый row → <url>/archive/games/:id с lastmod=playedAt', async () => {
+    const { service, archivePrisma } = await createService();
+    archivePrisma.$queryRawUnsafe.mockResolvedValueOnce([
+      { id: 'g-1', playedAt: new Date('2026-05-01T00:00:00Z') },
+      { id: 'g-2', playedAt: new Date('2026-04-01T00:00:00Z') },
+    ]);
+    const xml = await service.generateArchiveGamesXml();
+    expect(xml).toContain('<loc>https://kingside.site/archive/games/g-1</loc>');
+    expect(xml).toContain('<loc>https://kingside.site/archive/games/g-2</loc>');
+    expect(xml).toContain('<lastmod>2026-05-01</lastmod>');
+    expect(xml).toContain('<lastmod>2026-04-01</lastmod>');
+  });
+
+  it('playedAt null → запись попадает в sitemap без <lastmod>', async () => {
+    const { service, archivePrisma } = await createService();
+    archivePrisma.$queryRawUnsafe.mockResolvedValueOnce([
+      { id: 'g-x', playedAt: null },
+    ]);
+    const xml = await service.generateArchiveGamesXml();
+    expect(xml).toContain('<loc>https://kingside.site/archive/games/g-x</loc>');
+    // Один <url>, без <lastmod>.
+    const lastmodCount = (xml.match(/<lastmod>/g) ?? []).length;
+    expect(lastmodCount).toBe(0);
+  });
+});
+
+describe('SitemapService.generateArchivePlayersXml (KS-4488)', () => {
+  it('пустой результат → пустой <urlset>', async () => {
+    const { service, archivePrisma } = await createService();
+    archivePrisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+    const xml = await service.generateArchivePlayersXml();
+    expect(xml).toContain('<urlset');
+    expect(xml).not.toContain('<url>');
+  });
+
+  it('SQL содержит UNION top-1000 by games_count и peak_elo >= 2400', async () => {
+    const { service, archivePrisma } = await createService();
+    archivePrisma.$queryRawUnsafe.mockResolvedValueOnce([]);
+    await service.generateArchivePlayersXml();
+    const sql = archivePrisma.$queryRawUnsafe.mock.calls[0][0] as string;
+    expect(sql).toContain('archive_players');
+    expect(sql).toContain('ORDER BY games_count DESC NULLS LAST');
+    expect(sql).toContain('LIMIT 1000');
+    expect(sql).toContain('UNION');
+    expect(sql).toContain('peak_elo >= 2400');
+  });
+
+  it('row → <url>/archive/players/:slug с lastmod=lastSeenAt', async () => {
+    const { service, archivePrisma } = await createService();
+    archivePrisma.$queryRawUnsafe.mockResolvedValueOnce([
+      { slug: 'carlsen-magnus', lastSeenAt: new Date('2026-06-01T00:00:00Z') },
+    ]);
+    const xml = await service.generateArchivePlayersXml();
+    expect(xml).toContain(
+      '<loc>https://kingside.site/archive/players/carlsen-magnus</loc>',
+    );
+    expect(xml).toContain('<lastmod>2026-06-01</lastmod>');
+  });
+
+  it('encodeURIComponent в slug (на случай экзотики)', async () => {
+    const { service, archivePrisma } = await createService();
+    archivePrisma.$queryRawUnsafe.mockResolvedValueOnce([
+      { slug: 'foo bar', lastSeenAt: null },
+    ]);
+    const xml = await service.generateArchivePlayersXml();
+    expect(xml).toContain(
+      '<loc>https://kingside.site/archive/players/foo%20bar</loc>',
+    );
   });
 });
 
