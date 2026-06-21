@@ -284,10 +284,11 @@ export class SitemapService {
   }
 
   /**
-   * KS-4402 / KS-4412 / KS-4460 / KS-4462 / ADR-137 rev2. `sitemap-blog.xml`
-   * — публикации блога. Источник — таблица `blog_posts` (ADR-137 rev2:
-   * статьи живут в БД, не во фронтовом markdown и не в S3-JSON-выгрузке
-   * frontend'а как было в первой итерации KS-4402).
+   * KS-4402 / KS-4412 / KS-4460 / KS-4462 / KS-4483 / ADR-137 rev2.
+   * `sitemap-blog.xml` — публикации блога. Источник — таблица
+   * `blog_posts` (ADR-137 rev2: статьи живут в БД, не во фронтовом
+   * markdown и не в S3-JSON-выгрузке frontend'а как было в первой
+   * итерации KS-4402).
    *
    * KS-4460: фронт перевёл блог на префиксные URL `/en/blog/<slug>` и
    * `/ru/blog/<slug>`. Дефолтный язык — `en`.
@@ -298,13 +299,56 @@ export class SitemapService {
    * `(slug, en)` и `(slug, ru)` сжимаем в один slug, `lastmod` —
    * максимум из найденных локалей).
    *
-   * При пустой таблице — пустой `<urlset>`, sitemap-index всё равно
-   * ссылается на `sitemap-blog.xml`.
+   * KS-4483: добавлены сами листинги `/en/blog` и `/ru/blog` (две
+   * первые `<url>` записи). Без них Google Search Console показывал
+   * «URL неизвестен Google» — листинги не попадали в crawl-карту.
+   * `lastmod` листинга — максимум среди всех опубликованных статей
+   * (если есть): когда выйдет новая статья — листинг тоже считается
+   * «обновлённым». `priority=0.7` — листинг важнее карточки статьи
+   * как точка входа. `changefreq=daily` — лента меняется по факту
+   * выхода новых постов.
+   *
+   * При пустой таблице — sitemap содержит только две листинговые
+   * `<url>` без `lastmod`. sitemap-index всё равно ссылается на
+   * `sitemap-blog.xml`.
    */
   async generateBlogXml(): Promise<string> {
     const base = this.baseUrl();
     const articles = await this.fetchBlogArticles();
-    const entries: SitemapUrlEntry[] = [];
+
+    // KS-4483: листинги блога в обоих локалях. Один блок alternates
+    // (en/ru/x-default) — общий для обеих записей.
+    const enListing = `${base}/en/blog`;
+    const ruListing = `${base}/ru/blog`;
+    const listingAlternates = [
+      { hreflang: 'en', href: enListing },
+      { hreflang: 'ru', href: ruListing },
+      { hreflang: 'x-default', href: enListing },
+    ];
+    // lastmod листинга — максимум среди статей; null если статей нет.
+    const listingLastmod = articles.reduce<Date | null>(
+      (acc, a) =>
+        !acc || a.lastmod.getTime() > acc.getTime() ? a.lastmod : acc,
+      null,
+    );
+
+    const entries: SitemapUrlEntry[] = [
+      {
+        loc: enListing,
+        lastmod: listingLastmod,
+        changefreq: 'daily',
+        priority: 0.7,
+        alternates: listingAlternates,
+      },
+      {
+        loc: ruListing,
+        lastmod: listingLastmod,
+        changefreq: 'daily',
+        priority: 0.7,
+        alternates: listingAlternates,
+      },
+    ];
+
     for (const a of articles) {
       const slug = encodeURIComponent(a.slug);
       const enHref = `${base}/en/blog/${slug}`;

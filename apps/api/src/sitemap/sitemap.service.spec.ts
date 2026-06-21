@@ -196,16 +196,21 @@ describe('SitemapService.generateAllAndPublish', () => {
   });
 });
 
-describe('SitemapService.generateBlogXml (KS-4412 / KS-4462)', () => {
-  it('пустой результат → пустой <urlset>', async () => {
+describe('SitemapService.generateBlogXml (KS-4412 / KS-4462 / KS-4483)', () => {
+  it('пустой результат → ровно 2 листинговые <url> без <lastmod>', async () => {
     const { service, prisma } = await createService();
     prisma.blogPost.findMany.mockResolvedValueOnce([]);
     const xml = await service.generateBlogXml();
     expect(xml).toContain('<urlset');
-    expect(xml).not.toContain('<url>');
+    // KS-4483: даже без статей — листинги обязательны.
+    const urlMatches = xml.match(/<url>/g) ?? [];
+    expect(urlMatches).toHaveLength(2);
+    expect(xml).toContain('<loc>https://kingside.site/en/blog</loc>');
+    expect(xml).toContain('<loc>https://kingside.site/ru/blog</loc>');
+    expect(xml).not.toContain('<lastmod>');
   });
 
-  it('одна статья → ДВА <url> (en + ru) с alternates и lastmod', async () => {
+  it('одна статья → 2 листинга + 2 статьи (4 <url>) с alternates и lastmod', async () => {
     const { service, prisma } = await createService();
     prisma.blogPost.findMany.mockResolvedValueOnce([
       {
@@ -217,32 +222,37 @@ describe('SitemapService.generateBlogXml (KS-4412 / KS-4462)', () => {
     const xml = await service.generateBlogXml();
     // KS-4462: корень с xhtml namespace.
     expect(xml).toContain('xmlns:xhtml="http://www.w3.org/1999/xhtml"');
+    // KS-4483: оба листинга в начале.
+    expect(xml).toContain('<loc>https://kingside.site/en/blog</loc>');
+    expect(xml).toContain('<loc>https://kingside.site/ru/blog</loc>');
     // KS-4462: обе локали статьи.
     expect(xml).toContain('<loc>https://kingside.site/en/blog/hello</loc>');
     expect(xml).toContain('<loc>https://kingside.site/ru/blog/hello</loc>');
-    // Ровно два <url> блока.
+    // 2 листинга + 2 локали статьи = 4 <url> блока.
     const urlMatches = xml.match(/<url>/g) ?? [];
-    expect(urlMatches).toHaveLength(2);
-    // Каждый <url> содержит alternates на en/ru/x-default.
-    expect(
-      xml.match(
-        /<xhtml:link rel="alternate" hreflang="en" href="https:\/\/kingside\.site\/en\/blog\/hello"\/>/g,
-      ),
-    ).toHaveLength(2);
-    expect(
-      xml.match(
-        /<xhtml:link rel="alternate" hreflang="ru" href="https:\/\/kingside\.site\/ru\/blog\/hello"\/>/g,
-      ),
-    ).toHaveLength(2);
-    expect(
-      xml.match(
-        /<xhtml:link rel="alternate" hreflang="x-default" href="https:\/\/kingside\.site\/en\/blog\/hello"\/>/g,
-      ),
-    ).toHaveLength(2);
-    expect(xml).toContain('<lastmod>2026-06-15</lastmod>');
+    expect(urlMatches).toHaveLength(4);
+    // KS-4483: листинги priority=0.7 changefreq=daily.
+    const listingBlock = xml.split('</url>')[0];
+    expect(listingBlock).toContain('<priority>0.7</priority>');
+    expect(listingBlock).toContain('<changefreq>daily</changefreq>');
+    // KS-4483: листинги несут alternates en/ru/x-default по листингам.
+    expect(xml).toContain(
+      '<xhtml:link rel="alternate" hreflang="en" href="https://kingside.site/en/blog"/>',
+    );
+    expect(xml).toContain(
+      '<xhtml:link rel="alternate" hreflang="ru" href="https://kingside.site/ru/blog"/>',
+    );
+    expect(xml).toContain(
+      '<xhtml:link rel="alternate" hreflang="x-default" href="https://kingside.site/en/blog"/>',
+    );
+    // KS-4483: lastmod листинга = максимум среди статей.
+    const listingMatches = (xml.match(/<lastmod>2026-06-15<\/lastmod>/g) ?? [])
+      .length;
+    // 2 листинга + 2 локали статьи → 4 раза тот же lastmod.
+    expect(listingMatches).toBe(4);
   });
 
-  it('две локали одного slug → один slug, ДВА <url> с максимальным lastmod', async () => {
+  it('две локали одного slug → один slug, листинги + 2 статьи (4 <url>), lastmod максимум', async () => {
     const { service, prisma } = await createService();
     prisma.blogPost.findMany.mockResolvedValueOnce([
       {
@@ -257,17 +267,17 @@ describe('SitemapService.generateBlogXml (KS-4412 / KS-4462)', () => {
       },
     ]);
     const xml = await service.generateBlogXml();
-    // KS-4462: дедуп по slug → один slug → 2 <url> (en + ru).
+    // 2 листинга + 2 локали slug 'shared' = 4 <url>.
     const urlMatches = xml.match(/<url>/g) ?? [];
-    expect(urlMatches).toHaveLength(2);
+    expect(urlMatches).toHaveLength(4);
     expect(xml).toContain('<loc>https://kingside.site/en/blog/shared</loc>');
     expect(xml).toContain('<loc>https://kingside.site/ru/blog/shared</loc>');
-    // lastmod максимум.
+    // lastmod максимум по статьям; листинги тоже его отдают.
     expect(xml).toContain('<lastmod>2026-06-20</lastmod>');
     expect(xml).not.toContain('<lastmod>2026-06-10</lastmod>');
   });
 
-  it('две разные статьи → 4 <url> (по 2 локали на каждую)', async () => {
+  it('две разные статьи → 2 листинга + 4 статьи = 6 <url>', async () => {
     const { service, prisma } = await createService();
     prisma.blogPost.findMany.mockResolvedValueOnce([
       {
@@ -283,11 +293,14 @@ describe('SitemapService.generateBlogXml (KS-4412 / KS-4462)', () => {
     ]);
     const xml = await service.generateBlogXml();
     const urlMatches = xml.match(/<url>/g) ?? [];
-    expect(urlMatches).toHaveLength(4);
+    expect(urlMatches).toHaveLength(6);
     expect(xml).toContain('<loc>https://kingside.site/en/blog/first</loc>');
     expect(xml).toContain('<loc>https://kingside.site/ru/blog/first</loc>');
     expect(xml).toContain('<loc>https://kingside.site/en/blog/second</loc>');
     expect(xml).toContain('<loc>https://kingside.site/ru/blog/second</loc>');
+    // Листинги тоже на месте.
+    expect(xml).toContain('<loc>https://kingside.site/en/blog</loc>');
+    expect(xml).toContain('<loc>https://kingside.site/ru/blog</loc>');
   });
 
   it('фильтр status=published пробрасывается в where', async () => {
