@@ -442,20 +442,31 @@
   width: 100%;
   min-height: 72px;
   padding: 10px 12px;
-  background: var(--bg-base, #16162a);
-  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  background: var(--bg-input);
+  border: 1px solid var(--border-mid);
   border-radius: 8px;
-  color: var(--text-primary, #f5f5f5);
+  color: var(--text-primary);
   font-family: inherit;
   font-size: 14px;
   line-height: 1.5;
   resize: vertical;
   box-sizing: border-box;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.blog-comment__textarea::placeholder,
+.blog-comments__textarea::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
 }
 .blog-comment__textarea:focus,
 .blog-comments__textarea:focus {
   outline: none;
-  border-color: var(--accent-primary, #7c83ff);
+  border-color: var(--accent-primary);
+}
+.blog-comment__textarea:disabled,
+.blog-comments__textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .blog-comment__edit-actions,
 .blog-comments__form-row {
