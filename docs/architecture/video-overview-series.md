@@ -822,29 +822,65 @@ API.
 #### E1. Уроки и курсы
 **URL:** `/lessons`, `/lessons/discover`, `/lessons/my-active`,
 `/lessons/:courseSlug`, `/lessons/:courseSlug/:lessonSlug`,
-`/lessons/editor`, `/lessons/my/:slug/edit`.
+`/lessons/my/:slug/edit`.
 **Цель:** показать путь ученика: нашёл курс → прошёл урок → вернулся
-к прогрессу; и путь автора: создал свой курс.
-**Длительность:** ~4 мин, 17 сегментов.
+к прогрессу; и путь автора: создал свой курс → опубликовал.
+
+**Что НЕ снимаем:**
+- `/lessons/editor` — внутренний редактор фикстур команды Kingside
+  за email-whitelist `VITE_LESSON_EDITOR_EMAILS` (`LessonEditorPage.tsx:31-45`,
+  экспорт `CourseFixture` в `.ts` для seed). К пути автора как
+  user-функция не относится. Настоящий редактор автора —
+  `/lessons/my/:slug/edit` (`UserCourseEditor`).
+- `/lessons/my` (редирект на `/lessons?tab=mine`), `/lessons/my/:slug[/...]`
+  (редиректы на унифицированные `/lessons/:slug[/...]`, KS-2645),
+  `/lessons/mistakes[/mistakes-practice]` (301 → `/puzzles/...`,
+  ADR-032) — все промежуточные/редирект-маршруты в кадр не попадают.
+
+**Длительность:** ~3:20, 14 сегментов. Допуск контракта QA — ±20 с
+от плана (см. §4 «Контракт тикета QA»). Финальная разбивка
+зафиксирована в KS-4547 (утверждённый сценарий).
 **Сценарий:**
 1. *intro* — splash «Уроки и курсы».
-2. *lessons-home* — `/lessons`, таб «Каталог».
-3. *discover-page* — `/lessons/discover`, плитки публичных курсов.
-4. *open-course* — `/lessons/:slug`, оглавление курса.
-5. *open-lesson* — `/lessons/:slug/:lessonSlug`, контент урока:
-   доска + текст + интерактив.
-6. *progress* — отметка «Готово», переход к следующему уроку.
-7. *my-active* — `/lessons/my-active`, видим прогресс.
-8. *editor-mode* — `/lessons/editor`, создание собственного курса.
-9. *user-course-edit* — `/lessons/my/:slug/edit`, наполнение
-   уроками.
-10. *publish* — публикация (если есть в UI).
-11. *outro* — splash «Учись по готовым курсам или собирай свои».
+2. *lessons-home* — `/lessons`, hero + curriculum pillar +
+   community strip.
+3. *discover* — переход на `/lessons/discover`, сетки последних
+   public-курсов и авторов.
+4. *open-course* — клик по карточке, `/lessons/:slug`, заголовок,
+   прогресс-бар, список уроков.
+5. *open-lesson-text* — `/lessons/:slug/:lessonSlug?step=1`,
+   текстовый шаг с markdown и встроенной диаграммой; «Готово».
+6. *interactive-step* — следующий шаг типа `puzzle` или `quiz`
+   (см. ниже про требования к курсу).
+7. *complete-lesson* — кнопка «Завершить урок», оверлей «Урок
+   пройден!», возврат к списку.
+8. *my-active* — таб «Мои курсы» на `/lessons` + страница
+   `/lessons/my-active` с relative-time бейджем.
+9. *create-cta* — клик «+ Создать свой курс» в `CreateCourseCta`,
+   редирект на `/lessons/my/<slug>/edit`.
+10. *editor-rename* — inline-редактирование заголовка курса,
+    `SaveStatusPill`.
+11. *add-lesson* — добавление первого урока в outline.
+12. *add-step* — `AddStepPicker`, выбор «Лекция», ввод текста,
+    автосейв.
+13. *publish* — `PublishToggle` → public, переход на
+    `/lessons/discover`, курс появился в `LatestCoursesBlock`.
+14. *outro* — splash «Учись по чужим курсам — собирай свои».
 
-**Демо-данные:** хотя бы один опубликованный системный курс
-(`apps/api/prisma/seed-lessons.ts`) и dev-bypass пользователь.
-Для editor-блока — пустой пользовательский курс.
-**Внешние зависимости:** `lessonsEnabled=true`, lessons API.
+**Демо-данные:** dev-bypass пользователь + **один публичный
+user-курс**, который content готовит вручную **до съёмки** через
+`/lessons` → «+ Создать свой курс» → редактор. В курсе один урок
+с двумя шагами: `text` (с одной диаграммой) для сегмента 5 и
+`puzzle` или `quiz` для сегмента 6. **Системных seed-курсов нет**
+(`apps/api/src/lessons/seed/courses/index.ts:12` — `COURSES = []`,
+KS-1958: раздел «Уроки» стартует пустой и ждёт настоящего
+контента). Второй курс — «Тактика для начинающих» или аналогичный —
+создаётся в кадре в сегментах 9–13. После съёмки content удаляет
+оба demo-курса (`OwnerActionsMenu` → «Удалить» или
+`DELETE /lessons/courses/:id`), чтобы они не висели в публичном
+каталоге.
+**Внешние зависимости:** `lessonsEnabled=true`, `puzzlesEnabled=true`
+(для шага `puzzle` в сегменте 6), lessons API (REST), без WebSocket.
 
 ---
 
