@@ -241,6 +241,30 @@ describe('AnalysisService', () => {
         expect(AnalysisService.computeSourceHash({})).toBeNull();
       });
 
+      // ── KS-4552: разные `[FEN]` у одной партии-источника → разные hash'и
+      // (задачи «Критический момент» из одной партии не схлопываются dedup'ом)
+      it('KS-4552: PGN с [FEN] → разные стартовые позиции дают разные hash', () => {
+        const headers = '[White "Sjugirov, Sanan"]\n[Black "Artemiev, Vladislav"]\n[Date "2026.06.01"]\n[Event "Test"]\n[Round "3"]';
+        const fen1 = '[FEN "r1bqkb1r/pppp1ppp/2n2n2/4p3/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 0 4"]';
+        const fen2 = '[FEN "r3k2r/pp3ppp/2n1bn2/2bpp3/4P3/2N2N2/PPPPBPPP/R1BQ1RK1 w kq - 0 8"]';
+        const h1 = AnalysisService.computeSourceHash({ pgn: `${headers}\n${fen1}` });
+        const h2 = AnalysisService.computeSourceHash({ pgn: `${headers}\n${fen2}` });
+        expect(h1).toMatch(/^pgn:[0-9a-f]{64}$/);
+        expect(h2).toMatch(/^pgn:[0-9a-f]{64}$/);
+        expect(h1).not.toBe(h2);
+      });
+
+      it('KS-4552: PGN без [FEN] vs с [FEN] → разные hash; добавление [FEN] меняет hash', () => {
+        const headers = '[White "Lu Shanglei"]\n[Black "Bortnyk, Olexandr"]\n[Date "2026.05.22"]\n[Event "Test"]\n[Round "1"]';
+        const hNoFen = AnalysisService.computeSourceHash({ pgn: headers });
+        const hWithFen = AnalysisService.computeSourceHash({
+          pgn: `${headers}\n[FEN "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"]`,
+        });
+        expect(hNoFen).toMatch(/^pgn:[0-9a-f]{64}$/);
+        expect(hWithFen).toMatch(/^pgn:[0-9a-f]{64}$/);
+        expect(hNoFen).not.toBe(hWithFen);
+      });
+
       it('приоритет: lichessGameId > archiveGameId > PGN', () => {
         const all = AnalysisService.computeSourceHash({
           lichessGameId: 'LCH',

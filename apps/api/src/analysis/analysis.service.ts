@@ -256,9 +256,17 @@ export class AnalysisService implements OnModuleInit {
       const date = extract('Date');
       const event = extract('Event');
       const round = extract('Round');
+      const fen = extract('FEN');
       if (white && black && date) {
         const norm = (s: string | null) => (s ?? '').trim().toLowerCase();
-        const key = `${norm(white)}|${norm(black)}|${date}|${norm(event)}|${norm(round)}`;
+        // KS-4552. Если у PGN есть `[FEN ...]` (старт не с начальной позиции —
+        // например задачи «Критический момент» из одной партии-источника),
+        // включаем FEN в ключ. Разные задачи из одной партии получают разные
+        // hash'и и не схлопываются dedup'ом в первую сохранённую запись.
+        // Партии без `[FEN]` (целая партия от 1. e4) — прежнее поведение,
+        // чтобы не сломать legacy-dedup существующих записей.
+        const baseKey = `${norm(white)}|${norm(black)}|${date}|${norm(event)}|${norm(round)}`;
+        const key = fen ? `${baseKey}|${fen.trim()}` : baseKey;
         const h = `pgn:${createHash('sha256').update(key).digest('hex')}`;
         hashes.push(h);
         preferred ??= h;
