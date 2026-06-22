@@ -490,8 +490,14 @@ function InviteRedirect() {
 
   useEffect(() => {
     if (!code) return;
-    api.post<{ tournamentId: string }>(`/arena/invite/${code}`, {})
-      .then((data) => navigate(`/tournaments/${data.tournamentId}`, { replace: true }))
+    // KS-4544. Раньше шёл `POST /arena/invite/:code` — бэк имеет
+    // только `GET /arena/invite/:code` (см. `arena.controller.ts`
+    // `findByInviteCode`), любая ссылка `/t/<code>` всегда падала в
+    // catch и показывала «Недействительная ссылка». Контракт ответа:
+    // полный `ArenaTournament` с UUID в поле `id`. Берём оттуда id и
+    // навигируем на страницу турнира.
+    api.get<{ id: string }>(`/arena/invite/${code}`)
+      .then((data) => navigate(`/tournaments/${data.id}`, { replace: true }))
       .catch(() => setError(t('tournaments.inviteInvalid', 'Invalid or expired invite link')));
   }, [code, navigate, t]);
 
