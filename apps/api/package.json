@@ -14,6 +14,7 @@
     "seed:lecture-demo": "npx ts-node src/scripts/seed-lecture-demo.ts",
     "seed:blog": "npx ts-node src/scripts/seed-blog.ts",
     "seed:rush-fixtures": "npx ts-node src/scripts/seed-puzzle-rush-fixtures.ts",
+    "seed:broadcast-fixture": "npx ts-node src/scripts/seed-broadcast-fixture.ts",
     "publish:critical-moment": "npx ts-node src/scripts/publish-critical-moment.ts",
     "patch:critical-moment-body": "npx ts-node src/scripts/patch-critical-moment-body.ts",
     "index:tactic-drills": "node dist/scripts/index-tactic-drills.js",
