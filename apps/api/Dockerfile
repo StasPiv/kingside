@@ -44,6 +44,9 @@ COPY packages/db/package.json packages/db/
 # KS-4247 / ADR-131 A1: archive-db нужен для нового модуля archive
 # в apps/api (отдельный PrismaClient).
 COPY packages/archive-db/package.json packages/archive-db/
+# KS-4543 / KS-4539: broadcasts-db — для seed-скрипта
+# apps/api/src/scripts/seed-broadcast-fixture.ts.
+COPY packages/broadcasts-db/package.json packages/broadcasts-db/
 # KS-4070: position-comment подключает Maia-3 как forced-line фильтр
 # (apps/api/src/position-comment/maia.service.ts через @kingside/maia-core).
 # Сам пакет резолвится из packages/maia-core (workspace symlink), его
@@ -57,6 +60,7 @@ RUN node node_modules/@prisma/engines/scripts/postinstall.js
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
 COPY packages/archive-db ./packages/archive-db
+COPY packages/broadcasts-db ./packages/broadcasts-db
 COPY packages/board-image-to-fen ./packages/board-image-to-fen
 COPY packages/maia-core ./packages/maia-core
 COPY apps/api ./apps/api
@@ -74,6 +78,10 @@ RUN npx tsc --build packages/maia-core
 RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 # KS-4247 / ADR-131 A1: собираем archive-db (prisma generate + tsc + copy engines).
 RUN cd packages/archive-db && ARCHIVE_DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
+# KS-4543 / KS-4539: собираем broadcasts-db — нужен для seed-скрипта
+# apps/api/src/scripts/seed-broadcast-fixture.ts (импортирует PrismaClient
+# из @kingside/broadcasts-db).
+RUN cd packages/broadcasts-db && BROADCASTS_DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies (typescript,
 # jest, ts-jest, @nestjs/cli, @types/*, ts-node-dev и т.п.).
