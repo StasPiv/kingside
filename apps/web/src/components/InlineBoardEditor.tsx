@@ -58,6 +58,13 @@ export interface InlineBoardEditorProps {
   palettePosition?: 'right' | 'bottom';
   /** testid префикс для e2e. */
   testIdPrefix?: string;
+  /**
+   * KS-4531. Показывать координаты файлов (a–h) внизу и рангов (1–8)
+   * слева на превью доски. По умолчанию `true` — поведение совпадает
+   * с обычной `<Chessboard showNotation>` на странице анализа.
+   * Отключить можно для тестов/специальных кейсов.
+   */
+  showCoordinates?: boolean;
 }
 
 /**
@@ -109,6 +116,7 @@ export function InlineBoardEditor({
   hidePalette = false,
   palettePosition = 'right',
   testIdPrefix = 'inline-board-editor',
+  showCoordinates = true,
 }: InlineBoardEditorProps) {
   const { pieceSet, darkSquareStyle, lightSquareStyle } = useBoardSettings();
   // KS-3531: убран костыль `standard → cburnett` (нет такой папки в
@@ -219,6 +227,17 @@ export function InlineBoardEditor({
             const piece = board[sq];
             const highlight = highlightCells[sq];
             const baseStyle = isLight ? lightSquareStyle : darkSquareStyle;
+            // KS-4531. Координатные подписи a–h по нижнему краю и 1–8
+            // по левому. Для каждой клетки определяем, является ли она
+            // левой колонкой (показываем номер ранга) и/или нижней
+            // строкой (показываем букву файла). Маркеры абсолютно
+            // позиционированы поверх клетки (паттерн react-chessboard),
+            // цвет — контраст к фону клетки.
+            const showFileLabel = ri === 7;
+            const showRankLabel = fi === 0;
+            const labelColor = isLight
+              ? 'rgba(60, 60, 60, 0.7)'
+              : 'rgba(240, 240, 240, 0.85)';
             return (
               <div
                 key={sq}
@@ -254,6 +273,42 @@ export function InlineBoardEditor({
                 }}
               >
                 {piece && <PieceImg piece={piece} pieceSet={pieceSet} />}
+                {showCoordinates && showRankLabel && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute',
+                      top: 1,
+                      left: 3,
+                      fontSize: '10px',
+                      lineHeight: 1,
+                      fontWeight: 700,
+                      color: labelColor,
+                      pointerEvents: 'none',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {rank}
+                  </span>
+                )}
+                {showCoordinates && showFileLabel && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute',
+                      bottom: 1,
+                      right: 3,
+                      fontSize: '10px',
+                      lineHeight: 1,
+                      fontWeight: 700,
+                      color: labelColor,
+                      pointerEvents: 'none',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {file}
+                  </span>
+                )}
               </div>
             );
           }),

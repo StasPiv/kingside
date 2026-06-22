@@ -64,7 +64,11 @@ vi.mock('react-easy-crop', () => ({
   },
 }));
 
-import { BoardImageDropzone, checkBoardSanity } from './BoardImageDropzone';
+import {
+  BoardImageDropzone,
+  checkBoardSanity,
+  mirrorFenBoard,
+} from './BoardImageDropzone';
 import {
   BoardNotDetectedError,
   BoardRecognitionUnreliableError,
@@ -96,6 +100,33 @@ const RECOGNIZED: BoardRecognitionResponse = {
 function makeImageFile(): File {
   return new File([new Uint8Array([0])], 'b.png', { type: 'image/png' });
 }
+
+describe('mirrorFenBoard (KS-4531)', () => {
+  it('зеркалит стартовую позицию: цвета сторон меняются местами', () => {
+    // 180° rotation: a8 → h1 и т.д. Стартовая позиция симметрична по
+    // вертикали для одного цвета, но белые/чёрные стороны меняются
+    // местами — белая ладья с a1 уезжает на h8.
+    expect(
+      mirrorFenBoard('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'),
+    ).toBe('RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr');
+  });
+  it('двойной flip возвращает исходную доску (involution)', () => {
+    const fen = '8/8/4k3/4P2p/8/P2pR3/P4PP1/3r2K1';
+    expect(mirrorFenBoard(mirrorFenBoard(fen))).toBe(fen);
+  });
+  it('сохраняет суммарное число фигур', () => {
+    const fen = 'r3k2r/8/8/3p4/4P3/8/8/R3K2R';
+    const before = fen.replace(/\d/g, '').replace(/\//g, '').length;
+    const after = mirrorFenBoard(fen).replace(/\d/g, '').replace(/\//g, '').length;
+    expect(after).toBe(before);
+  });
+  it('пустую доску возвращает как есть', () => {
+    expect(mirrorFenBoard('8/8/8/8/8/8/8/8')).toBe('8/8/8/8/8/8/8/8');
+  });
+  it('некорректный FEN (не 8 рядов) возвращает без изменений', () => {
+    expect(mirrorFenBoard('8/8/8')).toBe('8/8/8');
+  });
+});
 
 describe('checkBoardSanity (KS-3093)', () => {
   it('стартовая позиция — без issues', () => {

@@ -123,6 +123,55 @@ function safeFenBoard(fenFull: string | null | undefined): string {
   return fenFull.split(' ')[0] || EMPTY_FEN_BOARD;
 }
 
+/**
+ * KS-4531. Зеркалит доску в FEN'е на 180° (физический разворот доски):
+ * меняет местами файлы a↔h и ранги 1↔8, фигуры остаются теми же.
+ * Используется кнопкой «Flip board» — раньше она только переключала
+ * `orientation` (визуальный поворот превью), но не меняла позицию в
+ * FEN'е. Если модель распознала ориентацию неправильно, пользователь
+ * не мог поправить через UI; Flip даёт ему такую возможность.
+ *
+ * Алгоритм:
+ *   1. Развернуть цифры (n пустых клеток → n единиц).
+ *   2. Перевернуть массив рядов (1 ↔ 8 ранг).
+ *   3. Перевернуть каждую строку (a ↔ h файл).
+ *   4. Сжать пробеги единиц обратно в цифры.
+ */
+export function mirrorFenBoard(fenBoard: string): string {
+  const rows = fenBoard.split('/');
+  if (rows.length !== 8) return fenBoard;
+  const expanded = rows.map((row) => {
+    let out = '';
+    for (const ch of row) {
+      if (ch >= '1' && ch <= '8') out += '1'.repeat(Number(ch));
+      else out += ch;
+    }
+    return out;
+  });
+  const mirrored = expanded
+    .reverse()
+    .map((row) => row.split('').reverse().join(''));
+  return mirrored
+    .map((row) => {
+      let out = '';
+      let run = 0;
+      for (const ch of row) {
+        if (ch === '1') {
+          run += 1;
+        } else {
+          if (run > 0) {
+            out += String(run);
+            run = 0;
+          }
+          out += ch;
+        }
+      }
+      if (run > 0) out += String(run);
+      return out;
+    })
+    .join('/');
+}
+
 function validateFen(fen: string): string | null {
   try {
     new Chess(fen);
@@ -639,6 +688,39 @@ export function BoardImageDropzone({
     onAccept(manualMode ? manualFen.trim() : previewFen);
   }, [canApply, onAccept, manualMode, manualFen, previewFen]);
 
+  /**
+   * KS-4531. «Перевернуть доску» — физический разворот позиции на 180°.
+   * До правки кнопка меняла только `orientation` (визуально), но FEN
+   * оставался тем же, что прислала модель распознавания; «Применить»
+   * передавал в анализ исходный FEN, и поправить ориентацию через UI
+   * было нельзя.
+   *
+   * Теперь делаем И визуальный flip (orientation), И зеркалит позицию:
+   *  - `fenBoard` (для `<Chessboard>` ветки и preview-FEN'а);
+   *  - `editorBoard` (для `<InlineBoardEditor>` ветки — после recognize
+   *    источник правды для FEN'а это редактор);
+   *  - `manualFen` (если пользователь зашёл в manual-mode — там FEN
+   *    редактируется текстом, но при flip ожидаемо отзеркалить и его).
+   *
+   * `editedCells` сбрасываем — после flip метки старых правок указывают
+   * на неправильные клетки (a8 → h1 и т.п.). Highlight-cells следующего
+   * рендера придут из обновлённого FEN'а.
+   */
+  const handleFlipBoard = useCallback(() => {
+    setOrientation((o) => (o === 'white' ? 'black' : 'white'));
+    setFenBoard((prev) => mirrorFenBoard(prev));
+    setEditorBoard((prev) =>
+      prev === null ? null : fenToEditorBoard(mirrorFenBoard(editorBoardToFen(prev))),
+    );
+    setManualFen((prev) => {
+      const parts = prev.split(' ');
+      const boardPart = parts[0] ?? EMPTY_FEN_BOARD;
+      parts[0] = mirrorFenBoard(boardPart);
+      return parts.join(' ');
+    });
+    setEditedCells(new Set());
+  }, []);
+
   // KS-3094: react-easy-crop отдаёт через onCropComplete два набора —
   // % (для state) и пиксели в исходной картинке (для канвас-кропа).
   // Берём пиксели и кладём в ref, чтобы при клике «Обрезать и
@@ -993,9 +1075,7 @@ export function BoardImageDropzone({
             <button
               type="button"
               className="board-image-dropzone__btn"
-              onClick={() =>
-                setOrientation((o) => (o === 'white' ? 'black' : 'white'))
-              }
+              onClick={handleFlipBoard}
               data-testid="board-image-dropzone-flip"
             >
               {t('boardImage.flip', 'Flip board')}
