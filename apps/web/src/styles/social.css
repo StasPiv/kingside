@@ -1406,6 +1406,26 @@
   }
 }
 
+/* KS-4520: на странице наблюдения за партией при включении/выключении Stockfish
+   доска и часы не должны сдвигаться. EvalBar (`.eval-bar-container`, 44px)
+   рендерится только когда движок запущен — это давало горизонтальный «прыжок»
+   доски на 44px. PV-панель (`.analysis-panel-body` со списком линий) аналогично
+   появляется по факту запуска — move list под ней подскакивает вверх.
+   Резервируем место под оба элемента ещё до включения движка. Media query
+   >= 769px — на mobile EvalBar скрыт через `display: none` в responsive.css,
+   а sidebar там под доской, прыгать нечему. */
+@media (min-width: 769px) {
+  .watch-game-page .analysis-eval-board-row:not(:has(.eval-bar-container))::before {
+    content: '';
+    flex: 0 0 44px;
+    align-self: stretch;
+  }
+
+  .watch-game-sidebar .analysis-panel {
+    min-height: 140px;
+  }
+}
+
 /* Bot error message */
 .bot-error-message {
   margin-top: 12px;
