@@ -106,3 +106,55 @@ describe('<PuzzleBoard> KS-3379 — turn indicator', () => {
     expect(ind.getAttribute('data-turn')).toBe('black');
   });
 });
+
+/**
+ * KS-4533. Атрибут `data-board-ready` на корне доски. Внешние клиенты
+ * (Playwright-сценарий записи видео, e2e) ждут `[data-board-ready="true"]`
+ * перед drag-event'ом, чтобы не попасть в окно между ремаунтом
+ * `<MemoChessboard>` и применением setup-хода.
+ */
+describe('<PuzzleBoard> KS-4533 — data-board-ready', () => {
+  it('по умолчанию (`ready` пропуск) — данные `true`', () => {
+    const game = new Chess(FEN_WHITE_TO_MOVE);
+    renderWithProviders(
+      <PuzzleBoard
+        game={game}
+        boardOrientation="white"
+        enabled={false}
+        onPieceDrop={noop}
+      />,
+    );
+    const board = screen.getByTestId('puzzle-board');
+    expect(board.getAttribute('data-board-ready')).toBe('true');
+  });
+
+  it('`ready={false}` рендерится как `data-board-ready="false"`', () => {
+    const game = new Chess(FEN_WHITE_TO_MOVE);
+    renderWithProviders(
+      <PuzzleBoard
+        game={game}
+        boardOrientation="white"
+        enabled={false}
+        onPieceDrop={noop}
+        ready={false}
+      />,
+    );
+    const board = screen.getByTestId('puzzle-board');
+    expect(board.getAttribute('data-board-ready')).toBe('false');
+  });
+
+  it('`ready={true}` явно — `data-board-ready="true"`', () => {
+    const game = new Chess(FEN_WHITE_TO_MOVE);
+    renderWithProviders(
+      <PuzzleBoard
+        game={game}
+        boardOrientation="white"
+        enabled={false}
+        onPieceDrop={noop}
+        ready={true}
+      />,
+    );
+    const board = screen.getByTestId('puzzle-board');
+    expect(board.getAttribute('data-board-ready')).toBe('true');
+  });
+});

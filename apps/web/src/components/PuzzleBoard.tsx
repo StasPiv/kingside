@@ -30,6 +30,25 @@ interface PuzzleBoardProps {
    * `useBoardHighlights` — добавляются в конец, чтобы рисовались поверх.
    */
   customArrows?: PuzzleBoardArrow[];
+  /**
+   * KS-4533. Готова ли доска принимать ввод пользователя. Внешние
+   * клиенты (Playwright-сценарий записи видео, e2e) ждут
+   * `[data-board-ready="true"]` перед drag-event'ом — иначе попадают
+   * в окно между `boardKey++` (ремаунт `<MemoChessboard>`) и
+   * применением setup-хода: новая позиция уже в DOM, но `game.turn()`
+   * ещё не финален, fast-drag отказывает.
+   *
+   * Семантика:
+   *   - `true` (по умолчанию) — обычные кадры: статичная задача,
+   *     ход пользователя или ответ оппонента уже применён.
+   *   - `false` — переходный момент в PuzzleRushPage между задачами:
+   *     ремаунт доски прошёл, setup-ход ещё не применён.
+   *
+   * Атрибут отрисовывается ВСЕГДА (`true`/`false`), чтобы внешние
+   * ждущие селекторы по `[data-board-ready=true]` работали единообразно
+   * на всех страницах с `<PuzzleBoard>`.
+   */
+  ready?: boolean;
   children?: ReactNode;
 }
 
@@ -43,6 +62,7 @@ export function PuzzleBoard({
   boardKey,
   status,
   customArrows,
+  ready = true,
   children,
 }: PuzzleBoardProps) {
   const { t } = useTranslation();
@@ -150,7 +170,12 @@ export function PuzzleBoard({
     : boardOrientation;
 
   return (
-    <div className="board-container" ref={boardContainerRef}>
+    <div
+      className="board-container"
+      ref={boardContainerRef}
+      data-board-ready={ready ? 'true' : 'false'}
+      data-testid="puzzle-board"
+    >
       <div
         className={`puzzle-turn-indicator puzzle-turn-indicator--${turnColor}`}
         data-testid="puzzle-turn-indicator"

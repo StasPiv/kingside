@@ -72,10 +72,19 @@ export function PuzzleRushPage() {
   // the Chessboard component, bypassing react-chessboard's internal animation
   // which ignores animationDurationInMs: 0 for cross-position transitions.
   const [boardKey, setBoardKey] = useState(0);
+  // KS-4533. Готовность доски к пользовательскому вводу. `false` —
+  // переходный момент между задачами: ремаунт `<MemoChessboard>`
+  // (boardKey++) уже произошёл, setup-ход ещё в полёте (150мс RAF +
+  // setTimeout). Внешние клиенты (Playwright-сценарий записи видео,
+  // e2e) ждут `[data-board-ready="true"]` перед drag-event'ом — это
+  // снимает race, при котором drag попадает на стейлый DOM или на
+  // pre-move позицию без applied setup'а.
+  const [boardReady, setBoardReady] = useState(true);
 
   const setupPuzzle = useCallback((fen: string, setupMove: string) => {
     // 1. Show position BEFORE setup move (no animation)
     puzzleTransitionRef.current = true;
+    setBoardReady(false);
     setBoardKey((k) => k + 1);
     const pre = new Chess(fen);
     const orientationAfterSetup = pre.turn() === 'w' ? 'black' : 'white';
@@ -96,6 +105,9 @@ export function PuzzleRushPage() {
         if (result) playSound(soundEventFromSan(result.san));
         setGame(post);
         setLastMoveUci(setupMove);
+        // KS-4533. Доска готова к вводу: позиция применена, game.turn()
+        // финальный, fast-drag начнёт работать.
+        setBoardReady(true);
       }, 150);
     });
   }, [playSound]);
@@ -667,6 +679,7 @@ export function PuzzleRushPage() {
           lastMoveUci={lastMoveUci}
           suppressAnimation={puzzleTransitionRef.current}
           boardKey={boardKey}
+          ready={boardReady}
           status={feedback === 'correct' ? 'correct' : feedback === 'wrong' ? 'incorrect' : 'thinking'}
         >
           {/* Promotion dialog rendered as child */}
