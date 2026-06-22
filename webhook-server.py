@@ -2885,22 +2885,23 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         if data.get("session_id") not in agent_sids:
                             continue
                         t = data.get("type")
+                        ts = data.get("ts")
                         if t == "assistant":
                             for c in data.get("message", {}).get("content", []):
                                 ct = c.get("type")
                                 if ct == "text":
-                                    events.append({"kind": "text", "text": c.get("text", "")[:1000]})
+                                    events.append({"ts": ts, "kind": "text", "text": c.get("text", "")[:1000]})
                                 elif ct == "tool_use":
-                                    events.append({"kind": "tool_use", "name": c.get("name"), "input": c.get("input", {})})
+                                    events.append({"ts": ts, "kind": "tool_use", "name": c.get("name"), "input": c.get("input", {})})
                         elif t == "user":
                             for c in data.get("message", {}).get("content", []):
                                 if c.get("type") == "tool_result":
                                     content = c.get("content", "")
                                     if isinstance(content, list):
                                         content = " ".join(x.get("text", "") for x in content if isinstance(x, dict))
-                                    events.append({"kind": "tool_result", "error": bool(c.get("is_error")), "content": str(content)[:500]})
+                                    events.append({"ts": ts, "kind": "tool_result", "error": bool(c.get("is_error")), "content": str(content)[:500]})
                         elif t == "result":
-                            events.append({"kind": "result", "cost": data.get("total_cost_usd", 0)})
+                            events.append({"ts": ts, "kind": "result", "cost": data.get("total_cost_usd", 0)})
             except Exception as e:
                 log(f"/agent/logs error: {e}")
             sid = (daemon.session_id if daemon else None) or (next(iter(agent_sids), None))
