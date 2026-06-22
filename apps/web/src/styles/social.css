@@ -1250,6 +1250,50 @@
   align-items: center;
 }
 
+/* KS-4522: переверстать /games/:id/watch — доска прижата слева,
+   правый блок Stockfish 18 фиксированной ширины 360px (хватает на трёхзначную
+   eval + 6–8 первых ходов PV до горизонтального скролла внутри `.stockfish-pv`).
+   Раньше `.watch-game-page` имел `max-width: 1100px` и центрировался; внутри
+   `.watch-game-board-area` доска тоже стояла по центру (`align-items: center`),
+   что давало большой пустой отступ слева и обрезание sidebar справа.
+   Применяем только на desktop — на mobile уже свой `grid-template-columns: 1fr`
+   и доска во всю ширину. */
+@media (min-width: 769px) {
+  .watch-game-page {
+    max-width: none;
+    margin: 0;
+    padding: 24px 24px 24px 16px;
+  }
+
+  .watch-game-layout {
+    /* `max-content` для board-area = ширина доски + placeholder EvalBar
+       (44px). Без этого 1fr-колонка растягивалась на всё свободное место и
+       часы игрока (`margin-left: auto`) улетали в центр, не выравниваясь
+       с h-вертикалью доски. */
+    grid-template-columns: max-content 360px;
+  }
+
+  .watch-game-board-area {
+    align-items: flex-start;
+  }
+
+  .watch-game-page .analysis-eval-board-row {
+    width: auto;
+    padding-right: 0;
+  }
+
+  /* Player-info по умолчанию ограничен `max-width: 560px` — после сдвига
+     board-area к flex-start часы (`margin-left: auto`) попадали в центр row
+     вместо правого края доски. Растягиваем info на всю ширину board-area
+     (с учётом placeholder EvalBar 44px слева — чтобы значок короля встал
+     над a-вертикалью, а часы — над h-вертикалью). */
+  .watch-game-page .watch-game-player-info {
+    max-width: none;
+    align-self: stretch;
+    padding-left: 44px;
+  }
+}
+
 .watch-game-player-info {
   display: flex;
   align-items: center;
