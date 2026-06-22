@@ -1269,8 +1269,10 @@
     /* `max-content` для board-area = ширина доски + placeholder EvalBar
        (44px). Без этого 1fr-колонка растягивалась на всё свободное место и
        часы игрока (`margin-left: auto`) улетали в центр, не выравниваясь
-       с h-вертикалью доски. */
-    grid-template-columns: max-content 360px;
+       с h-вертикалью доски.
+       KS-4524: правый блок — `minmax(360px, 1fr)`: минимум 360px (PV-линии
+       не обрезаются), максимум — растягивается до правого края `.main`. */
+    grid-template-columns: max-content minmax(360px, 1fr);
   }
 
   .watch-game-board-area {
@@ -1289,6 +1291,16 @@
      над a-вертикалью, а часы — над h-вертикалью). */
   .watch-game-page .watch-game-player-info {
     max-width: none;
+    align-self: stretch;
+    padding-left: 44px;
+  }
+
+  /* KS-4524: кнопки навигации под доской по умолчанию имеют `justify-content:
+     center`, но при `align-items: flex-start` у board-area сам блок controls
+     прижимался к левому краю area и центрировался относительно собственной
+     (узкой) ширины. Растягиваем на ширину area и сдвигаем на placeholder
+     EvalBar — кнопки окажутся по центру доски. */
+  .watch-game-page .analysis-board-controls {
     align-self: stretch;
     padding-left: 44px;
   }
