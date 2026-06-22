@@ -1,9 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import type { LiveGamesResponse, LiveGameItem } from '@kingside/shared';
 import { PageSeo } from '../components/seo/PageSeo';
+
+// KS-4519. Задержка между вводом символа и применением фильтра — чтобы
+// каждое нажатие клавиши не дёргало `/games/live`. 300мс — обычный
+// порог для live-search'а в проекте (см. ArchiveGamesPage).
+const PLAYER_FILTER_DEBOUNCE_MS = 300;
 
 const TC_FILTERS = ['all', 'bullet', 'blitz', 'rapid', 'classical'] as const;
 
@@ -67,6 +72,38 @@ export function LiveGamesPage() {
     }, { replace: true });
   }, [setSearchParams]);
 
+  // KS-4519. Контролируемый input + debounce. До правки фильтр
+  // обновлялся только на `onBlur`/`Enter` — пользователь печатает «play»,
+  // ожидает что список сразу сужается, а ничего не происходит, пока он
+  // не уведёт фокус. Теперь — typing-as-you-go с задержкой 300мс.
+  const [playerInput, setPlayerInput] = useState<string>(playerFilter);
+  // Если фильтр изменился из URL (back/forward, сброс) — синхронизируем
+  // локальный input. Сравнение по значению, чтобы не было лишних
+  // re-render'ов в обратную сторону через debounce-effect.
+  useEffect(() => {
+    setPlayerInput((prev) => (prev === playerFilter ? prev : playerFilter));
+  }, [playerFilter]);
+
+  const debounceTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    // Если значение в input'е совпадает с URL — ничего не делаем
+    // (это синхронизация из URL → input, см. эффект выше).
+    if (playerInput === playerFilter) return;
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = window.setTimeout(() => {
+      setPlayer(playerInput);
+      debounceTimerRef.current = null;
+    }, PLAYER_FILTER_DEBOUNCE_MS);
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        window.clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [playerInput, playerFilter, setPlayer]);
+
   return (
     <div className="live-games-page">
       <PageSeo ns="games.live" path="/games/live" />
@@ -84,13 +121,25 @@ export function LiveGamesPage() {
             </button>
           ))}
         </div>
+        {/* KS-4519. Контролируемый input с debounce'ом — сужает
+            список по мере ввода. Enter сразу применяет фильтр без
+            ожидания debounce (сбрасывает таймер). */}
         <input
           type="text"
           className="players-search-input"
           placeholder={t('liveGames.filterPlayer')}
-          defaultValue={playerFilter}
-          onBlur={(e) => setPlayer(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') setPlayer((e.target as HTMLInputElement).value); }}
+          value={playerInput}
+          onChange={(e) => setPlayerInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              if (debounceTimerRef.current !== null) {
+                window.clearTimeout(debounceTimerRef.current);
+                debounceTimerRef.current = null;
+              }
+              setPlayer((e.target as HTMLInputElement).value);
+            }
+          }}
+          data-testid="live-games-player-input"
         />
       </div>
 
