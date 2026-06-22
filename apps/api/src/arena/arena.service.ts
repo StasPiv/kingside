@@ -61,7 +61,17 @@ export class ArenaService {
 
     const tournamentType = data.type ?? 'arena';
     const visibility = data.visibility ?? 'public';
-    const inviteCode = visibility === 'unlisted' ? randomBytes(4).toString('hex') : null;
+    // KS-4543: ссылка-приглашение нужна и для `private`, чтобы создатель
+    // мог сразу поделиться адресом турнира через модалку «Create
+    // Tournament» (фронт ожидает `inviteCode` в ответе при visibility ≠
+    // public и показывает блок `.tcm-invite-link`). Для `private` код
+    // НЕ даёт авторизацию на вход (`join` по-прежнему пускает только из
+    // списка `tournament_invites` — см. ниже). Это исключительно
+    // шаринговая ссылка на страницу турнира.
+    const inviteCode =
+      visibility === 'unlisted' || visibility === 'private'
+        ? randomBytes(4).toString('hex')
+        : null;
 
     return this.prisma.arenaTournament.create({
       data: {
