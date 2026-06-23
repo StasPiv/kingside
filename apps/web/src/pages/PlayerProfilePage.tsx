@@ -48,13 +48,23 @@ function countryFlag(code: string | null | undefined): string | null {
 type FriendStatus = 'none' | 'pending' | 'friends' | 'loading';
 type FriendEntry = { friendshipId: string; user: { id: string } };
 
-const RATING_LABELS: Record<string, string> = {
-  bullet: '⚡ Bullet',
-  blitz: '🔥 Blitz',
-  rapid: '⏱ Rapid',
-  classical: '♟ Classical',
-  puzzle: '🧩 Puzzle',
-};
+/**
+ * KS-4559: подписи рейтинговых карточек локализованы. Возвращаем
+ * map типа рейтинга → подпись на текущей локали. Эмодзи остаются
+ * в значениях ключей (см. `playerProfile.rating.*` в локалях),
+ * чтобы переводчики могли при необходимости менять и порядок «эмодзи
+ * + текст», и сам набор эмодзи. Дефолты — английские значения.
+ */
+function useRatingLabels(): Record<string, string> {
+  const { t } = useTranslation();
+  return {
+    bullet: t('playerProfile.rating.bullet', '⚡ Bullet'),
+    blitz: t('playerProfile.rating.blitz', '🔥 Blitz'),
+    rapid: t('playerProfile.rating.rapid', '⏱ Rapid'),
+    classical: t('playerProfile.rating.classical', '♟ Classical'),
+    puzzle: t('playerProfile.rating.puzzle', '🧩 Puzzle'),
+  };
+}
 
 function formatDate(dateStr: string, locale: string): string {
   return new Date(dateStr).toLocaleDateString(locale, {
@@ -95,6 +105,8 @@ export function PlayerProfilePage() {
   // KS-2236: drill-статистика только на собственном профиле и
   // только при включённом drillsEnabled (KS-2231).
   const drillsEnabled = useFeatureFlag('drillsEnabled');
+  // KS-4559: подписи рейтинговых карточек локализованы.
+  const ratingLabels = useRatingLabels();
 
   useEffect(() => {
     if (!username) return;
@@ -328,30 +340,37 @@ export function PlayerProfilePage() {
                 {t('playerProfile.gamesToday', { count: profile.gamesToday, defaultValue: 'played today: {{count}}' })}
               </span>
             )}
-          <button
-            className="player-profile-message-btn"
-            onClick={() => {
-              // KS-4124 / ADR-128 §6: гостю показываем
-              // LoginRequiredModal с описанием действия. Авторизованному
-              // — выполняем переход в /messages сразу. returnUrl
-              // сохраняет requireAuth сам (текущий path+search).
-              requireAuth(
-                () =>
-                  navigate(`/messages/${profile.id}`, {
-                    state: { username: profile.username },
-                  }),
-                {
-                  description: t(
-                    'auth.loginRequired.sendMessage',
-                    'Sign in to message {{username}} on Kingside.',
-                    { username: profile.username },
-                  ),
-                },
-              );
-            }}
-          >
-            {t('playerProfile.sendMessage')}
-          </button>
+          {/* KS-4560: «Написать сообщение» — только для чужих профилей.
+              Раньше кнопка отображалась всегда и на собственном профиле
+              открывала диалог с самим собой. Гостю (currentUser=null)
+              кнопка по-прежнему показывается — клик ведёт в
+              LoginRequiredModal через requireAuth. */}
+          {(!currentUser || profile.id !== currentUser.id) && (
+            <button
+              className="player-profile-message-btn"
+              onClick={() => {
+                // KS-4124 / ADR-128 §6: гостю показываем
+                // LoginRequiredModal с описанием действия. Авторизованному
+                // — выполняем переход в /messages сразу. returnUrl
+                // сохраняет requireAuth сам (текущий path+search).
+                requireAuth(
+                  () =>
+                    navigate(`/messages/${profile.id}`, {
+                      state: { username: profile.username },
+                    }),
+                  {
+                    description: t(
+                      'auth.loginRequired.sendMessage',
+                      'Sign in to message {{username}} on Kingside.',
+                      { username: profile.username },
+                    ),
+                  },
+                );
+              }}
+            >
+              {t('playerProfile.sendMessage')}
+            </button>
+          )}
           {/* ADR-067 (KS-3131): ссылка «Студии этого пользователя»
               удалена вместе с модулем Studies. */}
           {currentUser && profile.id !== currentUser.id && friendStatus !== 'loading' && (
@@ -394,7 +413,7 @@ export function PlayerProfilePage() {
         <div className="player-profile-ratings">
           {(Object.keys(profile.ratings) as Array<keyof typeof profile.ratings>).map((type) => (
             <div key={type} className="player-profile-rating-card">
-              <div className="player-profile-rating-label">{RATING_LABELS[type]}</div>
+              <div className="player-profile-rating-label">{ratingLabels[type]}</div>
               <div className="player-profile-rating-value">{profile.ratings[type]}</div>
             </div>
           ))}

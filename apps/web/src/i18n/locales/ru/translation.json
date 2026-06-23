@@ -2979,7 +2979,14 @@
     "puzzleRush": "Puzzle Rush",
     "best3min": "Лучший 3мин",
     "best5min": "Лучший 5мин",
-    "totalSessions": "Сессии"
+    "totalSessions": "Сессии",
+    "rating": {
+      "bullet": "⚡ Пуля",
+      "blitz": "🔥 Блиц",
+      "rapid": "⏱ Рапид",
+      "classical": "♟ Классика",
+      "puzzle": "🧩 Задачи"
+    }
   },
   "messages": {
     "title": "Сообщения",

@@ -2772,7 +2772,14 @@
     "puzzleRush": "Puzzle Rush",
     "best3min": "Best 3min",
     "best5min": "Best 5min",
-    "totalSessions": "Sessions"
+    "totalSessions": "Sessions",
+    "rating": {
+      "bullet": "⚡ Bullet",
+      "blitz": "🔥 Blitz",
+      "rapid": "⏱ Rapid",
+      "classical": "♟ Classical",
+      "puzzle": "🧩 Puzzle"
+    }
   },
   "messages": {
     "title": "Messages",
