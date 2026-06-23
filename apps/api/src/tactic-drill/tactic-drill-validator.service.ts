@@ -32,6 +32,22 @@ const SQUARES_THRESHOLD = 0.7;
 export class TacticDrillValidatorService {
   validate(answer: AnswerData, userAnswer: AnswerData): ValidationResult {
     if (answer.shape !== userAnswer.shape) {
+      // KS-4575. Legacy-shape адаптер: для записей `find-fork` в БД эталон
+      // хранится в старом формате `{shape:'square', square:<to>}` (до
+      // KS-2400), а UI присылает новый `{shape:'move', from, to}`. Это
+      // единственный тип тренажёра, где правильность хода определяется
+      // только конечной клеткой (predicate в indexer-pipeline тоже сравнивал
+      // `to`), поэтому потеря `from` корректна. Полная нормализация данных
+      // и удаление этой ветки — отдельной задачей (backfill `TacticDrill.answer`).
+      if (
+        answer.shape === 'square' &&
+        userAnswer.shape === 'move'
+      ) {
+        return {
+          solved:
+            answer.square.toLowerCase() === userAnswer.to.toLowerCase(),
+        };
+      }
       return { solved: false };
     }
 

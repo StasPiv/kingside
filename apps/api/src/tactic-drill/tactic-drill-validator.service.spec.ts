@@ -174,4 +174,42 @@ describe('TacticDrillValidatorService — KS-2230', () => {
     expect(r.solved).toBe(false);
     expect(r.metrics).toBeUndefined();
   });
+
+  // ── KS-4575: legacy-shape адаптер для find-fork.
+  describe('KS-4575: legacy square→move адаптер (find-fork)', () => {
+    it('stored=square, user=move, square === to → solved', () => {
+      expect(
+        v.validate(
+          { shape: 'square', square: 'c6' },
+          { shape: 'move', from: 'a5', to: 'c6' },
+        ).solved,
+      ).toBe(true);
+    });
+    it('stored=square, user=move, case-insensitive по клетке', () => {
+      expect(
+        v.validate(
+          { shape: 'square', square: 'C6' },
+          { shape: 'move', from: 'a5', to: 'c6' },
+        ).solved,
+      ).toBe(true);
+    });
+    it('stored=square, user=move, square !== to → fail', () => {
+      expect(
+        v.validate(
+          { shape: 'square', square: 'c6' },
+          { shape: 'move', from: 'a5', to: 'd6' },
+        ).solved,
+      ).toBe(false);
+    });
+    it('обратный mismatch (stored=move, user=square) — НЕ адаптируется → fail', () => {
+      // Только legacy-направление: БД square → UI move. Обратное (UI шлёт
+      // square на эталон move) — это ошибка фронта/тестов, fail-safe.
+      expect(
+        v.validate(
+          { shape: 'move', from: 'a5', to: 'c6' },
+          { shape: 'square', square: 'c6' },
+        ).solved,
+      ).toBe(false);
+    });
+  });
 });
