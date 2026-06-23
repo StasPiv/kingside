@@ -814,6 +814,14 @@ export class TacticDrillSprintService {
       params.push(excludeIds);
       conditions.push(`NOT (id = ANY($${params.length}::uuid[]))`);
     }
+    // KS-4576: см. комментарий в `TacticDrillService.pickRandomByKeyset`.
+    // Sprint выбирает по набору типов; legacy-shape `find-fork` отсеиваем,
+    // не трогая другие типы.
+    if (types.includes('find-fork')) {
+      conditions.push(
+        `(type <> 'find-fork' OR answer->>'shape' = 'move')`,
+      );
+    }
     const whereSql = conditions.join(' AND ');
 
     const sqlForward =

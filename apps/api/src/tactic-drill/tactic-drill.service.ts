@@ -247,6 +247,16 @@ export class TacticDrillService {
       params.push(excludeIds);
       conditions.push(`NOT (id = ANY($${params.length}::uuid[]))`);
     }
+    // KS-4576: для `find-fork` корпус в БД на 95% содержит legacy-записи
+    // в формате `{shape:'square'}`, унаследованные от старой семантики
+    // (KS-2400/2406/2408 ужесточили predicate, эти позиции больше не
+    // решаемы фронтом). Отдаём в `/next` только записи в новом формате
+    // `{shape:'move'}` — после KS-4576 ETL'а это 65 валидных позиций.
+    // Снять фильтр можно после пересборки корпуса find-fork через
+    // archive-service indexer-pipeline (вариант (3) в KS-4576).
+    if (type === 'find-fork') {
+      conditions.push(`answer->>'shape' = 'move'`);
+    }
     const whereSql = conditions.join(' AND ');
 
     const sqlForward =

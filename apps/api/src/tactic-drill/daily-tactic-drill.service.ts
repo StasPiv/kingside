@@ -206,6 +206,11 @@ export class DailyTacticDrillService {
     if (usedIds.length > 0) {
       where.id = { notIn: usedIds };
     }
+    // KS-4576: см. комментарий в `TacticDrillService.pickRandomByKeyset`.
+    // Daily может отдавать `find-fork`; legacy-shape записи отсеиваем.
+    if (type === 'find-fork') {
+      where.answer = { path: ['shape'], equals: 'move' };
+    }
     const total = await this.prisma.tacticDrill.count({ where });
     if (total === 0) return null;
     const offset = Math.floor(Math.random() * total);
