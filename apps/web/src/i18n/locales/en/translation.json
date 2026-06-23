@@ -3066,6 +3066,12 @@
       "guide": "Track your progress with Elo ratings.\n\n- Separate ratings for each time control: Bullet, Blitz, Rapid, Classical, and Puzzles\n- Starting rating: 1500\n- Rating changes after each game based on the result and opponent's rating\n- View your rating history chart on your profile page\n- See other players' profiles: click their name anywhere in the app\n- Players page shows all registered players sorted by rating\n- Online counter in the header shows how many players are currently on the site"
     }
   },
+  "support": {
+    "title": "Support the project",
+    "description": "Kingside is built on community support. Help us keep the platform free.",
+    "cta": "Support on Patreon",
+    "footerLink": "Support"
+  },
   "landing": {
     "hero": {
       "title": "Play. Analyze. Improve.",

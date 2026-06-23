@@ -544,3 +544,64 @@ html[data-theme='light'] .landing-cta {
     rgba(124, 131, 255, 0.18) 100%
   );
 }
+
+/* ============================================================
+ * KS-4588 — секция «Поддержать проект» (Patreon).
+ * Центрированный блок: h2 + описание + кнопка с логотипом.
+ * Использует токены `--bg-surface` / `--border-subtle`, чтобы
+ * визуально вписаться в общую вёрстку лендинга.
+ * ============================================================ */
+.landing-support {
+  text-align: center;
+  margin: 32px auto 24px;
+  padding: 32px 16px;
+  max-width: 640px;
+  border-radius: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.landing-support__title {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.landing-support__text {
+  margin: 0 auto 20px;
+  max-width: 480px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.landing-support__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.landing-support__logo {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* Sidebar — компактная Patreon-ссылка под кнопкой Feedback. */
+.sidebar-patreon-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-patreon-link__logo {
+  width: 22px;
+  height: 22px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.sidebar-patreon-link:hover .sidebar-patreon-link__logo {
+  opacity: 1;
+}

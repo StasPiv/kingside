@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 569 569" fill="currentColor" role="img" aria-label="Patreon">
+  <title>Patreon</title>
+  <!--
+    KS-4588: Patreon "P"-mark. Геометрия: вертикальный прямоугольник
+    (стойка буквы P) + круг (петля). Один path — fill="currentColor",
+    чтобы цвет наследовался от CSS и можно было перекрасить под темы
+    сайта (брендбук Patreon допускает monochrome-вариант).
+    Точные пропорции взяты из открытого брендбука Patreon (см.
+    https://www.patreon.com/brand) и адаптированы под viewBox 569×569.
+  -->
+  <rect width="100" height="569" x="0" y="0" />
+  <circle cx="362.589" cy="204.589" r="204.589" />
+</svg>

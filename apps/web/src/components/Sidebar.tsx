@@ -486,6 +486,24 @@ export function Sidebar() {
           >
             <span className="sidebar-icon">📝</span>
           </button>
+          {/* KS-4588: ссылка на Patreon — постоянный пункт для
+              авторизованного пользователя. Открывается в новой вкладке;
+              rel="noopener noreferrer" обязателен для target=_blank. */}
+          <a
+            className="sidebar-item sidebar-patreon-link"
+            href="https://www.patreon.com/kingside_site"
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t('support.footerLink', 'Support')}
+            data-testid="sidebar-patreon-link"
+          >
+            <img
+              src="/patreon-logo.svg"
+              alt=""
+              aria-hidden="true"
+              className="sidebar-patreon-link__logo"
+            />
+          </a>
         </div>
       </aside>
       {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}

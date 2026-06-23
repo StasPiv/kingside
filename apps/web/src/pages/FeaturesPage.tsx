@@ -266,6 +266,33 @@ function GuestLandingHome() {
         </a>
       </section>
 
+      {/* KS-4588: CTA-секция «Поддержать проект» с Patreon-ссылкой.
+          Размещена между основным CTA-footer (регистрация / YouTube) и
+          inline-footer'ом со служебными ссылками — отдельной секцией,
+          чтобы не мешать основному призыву к регистрации. */}
+      <section
+        className="landing-support"
+        data-testid="landing-support"
+      >
+        <h2 className="landing-support__title">{t('support.title')}</h2>
+        <p className="landing-support__text">{t('support.description')}</p>
+        <a
+          className="features-btn features-btn--secondary landing-support__cta"
+          href="https://www.patreon.com/kingside_site"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="landing-support-cta"
+        >
+          <img
+            src="/patreon-logo.svg"
+            alt=""
+            aria-hidden="true"
+            className="landing-support__logo"
+          />
+          {t('support.cta')}
+        </a>
+      </section>
+
       {/* §5.6 Inline-footer — три ссылки. Селектор языка тут не нужен
           (есть в шапке, по решению layout/KS-4265). */}
       <footer className="landing-footer" data-testid="landing-footer">
