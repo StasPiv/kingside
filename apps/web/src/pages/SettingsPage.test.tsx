@@ -56,9 +56,15 @@ beforeEach(() => {
   localStorage.clear();
 });
 
+// KS-4565 / ADR-141 §4.3: после группировки страницы по вкладкам
+// `auto-promote-queen` живёт во вкладке «Доска», а Maia ELO — во
+// вкладке «Игра и анализ». Указываем нужный `?tab=` в `route` для
+// renderWithProviders, иначе по умолчанию открывается `account`
+// и testid не находится.
+
 describe('SettingsPage / auto-promote queen toggle (KS-2970)', () => {
   it('чекбокс рендерится с подсказкой и по умолчанию выключен', () => {
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, { route: '/settings?tab=board' });
     const toggle = screen.getByTestId(
       'settings-auto-promote-queen-toggle',
     ) as HTMLInputElement;
@@ -72,7 +78,7 @@ describe('SettingsPage / auto-promote queen toggle (KS-2970)', () => {
   });
 
   it('клик по чекбоксу включает настройку и пишет в localStorage', () => {
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, { route: '/settings?tab=board' });
     const toggle = screen.getByTestId(
       'settings-auto-promote-queen-toggle',
     ) as HTMLInputElement;
@@ -86,7 +92,7 @@ describe('SettingsPage / auto-promote queen toggle (KS-2970)', () => {
 
   it('значение из localStorage пред-заполняет чекбокс', () => {
     localStorage.setItem('autoPromoteToQueen', 'true');
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, { route: '/settings?tab=board' });
     const toggle = screen.getByTestId(
       'settings-auto-promote-queen-toggle',
     ) as HTMLInputElement;
@@ -96,7 +102,7 @@ describe('SettingsPage / auto-promote queen toggle (KS-2970)', () => {
 
 describe('SettingsPage / Maia level (KS-3600)', () => {
   it('рендерит селект с 14 опциями 1100..2400 и дефолт 1500', () => {
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, { route: '/settings?tab=game' });
     const select = screen.getByTestId(
       'settings-maia-elo-select',
     ) as HTMLSelectElement;
@@ -108,7 +114,7 @@ describe('SettingsPage / Maia level (KS-3600)', () => {
   });
 
   it('смена значения пишется в localStorage `analysis.maia.elo`', () => {
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, { route: '/settings?tab=game' });
     const select = screen.getByTestId(
       'settings-maia-elo-select',
     ) as HTMLSelectElement;
@@ -119,7 +125,7 @@ describe('SettingsPage / Maia level (KS-3600)', () => {
 
   it('значение из localStorage пред-заполняет селект (1700)', () => {
     localStorage.setItem('analysis.maia.elo', '1700');
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, { route: '/settings?tab=game' });
     const select = screen.getByTestId(
       'settings-maia-elo-select',
     ) as HTMLSelectElement;

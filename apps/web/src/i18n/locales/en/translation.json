@@ -534,6 +534,23 @@
       "label": "Move navigation auto-repeat speed",
       "hint": "Hold the arrow button to fast-forward through moves. This sets the interval between moves while holding (lower = faster).",
       "msValue": "{{ms}} ms"
+    },
+    "tabs": {
+      "label": "Settings sections",
+      "account": "Account",
+      "board": "Board",
+      "game": "Game & analysis",
+      "interface": "Interface"
+    },
+    "board": {
+      "title": "Board",
+      "themeLabel": "Board theme",
+      "pieceSetLabel": "Piece set",
+      "creditsLink": "Credits and licenses →"
+    },
+    "botEngineDebugPanel": {
+      "label": "Show bot engine debug panel",
+      "hint": "Diagnostic only. Shows engine events (load, ready, bestmove) above the board in games against a bot."
     }
   },
   "guess": {

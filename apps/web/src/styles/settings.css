@@ -9,6 +9,65 @@
   margin-bottom: 24px;
 }
 
+/* KS-4565 / ADR-141 §2.2: переключатель вкладок страницы /settings.
+   Паттерн и токены — те же, что у `.lessons-tabs` (KS-2656), чтобы
+   визуально совпадало с другими табами в проекте (/lessons, /players). */
+.settings-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.settings-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.settings-tab:hover:not(.active) {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+.settings-tab:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+}
+
+.settings-tab.active {
+  color: var(--tab-active-fg);
+  background: var(--tab-active-bg);
+  border-color: var(--tab-active-border);
+}
+
+@media (max-width: 480px) {
+  .settings-tabs {
+    width: 100%;
+    display: flex;
+  }
+  .settings-tab {
+    flex: 1 1 0;
+    text-align: center;
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+}
+
 .settings-section {
   background: var(--c-16213e);
   border-radius: 12px;
