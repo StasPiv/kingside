@@ -21,6 +21,8 @@ import { NotificationDropdown } from '../components/NotificationDropdown';
 import { MobileBottomBar } from '../components/MobileBottomBar';
 import { Sidebar } from '../components/Sidebar';
 import { ThemeToggle } from '../components/ThemeToggle';
+// KS-4589. Inline-SVG логотипа Patreon (для кнопки в шапке).
+import { PatreonLogo } from '../components/PatreonLogo';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 import { ChatWidget } from '../components/ChatWidget';
 
@@ -236,6 +238,29 @@ export function MainLayout() {
                 {onlineCount}
               </span>
             )}
+
+            {/* KS-4589: Patreon-кнопка в шапке. Видна на всех страницах
+                для авторизованных и для гостей. Цвет — фирменный
+                коралловый (#F96854), белый логотип и подпись. На mobile
+                подпись скрыта стилем (`.header-patreon-btn__label`), чтобы
+                кнопка не отнимала место — иконка остаётся. */}
+            <a
+              className="header-patreon-btn"
+              href="https://www.patreon.com/kingside_site"
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t('support.cta', 'Support on Patreon')}
+              data-testid="header-patreon-btn"
+            >
+              <PatreonLogo
+                className="header-patreon-btn__logo"
+                size={14}
+                title=""
+              />
+              <span className="header-patreon-btn__label">
+                {t('support.footerLink', 'Support')}
+              </span>
+            </a>
 
             {/* Theme toggle (KS-1693) */}
             <ThemeToggle />

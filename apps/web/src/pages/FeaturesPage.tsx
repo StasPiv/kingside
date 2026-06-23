@@ -5,6 +5,8 @@ import { SeoHelmet } from '../components/seo/SeoHelmet';
 import { landingApi, type LandingStats } from '../api/landingApi';
 // KS-4460. Блог-URL с префиксом языка.
 import { blogFeedPath, toBlogLocale } from '../utils/blogUrl';
+// KS-4589. Inline-SVG логотипа Patreon (для коралловой hero-кнопки).
+import { PatreonLogo } from '../components/PatreonLogo';
 
 const SECTIONS = ['play', 'analyze', 'puzzles', 'workshop', 'broadcasts', 'social', 'customize', 'rating'] as const;
 const ICONS: Record<string, string> = {
@@ -164,6 +166,25 @@ function GuestLandingHome() {
           {/* KS-4272: «Войти»/«Sign in» — дублировала кнопку регистрации,
               убрана. Ключ `landing.hero.ctaLogin` оставлен в локалях для
               возможного переиспользования в будущем (например, на /register). */}
+          {/* KS-4589: третья hero-кнопка — Patreon. Цвет — фирменный
+              коралловый Patreon (#F96854), белый текст и логотип; видна
+              на первом экране без скроллинга. Прежняя секция
+              `.landing-support` в подвале удалена — одна точка
+              взаимодействия. */}
+          <a
+            className="features-btn landing-hero__cta-patreon"
+            href="https://www.patreon.com/kingside_site"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="landing-hero-cta-patreon"
+          >
+            <PatreonLogo
+              className="landing-hero__cta-patreon-logo"
+              size={18}
+              title=""
+            />
+            {t('support.cta')}
+          </a>
         </div>
       </section>
 
@@ -266,32 +287,9 @@ function GuestLandingHome() {
         </a>
       </section>
 
-      {/* KS-4588: CTA-секция «Поддержать проект» с Patreon-ссылкой.
-          Размещена между основным CTA-footer (регистрация / YouTube) и
-          inline-footer'ом со служебными ссылками — отдельной секцией,
-          чтобы не мешать основному призыву к регистрации. */}
-      <section
-        className="landing-support"
-        data-testid="landing-support"
-      >
-        <h2 className="landing-support__title">{t('support.title')}</h2>
-        <p className="landing-support__text">{t('support.description')}</p>
-        <a
-          className="features-btn features-btn--secondary landing-support__cta"
-          href="https://www.patreon.com/kingside_site"
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="landing-support-cta"
-        >
-          <img
-            src="/patreon-logo.svg"
-            alt=""
-            aria-hidden="true"
-            className="landing-support__logo"
-          />
-          {t('support.cta')}
-        </a>
-      </section>
+      {/* KS-4589: прежняя секция `.landing-support` удалена — Patreon
+          теперь на видном месте в hero (см. третью кнопку выше). Одна
+          точка взаимодействия лучше двух разрозненных. */}
 
       {/* §5.6 Inline-footer — три ссылки. Селектор языка тут не нужен
           (есть в шапке, по решению layout/KS-4265). */}

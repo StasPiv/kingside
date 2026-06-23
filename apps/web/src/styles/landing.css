@@ -546,62 +546,35 @@ html[data-theme='light'] .landing-cta {
 }
 
 /* ============================================================
- * KS-4588 — секция «Поддержать проект» (Patreon).
- * Центрированный блок: h2 + описание + кнопка с логотипом.
- * Использует токены `--bg-surface` / `--border-subtle`, чтобы
- * визуально вписаться в общую вёрстку лендинга.
+ * KS-4589 — Patreon-кнопка на видном месте.
+ * Hero-кнопка (третья в ряду CTA): фирменный коралловый Patreon
+ * с белым логотипом и подписью. Шапка получает свою компактную
+ * версию (см. layout.css `.header-patreon-btn`).
+ *
+ * Прежние стили из KS-4588 (`.landing-support*`, `.sidebar-patreon-link*`)
+ * удалены вместе с секцией в подвале и пунктом в боковом меню.
  * ============================================================ */
-.landing-support {
-  text-align: center;
-  margin: 32px auto 24px;
-  padding: 32px 16px;
-  max-width: 640px;
-  border-radius: 16px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-}
-
-.landing-support__title {
-  margin: 0 0 12px;
-  font-size: 22px;
-  font-weight: 600;
-}
-
-.landing-support__text {
-  margin: 0 auto 20px;
-  max-width: 480px;
-  color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.5;
-}
-
-.landing-support__cta {
+.landing-hero__cta-patreon {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  background: #f96854;
+  color: #fff;
+  border: 1px solid #f96854;
   white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
 }
 
-.landing-support__logo {
+.landing-hero__cta-patreon:hover,
+.landing-hero__cta-patreon:focus-visible {
+  background: #e35745;
+  border-color: #e35745;
+  color: #fff;
+}
+
+.landing-hero__cta-patreon-logo {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-}
-
-/* Sidebar — компактная Patreon-ссылка под кнопкой Feedback. */
-.sidebar-patreon-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sidebar-patreon-link__logo {
-  width: 22px;
-  height: 22px;
-  opacity: 0.7;
-  transition: opacity 0.15s;
-}
-
-.sidebar-patreon-link:hover .sidebar-patreon-link__logo {
-  opacity: 1;
+  color: #fff;
 }

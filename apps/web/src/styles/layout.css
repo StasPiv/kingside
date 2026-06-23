@@ -158,6 +158,48 @@
   50% { opacity: 0.7; }
 }
 
+/* KS-4589: компактная Patreon-кнопка в верхней шапке. Фирменный
+   коралловый фон, белый логотип и подпись. Подпись скрывается на
+   узких экранах (≤640px), остаётся только логотип, чтобы не отнимать
+   место у других элементов шапки. */
+.header-patreon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f96854;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.header-patreon-btn:hover,
+.header-patreon-btn:focus-visible {
+  background: #e35745;
+  color: #fff;
+}
+
+.header-patreon-btn__logo {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .header-patreon-btn__label {
+    display: none;
+  }
+  .header-patreon-btn {
+    padding: 5px 8px;
+  }
+}
+
 .lang-switcher {
   background: var(--ov-accent-15);
   color: var(--c-7c83ff);
