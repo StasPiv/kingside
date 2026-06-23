@@ -102,16 +102,26 @@ export type SidebarFontSizeId = 'sm' | 'md' | 'lg';
 
 export interface BoardTheme {
   id: BoardThemeId;
+  /**
+   * Английский дефолт-лейбл. Используется как fallback и в местах без
+   * i18n (CreditsPage и т. п.).
+   */
   label: string;
+  /**
+   * KS-4568: i18n-ключ для перевода подписи темы доски. Потребители
+   * рендерят `t(theme.labelKey, theme.label)` — если ключ отсутствует
+   * в локали, остаётся английский фолбэк.
+   */
+  labelKey?: string;
   light: string;
   dark: string;
 }
 
 export const BOARD_THEMES: BoardTheme[] = [
-  { id: 'default', label: 'Classic', light: '#f0d9b5', dark: '#b58863' },
-  { id: 'green',   label: 'Green',   light: '#ffffdd', dark: '#86a666' },
-  { id: 'blue',    label: 'Blue',    light: '#dde6ef', dark: '#4b7399' },
-  { id: 'brown',   label: 'Brown',   light: '#d4b896', dark: '#6b3a2a' },
+  { id: 'default', label: 'Classic', labelKey: 'settings.board.themes.classic', light: '#f0d9b5', dark: '#b58863' },
+  { id: 'green',   label: 'Green',   labelKey: 'settings.board.themes.green',   light: '#ffffdd', dark: '#86a666' },
+  { id: 'blue',    label: 'Blue',    labelKey: 'settings.board.themes.blue',    light: '#dde6ef', dark: '#4b7399' },
+  { id: 'brown',   label: 'Brown',   labelKey: 'settings.board.themes.brown',   light: '#d4b896', dark: '#6b3a2a' },
 ];
 
 /**
@@ -133,13 +143,26 @@ export interface PieceSetLicense {
 
 export interface PieceSet {
   id: PieceSetId;
+  /**
+   * Английский дефолт-лейбл. Для именованных наборов (Chessnut,
+   * Fantasy, ...) это собственное имя автора, переводить нельзя.
+   * Для `standard` — переводимое слово «Standard» (см. labelKey ниже).
+   */
   label: string;
+  /**
+   * KS-4568: i18n-ключ для перевода подписи. Указан только у наборов
+   * с переводимой подписью (на момент тикета — только `standard`).
+   * Остальные наборы — авторские имена; потребители используют
+   * `t(set.labelKey ?? '', set.label)` — если ключа нет, остаётся
+   * `set.label` как есть.
+   */
+  labelKey?: string;
   /** KS-3320: лицензия и автор. Для 'standard' — null (внутренняя тема). */
   license: PieceSetLicense | null;
 }
 
 export const PIECE_SETS: PieceSet[] = [
-  { id: 'standard', label: 'Standard', license: null },
+  { id: 'standard', label: 'Standard', labelKey: 'settings.board.pieceSets.standard', license: null },
   {
     id: 'chessnut',
     label: 'Chessnut',

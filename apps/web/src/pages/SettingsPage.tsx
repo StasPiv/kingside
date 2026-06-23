@@ -499,7 +499,12 @@ function BoardTab(props: BoardTabProps) {
                   background: `linear-gradient(135deg, ${theme.light} 50%, ${theme.dark} 50%)`,
                 }}
               />
-              <span className="board-theme-label">{theme.label}</span>
+              <span className="board-theme-label">
+                {/* KS-4568: подписи тем доски (Classic/Green/Blue/Brown)
+                    локализованы через labelKey, англоязычный label —
+                    fallback для случаев без перевода. */}
+                {theme.labelKey ? t(theme.labelKey, theme.label) : theme.label}
+              </span>
             </label>
           ))}
         </div>
@@ -534,7 +539,13 @@ function BoardTab(props: BoardTabProps) {
                   <img src={`/pieces/${set.id}/wN.svg`} alt={set.label} />
                 )}
               </span>
-              <span className="piece-set-label">{set.label}</span>
+              <span className="piece-set-label">
+                {/* KS-4568: для `standard` подпись переводимая; для
+                    именованных наборов (Chessnut, Fantasy, ...) labelKey
+                    отсутствует — рендерим оригинальный label как имя
+                    автора набора. */}
+                {set.labelKey ? t(set.labelKey, set.label) : set.label}
+              </span>
             </label>
           ))}
         </div>

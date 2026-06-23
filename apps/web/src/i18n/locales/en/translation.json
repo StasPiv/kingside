@@ -546,7 +546,16 @@
       "title": "Board",
       "themeLabel": "Board theme",
       "pieceSetLabel": "Piece set",
-      "creditsLink": "Credits and licenses →"
+      "creditsLink": "Credits and licenses →",
+      "themes": {
+        "classic": "Classic",
+        "green": "Green",
+        "blue": "Blue",
+        "brown": "Brown"
+      },
+      "pieceSets": {
+        "standard": "Standard"
+      }
     },
     "botEngineDebugPanel": {
       "label": "Show bot engine debug panel",

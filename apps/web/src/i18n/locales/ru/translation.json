@@ -556,7 +556,16 @@
       "title": "Доска",
       "themeLabel": "Тема доски",
       "pieceSetLabel": "Набор фигур",
-      "creditsLink": "Авторы и лицензии →"
+      "creditsLink": "Авторы и лицензии →",
+      "themes": {
+        "classic": "Классическая",
+        "green": "Зелёная",
+        "blue": "Синяя",
+        "brown": "Коричневая"
+      },
+      "pieceSets": {
+        "standard": "Стандартный"
+      }
     },
     "botEngineDebugPanel": {
       "label": "Показывать отладочную панель движка бота",
