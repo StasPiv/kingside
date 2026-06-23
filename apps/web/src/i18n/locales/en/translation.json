@@ -3068,10 +3068,10 @@
   },
   "landing": {
     "hero": {
-      "title": "Chess where AI explains every move",
+      "title": "Play. Analyze. Improve.",
       "subtitle": "Play online, review games with Stockfish and AI commentary, train on your own mistakes. Free.",
-      "ctaPlay": "Play vs bot",
-      "ctaRegister": "Create free account",
+      "ctaPlay": "Start playing",
+      "ctaRegister": "Learn more",
       "ctaLogin": "Sign in"
     },
     "usp": {

@@ -262,8 +262,25 @@ export function MainLayout() {
                 `navigate` на тот же путь с новым префиксом. На
                 страницах без префикса (`/`, `/lessons`, …) ничего
                 не навигируется — поведение прежнее. */}
+            {/* KS-4586. Переключатель показывает обе локали с
+                подсветкой активной. Старая версия выводила только
+                «противоположный» язык (`EN` при текущей ru), и
+                пользователи воспринимали это как «сейчас русский».
+                Теперь видно текущий язык явно. Клик меняет язык на
+                противоположный — действие то же самое. */}
             <button
               className="lang-switcher"
+              data-testid="lang-switcher"
+              aria-label={
+                i18n.language === 'ru'
+                  ? 'Switch to English'
+                  : 'Переключить на русский'
+              }
+              title={
+                i18n.language === 'ru'
+                  ? 'Switch to English'
+                  : 'Переключить на русский'
+              }
               onClick={async () => {
                 const next = i18n.language === 'ru' ? 'en' : 'ru';
                 if (user) {
@@ -291,9 +308,28 @@ export function MainLayout() {
                   );
                 }
               }}
-              title={i18n.language === 'ru' ? 'Switch to English' : 'Переключить на русский'}
             >
-              {i18n.language === 'ru' ? 'EN' : 'RU'}
+              <span
+                className={
+                  'lang-switcher__opt' +
+                  (i18n.language === 'en' ? ' lang-switcher__opt--active' : '')
+                }
+                aria-current={i18n.language === 'en' ? 'true' : undefined}
+              >
+                EN
+              </span>
+              <span className="lang-switcher__sep" aria-hidden="true">
+                |
+              </span>
+              <span
+                className={
+                  'lang-switcher__opt' +
+                  (i18n.language === 'ru' ? ' lang-switcher__opt--active' : '')
+                }
+                aria-current={i18n.language === 'ru' ? 'true' : undefined}
+              >
+                RU
+              </span>
             </button>
 
             {/* User dropdown / Login */}

@@ -169,10 +169,33 @@
   border: none;
   letter-spacing: 0.5px;
   transition: background 0.2s;
+  /* KS-4586: переключатель показывает обе локали в одной кнопке;
+     ширина растёт незначительно, но контент остаётся в одну строку. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .lang-switcher:hover {
   background: var(--ov-accent-30);
+}
+
+/* KS-4586: подсветка активной локали. Неактивная — приглушена,
+   активная — основной цвет ссылок. Разделитель `|` декоративен. */
+.lang-switcher__opt {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.lang-switcher__opt--active {
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lang-switcher__sep {
+  opacity: 0.4;
+  font-weight: 400;
 }
 
 .hamburger {

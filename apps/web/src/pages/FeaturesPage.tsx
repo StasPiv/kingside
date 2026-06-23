@@ -147,8 +147,15 @@ function GuestLandingHome() {
           >
             {t('landing.hero.ctaPlay')}
           </Link>
+          {/* KS-4586: вторая hero-кнопка переключена с регистрации на
+              /features — «Узнать больше»/«Learn more» семантически
+              соответствует подробной странице с описанием функций,
+              а не форме регистрации. Регистрация остаётся в CTA-footer
+              внизу страницы и в шапке (Sign in/Login). data-testid
+              сохранён — на тот случай, если кто-то целится в кнопку
+              по нему. */}
           <Link
-            to="/register"
+            to="/features"
             className="features-btn features-btn--secondary"
             data-testid="landing-hero-cta-register"
           >
