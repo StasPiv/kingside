@@ -19,13 +19,21 @@ type Tab = 'top' | 'online' | 'search' | 'authors';
 
 const RATING_TYPES: RatingType[] = ['bullet', 'blitz', 'rapid', 'classical', 'puzzle'];
 
-const RATING_LABELS: Record<RatingType, string> = {
-  bullet: '⚡ Bullet',
-  blitz: '🔥 Blitz',
-  rapid: '⏱ Rapid',
-  classical: '♟ Classical',
-  puzzle: '🧩 Puzzle',
-};
+/**
+ * KS-4561: подписи переключателя категорий рейтинга локализованы. Берём
+ * те же ключи `playerProfile.rating.*`, что и `PlayerProfilePage`
+ * (KS-4559), — единый источник для эмодзи и текста.
+ */
+function useRatingLabels(): Record<RatingType, string> {
+  const { t } = useTranslation();
+  return {
+    bullet: t('playerProfile.rating.bullet', '⚡ Bullet'),
+    blitz: t('playerProfile.rating.blitz', '🔥 Blitz'),
+    rapid: t('playerProfile.rating.rapid', '⏱ Rapid'),
+    classical: t('playerProfile.rating.classical', '♟ Classical'),
+    puzzle: t('playerProfile.rating.puzzle', '🧩 Puzzle'),
+  };
+}
 
 const VALID_TABS: Tab[] = ['top', 'online', 'search', 'authors'];
 
@@ -39,6 +47,7 @@ function isValidRatingType(v: string | null): v is RatingType {
 
 export function PlayersPage() {
   const { t } = useTranslation();
+  const ratingLabels = useRatingLabels();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const tabParam = searchParams.get('tab');
@@ -261,7 +270,7 @@ export function PlayersPage() {
                 className={`players-rating-btn${ratingType === rt ? ' active' : ''}`}
                 onClick={() => setRatingType(rt)}
               >
-                {RATING_LABELS[rt]}
+                {ratingLabels[rt]}
               </button>
             ))}
           </div>

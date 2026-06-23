@@ -2110,6 +2110,7 @@
     "loadError": "Ошибка загрузки профиля",
     "memberSince": "На сайте с {{date}}",
     "ratings": "Рейтинги",
+    "ratingHistory": "История рейтинга",
     "tactic": {
       "title": "Критический момент",
       "rating": "Рейтинг",
