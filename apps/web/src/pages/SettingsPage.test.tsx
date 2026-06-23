@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent } from '@testing-library/react';
+import { cleanup, fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen } from '../test/test-utils';
 import { SettingsPage } from './SettingsPage';
 
@@ -53,6 +53,13 @@ vi.mock('../hooks/useDrillSounds', () => ({
 }));
 
 beforeEach(() => {
+  // KS-4569: явный cleanup() перед каждым тестом. Auto-cleanup в
+  // глобальном `afterEach` (см. src/test/setup.ts) обычно справляется,
+  // но при срабатывании `useEffect` после unmount в react 19 +
+  // happy-dom DOM иногда успевал «подцепить» новый рендер — и
+  // следующий тест видел два инстанса SettingsPage в одном body
+  // («Found multiple elements»).
+  cleanup();
   localStorage.clear();
 });
 

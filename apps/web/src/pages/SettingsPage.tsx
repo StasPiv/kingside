@@ -12,6 +12,8 @@ import {
   NAV_AUTO_REPEAT_MS_MIN,
   NAV_AUTO_REPEAT_MS_MAX,
   NAV_AUTO_REPEAT_MS_STEP,
+  type BoardThemeId,
+  type PieceSetId,
 } from '../hooks/useBoardSettings';
 // KS-3600: ELO Maia переехал из engine-panel в общие настройки.
 import {
@@ -178,9 +180,16 @@ export function SettingsPage() {
 
   // KS-4565 / ADR-141 §2.2. Активная вкладка — из URL `?tab=...`.
   // Если параметр невалиден или отсутствует — пытаемся восстановить из
-  // localStorage; иначе дефолт `account`. Запись в localStorage
-  // выполняется ниже в useEffect, чтобы пользователь смог открыть
-  // /settings и попасть на ту вкладку, где был в прошлый раз.
+  // localStorage; иначе дефолт `account`. Запись в localStorage —
+  // только при пользовательской смене вкладки через `setTab` (см. ниже).
+  //
+  // KS-4569: ранее запись в localStorage и синхронизация URL делались
+  // через `useEffect`'ы на mount. В тестах это вызывало предупреждения
+  // «An update to SettingsPage inside a test was not wrapped in act(...)»
+  // и нестабильный cleanup: между тестами в один document.body
+  // монтировалось несколько экземпляров → `getByTestId` падал с «Found
+  // multiple elements». Логику оставляем синхронной — состояние пишется
+  // в момент пользовательского действия, а не в фоне после рендера.
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const activeTab: SettingsTab = useMemo(() => {
@@ -199,6 +208,10 @@ export function SettingsPage() {
   // работать корректно, а ссылки на конкретную вкладку (share) не
   // получатся осмысленными. `replace: true`, чтобы не плодить лишних
   // записей в history при редиректе.
+  //
+  // KS-4569: эффект идемпотентен — если URL уже содержит валидный tab,
+  // он не вызывает setSearchParams и не триггерит асинхронный re-render
+  // (что и было источником нестабильности тестов после KS-4565).
   useEffect(() => {
     if (!isValidTab(tabParam)) {
       setSearchParams(
@@ -212,14 +225,6 @@ export function SettingsPage() {
     }
   }, [tabParam, activeTab, setSearchParams]);
 
-  // Запоминаем последнюю активную вкладку — её восстанавливаем при
-  // следующем открытии /settings без `?tab=...`.
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(LAST_TAB_STORAGE_KEY, activeTab);
-    } catch { /* ignore — privacy mode и т. п. */ }
-  }, [activeTab]);
-
   const setTab = useCallback(
     (next: SettingsTab) => {
       setSearchParams(
@@ -230,6 +235,13 @@ export function SettingsPage() {
         },
         { replace: true },
       );
+      // KS-4569: запись в localStorage — синхронно в обработчике клика
+      // вместо `useEffect([activeTab])`. Эффект ловил «render after
+      // unmount» в тестах (act warning + накопление DOM-инстансов в
+      // одном body), а делал он то же самое — сохранял текущую вкладку.
+      try {
+        window.localStorage.setItem(LAST_TAB_STORAGE_KEY, next);
+      } catch { /* ignore — privacy mode и т. п. */ }
     },
     [setSearchParams],
   );
@@ -445,10 +457,10 @@ function AccountTab(props: AccountTabProps) {
 }
 
 type BoardTabProps = {
-  boardTheme: string;
-  pieceSet: string;
-  selectTheme: (id: string) => void;
-  selectPieceSet: (id: string) => void;
+  boardTheme: BoardThemeId;
+  pieceSet: PieceSetId;
+  selectTheme: (id: BoardThemeId) => void;
+  selectPieceSet: (id: PieceSetId) => void;
   animationDuration: number;
   onAnimationChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
   autoPromoteToQueen: boolean;
