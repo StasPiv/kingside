@@ -39,7 +39,8 @@ import { ApiError } from '../ApiError';
 // KS-4492. PGN-сборка для открытия в мастерской через POST /analyses
 // (унификация с Precision; см. SolveTacticPuzzlePage и
 // PrecisionAttemptPage).
-import { buildTacticPuzzlePgn } from '../utils/buildTacticPuzzlePgn';
+// KS-4608: `buildTacticPuzzlePgn` удалён — PGN теперь собирает
+// backend через `POST /analyses/from-tactic-attempt`.
 
 function sideFromFen(fen: string): 'w' | 'b' {
   return fen.split(' ')[1] === 'b' ? 'b' : 'w';
@@ -257,14 +258,13 @@ export function TacticPuzzleAttemptPage() {
 
   // ── Действия ───────────────────────────────────────────────────
   //
-  // KS-4492. Открытие в мастерской: для авторизованного — POST /analyses
-  // c полным PGN (стартовая FEN + теги партии-источника + ходы
-  // пользователя из попытки), затем `/analysis/<id>`. Унифицировано с
-  // Precision (`PrecisionAttemptPage.handleOpenWorkshop`). Раньше
-  // передавали `?fen=` — теги партии и нумерация ходов терялись, в
-  // мастерской дерево показывалось со старта «1.», читалось как
-  // сбитая нотация. Гостю эта страница недоступна (pageState='guest'),
-  // но на всякий случай оставляем `?fen=` fallback.
+  // KS-4492 → KS-4608. Открытие в мастерской: для авторизованного —
+  // `POST /analyses/from-tactic-attempt { attemptId }` (KS-4607), backend
+  // собирает PGN из связки `tactic_puzzle_attempts → tactic_puzzles` и
+  // возвращает analysis-id. У этой страницы `attemptId` известен сразу
+  // (`detail.id`), отдельный submitAttempt не нужен.
+  // Гостю эта страница недоступна (pageState='guest'), но на всякий
+  // случай оставляем `?fen=` fallback.
   const handleOpenWorkshop = useCallback(() => {
     if (!detail) return;
     const fallbackUrl = `/analysis?fen=${encodeURIComponent(detail.puzzle.fen)}`;
@@ -284,34 +284,20 @@ export function TacticPuzzleAttemptPage() {
       redirect(fallbackUrl);
       return;
     }
-    // KS-4492. `TacticAttemptDetail` наследует `TacticAttemptListItem` —
-    // у попытки поле `id`, у пазла — `puzzle.id`; теги партии-источника
-    // живут на верхнем уровне `detail.sourceHeaders`.
-    const shortId = detail.id.slice(0, 8);
-    const pgn = buildTacticPuzzlePgn({
-      initialFen: detail.puzzle.fen,
-      userMovesUci: detail.userMoves,
-      headers: detail.sourceHeaders,
-    });
-    const title = t(
-      'tacticAttempt.workshopTitle',
-      'Critical Moment attempt #{{id}}',
-      { id: shortId, defaultValue: 'Critical Moment attempt #{{id}}' },
-    );
     api
       .post<{ id: string }>(
-        '/analyses',
-        { pgn, title, category: 'analysis' },
+        '/analyses/from-tactic-attempt',
+        { attemptId: detail.id },
       )
       .then((created) => redirect(`/analysis/${created.id}`))
       .catch((e) => {
         console.warn(
-          'TacticPuzzleAttemptPage: POST /analyses failed, fallback to ?fen=',
+          'TacticPuzzleAttemptPage: from-tactic-attempt failed, fallback to ?fen=',
           e,
         );
         redirect(fallbackUrl);
       });
-  }, [detail, user, t]);
+  }, [detail, user]);
   const handleReplay = useCallback(() => {
     if (!detail) return;
     navigate(`/critical-moment/${detail.puzzleId}`);

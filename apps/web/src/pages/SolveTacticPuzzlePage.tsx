@@ -37,7 +37,6 @@ import { api } from '../api';
 // KS-4492. PGN-сборка по образцу Precision: открываем мастерскую через
 // `/analyses` + `/analysis/<id>`, чтобы AnalysisPage парсил корректные
 // `[SetUp][FEN]`-теги и нумерацию ходов от позиции-источника.
-import { buildTacticPuzzlePgn } from '../utils/buildTacticPuzzlePgn';
 import { TacticPuzzlesSubNav } from '../components/tactic-puzzles/TacticPuzzlesSubNav';
 
 /**
@@ -103,13 +102,20 @@ export function SolveTacticPuzzlePage() {
     void loadPuzzle();
   }, [loadPuzzle]);
 
+  // KS-4608. Id последней успешно отправленной попытки по текущему
+  // пазлу. Сохраняется в `handleSubmit` и переиспользуется в
+  // `handleOpenWorkshop`, чтобы повторный клик «Открыть в мастерской»
+  // на экране результата не отправлял attempt второй раз и сразу
+  // обращался к `POST /analyses/from-tactic-attempt`.
+  const lastAttemptIdRef = useRef<string | null>(null);
+
   const handleSubmit = useCallback(
     async (data: TacticPuzzleRunnerSubmit) => {
       if (!puzzle) return;
       // Гостям не отправляем attempt (JWT обязателен на backend).
       if (!user) return;
       try {
-        await tacticPuzzleApi.submitAttempt(puzzle.id, {
+        const submitted = await tacticPuzzleApi.submitAttempt(puzzle.id, {
           lineHalfMoves: data.lineHalfMoves,
           userMoves: data.userMoves,
           stopReason: data.stopReason,
@@ -117,6 +123,9 @@ export function SolveTacticPuzzlePage() {
           wdlStart: data.wdlStart,
           wdlEnd: data.wdlEnd,
         });
+        // KS-4608: запоминаем attemptId — нужен для
+        // `POST /analyses/from-tactic-attempt`.
+        lastAttemptIdRef.current = submitted.attemptId;
       } catch (e) {
         console.warn('SolveTacticPuzzlePage: submitAttempt failed', e);
       }
@@ -158,30 +167,35 @@ export function SolveTacticPuzzlePage() {
   }, [navigate]);
 
   /**
-   * KS-4347 → KS-4350 → KS-4353 → KS-4492. «Открыть в мастерской».
+   * KS-4347 → KS-4350 → KS-4353 → KS-4492 → KS-4608. «Открыть в мастерской».
    *
-   * KS-4492. Для авторизованного — сохраняем PGN-снимок задачи через
-   * `POST /analyses` и открываем `/analysis/<id>`. То же, что делает
-   * Precision (см. PrecisionAttemptPage). Раньше передавали только
-   * `?fen=` — у мастерской терялись теги партии-источника и нумерация
-   * ходов начиналась с «1.», что пользователь воспринимал как сбитую
-   * нотацию. PGN включает `[SetUp][FEN]` + `Source*`-теги +
-   * пользовательские ходы (если успел сделать).
+   * KS-4608. Серверный метод `POST /analyses/from-tactic-attempt
+   * { attemptId }` (KS-4607) сам собирает PGN из связки
+   * `tactic_puzzle_attempts → tactic_puzzles` и переиспользует dedup
+   * `analyses.create`. Это убирает `buildTacticPuzzlePgn` из фронта и
+   * исключает рассинхрон формата PGN с тем, что считает каноничным
+   * backend.
    *
-   * Для гостя (нельзя POST'нуть `/analyses`) — fallback на старый
-   * путь `?fen=`. Гостю всё равно нельзя сохранить анализ; разница
-   * с нотацией для него менее заметна (нет окружения «карточки
-   * партии в мастерской», в которое ложатся теги).
+   * Поток для авторизованного пользователя:
+   *   1. Если уже есть `attemptId` от предыдущего `submitAttempt`
+   *      (раннер вызывал `onSubmit` при завершении/сдаче) — сразу
+   *      шлём `POST /analyses/from-tactic-attempt`.
+   *   2. Иначе — сначала `submitAttempt` (получаем `attemptId`), затем
+   *      `POST /analyses/from-tactic-attempt`. Это покрывает клик «Открыть
+   *      в мастерской» во время решения: раннер вызовом `onOpenWorkshop`
+   *      переводит компонент в `lose`, фронт отправляет attempt c
+   *      `stopReason='aborted'`.
    *
-   * attempt-логика прежняя:
-   *   - если попытка ещё не отправлена (раннер передал данные на клик
-   *     по кнопке во время решения), параллельно шлём `attempt`
-   *     с `stopReason='aborted'`;
-   *   - если уже отправлена — `submittedAttemptRef` пропускает повтор.
+   * Гость не может ни сохранить анализ, ни отправить attempt — для него
+   * fallback `/analysis?fen=` (нотация в мастерской начнётся с «1.»,
+   * но это лучше, чем заблокированная кнопка).
+   *
+   * `lastAttemptIdRef` хранит id последнего успешного `submitAttempt`
+   * по текущему пазлу (см. объявление выше у `handleSubmit`).
+   * Сбрасывается при смене `puzzle.id`.
    */
-  const submittedAttemptRef = useRef<string | null>(null);
   const handleOpenWorkshop = useCallback(
-    (data: TacticPuzzleRunnerSubmit) => {
+    async (data: TacticPuzzleRunnerSubmit) => {
       if (!puzzle) return;
 
       // KS-4492. Открываем вкладку СИНХРОННО (требование pop-up
@@ -204,78 +218,56 @@ export function SolveTacticPuzzlePage() {
         }
       };
 
-      if (user) {
-        const shortId = puzzle.id.slice(0, 8);
-        const pgn = buildTacticPuzzlePgn({
-          initialFen: puzzle.fen,
-          userMovesUci: data.userMoves,
-          headers: puzzle.sourceHeaders,
-        });
-        const title = t('tacticPuzzle.workshopTitle', 'Critical Moment #{{id}}', {
-          id: shortId,
-          defaultValue: 'Critical Moment #{{id}}',
-        });
-        api
-          .post<{ id: string }>(
-            '/analyses',
-            { pgn, title, category: 'analysis' },
-          )
-          .then((created) => {
-            redirect(`/analysis/${created.id}`);
-          })
-          .catch((e) => {
-            console.warn(
-              'SolveTacticPuzzlePage: POST /analyses failed, fallback to ?fen=',
-              e,
-            );
-            redirect(fallbackUrl);
-          });
-      } else {
+      if (!user) {
+        redirect(fallbackUrl);
+        return;
+      }
+
+      try {
+        // Если attempt ещё не отправлен по этому пазлу — отправляем сейчас
+        // через общий handleSubmit (он пишет id в ref). Если уже был
+        // отправлен (раннер вызывал onSubmit при завершении/сдаче) —
+        // переиспользуем сохранённый id.
+        if (!lastAttemptIdRef.current) {
+          await handleSubmit(data);
+        }
+        const attemptId = lastAttemptIdRef.current;
+        if (!attemptId) {
+          // submitAttempt не получил id (например, сеть упала) —
+          // мастерскую открываем без привязки к попытке.
+          redirect(fallbackUrl);
+          return;
+        }
+
+        const created = await api.post<{ id: string }>(
+          '/analyses/from-tactic-attempt',
+          { attemptId },
+        );
+        redirect(`/analysis/${created.id}`);
+      } catch (e) {
+        console.warn(
+          'SolveTacticPuzzlePage: from-tactic-attempt failed, fallback to ?fen=',
+          e,
+        );
         redirect(fallbackUrl);
       }
-
-      // attempt отправляем только если ещё не отправляли для этого пазла.
-      if (
-        user &&
-        submittedAttemptRef.current !== puzzle.id
-      ) {
-        submittedAttemptRef.current = puzzle.id;
-        tacticPuzzleApi
-          .submitAttempt(puzzle.id, {
-            lineHalfMoves: data.lineHalfMoves,
-            userMoves: data.userMoves,
-            stopReason: data.stopReason,
-            timeMs: data.timeMs,
-            wdlStart: data.wdlStart,
-            wdlEnd: data.wdlEnd,
-          })
-          .catch((e) => {
-            console.warn(
-              'SolveTacticPuzzlePage: workshop submit failed',
-              e,
-            );
-          });
-      }
     },
-    [puzzle, user, t],
+    [puzzle, user, handleSubmit],
   );
 
-  // Сбрасываем «уже отправили» при смене пазла.
+  // Сбрасываем `attemptId` при смене пазла — новая задача = нет
+  // привязанной попытки.
   useEffect(() => {
-    submittedAttemptRef.current = null;
+    lastAttemptIdRef.current = null;
   }, [puzzle?.id]);
 
-  // Зеркальная пометка «attempt уже отправлен» — раннер ставит её
-  // при обычном `onSubmit`, чтобы повторный клик «Открыть в мастерской»
-  // на экране результата не отправил attempt второй раз.
-  const handleSubmitWrapper = useCallback(
-    async (data: TacticPuzzleRunnerSubmit) => {
-      if (!puzzle) return;
-      submittedAttemptRef.current = puzzle.id;
-      await handleSubmit(data);
-    },
-    [puzzle, handleSubmit],
-  );
+  // KS-4608. Wrapper для `onSubmit` раннера — просто проксирует в
+  // `handleSubmit` (который сам сохраняет `attemptId` в ref).
+  // Раньше тут стоял флаг «уже отправили», но он стал избыточен:
+  // `handleSubmit` идемпотентен на уровне сети (повторный POST по тому
+  // же пазлу backend дедупит), а `handleOpenWorkshop` использует ref
+  // как кэш `attemptId`.
+  const handleSubmitWrapper = handleSubmit;
 
   const puzzleShortId = puzzle ? puzzle.id.slice(0, 8) : '';
 
