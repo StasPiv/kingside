@@ -98,6 +98,27 @@ describe('resolvePrerenderRoute', () => {
     });
   });
 
+  it('blog-post: /<locale>/blog/<slug>, ключ {locale}/blog/{slug}.html (KS-4616)', () => {
+    expect(
+      resolvePrerenderRoute(
+        { kind: 'blog-post', locale: 'ru', slug: 'kingside-on-patreon' },
+        base,
+      ),
+    ).toEqual({
+      url: 'https://kingside.site/ru/blog/kingside-on-patreon',
+      s3Key: 'ru/blog/kingside-on-patreon.html',
+    });
+    expect(
+      resolvePrerenderRoute(
+        { kind: 'blog-post', locale: 'en', slug: 'kingside-on-patreon' },
+        base,
+      ),
+    ).toEqual({
+      url: 'https://kingside.site/en/blog/kingside-on-patreon',
+      s3Key: 'en/blog/kingside-on-patreon.html',
+    });
+  });
+
   it('list: каждая route в namespace list/*.html', () => {
     expect(
       resolvePrerenderRoute({ kind: 'list', route: '/broadcasts' }, base),
@@ -138,6 +159,8 @@ describe('isPrerenderTask', () => {
     { kind: 'archive-game', id: 'x' },
     { kind: 'archive-player', slug: 's' },
     { kind: 'analysis-public', id: 'x' },
+    { kind: 'blog-post', locale: 'ru', slug: 'patreon-launch' },
+    { kind: 'blog-post', locale: 'en', slug: 'patreon-launch' },
     { kind: 'list', route: '/broadcasts' },
     { kind: 'list', route: '/archive' },
   ];
@@ -162,6 +185,11 @@ describe('isPrerenderTask', () => {
     { kind: 'broadcast', tid: 't', rid: 42 },
     { kind: 'list', route: '/unknown' },
     { kind: 'archive-player', slug: 0 },
+    // KS-4616: blog-post — locale ограничен 'ru'|'en', slug непустая строка.
+    { kind: 'blog-post', locale: 'de', slug: 's' },
+    { kind: 'blog-post', locale: 'ru' },
+    { kind: 'blog-post', locale: 'ru', slug: '' },
+    { kind: 'blog-post', locale: 'ru', slug: 42 },
   ];
 
   for (let i = 0; i < invalid.length; i++) {

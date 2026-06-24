@@ -75,12 +75,21 @@ function makePrisma() {
   };
 }
 
+// KS-4616. Мок PrerenderEnqueueService — фиксируем `enqueueFireAndForget`
+// (mutation-хуки в BlogAdminService).
+function makePrerender() {
+  return {
+    enqueueFireAndForget: jest.fn(),
+    enqueueBatchFireAndForget: jest.fn(),
+  };
+}
+
 describe('BlogAdminService.createPost', () => {
   let prisma: ReturnType<typeof makePrisma>;
   let svc: BlogAdminService;
   beforeEach(() => {
     prisma = makePrisma();
-    svc = new BlogAdminService(prisma as never);
+    svc = new BlogAdminService(prisma as never, makePrerender() as never);
     prisma.blogAuthor.findUnique.mockResolvedValue({ id: AUTHOR_ID });
   });
 
@@ -152,7 +161,7 @@ describe('BlogAdminService.updatePost', () => {
   let svc: BlogAdminService;
   beforeEach(() => {
     prisma = makePrisma();
-    svc = new BlogAdminService(prisma as never);
+    svc = new BlogAdminService(prisma as never, makePrerender() as never);
   });
 
   it('переход draft→published без publishedAt → выставляет now()', async () => {
@@ -214,7 +223,7 @@ describe('BlogAdminService.deletePost', () => {
   let svc: BlogAdminService;
   beforeEach(() => {
     prisma = makePrisma();
-    svc = new BlogAdminService(prisma as never);
+    svc = new BlogAdminService(prisma as never, makePrerender() as never);
   });
   it('P2025 → 404', async () => {
     prisma.blogPost.delete.mockRejectedValueOnce({ code: 'P2025' });
@@ -225,7 +234,7 @@ describe('BlogAdminService.deletePost', () => {
 describe('BlogAdminService.previewMarkdown', () => {
   it('возвращает HTML и readingTimeMin', async () => {
     const prisma = makePrisma();
-    const svc = new BlogAdminService(prisma as never);
+    const svc = new BlogAdminService(prisma as never, makePrerender() as never);
     const r = await svc.previewMarkdown('# h');
     expect(r.bodyHtml).toBe('<rendered># h</rendered>');
     expect(r.readingTimeMin).toBe(1);
@@ -237,7 +246,7 @@ describe('BlogAdminService.deleteAuthor', () => {
   let svc: BlogAdminService;
   beforeEach(() => {
     prisma = makePrisma();
-    svc = new BlogAdminService(prisma as never);
+    svc = new BlogAdminService(prisma as never, makePrerender() as never);
   });
 
   it('P2003 (FK posts) → 404 с понятным сообщением', async () => {
@@ -248,5 +257,209 @@ describe('BlogAdminService.deleteAuthor', () => {
   it('P2025 → 404 not found', async () => {
     prisma.blogAuthor.delete.mockRejectedValueOnce({ code: 'P2025' });
     await expect(svc.deleteAuthor(AUTHOR_ID)).rejects.toThrow(/not found/);
+  });
+});
+
+// KS-4616: prerender hooks. Проверяем что mutation-методы блог-постов
+// (create/update/delete и reindexPrerenderForPublished) кладут в SQS
+// задачу `kind:'blog-post'` для каждой пары `locale+slug`. По образцу
+// `lectures.service.spec.ts:2541` (describe «KS-4205: prerender hooks»).
+describe('BlogAdminService — KS-4616: prerender hooks', () => {
+  let prisma: ReturnType<typeof makePrisma>;
+  let prerender: ReturnType<typeof makePrerender>;
+  let svc: BlogAdminService;
+  beforeEach(() => {
+    prisma = makePrisma();
+    prerender = makePrerender();
+    svc = new BlogAdminService(prisma as never, prerender as never);
+    prisma.blogAuthor.findUnique.mockResolvedValue({ id: AUTHOR_ID });
+  });
+
+  describe('createPost', () => {
+    it('draft (ru) → enqueue {kind:"blog-post", locale:"ru", slug}', async () => {
+      prisma.blogPost.create.mockResolvedValueOnce(
+        makePost({ slug: 'hello-ru', locale: 'ru', status: 'draft' }),
+      );
+      await svc.createPost({
+        slug: 'hello-ru',
+        locale: 'ru',
+        title: 'T',
+        description: 'D',
+        bodyMd: '# h',
+        authorId: AUTHOR_ID,
+      });
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledTimes(1);
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'blog-post',
+        locale: 'ru',
+        slug: 'hello-ru',
+      });
+    });
+
+    it('published (en) → enqueue {kind:"blog-post", locale:"en", slug}', async () => {
+      prisma.blogPost.create.mockResolvedValueOnce(
+        makePost({
+          slug: 'hello-en',
+          locale: 'en',
+          status: 'published',
+          publishedAt: new Date(),
+        }),
+      );
+      await svc.createPost({
+        slug: 'hello-en',
+        locale: 'en',
+        title: 'T',
+        description: 'D',
+        bodyMd: '# h',
+        status: 'published',
+        authorId: AUTHOR_ID,
+      });
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'blog-post',
+        locale: 'en',
+        slug: 'hello-en',
+      });
+    });
+
+    it('неизвестная локаль (не "ru"/"en") → пропускает enqueue', async () => {
+      prisma.blogPost.create.mockResolvedValueOnce(
+        makePost({ slug: 'x', locale: 'de', status: 'draft' }),
+      );
+      await svc.createPost({
+        slug: 'x',
+        // 'de' нет в `BlogLocale`, но проверяем что enqueue-хелпер
+        // не уронит mutation если БД когда-то расширится без shared.
+        locale: 'de' as never,
+        title: 'T',
+        description: 'D',
+        bodyMd: '# h',
+        authorId: AUTHOR_ID,
+      });
+      expect(prerender.enqueueFireAndForget).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updatePost', () => {
+    it('без смены slug/locale → enqueue только для текущей пары', async () => {
+      prisma.blogPost.findUnique.mockResolvedValueOnce({
+        status: 'published',
+        publishedAt: new Date('2026-06-01T00:00:00Z'),
+        authorId: AUTHOR_ID,
+        bodyMd: '# old',
+        slug: 'same',
+        locale: 'ru',
+      });
+      prisma.blogPost.update.mockResolvedValueOnce(
+        makePost({ slug: 'same', locale: 'ru', status: 'published' }),
+      );
+      await svc.updatePost(POST_ID, { title: 'new' });
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledTimes(1);
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'blog-post',
+        locale: 'ru',
+        slug: 'same',
+      });
+    });
+
+    it('смена slug → enqueue и для нового, и для старого ключа', async () => {
+      prisma.blogPost.findUnique.mockResolvedValueOnce({
+        status: 'published',
+        publishedAt: new Date(),
+        authorId: AUTHOR_ID,
+        bodyMd: '# h',
+        slug: 'old-slug',
+        locale: 'ru',
+      });
+      prisma.blogPost.update.mockResolvedValueOnce(
+        makePost({ slug: 'new-slug', locale: 'ru', status: 'published' }),
+      );
+      await svc.updatePost(POST_ID, { slug: 'new-slug' });
+      const tasks = prerender.enqueueFireAndForget.mock.calls.map(
+        ([t]: [unknown]) => t,
+      );
+      expect(tasks).toEqual(
+        expect.arrayContaining([
+          { kind: 'blog-post', locale: 'ru', slug: 'new-slug' },
+          { kind: 'blog-post', locale: 'ru', slug: 'old-slug' },
+        ]),
+      );
+    });
+
+    it('смена locale → enqueue и для нового, и для старого ключа', async () => {
+      prisma.blogPost.findUnique.mockResolvedValueOnce({
+        status: 'published',
+        publishedAt: new Date(),
+        authorId: AUTHOR_ID,
+        bodyMd: '# h',
+        slug: 'hello',
+        locale: 'ru',
+      });
+      prisma.blogPost.update.mockResolvedValueOnce(
+        makePost({ slug: 'hello', locale: 'en', status: 'published' }),
+      );
+      await svc.updatePost(POST_ID, { locale: 'en' });
+      const tasks = prerender.enqueueFireAndForget.mock.calls.map(
+        ([t]: [unknown]) => t,
+      );
+      expect(tasks).toEqual(
+        expect.arrayContaining([
+          { kind: 'blog-post', locale: 'en', slug: 'hello' },
+          { kind: 'blog-post', locale: 'ru', slug: 'hello' },
+        ]),
+      );
+    });
+  });
+
+  describe('deletePost', () => {
+    it('удаление существующего поста → enqueue для удалённой пары', async () => {
+      prisma.blogPost.findUnique.mockResolvedValueOnce({
+        slug: 'goodbye',
+        locale: 'en',
+      });
+      prisma.blogPost.delete.mockResolvedValueOnce(undefined);
+      await svc.deletePost(POST_ID);
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'blog-post',
+        locale: 'en',
+        slug: 'goodbye',
+      });
+    });
+
+    it('пост не существует (P2025) → 404, enqueue не вызывается', async () => {
+      prisma.blogPost.findUnique.mockResolvedValueOnce(null);
+      prisma.blogPost.delete.mockRejectedValueOnce({ code: 'P2025' });
+      await expect(svc.deletePost(POST_ID)).rejects.toThrow(/not found/);
+      expect(prerender.enqueueFireAndForget).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reindexPrerenderForPublished', () => {
+    it('enqueue по всем опубликованным с допустимыми локалями', async () => {
+      prisma.blogPost.findMany.mockResolvedValueOnce([
+        { slug: 'a', locale: 'ru' },
+        { slug: 'b', locale: 'en' },
+        { slug: 'c', locale: 'de' },
+      ]);
+      const r = await svc.reindexPrerenderForPublished();
+      expect(r.enqueued).toBe(2);
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledTimes(2);
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'blog-post',
+        locale: 'ru',
+        slug: 'a',
+      });
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'blog-post',
+        locale: 'en',
+        slug: 'b',
+      });
+    });
+
+    it('фильтрует по status=published', async () => {
+      prisma.blogPost.findMany.mockResolvedValueOnce([]);
+      await svc.reindexPrerenderForPublished();
+      const where = prisma.blogPost.findMany.mock.calls[0][0]?.where;
+      expect(where).toEqual({ status: 'published' });
+    });
   });
 });

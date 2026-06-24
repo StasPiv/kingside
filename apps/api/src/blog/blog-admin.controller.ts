@@ -276,4 +276,21 @@ export class BlogAdminController {
   recount(): Promise<BlogReconcileSummary> {
     return this.reconciler.reconcileAll();
   }
+
+  /**
+   * KS-4616. Разовая перепостановка prerender-задач по всем
+   * опубликованным статьям блога — наполняет
+   * `s3://kingside-prerender-store/{locale}/blog/` после выкатки.
+   * Идемпотентна (воркер перезаписывает существующие S3-ключи),
+   * вызывать можно повторно. Защищена `blog:write` scope как
+   * остальные mutating-маршруты.
+   */
+  @Post('prerender/reindex')
+  @RequiredScope('blog:write')
+  reindexPrerender(): Promise<{
+    enqueued: number;
+    posts: Array<{ slug: string; locale: 'ru' | 'en' }>;
+  }> {
+    return this.admin.reindexPrerenderForPublished();
+  }
 }

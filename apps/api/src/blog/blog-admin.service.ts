@@ -16,6 +16,11 @@ import {
   type BlogPostStatus,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
+// KS-4616. Prerender-хуки на mutation посторядка `(create/update/delete/
+// setStatus)` — кладут в SQS задачу типа `blog-post`, воркер сохраняет
+// HTML в `s3://kingside-prerender-store/{locale}/blog/<slug>.html`.
+// Best-effort: ошибки SQS не валят основную операцию.
+import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
 import { estimateReadingTimeMin, renderMarkdownToHtml } from './markdown';
 
 type BlogPost = Prisma.BlogPostModel;
@@ -25,7 +30,32 @@ const PAGE_SIZE = 24;
 
 @Injectable()
 export class BlogAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly prerender: PrerenderEnqueueService,
+  ) {}
+
+  /**
+   * KS-4616. Поставить prerender-задачу на пост блога. Тонкий хелпер,
+   * чтобы place-of-call'ы остались однострочными. `locale` приходит
+   * из БД (`BlogLocale` = 'ru' | 'en') — расширение списка локалей
+   * потребует синхронной правки `PrerenderTask` в shared.
+   */
+  private enqueueBlogPostPrerender(post: {
+    locale: string;
+    slug: string;
+  }): void {
+    // BlogPost.locale в Prisma-модели — `String`, не enum; в shared
+    // `BlogLocale = 'ru' | 'en'`. Защита от рассогласования: если в
+    // БД появится новая локаль раньше, чем расширим shared, лучше
+    // пропустить enqueue, чем кидать ошибку из mutation-хука.
+    if (post.locale !== 'ru' && post.locale !== 'en') return;
+    this.prerender.enqueueFireAndForget({
+      kind: 'blog-post',
+      locale: post.locale,
+      slug: post.slug,
+    });
+  }
 
   // ─── posts ─────────────────────────────────────────────────────────
 
@@ -120,6 +150,11 @@ export class BlogAdminService {
       },
       include: { author: true },
     });
+    // KS-4616. Сразу при создании заводим snapshot в S3 — статья
+    // может появиться в публике до первого update (например, через
+    // service-account script). Для draft-постов snapshot тоже есть
+    // смысл (preview-окружение), а лишние SQS-сообщения дёшевы.
+    this.enqueueBlogPostPrerender({ locale: row.locale, slug: row.slug });
     return this.toAdminPost(row);
   }
 
@@ -147,6 +182,12 @@ export class BlogAdminService {
         publishedAt: true,
         authorId: true,
         bodyMd: true,
+        // KS-4616. `slug` и `locale` нужны для prerender-хука: если slug
+        // меняется в этом же запросе, нужно дополнительно дёрнуть
+        // snapshot по старому пути (он перепишется новым HTML, что
+        // лучше чем устаревший вариант в S3 до следующего sitemap-цикла).
+        slug: true,
+        locale: true,
       },
     });
     if (!current) {
@@ -195,10 +236,32 @@ export class BlogAdminService {
       data,
       include: { author: true },
     });
+    // KS-4616. Snapshot для новой (current) пары locale+slug.
+    this.enqueueBlogPostPrerender({ locale: row.locale, slug: row.slug });
+    // Если slug или locale изменились — обновим и старый путь, чтобы
+    // в S3 не остался устаревший HTML под прежним ключом.
+    if (
+      (input.slug !== undefined && input.slug !== current.slug) ||
+      (input.locale !== undefined && input.locale !== current.locale)
+    ) {
+      this.enqueueBlogPostPrerender({
+        locale: current.locale,
+        slug: current.slug,
+      });
+    }
     return this.toAdminPost(row);
   }
 
   async deletePost(id: string): Promise<void> {
+    // KS-4616. До delete достаём locale+slug — нужно обновить snapshot
+    // после удаления (страница начнёт отдавать «не найдено», prerender
+    // воркер увидит 404 и сохранит «not-found»-HTML; если просто не
+    // делать ничего, в S3 останется устаревший snapshot со старым
+    // содержимым до конца жизни ключа).
+    const before = await this.prisma.blogPost.findUnique({
+      where: { id },
+      select: { slug: true, locale: true },
+    });
     try {
       await this.prisma.blogPost.delete({ where: { id } });
     } catch (err) {
@@ -207,6 +270,12 @@ export class BlogAdminService {
         throw new NotFoundException(`Blog post ${id} not found`);
       }
       throw err;
+    }
+    if (before) {
+      this.enqueueBlogPostPrerender({
+        locale: before.locale,
+        slug: before.slug,
+      });
     }
   }
 
@@ -309,6 +378,44 @@ export class BlogAdminService {
       }
       throw err;
     }
+  }
+
+  /**
+   * KS-4616. Разовая перепостановка prerender-задач для всех уже
+   * опубликованных постов — нужно после первой выкатки KS-4616,
+   * чтобы наполнить `s3://kingside-prerender-store/{locale}/blog/`
+   * без ожидания следующей правки каждой статьи. После того как S3
+   * наполнится один раз, mutation-хуки в `createPost/updatePost/
+   * deletePost` поддерживают snapshot'ы актуальными.
+   *
+   * Возвращает количество поставленных задач. Безопасно вызывать
+   * многократно: воркер идемпотентен по ключу `{locale}/blog/<slug>.html`,
+   * повторное сохранение перезапишет существующий HTML.
+   */
+  async reindexPrerenderForPublished(): Promise<{
+    enqueued: number;
+    posts: Array<{ slug: string; locale: BlogLocale }>;
+  }> {
+    const rows = await this.prisma.blogPost.findMany({
+      where: { status: 'published' },
+      select: { slug: true, locale: true },
+    });
+    let enqueued = 0;
+    for (const row of rows) {
+      if (row.locale !== 'ru' && row.locale !== 'en') continue;
+      this.prerender.enqueueFireAndForget({
+        kind: 'blog-post',
+        locale: row.locale,
+        slug: row.slug,
+      });
+      enqueued += 1;
+    }
+    return {
+      enqueued,
+      posts: rows
+        .filter((r) => r.locale === 'ru' || r.locale === 'en')
+        .map((r) => ({ slug: r.slug, locale: r.locale as BlogLocale })),
+    };
   }
 
   // ─── helpers ───────────────────────────────────────────────────────

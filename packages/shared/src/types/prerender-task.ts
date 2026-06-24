@@ -34,6 +34,12 @@ export type PrerenderTask =
   // admin/reindex-all). S3 ключ `analysis/public/<id>.html` отражает
   // URL точно (важно для CloudFront-маппинга, см. KS-4255).
   | { kind: 'analysis-public'; id: string }
+  // KS-4616. Пост блога `/ru/blog/:slug` / `/en/blog/:slug`. Mutation-
+  // hooks в `BlogAdminService` ставят задачу при create/update/delete/
+  // setStatus. Воркер сохраняет HTML с заполненными `<title>` /
+  // `<meta description>` / `og:*` — нужно для SEO и превью в
+  // мессенджерах (до KS-4616 страница отдавала шаблонный SPA index).
+  | { kind: 'blog-post'; locale: 'ru' | 'en'; slug: string }
   | { kind: 'list'; route: PrerenderListRoute };
 
 export type PrerenderTaskKind = PrerenderTask['kind'];
@@ -120,6 +126,15 @@ export function resolvePrerenderRoute(
         url: `${base}/analysis/public/${task.id}`,
         s3Key: `analysis/public/${task.id}.html`,
       };
+    case 'blog-post':
+      // KS-4616. `/ru/blog/:slug` или `/en/blog/:slug` — статья блога.
+      // S3-ключ повторяет URL: `ru/blog/<slug>.html` / `en/blog/<slug>.html`.
+      // Slug в URL и ключе НЕ кодируется — все slug'и в БД — kebab-case
+      // ASCII, см. валидацию в blog-admin.service.
+      return {
+        url: `${base}/${task.locale}/blog/${task.slug}`,
+        s3Key: `${task.locale}/blog/${task.slug}.html`,
+      };
     case 'list': {
       // /broadcasts → list/broadcasts.html и т.п. — в одном
       // namespace (`list/*`), чтобы не пересекаться с entity-страницами.
@@ -163,6 +178,8 @@ export function isPrerenderTask(value: unknown): value is PrerenderTask {
       return isStr(v.username);
     case 'archive-player':
       return isStr(v.slug);
+    case 'blog-post':
+      return (v.locale === 'ru' || v.locale === 'en') && isStr(v.slug);
     case 'list':
       return (
         v.route === '/broadcasts' ||

@@ -24,9 +24,14 @@ import { BlogCommentCreateRateLimitGuard } from './blog-comment-rate-limit.guard
 import { BlogCounterReconcileService } from './blog-counter-reconcile.service';
 import { BlogReconcileScheduler } from './blog-reconcile.scheduler';
 import { AuthModule } from '../auth/auth.module';
+// KS-4616: prerender-хуки для статей блога (`/ru/blog/:slug`,
+// `/en/blog/:slug`) — `BlogAdminService` ставит задачу в SQS при
+// create/update/delete/setStatus, воркер сохраняет HTML в
+// `s3://kingside-prerender-store/{locale}/blog/<slug>.html`.
+import { PrerenderModule } from '../prerender/prerender.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, PrerenderModule],
   controllers: [BlogController, BlogAdminController, BlogCommentController],
   providers: [
     BlogService,
