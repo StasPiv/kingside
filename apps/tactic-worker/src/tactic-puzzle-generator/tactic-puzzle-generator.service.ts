@@ -57,6 +57,27 @@ export interface TacticGenRunOptions {
   /** Не вставлять в БД; всё посчитать и залогировать. */
   dryRun: boolean;
   settings: TacticPuzzleGenSettings;
+  /**
+   * KS-4605. Явный список UUID импорта(ов). Используется в `selectGames`
+   * как `AND import_id = ANY($::uuid[])`. Заполняется либо CLI-флагом
+   * `--import-id` (можно повторять), либо результатом резолва
+   * `twicIssue` в `run()` (см. `resolveImportIdsByTwicIssue`).
+   * `null` означает «фильтр не применять» — допустимо только если
+   * `fullBacklog === true`.
+   */
+  importIds: string[] | null;
+  /**
+   * KS-4605. Номер TWIC-выпуска (например 1650). Резолвится в `run()`
+   * в массив `importIds` запросом `archive_imports WHERE file_name LIKE
+   * 'twicN%' AND status IN ('ok','success')`. Если резолв пустой — run()
+   * завершается с ошибкой (никаких выборок без фильтра).
+   */
+  twicIssue: number | null;
+  /**
+   * KS-4605. Явная перегенерация всего архива (миграции корпуса).
+   * Без этого флага и без `importIds`/`twicIssue` `selectGames` не идёт.
+   */
+  fullBacklog: boolean;
 }
 
 export interface TacticGenStats {
@@ -104,6 +125,49 @@ export class TacticPuzzleGeneratorService {
     const pg = new PgClient(pgCfg);
     await pg.connect();
 
+    // KS-4605. Резолв `--twic-issue=N` в массив `import_id` через
+    // `archive_imports.file_name LIKE 'twicN%' AND status IN ('ok','success')`.
+    // Делаем здесь, после pg.connect(), чтобы не дублировать подключение
+    // в CLI. Retry-импорты одного файла даёт массив, фильтр `IN(...)`.
+    // Если ничего не нашлось — fail-fast (никакой полной выборки).
+    let resolvedImportIds = opts.importIds;
+    if (opts.twicIssue != null && resolvedImportIds == null) {
+      const issueN = opts.twicIssue;
+      const rows = await pg.query<{ id: string }>(
+        `SELECT id::text AS id
+           FROM archive_imports
+          WHERE file_name LIKE $1
+            AND status IN ('ok', 'success')
+          ORDER BY started_at DESC`,
+        [`twic${issueN}%`],
+      );
+      if (rows.rows.length === 0) {
+        await pg.end().catch(() => undefined);
+        throw new Error(
+          `--twic-issue=${issueN}: no successful imports found in archive_imports ` +
+            `(filter: file_name LIKE 'twic${issueN}%' AND status IN ('ok','success'))`,
+        );
+      }
+      resolvedImportIds = rows.rows.map((r) => r.id);
+      this.logger.log(
+        `[tactic-gen] --twic-issue=${issueN} resolved to ${resolvedImportIds.length} ` +
+          `import(s): ${resolvedImportIds.join(', ')}`,
+      );
+    }
+    // Дополнительная страховка инварианта (CLI его уже проверяет, но
+    // дублируем — service может вызываться и не только из CLI).
+    if (!opts.fullBacklog && (resolvedImportIds == null || resolvedImportIds.length === 0)) {
+      await pg.end().catch(() => undefined);
+      throw new Error(
+        'scope is required: pass importIds (--import-id), twicIssue (--twic-issue), ' +
+          'or set fullBacklog (--all)',
+      );
+    }
+    const effectiveOpts: TacticGenRunOptions = {
+      ...opts,
+      importIds: resolvedImportIds,
+    };
+
     const stats: TacticGenStats = {
       gamesScanned: 0,
       gamesSkippedIdempotent: 0,
@@ -129,14 +193,15 @@ export class TacticPuzzleGeneratorService {
 
     const t0 = Date.now();
     try {
-      const games = await this.selectGames(pg, opts);
+      const games = await this.selectGames(pg, effectiveOpts);
       this.logger.log(
         `[tactic-gen] selected ${games.length} games from archive ` +
-          `(elo ≥ 2600, classical) shard=${opts.shardIndex ?? '-'}/${opts.shardCount ?? '-'}`,
+          `(elo ≥ 2600, classical, importIds=${effectiveOpts.importIds?.length ?? 'all'}) ` +
+          `shard=${effectiveOpts.shardIndex ?? '-'}/${effectiveOpts.shardCount ?? '-'}`,
       );
 
       for (const game of games) {
-        if (opts.limit != null && stats.gamesProcessed >= opts.limit) break;
+        if (effectiveOpts.limit != null && stats.gamesProcessed >= effectiveOpts.limit) break;
         stats.gamesScanned++;
 
         if (await this.alreadyProcessed(game.id)) {
@@ -224,8 +289,16 @@ export class TacticPuzzleGeneratorService {
       `black_elo >= 2600`,
       `time_control_category = 'classical'`,
     ];
-    const params: (number | string)[] = [];
+    const params: (number | string | string[])[] = [];
     let idx = 1;
+    // KS-4605. Жёсткий фильтр по import_id. При `--all` (fullBacklog)
+    // фильтр снят — иначе попадание сюда без importIds означает баг
+    // (run() уже бросил бы).
+    if (opts.importIds && opts.importIds.length > 0) {
+      const p = idx++;
+      conds.push(`import_id = ANY($${p}::uuid[])`);
+      params.push(opts.importIds);
+    }
     if (
       opts.shardCount != null &&
       opts.shardCount > 1 &&

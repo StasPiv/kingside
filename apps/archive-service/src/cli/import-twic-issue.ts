@@ -332,6 +332,9 @@ export async function runImportTwicIssue(
     ) {
       await triggerPveGeneration({
         importId: result.importId,
+        // KS-4605. Передаём имя файла, чтобы trigger извлёк номер
+        // TWIC и пробросил `--twic-issue=N` в команду шарда.
+        fileName: result.fileName,
         logger,
       });
     }

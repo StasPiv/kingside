@@ -28,6 +28,14 @@ import type { Logger } from '@nestjs/common';
 export interface TriggerPveGenerationArgs {
   /** UUID `pgn_imports.id` свежего импорта — пробрасывается в `--import-id`. */
   importId: string;
+  /**
+   * KS-4605. Имя файла импорта (`archive_imports.file_name`),
+   * например `twic1650.pgn`. Из него извлекается номер выпуска N,
+   * который уходит в команду шарда как `--twic-issue=N`. Если файл
+   * не соответствует шаблону `twicNNNN` — триггер пропускается
+   * (warn в лог), импорт от этого не падает.
+   */
+  fileName?: string | null;
   logger: Pick<Logger, 'log' | 'warn' | 'error'>;
   /**
    * Подмена ECSClient для тестов. В production создаётся внутри
@@ -62,7 +70,8 @@ export interface TriggerPveGenerationResult {
     | 'sdk-load-failed'
     | 'run-task-failed'
     | 'no-task-returned'
-    | 'partial';
+    | 'partial'
+    | 'unrecognized-file-name';
   /** Текст ошибки при `triggered=false` (для логирования). */
   error?: string;
 }
@@ -85,10 +94,12 @@ function isFlagOn(v: string | undefined): boolean {
  * снимает default-ограничение в 100 партий, нужное только для smoke-
  * прогона.
  *
- * `importId` сохраняется в сигнатуре для логирования (контекст «после
- * какого импорта запущен tick»), но в команду не пробрасывается —
- * новый CLI не оперирует понятием import-batch, он идёт по всему
- * archive_games и пропускает уже обработанные партии.
+ * KS-4605. Передаём `--twic-issue=N`, чтобы шард обработал только
+ * партии из свежего TWIC-импорта, а не молотил весь архив (до KS-4605
+ * CLI был без обязательного scope-флага и шёл по всему `archive_games`,
+ * до новых партий доходил через ~12 часов). Номер N — из имени файла
+ * импорта (`twicNNNN.pgn`), резолв `N → import_id[]` уже внутри
+ * tactic-worker через `archive_imports`.
  *
  * Шардирование: при `count>1` добавляем `--shard-index=i --shard-count=N`
  * (раздельные флаги, отличие от старого `--shard=i/N`). В новом CLI
@@ -97,12 +108,14 @@ function isFlagOn(v: string | undefined): boolean {
  */
 function buildTacticCommand(
   _importId: string,
+  twicIssue: number,
   shard?: { index: number; count: number },
 ): string[] {
   const cmd = [
     'node',
     'dist/main.js',
     'generate-tactic-puzzles-from-twic',
+    `--twic-issue=${twicIssue}`,
     '--limit=none',
   ];
   if (shard && shard.count > 1) {
@@ -110,6 +123,22 @@ function buildTacticCommand(
     cmd.push(`--shard-count=${shard.count}`);
   }
   return cmd;
+}
+
+/**
+ * KS-4605. Парсер номера TWIC из `archive_imports.file_name`.
+ * Шаблон `twicNNNN` (с любым опциональным хвостом — расширение,
+ * вариант с буквой для retry). При несоответствии шаблону возвращает
+ * `null` — caller пропускает триггер с warn-логом.
+ */
+export function parseTwicIssueFromFileName(
+  fileName: string | null | undefined,
+): number | null {
+  if (!fileName) return null;
+  const m = /^twic(\d+)/i.exec(fileName.trim());
+  if (!m) return null;
+  const n = Number.parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /**
@@ -149,6 +178,23 @@ export async function triggerPveGeneration(
     );
     return { triggered: false, reason: 'missing-env' };
   }
+
+  // KS-4605. Без распознанного TWIC-номера триггер не запускаем —
+  // tactic-worker теперь требует обязательный scope-флаг (`--twic-issue` /
+  // `--import-id` / `--all`), и автотриггер должен передавать `--twic-issue`.
+  // Иначе шарды упадут с ошибкой парсера CLI. Импорт от пропуска не падает —
+  // ручной запуск через ECS RunTask остаётся доступен (с `--import-id`).
+  const twicIssue = parseTwicIssueFromFileName(args.fileName);
+  if (twicIssue == null) {
+    logger.warn(
+      `${TAG} skip: file_name=${args.fileName ?? '∅'} does not match twicNNNN ` +
+        `pattern — tactic-worker requires --twic-issue=N for scoped run. ` +
+        `If this is a non-TWIC source, leave feature-flag off or implement ` +
+        `a per-source resolver.`,
+    );
+    return { triggered: false, reason: 'unrecognized-file-name' };
+  }
+
   const subnets = subnetsCsv
     .split(',')
     .map((s) => s.trim())
@@ -236,7 +282,7 @@ export async function triggerPveGeneration(
   for (let i = 0; i < shardCount; i++) {
     const shard =
       shardCount > 1 ? { index: i, count: shardCount } : undefined;
-    const command = buildTacticCommand(args.importId, shard);
+    const command = buildTacticCommand(args.importId, twicIssue, shard);
     const shardLabel = shard ? `shard=${i}/${shardCount}` : 'shard=none';
     try {
       const cmd = new RunTaskCommand(buildInput(command));

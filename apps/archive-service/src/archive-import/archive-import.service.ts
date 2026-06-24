@@ -479,6 +479,10 @@ export class ArchiveImportService implements OnModuleInit {
             // можно запустить вручную).
             await triggerPveGeneration({
               importId: result.importId,
+              // KS-4605. fileName из ImportResult (`twic1650.pgn`) уходит в
+              // trigger, который парсит из него номер выпуска и
+              // передаёт `--twic-issue=N` в команду шарда.
+              fileName: result.fileName,
               logger: this.logger,
             }).catch((err: unknown) => {
               const msg = err instanceof Error ? err.message : String(err);

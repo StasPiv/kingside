@@ -1,4 +1,12 @@
-import { triggerPveGeneration } from './trigger-pve-generation';
+import {
+  parseTwicIssueFromFileName,
+  triggerPveGeneration,
+} from './trigger-pve-generation';
+
+// KS-4605. Все «успешные» сценарии триггера требуют распознанного
+// `fileName`, иначе reason='unrecognized-file-name'. В feature-flag-off
+// и missing-env проверка не доходит — там fileName не нужен.
+const FILE_NAME = 'twic1650.pgn';
 
 function makeLogger() {
   return {
@@ -70,6 +78,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
 
     const r = await triggerPveGeneration({
       importId: '5597fa39-1f6d-4308-8ade-9d1d6ad03c80',
+      fileName: FILE_NAME,
       logger,
       // PVE_SHARD_COUNT=1 → один RunTask без шард-флагов, чтобы тест
       // не ловил 8-кратный fan-out (см. отдельный тест на дефолт-8).
@@ -110,10 +119,13 @@ describe('triggerPveGeneration (KS-2775)', () => {
     ]);
     expect(input.overrides.containerOverrides[0].name).toBe('tactic-worker');
     // KS-4388: команда переключена на новый CLI Maia-difficulty.
+    // KS-4605: добавлен обязательный `--twic-issue=N`, чтобы шард
+    // обрабатывал только свежий импорт, а не весь архив.
     expect(input.overrides.containerOverrides[0].command).toEqual([
       'node',
       'dist/main.js',
       'generate-tactic-puzzles-from-twic',
+      '--twic-issue=1650',
       '--limit=none',
     ]);
 
@@ -129,6 +141,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
     };
     const r = await triggerPveGeneration({
       importId: 'imp-2',
+      fileName: FILE_NAME,
       logger,
       env: ENV_OK,
       ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
@@ -149,6 +162,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
     };
     const r = await triggerPveGeneration({
       importId: 'imp-3',
+      fileName: FILE_NAME,
       logger,
       env: ENV_OK,
       ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
@@ -167,6 +181,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
     const logger = makeLogger();
     const r = await triggerPveGeneration({
       importId: 'imp-4',
+      fileName: FILE_NAME,
       logger,
       env: ENV_OK,
       ecsClientFactory: jest
@@ -196,6 +211,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
 
     const r = await triggerPveGeneration({
       importId: 'imp-shard',
+      fileName: FILE_NAME,
       logger,
       env: { ...ENV_OK, PVE_SHARD_COUNT: '3' },
       ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
@@ -209,6 +225,8 @@ describe('triggerPveGeneration (KS-2775)', () => {
     expect(cmdFactory).toHaveBeenCalledTimes(3);
 
     // Каждый RunTask несёт корректный --shard-index=i + --shard-count=3.
+    // KS-4605: и одинаковый `--twic-issue=N` (одно и то же значение во
+    // всех шардах — они скоупятся к одному импорту, шардят набор партий).
     const shardFlags = cmdFactory.mock.calls.map((c) => {
       const input = c[0] as {
         overrides: { containerOverrides: Array<{ command: string[] }> };
@@ -216,12 +234,13 @@ describe('triggerPveGeneration (KS-2775)', () => {
       const cmd = input.overrides.containerOverrides[0].command;
       const idx = cmd.find((a) => a.startsWith('--shard-index='));
       const cnt = cmd.find((a) => a.startsWith('--shard-count='));
-      return { idx, cnt };
+      const issue = cmd.find((a) => a.startsWith('--twic-issue='));
+      return { idx, cnt, issue };
     });
     expect(shardFlags).toEqual([
-      { idx: '--shard-index=0', cnt: '--shard-count=3' },
-      { idx: '--shard-index=1', cnt: '--shard-count=3' },
-      { idx: '--shard-index=2', cnt: '--shard-count=3' },
+      { idx: '--shard-index=0', cnt: '--shard-count=3', issue: '--twic-issue=1650' },
+      { idx: '--shard-index=1', cnt: '--shard-count=3', issue: '--twic-issue=1650' },
+      { idx: '--shard-index=2', cnt: '--shard-count=3', issue: '--twic-issue=1650' },
     ]);
   });
 
@@ -236,6 +255,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
     const cmdFactory = jest.fn().mockImplementation((input) => ({ __cmd: input }));
     const r = await triggerPveGeneration({
       importId: 'imp-default-shard',
+      fileName: FILE_NAME,
       logger,
       env: ENV_OK, // без PVE_SHARD_COUNT
       ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
@@ -255,6 +275,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
 
     const r = await triggerPveGeneration({
       importId: 'imp-solo',
+      fileName: FILE_NAME,
       logger,
       env: { ...ENV_OK, PVE_SHARD_COUNT: '1' },
       ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
@@ -269,6 +290,8 @@ describe('triggerPveGeneration (KS-2775)', () => {
     const cmd = input.overrides.containerOverrides[0].command;
     expect(cmd.some((a) => a.startsWith('--shard-index='))).toBe(false);
     expect(cmd.some((a) => a.startsWith('--shard-count='))).toBe(false);
+    // KS-4605: даже в режиме «один таск без шардинга» — `--twic-issue` есть.
+    expect(cmd).toContain('--twic-issue=1650');
   });
 
   it('частичный успех: один шард упал → triggered=true, reason=partial, taskArns только успешные', async () => {
@@ -283,6 +306,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
     };
     const r = await triggerPveGeneration({
       importId: 'imp-partial',
+      fileName: FILE_NAME,
       logger,
       env: { ...ENV_OK, PVE_SHARD_COUNT: '3' },
       ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
@@ -295,6 +319,67 @@ describe('triggerPveGeneration (KS-2775)', () => {
     expect(r.error).toContain('Throttling');
   });
 
+  // ── KS-4605: --twic-issue в команде шарда ──────────────────────────
+
+  describe('KS-4605 parseTwicIssueFromFileName', () => {
+    it.each([
+      ['twic1650.pgn', 1650],
+      ['twic1651.pgn', 1651],
+      ['TWIC1652.pgn', 1652], // case-insensitive
+      ['twic1650g.zip', 1650], // retry-suffix
+      ['twic1650', 1650],
+      ['  twic1650.pgn  ', 1650], // trim
+    ])('%p → %p', (input, expected) => {
+      expect(parseTwicIssueFromFileName(input)).toBe(expected);
+    });
+
+    it.each([
+      [null],
+      [undefined],
+      [''],
+      ['lichess.zip'],
+      ['twic.zip'], // нет цифр
+      ['anytwic1650.pgn'], // не в начале
+    ])('%p → null', (input) => {
+      expect(parseTwicIssueFromFileName(input as string | null)).toBeNull();
+    });
+  });
+
+  it('KS-4605: fileName не распознан → reason=unrecognized-file-name, RunTask не вызван', async () => {
+    const logger = makeLogger();
+    const ecsClient = { send: jest.fn() };
+    const r = await triggerPveGeneration({
+      importId: 'imp-x',
+      fileName: 'lichess-elite-2025-01.zip',
+      logger,
+      env: ENV_OK,
+      ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
+      runTaskCommandFactory: jest.fn(),
+    });
+    expect(r.triggered).toBe(false);
+    expect(r.reason).toBe('unrecognized-file-name');
+    expect(ecsClient.send).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('does not match twicNNNN'),
+    );
+  });
+
+  it('KS-4605: fileName=null → reason=unrecognized-file-name', async () => {
+    const logger = makeLogger();
+    const ecsClient = { send: jest.fn() };
+    const r = await triggerPveGeneration({
+      importId: 'imp-y',
+      fileName: null,
+      logger,
+      env: ENV_OK,
+      ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
+      runTaskCommandFactory: jest.fn(),
+    });
+    expect(r.triggered).toBe(false);
+    expect(r.reason).toBe('unrecognized-file-name');
+    expect(ecsClient.send).not.toHaveBeenCalled();
+  });
+
   it('все шарды упали → triggered=false, run-task-failed', async () => {
     const logger = makeLogger();
     const ecsClient = {
@@ -302,6 +387,7 @@ describe('triggerPveGeneration (KS-2775)', () => {
     };
     const r = await triggerPveGeneration({
       importId: 'imp-allfail',
+      fileName: FILE_NAME,
       logger,
       env: { ...ENV_OK, PVE_SHARD_COUNT: '2' },
       ecsClientFactory: jest.fn().mockResolvedValue(ecsClient),
