@@ -84,8 +84,13 @@ describe('<SeoHelmet>', () => {
     );
   });
 
-  it('noindex добавляет meta robots', () => {
+  it('noindex по умолчанию даёт `noindex, follow` (KS-4613)', () => {
     render(<SeoHelmet title="T" description="D" noindex />);
+    expect(getMetaContent('meta[name="robots"]')).toBe('noindex, follow');
+  });
+
+  it('noindex + noindexFollow={false} даёт `noindex, nofollow` (KS-4613)', () => {
+    render(<SeoHelmet title="T" description="D" noindex noindexFollow={false} />);
     expect(getMetaContent('meta[name="robots"]')).toBe('noindex, nofollow');
   });
 

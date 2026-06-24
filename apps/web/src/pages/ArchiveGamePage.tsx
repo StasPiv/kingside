@@ -442,6 +442,12 @@ function ArchiveGamePageInner() {
         ogType="article"
         ogImage="/og/archive.png"
         jsonLd={seoJsonLd}
+        /* KS-4613: архивные партии уведены с индексации. `noindex,
+           follow` — Google должен ходить по ссылкам, чтобы быстрее
+           увидеть `noindex` на дочерних URL и выкинуть страницы из
+           индекса. robots.txt не трогаем — Disallow добавим отдельным
+           тикетом, когда страницы выпадут. */
+        noindex
       />
       <header className="archive-game-page__header">
         <h1 className="archive-game-page__title">

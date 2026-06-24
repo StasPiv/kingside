@@ -162,6 +162,23 @@ describe('ArchiveGamePage — загрузка', () => {
     ).toHaveAttribute('href', '/archive');
   });
 
+  it('KS-4613: рендерит meta[name=robots] со значением `noindex, follow`', async () => {
+    mockArchiveApi.getArchiveGameById.mockResolvedValueOnce(baseGame);
+
+    renderWithProviders(<ArchiveGamePage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-page')).toHaveAttribute(
+        'data-state',
+        'ready',
+      ),
+    );
+
+    const robots = document.head.querySelector('meta[name="robots"]');
+    expect(robots).not.toBeNull();
+    expect(robots?.getAttribute('content')).toBe('noindex, follow');
+  });
+
   it('показывает load_error при прочих ошибках', async () => {
     mockArchiveApi.getArchiveGameById.mockRejectedValueOnce(
       new Error('Network down'),

@@ -518,6 +518,10 @@ export function ArchivePlayerProfilePage() {
         ogType="profile"
         ogImage="/og/archive.png"
         jsonLd={seoJsonLd}
+        /* KS-4613: страница архивного игрока уведена с индексации.
+           `noindex, follow` — см. ArchiveGamePage. robots.txt не
+           трогаем — Disallow добавим отдельным тикетом. */
+        noindex
       />
       <header className="archive-player-profile-page__header">
         <div className="archive-player-profile-page__title-row">

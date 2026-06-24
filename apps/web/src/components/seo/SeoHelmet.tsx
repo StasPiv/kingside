@@ -119,6 +119,15 @@ export interface SeoHelmetProps {
   twitterCard?: 'summary' | 'summary_large_image';
   noindex?: boolean;
   /**
+   * KS-4613: режим директивы для роботов при `noindex={true}`.
+   * `true` (по умолчанию) — `noindex, follow`: страница не индексируется,
+   * но Google продолжает ходить по ссылкам. Это нужно для архивных
+   * партий/игроков, чтобы Google быстрее увидел `noindex` на дочерних
+   * URL и выкинул их из индекса. `false` — `noindex, nofollow`
+   * (прежнее поведение, для случаев когда ссылки тоже надо игнорировать).
+   */
+  noindexFollow?: boolean;
+  /**
    * KS-4211: альтернативные языковые версии страницы. Каждый элемент
    * → `<link rel="alternate" hreflang="<lang>" href="<href>">`.
    * `x-default` поддерживается как любое другое значение `lang`.
@@ -143,6 +152,7 @@ export function SeoHelmet({
   ogImageAlt,
   twitterCard = 'summary_large_image',
   noindex = false,
+  noindexFollow = true,
   hreflang,
   jsonLd,
   lang,
@@ -206,7 +216,12 @@ export function SeoHelmet({
       <meta name="twitter:image" content={ogImage} />
       {ogImageAlt && <meta name="twitter:image:alt" content={ogImageAlt} />}
 
-      {noindex && <meta name="robots" content="noindex, nofollow" />}
+      {noindex && (
+        <meta
+          name="robots"
+          content={`noindex, ${noindexFollow ? 'follow' : 'nofollow'}`}
+        />
+      )}
 
       {hreflang?.map((alt) => (
         <link
