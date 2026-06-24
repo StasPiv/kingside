@@ -124,18 +124,34 @@ export function SolveTacticPuzzlePage() {
     [puzzle, user],
   );
 
+  // KS-4606. Кнопка «Дальше».
+  //
+  // Жалоба: «по клику ничего не происходит». Корневых причин может быть
+  // две:
+  //   (а) backend `/next` возвращает 204 (нет задач в рейтинг-окне) —
+  //       раньше при этом фронт уводил в `/critical-moment`, что
+  //       пользователь воспринимал как «возврат вместо следующей»;
+  //   (б) backend возвращает ТУ ЖЕ задачу (рейтинг-окно вернуло
+  //       текущий id) — `navigate` на тот же URL react-router не
+  //       инициирует re-mount, визуально «ничего не произошло».
+  //
+  // На обоих случаях редиректим в каталог с фильтром `solved=false`
+  // («Не решал») — пользователь сразу видит список оставшихся для
+  // решения. Это лучше, чем застрять на той же позиции или попасть в
+  // полный каталог «Все».
   const handleNext = useCallback(async () => {
+    const fallbackToUnsolved = () => navigate('/critical-moment?solved=false');
     try {
       const next = await tacticPuzzleApi.pickNext();
-      if (next) {
-        navigate(`/critical-moment/${next.id}`);
-      } else {
-        navigate('/critical-moment');
+      if (!next || next.id === puzzle?.id) {
+        fallbackToUnsolved();
+        return;
       }
+      navigate(`/critical-moment/${next.id}`);
     } catch {
-      navigate('/critical-moment');
+      fallbackToUnsolved();
     }
-  }, [navigate]);
+  }, [navigate, puzzle?.id]);
 
   const handleBack = useCallback(() => {
     navigate('/critical-moment');

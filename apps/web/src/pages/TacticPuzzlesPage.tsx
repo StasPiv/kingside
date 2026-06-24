@@ -40,12 +40,37 @@ function extractYear(date: string | undefined | null): string {
   return m ? m[1] : '';
 }
 
-// KS-4491. Ключ localStorage-флага «пользователь хотя бы раз заходил
-// на /critical-moment». Используется только чтобы выставить дефолтный
-// фильтр «Не решал» на самом первом заходе. После первого визита
-// поведение прежнее: пустой URL = `all`, явный URL-параметр = выбор
-// пользователя. Флаг ставится ровно при первой авто-подмене URL'а.
-const VISITED_LS_KEY = 'kingside:critical-moment:visited';
+// KS-4606. Сохранение последнего выбранного фильтра «решал/не решал».
+// При возвращении в каталог без URL-параметра восстанавливаем последний
+// выбор пользователя. Дефолт для новых пользователей (нет записи в
+// localStorage и нет URL-параметра) — `unsolved` («Не решал»).
+//
+// Прежний ключ `kingside:critical-moment:visited` (KS-4491,
+// одноразовый флаг «уже заходил») заменён этим — он не сохранял выбор
+// после первого визита: ушёл с фильтром «Не решал», вернулся —
+// сбрасывалось на «Все».
+const LAST_FILTER_LS_KEY = 'kingside:critical-moment:lastSolvedFilter';
+type SolvedFilter = 'all' | 'unsolved' | 'solved';
+
+function readSavedFilter(): SolvedFilter | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const v = window.localStorage.getItem(LAST_FILTER_LS_KEY);
+    if (v === 'all' || v === 'unsolved' || v === 'solved') return v;
+  } catch {
+    /* localStorage недоступен (Safari private + ITP) */
+  }
+  return null;
+}
+
+function writeSavedFilter(v: SolvedFilter): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(LAST_FILTER_LS_KEY, v);
+  } catch {
+    /* см. catch выше */
+  }
+}
 
 export function TacticPuzzlesPage() {
   const { t } = useTranslation();
@@ -53,51 +78,34 @@ export function TacticPuzzlesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // KS-4366: фильтр по «решал/не решал». Гостю backend параметр
-  // игнорирует — поэтому переключатель показываем только авторизованным.
+  // KS-4366 / KS-4606: фильтр по «решал/не решал». Гостю backend
+  // параметр игнорирует — поэтому переключатель показываем только
+  // авторизованным. URL-параметр — источник истины внутри страницы.
   const solvedParam = searchParams.get('solved');
-  const solvedFilter: 'all' | 'unsolved' | 'solved' =
+  const solvedFilter: SolvedFilter =
     solvedParam === 'true'
       ? 'solved'
       : solvedParam === 'false'
         ? 'unsolved'
         : 'all';
 
-  // KS-4491. На самом первом заходе авторизованного пользователя
-  // (нет ни URL-параметра, ни visited-флага в localStorage) — выставляем
-  // фильтр `solved=false` (только нерешённые), `replace:true` чтобы не
-  // создавать лишнюю запись в истории. Флаг ставим ДО navigate — после
-  // первого заполнения URL'а компонент перерендерится, эффект повторно
-  // не сработает.
-  //
-  // На последующих заходах:
-  //   - есть URL-параметр (`?solved=...`) → не трогаем, всегда главнее;
-  //   - нет URL-параметра, но visited=true → дефолт `all` (как было);
-  //   - нет visited (например, чистый incognito) → снова auto-default.
+  // KS-4606. При заходе авторизованного пользователя без URL-параметра
+  // подставляем сохранённый ранее выбор из localStorage. Если выбора
+  // нет (новый пользователь, чистый incognito) — дефолт `unsolved`
+  // («Не решал»). Это решает жалобу «фильтр не сохраняется»: ушёл с
+  // выбором «Не решал», вернулся — каталог снова показывает «Не решал».
+  // Прежняя логика KS-4491 ставила дефолт ТОЛЬКО на первом заходе,
+  // далее без URL → `all`.
   //
   // Гостю никакого auto-redirect не делаем: backend параметр игнорирует,
-  // переключатель скрыт, и подменять URL у незалогиненного нет смысла.
+  // переключатель скрыт.
   useEffect(() => {
     if (!user) return;
     if (solvedParam !== null) return;
-    if (typeof window === 'undefined') return;
-    let visited = false;
-    try {
-      visited = window.localStorage.getItem(VISITED_LS_KEY) === '1';
-    } catch {
-      // localStorage может быть недоступен (Safari private + ITP).
-      // Считаем «не посещал», подменим URL — это безвреднее, чем
-      // показать пустой каталог в обход дефолта.
-      visited = false;
-    }
-    if (visited) return;
-    try {
-      window.localStorage.setItem(VISITED_LS_KEY, '1');
-    } catch {
-      /* см. catch выше */
-    }
+    const saved = readSavedFilter() ?? 'unsolved';
     const sp = new URLSearchParams(searchParams);
-    sp.set('solved', 'false');
+    if (saved === 'all') return; // URL пустой = `all`, дополнительно ничего не пишем
+    sp.set('solved', saved === 'solved' ? 'true' : 'false');
     setSearchParams(sp, { replace: true });
   }, [user, solvedParam, searchParams, setSearchParams]);
 
@@ -256,6 +264,10 @@ export function TacticPuzzlesPage() {
                     if (key === 'all') sp.delete('solved');
                     else sp.set('solved', key === 'solved' ? 'true' : 'false');
                     setSearchParams(sp, { replace: false });
+                    // KS-4606: запоминаем выбор пользователя, чтобы
+                    // при возвращении в каталог без URL-параметра
+                    // восстановить тот же фильтр.
+                    writeSavedFilter(key);
                   }}
                 >
                   {t(`tacticPuzzle.solvedFilter.${key}`)}
