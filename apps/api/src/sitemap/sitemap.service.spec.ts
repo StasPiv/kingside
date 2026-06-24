@@ -173,13 +173,22 @@ describe('SitemapService.generateLecturesXml', () => {
   });
 });
 
-describe('SitemapService.SITEMAP_FILES (KS-4488)', () => {
-  it('включает archive-games / archive-players, не включает live players', async () => {
+describe('SitemapService.SITEMAP_FILES (KS-4612)', () => {
+  it('не включает archive-games / archive-players и live players', async () => {
     const { SITEMAP_FILES } = await import('./sitemap.service');
-    expect(SITEMAP_FILES).toContain('sitemap-archive-games.xml');
-    expect(SITEMAP_FILES).toContain('sitemap-archive-players.xml');
-    // Живые пользователи сайта по запросу удалены.
+    // KS-4612: архивные партии и игроки по прямому решению пользователя
+    // полностью убраны из индексации.
+    expect(SITEMAP_FILES).not.toContain('sitemap-archive-games.xml');
+    expect(SITEMAP_FILES).not.toContain('sitemap-archive-players.xml');
+    // KS-4488: живые пользователи сайта тоже не индексируются.
     expect(SITEMAP_FILES).not.toContain('sitemap-players.xml');
+    // Остающиеся sitemap'ы:
+    expect(SITEMAP_FILES).toContain('sitemap-static.xml');
+    expect(SITEMAP_FILES).toContain('sitemap-broadcasts.xml');
+    expect(SITEMAP_FILES).toContain('sitemap-tournaments.xml');
+    expect(SITEMAP_FILES).toContain('sitemap-coaches.xml');
+    expect(SITEMAP_FILES).toContain('sitemap-lectures.xml');
+    expect(SITEMAP_FILES).toContain('sitemap-blog.xml');
   });
 });
 

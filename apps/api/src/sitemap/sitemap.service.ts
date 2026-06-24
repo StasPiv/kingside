@@ -64,23 +64,33 @@ export const SITEMAP_FILES = [
   // (в основном боты) индексировать не надо». Профили пользователей
   // (`/player/:username`) — это аккаунты сайта (model `User`), а не
   // мастера; индексировать их нет смысла, и они засоряют crawl-budget.
-  // Архивные игроки `/archive/players/:slug` живут в
-  // `sitemap-archive-players.xml` ниже.
   'sitemap-coaches.xml',
   'sitemap-lectures.xml',
-  // KS-4484/KS-4488 / ADR-128 §7.4.3 task #13: archive-* возвращены.
-  //   - games: партии с `avgElo >= 2400` (точный критерий ADR).
-  //   - players: top-1000 по `gamesCount` ∪ `peakElo >= 2400`.
-  // 50000-лимит protocol'а sitemaps.org проверяется builder'ом —
-  // при превышении мы упадём с явной ошибкой, а не молча обрежем
-  // выборку.
-  'sitemap-archive-games.xml',
-  'sitemap-archive-players.xml',
+  // KS-4612. `sitemap-archive-games.xml` и `sitemap-archive-players.xml`
+  // удалены из индекса по прямому решению пользователя — архивные
+  // партии и игроки больше не индексируются. Сами файлы тоже не
+  // генерируются (см. отсутствие записей в `generators` ниже) и
+  // дочищаются из S3 при следующем `generateAllAndPublish` (см.
+  // `LEGACY_S3_FILES`). Возвращение этих sitemap'ов — отдельным
+  // тикетом, если решение пересмотрят.
   // KS-4402: блог. Источник — таблица `blog_posts` (см.
   // `generateBlogXml`).
   'sitemap-blog.xml',
 ] as const;
 export type SitemapFile = (typeof SITEMAP_FILES)[number];
+
+/**
+ * KS-4612. Файлы, которые ранее публиковались, но сейчас не нужны.
+ * При каждом запуске `generateAllAndPublish` пытаемся удалить их из
+ * S3 — best-effort, ошибки не валят остальное. После того как
+ * CloudFront-кэш истечёт, прод-curl на эти URL вернёт 404
+ * (запрашиваемый ключ в S3 отсутствует → CloudFront отдаёт 404).
+ * Список можно очистить, когда S3 точно уже не содержит этих ключей.
+ */
+const LEGACY_S3_FILES = [
+  'sitemap-archive-games.xml',
+  'sitemap-archive-players.xml',
+] as const;
 
 /**
  * Окно «свежих» broadcasts / tournaments. §7.10 — active + finished
@@ -132,11 +142,10 @@ export class SitemapService {
       // KS-4488: sitemap-players (live users) убран — см. SITEMAP_FILES.
       ['sitemap-coaches.xml', () => this.generateCoachesXml()],
       ['sitemap-lectures.xml', () => this.generateLecturesXml()],
-      // KS-4488 / ADR-128 §7.4.3 task #13: возвращены archive-games и
-      // archive-players с реальной выборкой из `archive_games` /
-      // `archive_players`.
-      ['sitemap-archive-games.xml', () => this.generateArchiveGamesXml()],
-      ['sitemap-archive-players.xml', () => this.generateArchivePlayersXml()],
+      // KS-4612. archive-games / archive-players убраны из публикации.
+      // Сами generate*Xml-методы оставлены (вызываются юнит-тестами и
+      // могут вернуться в публикацию); их вычистка — отдельным
+      // тикетом-чисткой кода.
       // KS-4402: блог. Список статей читается из `blog_posts`.
       ['sitemap-blog.xml', () => this.generateBlogXml()],
     ];
@@ -171,15 +180,37 @@ export class SitemapService {
       failed.push({ name: 'sitemap.xml', error: msg });
     }
 
+    // KS-4612. Дочищаем удалённые из списка sitemap-файлы из S3 —
+    // best-effort, ошибки не валят остальное. Когда CloudFront-кэш
+    // на эти URL'ы истечёт (через max-age=3600), прод-curl будет
+    // возвращать 404 (ключ в S3 отсутствует). Доп. в paths их добавляем
+    // для немедленной инвалидации.
+    const deletedLegacy: string[] = [];
+    for (const key of LEGACY_S3_FILES) {
+      try {
+        await this.deleteFromS3(key);
+        deletedLegacy.push(key);
+      } catch (e) {
+        // 404 / NoSuchKey — нормально, ничего нет, не пишем error.
+        const msg = (e as Error).message ?? String(e);
+        if (!/NoSuchKey|NotFound/i.test(msg)) {
+          this.logger.warn(`legacy sitemap delete ${key} failed: ${msg}`);
+        }
+      }
+    }
+
     // KS-4486. CloudFront-инвалидация ПОСЛЕ всех S3-записей —
     // иначе CDN может закешировать промежуточное состояние. Если
     // ни один файл не записался — инвалидировать нечего; вернём
     // skipped с причиной. В остальных случаях инвалидируем как
     // sub-sitemap'ы, так и сам index (даже если index упал —
     // старая версия в CDN не валидна, лучше очистить).
+    // KS-4612. Удалённые legacy-файлы тоже инвалидируем, чтобы CDN
+    // быстрее начал отдавать 404.
     const paths: string[] = [];
     for (const name of published) paths.push(`/${name}`);
     if (indexPublished) paths.push('/sitemap.xml');
+    for (const name of deletedLegacy) paths.push(`/${name}`);
 
     const cloudfrontInvalidation = paths.length
       ? await this.cloudfront.invalidateSitemapPaths(paths)
@@ -523,6 +554,31 @@ export class SitemapService {
       );
       this.logger.log(
         `sitemap published: s3://${this.bucket()}/${key} (${body.length} bytes)`,
+      );
+    } finally {
+      client.destroy();
+    }
+  }
+
+  /**
+   * KS-4612. Удалить объект из S3. Используется для дочистки legacy
+   * sitemap-файлов, исключённых из индекса (см. `LEGACY_S3_FILES`).
+   * `DeleteObject` идемпотентен — на отсутствующем ключе AWS вернёт
+   * 204 без ошибки. NoSuchBucket / AccessDenied — пробросим наружу,
+   * caller гасит best-effort.
+   */
+  private async deleteFromS3(key: string): Promise<void> {
+    const sdk = await import('@aws-sdk/client-s3');
+    const client = new sdk.S3Client({ region: this.region() });
+    try {
+      await client.send(
+        new sdk.DeleteObjectCommand({
+          Bucket: this.bucket(),
+          Key: key,
+        }),
+      );
+      this.logger.log(
+        `sitemap deleted from s3: s3://${this.bucket()}/${key}`,
       );
     } finally {
       client.destroy();
