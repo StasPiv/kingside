@@ -1482,9 +1482,9 @@ describe('AnalysisService', () => {
       prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
       prisma.analysis.create.mockImplementation(
         async ({ data }: { data: Record<string, unknown> }) => ({
-          id: 'analysis-from-attempt',
           ...mockAnalysis,
           ...data,
+          id: 'analysis-from-attempt',
         }),
       );
     });
@@ -1553,7 +1553,7 @@ describe('AnalysisService', () => {
       });
       const res = await service.createFromTacticAttempt(userId, ATTEMPT_ID);
       expect(res.existing).toBe(true);
-      expect((res as { id: string }).id).toBe('analysis-existing');
+      expect((res as unknown as { id: string }).id).toBe('analysis-existing');
       expect(prisma.analysis.create).not.toHaveBeenCalled();
     });
 
