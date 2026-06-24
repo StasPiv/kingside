@@ -2225,6 +2225,27 @@ if $DEPLOY_TACTIC_WORKER; then
         echo "[tactic-worker] First-image bootstrap: skip register-task-def. Run KS-2439 setup to create revision 1 from this image."
     fi
 
+    # KS-4600/KS-4602. Семейство `kingside-tactic-worker-shard` (трогается
+    # автотриггером из archive-service:trigger-pve-generation.ts при успешном
+    # tickOnce TWIC, env TACTIC_TASK_DEF_ARN) использует тот же образ, что и
+    # adhoc/long воркер. Регистрируем новую ревизию ровно с тем же image,
+    # чтобы оба семейства всегда были на одной версии. Опционально (если
+    # family отсутствует — bootstrap, пропускаем без ошибки).
+    SHARD_TD_STATUS=$(aws ecs describe-task-definition --task-definition kingside-tactic-worker-shard \
+        --query 'taskDefinition.status' --output text 2>/dev/null || echo "MISSING")
+    if [ "$SHARD_TD_STATUS" = "ACTIVE" ]; then
+        echo "[tactic-worker] Registering kingside-tactic-worker-shard revision with image=:${DEPLOY_SHA}..."
+        SHARD_TD_ARN=$(register_or_get_task_def "kingside-tactic-worker-shard" "$NEW_IMAGE")
+        if [ -z "$SHARD_TD_ARN" ] || [ "$SHARD_TD_ARN" = "None" ]; then
+            echo "  ERROR: failed to register task-def for kingside-tactic-worker-shard. Aborting deploy."
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+            exit 1
+        fi
+        echo "  shard task-def: $SHARD_TD_ARN"
+    else
+        echo "[tactic-worker] task-def family 'kingside-tactic-worker-shard' not registered (status=$SHARD_TD_STATUS) — пропускаем."
+    fi
+
     # Атомарный move :latest. Для tactic-worker это безопасно сразу после push:
     # gate'а services-stable нет (не сервис), а smoke (RunTask с
     # `index-tactic-drills --max-games=1`) делает backend пост-деплой по acceptance KS-2439.
