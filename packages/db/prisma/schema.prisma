@@ -2657,6 +2657,13 @@ model TacticPuzzle {
   // KS-4370 / KS-4367. Композитный индекс `(objective, rating)` удалён
   // вместе с колонкой.
   @@index([algorithmVersion])
+  /// KS-4604. Каталог `/tactic-puzzles/browse` сортирует «свежие сверху»
+  /// (KS-4603 — диагностика того, почему пользователь не видел новые
+  /// задачи: UUID-сортировка размазывала их по всему пулу). Композит
+  /// `(createdAt DESC, id DESC)` поддерживает основной keyset-курсор
+  /// каталога — index range scan O(log N) даже при росте корпуса до
+  /// сотен тысяч пазлов.
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
   @@map("tactic_puzzles")
 }
 

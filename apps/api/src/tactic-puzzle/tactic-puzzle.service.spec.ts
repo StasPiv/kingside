@@ -246,6 +246,223 @@ describe('TacticPuzzleService', () => {
     });
   });
 
+  // ── KS-4604: сортировка и составной курсор `/tactic-puzzles/browse` ──
+  describe('browse — KS-4604 сортировка (createdAt DESC, id DESC) + keyset', () => {
+    /**
+     * Эмулятор `prisma.tacticPuzzle.findMany` поверх in-memory массива.
+     * Понимает (a) orderBy [(createdAt desc, id desc)] и (b) keyset-
+     * условие в `where.AND` формы:
+     *   AND: [..., { OR: [
+     *     { createdAt: { lt: D } },
+     *     { AND: [{ createdAt: D }, { id: { lt: ID } }] }
+     *   ]}]
+     * — этого достаточно, чтобы проверить пагинацию end-to-end.
+     */
+    function installInMemoryStore(
+      rows: Array<{ id: string; createdAt: Date }>,
+    ): void {
+      // Sort once в DESC,DESC — все запросы будут просто фильтровать
+      // + take, сохраняя порядок.
+      const sorted = [...rows].sort((a, b) => {
+        const dt = b.createdAt.getTime() - a.createdAt.getTime();
+        return dt !== 0 ? dt : (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+      });
+      prisma.tacticPuzzle.findMany.mockImplementation(
+        async (args: {
+          where?: Record<string, unknown>;
+          take?: number;
+        }) => {
+          const ands = (args.where?.AND as unknown[]) ?? [];
+          const keysetClause = ands.find(
+            (c) =>
+              c &&
+              typeof c === 'object' &&
+              Array.isArray((c as { OR?: unknown[] }).OR),
+          ) as { OR: Array<Record<string, unknown>> } | undefined;
+          let filtered = sorted;
+          if (keysetClause) {
+            const ltClause = keysetClause.OR.find(
+              (o) =>
+                (o.createdAt as { lt?: Date } | undefined)?.lt instanceof Date,
+            ) as { createdAt: { lt: Date } } | undefined;
+            const tieClause = keysetClause.OR.find(
+              (o) => Array.isArray((o as { AND?: unknown[] }).AND),
+            ) as
+              | {
+                  AND: [
+                    { createdAt: Date },
+                    { id: { lt: string } },
+                  ];
+                }
+              | undefined;
+            const ltDate = ltClause?.createdAt.lt;
+            const tieDate = tieClause?.AND[0].createdAt;
+            const tieId = tieClause?.AND[1].id.lt;
+            filtered = sorted.filter((r) => {
+              if (ltDate && r.createdAt.getTime() < ltDate.getTime())
+                return true;
+              if (
+                tieDate &&
+                r.createdAt.getTime() === tieDate.getTime() &&
+                tieId !== undefined &&
+                r.id < tieId
+              )
+                return true;
+              return false;
+            });
+          }
+          return filtered.slice(0, args.take ?? filtered.length);
+        },
+      );
+    }
+
+    it('orderBy = [{createdAt: desc}, {id: desc}]', async () => {
+      prisma.tacticPuzzle.findMany.mockResolvedValueOnce([]);
+      await service.browse({} as never, null);
+      const arg = prisma.tacticPuzzle.findMany.mock.calls[0][0];
+      expect(arg.orderBy).toEqual([
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ]);
+    });
+
+    it('пустой курсор → keyset-условие не добавлено', async () => {
+      prisma.tacticPuzzle.findMany.mockResolvedValueOnce([]);
+      await service.browse({} as never, null);
+      const arg = prisma.tacticPuzzle.findMany.mock.calls[0][0];
+      // either AND нет, либо в нём нет OR-keyset-блока
+      const ands = (arg.where?.AND as unknown[]) ?? [];
+      const hasKeyset = ands.some(
+        (c) =>
+          c &&
+          typeof c === 'object' &&
+          Array.isArray((c as { OR?: unknown[] }).OR),
+      );
+      expect(hasKeyset).toBe(false);
+    });
+
+    it('5 страниц подряд при N=120, limit=24: нет повторов и пропусков', async () => {
+      // 120 записей с убывающим createdAt (по 1 сек) и UUID-id.
+      const N = 120;
+      const baseTs = Date.parse('2026-06-24T06:00:00Z');
+      const rows = Array.from({ length: N }, (_, i) => ({
+        id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(N - i).padStart(12, '0')}`,
+        createdAt: new Date(baseTs - i * 1000),
+      }));
+      installInMemoryStore(rows);
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      let lastCursorOfFifth: string | null | undefined = undefined;
+      for (let page = 0; page < 5; page++) {
+        const res = await service.browse(
+          { limit: 24, cursor } as never,
+          null,
+        );
+        expect(res.items.length).toBe(24);
+        seen.push(...res.items.map((p) => p.id));
+        cursor = res.nextCursor ?? undefined;
+        if (page === 4) lastCursorOfFifth = res.nextCursor;
+      }
+      // Все 120 записей видны ровно по одному разу.
+      expect(seen.length).toBe(N);
+      expect(new Set(seen).size).toBe(N);
+      // После 5-й страницы курсор уходит в null (`hasMore=false`),
+      // потому что `take: limit+1=25` вернёт 24 ≤ limit — это конец.
+      expect(lastCursorOfFifth).toBeNull();
+      // Порядок — строго по createdAt DESC.
+      const sortedByDate = [...rows]
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map((r) => r.id);
+      expect(seen).toEqual(sortedByDate);
+    });
+
+    it('tie-breaker: записи с одинаковым createdAt не теряются между страницами', async () => {
+      // 30 записей разделены на 3 группы по 10 с одинаковыми
+      // createdAt — имитируется одновременная вставка (sed-batch).
+      const groupTs = [
+        Date.parse('2026-06-24T06:00:00Z'),
+        Date.parse('2026-06-24T05:00:00Z'),
+        Date.parse('2026-06-24T04:00:00Z'),
+      ];
+      const rows: Array<{ id: string; createdAt: Date }> = [];
+      let idx = 0;
+      for (const ts of groupTs) {
+        for (let i = 0; i < 10; i++) {
+          rows.push({
+            // monotonic id в hex, чтобы сортировка id DESC была
+            // детерминирована.
+            id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(++idx).padStart(12, '0')}`,
+            createdAt: new Date(ts),
+          });
+        }
+      }
+      installInMemoryStore(rows);
+
+      // limit=7 — намеренно НЕ кратно 10, чтобы граница страницы
+      // попадала внутрь tie-группы.
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let i = 0; i < 5; i++) {
+        const res = await service.browse(
+          { limit: 7, cursor } as never,
+          null,
+        );
+        seen.push(...res.items.map((p) => p.id));
+        cursor = res.nextCursor ?? undefined;
+        if (!cursor) break;
+      }
+      expect(seen.length).toBe(30);
+      expect(new Set(seen).size).toBe(30);
+    });
+
+    it('encode/decode round-trip составного курсора', () => {
+      // round-trip проверяем через публичный path: первый browse →
+      // получили nextCursor → передали его второй раз → сервис вернул
+      // следующие записи, не первую страницу заново.
+      const rows = Array.from({ length: 5 }, (_, i) => ({
+        id: `cccccccc-cccc-4ccc-8ccc-${String(i).padStart(12, '0')}`,
+        createdAt: new Date(Date.parse('2026-06-24T06:00:00Z') - i * 1000),
+      }));
+      installInMemoryStore(rows);
+      return (async () => {
+        const first = await service.browse(
+          { limit: 2 } as never,
+          null,
+        );
+        expect(first.items.map((p) => p.id)).toEqual([rows[0].id, rows[1].id]);
+        expect(typeof first.nextCursor).toBe('string');
+        const second = await service.browse(
+          { limit: 2, cursor: first.nextCursor ?? undefined } as never,
+          null,
+        );
+        expect(second.items.map((p) => p.id)).toEqual([
+          rows[2].id,
+          rows[3].id,
+        ]);
+      })();
+    });
+
+    it('невалидный курсор → начинаем с первой страницы (back-compat для старого UUID-кодека)', async () => {
+      const rows = Array.from({ length: 3 }, (_, i) => ({
+        id: `dddddddd-dddd-4ddd-8ddd-${String(i).padStart(12, '0')}`,
+        createdAt: new Date(Date.parse('2026-06-24T06:00:00Z') - i * 1000),
+      }));
+      installInMemoryStore(rows);
+      // base64('garbage-uuid') — старый одиночный UUID-кодек.
+      const legacyUuidCursor = Buffer.from(
+        'cccccccc-cccc-4ccc-acccc-cccccccccccc',
+        'utf8',
+      ).toString('base64url');
+      const res = await service.browse(
+        { limit: 10, cursor: legacyUuidCursor } as never,
+        null,
+      );
+      // Все 3 записи на первой странице — legacy-курсор отброшен.
+      expect(res.items.map((p) => p.id)).toEqual(rows.map((r) => r.id));
+    });
+  });
+
   describe('browse — KS-4365 фильтр solved', () => {
     beforeEach(() => {
       prisma.tacticPuzzle.findMany.mockResolvedValue([]);

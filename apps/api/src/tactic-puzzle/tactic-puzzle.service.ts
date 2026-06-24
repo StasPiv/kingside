@@ -145,7 +145,11 @@ export class TacticPuzzleService {
       Math.max(1, query.limit ?? DEFAULT_BROWSE_LIMIT),
       MAX_BROWSE_LIMIT,
     );
-    const cursorId = decodeCursor(query.cursor);
+    // KS-4604. Составной курсор `(createdAt, id)` под сортировку
+    // «свежие сверху». Старый одиночный UUID-cursor больше не валиден;
+    // декодер возвращает null на любом некорректном — фронт начинает
+    // выборку с первой страницы (back-compat при выкатке).
+    const cursor = decodeBrowseCursor(query.cursor);
 
     const where: Prisma.TacticPuzzleWhereInput = {};
     // KS-4369 / KS-4367. Фильтр `where.objective` удалён вместе с полем.
@@ -155,16 +159,32 @@ export class TacticPuzzleService {
     if (query.gapMin != null) where.gap = { gte: query.gapMin };
     // KS-4378 / KS-4375. Фильтр `where.rating` удалён вместе с полем
     // `rating` пазла. Сложность фильтруется через difficulty/gap.
-    if (query.themes && query.themes.length > 0) {
-      // themes хранятся как `"a b c"`. Простейший подход — для каждого
-      // тега запрашиваем `contains` (LIKE %tag%). Точный поиск можно
-      // ускорить GIN-индексом позже (см. legacy puzzles.themes_trgm_idx).
-      where.AND = query.themes.map((t) => ({
-        themes: { contains: t },
-      }));
-    }
-    if (cursorId) {
-      where.id = { gt: cursorId };
+    const themeAnds: Prisma.TacticPuzzleWhereInput[] =
+      query.themes && query.themes.length > 0
+        ? query.themes.map((t) => ({ themes: { contains: t } }))
+        : [];
+    // KS-4604. Keyset для (createdAt DESC, id DESC): следующая страница —
+    // строго «меньше» последнего видимого. Строгое сравнение
+    // `(createdAt < cur.createdAt) OR (createdAt = cur.createdAt AND id < cur.id)`
+    // не теряет записи с тем же `createdAt` (например, sed-batch с
+    // одинаковым timestamp) — tie-breaker по id отрабатывает идентично.
+    const cursorAnds: Prisma.TacticPuzzleWhereInput[] = cursor
+      ? [
+          {
+            OR: [
+              { createdAt: { lt: cursor.createdAt } },
+              {
+                AND: [
+                  { createdAt: cursor.createdAt },
+                  { id: { lt: cursor.id } },
+                ],
+              },
+            ],
+          },
+        ]
+      : [];
+    if (themeAnds.length > 0 || cursorAnds.length > 0) {
+      where.AND = [...themeAnds, ...cursorAnds];
     }
     // KS-4365. Фильтр «решено / не решено» для текущего пользователя.
     // Для гостя (userId=null) параметр игнорируется — выборка как раньше.
@@ -179,11 +199,18 @@ export class TacticPuzzleService {
     const items = await this.prisma.tacticPuzzle.findMany({
       where,
       take: limit + 1,
-      orderBy: { id: 'asc' },
+      // KS-4604. Свежие сверху + id как tie-breaker для одинаковых
+      // `createdAt`. Композитный индекс
+      // `tactic_puzzles_created_at_id_desc_idx` (миграция
+      // 20260624062500_ks4604_tactic_puzzles_browse_idx) поддерживает
+      // keyset O(log N).
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     const hasMore = items.length > limit;
     const page = hasMore ? items.slice(0, limit) : items;
-    const nextCursor = hasMore ? encodeCursor(page[page.length - 1].id) : null;
+    const last = page[page.length - 1];
+    const nextCursor =
+      hasMore && last ? encodeBrowseCursor(last.createdAt, last.id) : null;
     return {
       items: page.map((p) => this.toResponse(p)),
       nextCursor,
@@ -758,11 +785,12 @@ function decodeAttemptCursor(cursor: string | undefined): AttemptCursor | null {
   }
 }
 
-// ─── cursor codec (browse / mistakes — UUID-only) ────────────────────
+// ─── cursor codec ────────────────────────────────────────────────────
 
-// Cursor — просто base64 от UUID. Этого достаточно, чтобы пользователь
-// не зависал от формата id и API мог сменить sort key без поломок
-// клиентов.
+// `encodeCursor`/`decodeCursor` — одиночный UUID-keyset. Используется
+// `/tactic-puzzles/mistakes` (там сортировка по `id ASC`, см. listMistakes).
+// `/tactic-puzzles/browse` с KS-4604 ушёл на составной курсор —
+// `encodeBrowseCursor`/`decodeBrowseCursor` ниже.
 function encodeCursor(id: string): string {
   return Buffer.from(id, 'utf8').toString('base64url');
 }
@@ -780,6 +808,49 @@ function decodeCursor(cursor: string | undefined): string | null {
       return raw;
     }
     return null;
+  } catch {
+    return null;
+  }
+}
+
+// KS-4604. Составной keyset-курсор `(createdAt, id)` для
+// `/tactic-puzzles/browse`. Формат — base64url от `"<epochMs>|<uuid>"`,
+// тот же payload-шаблон, что и в `encodeAttemptCursor`. Декодер
+// толерантен: невалидная строка / отсутствующее поле / поломанный uuid
+// → `null`, что эквивалентно «нет курсора» (фронт начинает с первой
+// страницы). Это обеспечивает back-compat: старые UUID-курсоры,
+// сохранённые у фронта до выкатки KS-4604, при декодировании дадут
+// `null` и не поломают сессию — пользователь просто увидит первую
+// страницу заново.
+interface BrowseCursor {
+  createdAt: Date;
+  id: string;
+}
+
+function encodeBrowseCursor(createdAt: Date, id: string): string {
+  return Buffer.from(`${createdAt.getTime()}|${id}`, 'utf8').toString(
+    'base64url',
+  );
+}
+
+function decodeBrowseCursor(cursor: string | undefined): BrowseCursor | null {
+  if (!cursor) return null;
+  try {
+    const raw = Buffer.from(cursor, 'base64url').toString('utf8');
+    const sep = raw.indexOf('|');
+    if (sep <= 0) return null;
+    const tsRaw = raw.slice(0, sep);
+    const idRaw = raw.slice(sep + 1);
+    const ts = Number.parseInt(tsRaw, 10);
+    if (!Number.isFinite(ts)) return null;
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        idRaw,
+      )
+    ) {
+      return null;
+    }
+    return { createdAt: new Date(ts), id: idRaw };
   } catch {
     return null;
   }
