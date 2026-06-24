@@ -1423,4 +1423,174 @@ describe('AnalysisService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ── KS-4607: createFromTacticAttempt + buildTacticAttemptPgn ─────
+  describe('KS-4607 createFromTacticAttempt', () => {
+    const ATTEMPT_ID = '11111111-1111-4111-a111-111111111111';
+    const PUZZLE_ID = '22222222-2222-4222-a222-222222222222';
+    // FEN с move-номером 25, ход чёрных — реалистичный «критический момент».
+    const PUZZLE_FEN =
+      'r4rk1/pp3ppp/2p5/3pP3/3P4/2P2N2/q4PPP/R2QR1K1 b - - 0 25';
+
+    function installAttempt(overrides: Partial<{
+      attemptUser: string;
+      userMoves: string | null;
+      puzzleHeaders: Record<string, string> | null;
+      puzzleFen: string;
+      puzzleSourceMoveNum: number | null;
+      missing: boolean;
+    }> = {}): void {
+      // `userMoves` может быть null (нет ходов) — `??` склеит null и
+      // undefined, поэтому различаем явный null от «не задано».
+      const userMovesValue =
+        'userMoves' in overrides ? overrides.userMoves ?? null : 'a2c4 e1e3';
+      const attempt = overrides.missing
+        ? null
+        : {
+            id: ATTEMPT_ID,
+            puzzleId: PUZZLE_ID,
+            userId: overrides.attemptUser ?? userId,
+            solved: true,
+            userMoves: userMovesValue,
+            puzzle: {
+              id: PUZZLE_ID,
+              fen: overrides.puzzleFen ?? PUZZLE_FEN,
+              sourceMoveNum: overrides.puzzleSourceMoveNum ?? 50,
+              sourceHeaders:
+                overrides.puzzleHeaders === undefined
+                  ? {
+                      Event: 'GCT Finals 2025',
+                      White: 'Praggnanandhaa,R',
+                      Black: 'Aronian,L',
+                      Date: '2025.10.03',
+                      Result: '0-1',
+                      WhiteElo: '2785',
+                      BlackElo: '2744',
+                    }
+                  : overrides.puzzleHeaders,
+            },
+          };
+      (prisma as unknown as {
+        tacticPuzzleAttempt: { findUnique: jest.Mock };
+      }).tacticPuzzleAttempt = {
+        findUnique: jest.fn().mockResolvedValue(attempt),
+      };
+    }
+
+    beforeEach(() => {
+      // findFirst (dedup-lookup) — нет совпадения, идём в create.
+      prisma.analysis.findFirst = jest.fn().mockResolvedValue(null);
+      prisma.analysis.create.mockImplementation(
+        async ({ data }: { data: Record<string, unknown> }) => ({
+          id: 'analysis-from-attempt',
+          ...mockAnalysis,
+          ...data,
+        }),
+      );
+    });
+
+    it('собирает PGN с [SetUp]/[FEN]/source-headers и SAN-ходами, category=puzzle', async () => {
+      installAttempt();
+      const res = await service.createFromTacticAttempt(userId, ATTEMPT_ID);
+      expect(res.existing).toBe(false);
+
+      const data = prisma.analysis.create.mock.calls[0][0].data as {
+        pgn: string;
+        fen: string;
+        category: string;
+        title: string;
+      };
+      expect(data.category).toBe('puzzle');
+      expect(data.fen).toBe(PUZZLE_FEN);
+      expect(data.pgn).toContain('[White "Praggnanandhaa,R"]');
+      expect(data.pgn).toContain('[Black "Aronian,L"]');
+      expect(data.pgn).toContain('[Event "GCT Finals 2025"]');
+      expect(data.pgn).toContain('[SetUp "1"]');
+      expect(data.pgn).toContain(`[FEN "${PUZZLE_FEN}"]`);
+      // ход чёрных первый — должен быть префикс N...
+      expect(data.pgn).toMatch(/\b25\.\.\.\s/);
+      expect(data.title).toContain('Praggnanandhaa,R');
+      expect(data.title).toContain('Aronian,L');
+    });
+
+    it('attempt не существует → 404', async () => {
+      installAttempt({ missing: true });
+      await expect(
+        service.createFromTacticAttempt(userId, ATTEMPT_ID),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.analysis.create).not.toHaveBeenCalled();
+    });
+
+    it('attempt чужой → 404, не светим существование', async () => {
+      installAttempt({ attemptUser: otherId });
+      await expect(
+        service.createFromTacticAttempt(userId, ATTEMPT_ID),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.analysis.create).not.toHaveBeenCalled();
+    });
+
+    it('attempt без userMoves → PGN с пустым movetext, оканчивается на " *"', async () => {
+      installAttempt({ userMoves: null });
+      await service.createFromTacticAttempt(userId, ATTEMPT_ID);
+      const data = prisma.analysis.create.mock.calls[0][0].data as {
+        pgn: string;
+      };
+      expect(data.pgn).toMatch(/]\n\n\*$/);
+    });
+
+    it('dedup hit: повторный вызов возвращает existing=true, create не вызывается', async () => {
+      installAttempt();
+      // findFirst вернёт существующий — service сразу выйдет с existing=true.
+      prisma.analysis.findFirst = jest.fn().mockResolvedValue({
+        ...mockAnalysis,
+        id: 'analysis-existing',
+        sourceHash: 'pgn:somehash',
+      });
+      // update в dedup-ветке возвращает обновлённую запись.
+      prisma.analysis.update = jest.fn().mockResolvedValue({
+        ...mockAnalysis,
+        id: 'analysis-existing',
+      });
+      const res = await service.createFromTacticAttempt(userId, ATTEMPT_ID);
+      expect(res.existing).toBe(true);
+      expect((res as { id: string }).id).toBe('analysis-existing');
+      expect(prisma.analysis.create).not.toHaveBeenCalled();
+    });
+
+    it('KS-4552 dedup: разные FEN из одной партии-источника → разные hash', () => {
+      // Прямой тест на buildTacticAttemptPgn → разные [FEN] меняют PGN-body.
+      const sharedHeaders = {
+        Event: 'Test', White: 'A', Black: 'B', Date: '2026.01.01',
+      };
+      const pgn1 = AnalysisService.buildTacticAttemptPgn({
+        initialFen: PUZZLE_FEN,
+        userMovesUci: null,
+        headers: sharedHeaders,
+      });
+      const pgn2 = AnalysisService.buildTacticAttemptPgn({
+        initialFen:
+          'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+        userMovesUci: null,
+        headers: sharedHeaders,
+      });
+      // Разные FEN-теги → разные строки PGN → разные source_hash в
+      // computeAllSourceHashes (см. KS-4552 «FEN включён в ключ»).
+      expect(pgn1).not.toBe(pgn2);
+      const h1 = AnalysisService.computeAllSourceHashes({ pgn: pgn1 });
+      const h2 = AnalysisService.computeAllSourceHashes({ pgn: pgn2 });
+      expect(h1.preferred).not.toBe(h2.preferred);
+    });
+
+    it('buildTacticAttemptPgn: ходящие первыми белые → префикс "N." на первом полуходе', () => {
+      const pgn = AnalysisService.buildTacticAttemptPgn({
+        // ход белых, fullmove=12.
+        initialFen:
+          'r1bqk2r/pp1n1ppp/2pbpn2/3p4/2PP4/2N1PN2/PP3PPP/R1BQKB1R w KQkq - 0 12',
+        userMovesUci: 'f1d3 e8g8',
+        headers: undefined,
+      });
+      expect(pgn).toMatch(/12\. /);
+      expect(pgn).not.toMatch(/\.\.\./);
+    });
+  });
 });

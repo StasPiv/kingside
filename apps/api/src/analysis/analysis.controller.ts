@@ -18,6 +18,7 @@ import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AnalysisService } from './analysis.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
+import { CreateFromTacticAttemptDto } from './dto/create-from-tactic-attempt.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 import { ShareAnalysisDto } from './dto/share-analysis.dto';
 import { CheckExistingDto } from './dto/check-existing.dto';
@@ -38,6 +39,28 @@ export class AnalysisController {
   @Post()
   create(@Request() req: AuthenticatedRequest, @Body() dto: CreateAnalysisDto) {
     return this.analysisService.create(req.user.id, dto);
+  }
+
+  /**
+   * KS-4607. «Открыть в мастерской» из задачи tactic-puzzle. Фронт
+   * передаёт только `attemptId`, backend собирает PGN из связки
+   * `tactic_puzzle_attempts → tactic_puzzles` и создаёт/возвращает
+   * существующий анализ (dedup как у обычной POST /analyses, см.
+   * `computeAllSourceHashes` + KS-4552 — [FEN] в hash). 404, если
+   * attempt не принадлежит текущему пользователю или не существует.
+   *
+   * Объявлен ДО `@Get(':id')` чтобы статический сегмент матчился
+   * раньше параметрического.
+   */
+  @Post('from-tactic-attempt')
+  createFromTacticAttempt(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: CreateFromTacticAttemptDto,
+  ) {
+    return this.analysisService.createFromTacticAttempt(
+      req.user.id,
+      dto.attemptId,
+    );
   }
 
   /**

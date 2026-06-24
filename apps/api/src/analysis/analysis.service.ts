@@ -9,6 +9,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { createHash } from 'crypto';
+import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 // KS-4247 / ADR-131 A1. ArchiveService для in-process резолва партии,
 // под env-флагом ARCHIVE_USE_LOCAL=true.
@@ -628,6 +629,178 @@ export class AnalysisService implements OnModuleInit {
       },
     });
     return { ...created, existing: false };
+  }
+
+  /**
+   * KS-4607. Создание анализа из попытки tactic-puzzle: фронт передаёт
+   * только `attemptId`, backend сам собирает PGN из связки
+   * `tactic_puzzle_attempts → tactic_puzzles` (стартовый FEN задачи,
+   * userMoves в SAN, теги партии-источника из `puzzle.sourceHeaders`).
+   * Раньше эту сборку делал фронт (`apps/web/src/utils/buildTacticPuzzlePgn.ts`)
+   * и отправлял готовый PGN в `POST /analyses` — после KS-4607 эта
+   * утилита уберётся отдельным фронт-тикетом.
+   *
+   * Дедуп — через тот же `computeAllSourceHashes` механизм, что и
+   * `create()`. KS-4552 включил `[FEN]` в pgn-hash → задачи из одной
+   * партии (одинаковые headers) получают разные hash'и и не схлопываются.
+   *
+   * Доступ: attempt должен принадлежать текущему пользователю; чужие /
+   * несуществующие → 404 NotFound.
+   */
+  async createFromTacticAttempt(
+    userId: string,
+    attemptId: string,
+  ): Promise<Record<string, unknown> & { existing: boolean }> {
+    const attempt = await this.prisma.tacticPuzzleAttempt.findUnique({
+      where: { id: attemptId },
+      include: { puzzle: true },
+    });
+    if (!attempt || attempt.userId !== userId) {
+      // Объединяем «не нашёл» и «чужой» в 404, чтобы по реакции
+      // нельзя было различить «существует, но не твой» от «нет такого».
+      throw new NotFoundException(`tactic attempt ${attemptId} not found`);
+    }
+
+    const puzzle = attempt.puzzle;
+    const headers =
+      (puzzle.sourceHeaders as Record<string, string> | null) ?? undefined;
+    const pgn = AnalysisService.buildTacticAttemptPgn({
+      initialFen: puzzle.fen,
+      userMovesUci: attempt.userMoves,
+      headers,
+    });
+    const title = this.titleForTacticAttempt(puzzle, headers);
+
+    return this.create(userId, {
+      pgn,
+      fen: puzzle.fen,
+      title,
+      category: 'puzzle',
+    });
+  }
+
+  /**
+   * KS-4607. Заголовок анализа: «<White> vs <Black>, ход N — задача».
+   * Fallback на дату/событие, если имён нет — fronthand эстетика, не
+   * критично для логики.
+   */
+  private titleForTacticAttempt(
+    puzzle: { sourceMoveNum: number | null },
+    headers?: Record<string, string>,
+  ): string {
+    const white = headers?.White?.trim();
+    const black = headers?.Black?.trim();
+    const move = puzzle.sourceMoveNum;
+    if (white && black) {
+      return move
+        ? `${white} vs ${black}, ход ${Math.ceil(move / 2)} — задача`
+        : `${white} vs ${black} — задача`;
+    }
+    return 'Критический момент — задача';
+  }
+
+  /**
+   * KS-4607. Сборка PGN-строки задачи tactic-puzzle. Логика 1:1 с
+   * фронтовым `apps/web/src/utils/buildTacticPuzzlePgn.ts` (KS-4492) —
+   * перенесена на backend, чтобы клиент не знал о структуре PGN, и для
+   * единообразия дедуп-хеша (KS-4551 dedup мог расходиться из-за
+   * мелких отличий в порядке/escape тегов между фронтом и бекендом).
+   *
+   * Контракт:
+   *   - `initialFen` — стартовая FEN задачи, кладётся в тег `[FEN]`.
+   *   - `userMovesUci` — UCI-ходы пользователя через пробел; разбираются
+   *     в SAN на копии стартовой позиции через chess.js. На первой
+   *     невалидной записи цикл прерывается (как делает фронтовый PGN-
+   *     builder для Precision).
+   *   - `headers` — Seven Tag Roster + ELO из `puzzle.sourceHeaders`.
+   *     Все `null/undefined` отфильтрованы. `Result` сохраняется как
+   *     есть; если отсутствует — добавляется `[Result "*"]`.
+   *
+   * Стандартный порядок тегов (Event/Site/Date/Round/White/Black/...)
+   * соблюдается для удобства чтения PGN, неизвестные хэдеры — в конце.
+   */
+  static buildTacticAttemptPgn(args: {
+    initialFen: string;
+    userMovesUci: string | null;
+    headers?: Record<string, string>;
+  }): string {
+    const { initialFen, userMovesUci, headers } = args;
+
+    const chess = new Chess(initialFen);
+    const sans: string[] = [];
+    if (userMovesUci && userMovesUci.trim()) {
+      const uciList = userMovesUci.trim().split(/\s+/).filter(Boolean);
+      for (const uci of uciList) {
+        if (uci.length < 4) break;
+        try {
+          const mv = chess.move({
+            from: uci.slice(0, 2),
+            to: uci.slice(2, 4),
+            promotion: uci.length > 4 ? uci[4] : undefined,
+          });
+          if (!mv) break;
+          sans.push(mv.san);
+        } catch {
+          break;
+        }
+      }
+    }
+
+    const startParts = initialFen.split(' ');
+    const startMvNum = parseInt(startParts[5] ?? '1', 10) || 1;
+    const startIsWhite = startParts[1] !== 'b';
+    const movetext: string[] = [];
+    for (let i = 0; i < sans.length; i++) {
+      const totalHalf = i + (startIsWhite ? 0 : 1);
+      const fullMv = startMvNum + Math.floor(totalHalf / 2);
+      const isWhiteHalf = totalHalf % 2 === 0;
+      if (i === 0 && !startIsWhite) {
+        movetext.push(`${startMvNum}...`);
+      } else if (isWhiteHalf) {
+        movetext.push(`${fullMv}.`);
+      }
+      movetext.push(sans[i]);
+    }
+
+    const knownOrder = [
+      'Event',
+      'Site',
+      'Date',
+      'Round',
+      'White',
+      'Black',
+      'Result',
+      'WhiteElo',
+      'BlackElo',
+      'ECO',
+      'Opening',
+      'TimeControl',
+    ];
+    const headerLines: string[] = [];
+    if (headers) {
+      const seen = new Set<string>();
+      for (const k of knownOrder) {
+        const v = headers[k];
+        if (typeof v === 'string' && v.length > 0) {
+          headerLines.push(`[${k} "${v.replace(/"/g, "'")}"]`);
+          seen.add(k);
+        }
+      }
+      for (const [k, v] of Object.entries(headers)) {
+        if (seen.has(k)) continue;
+        if (typeof v === 'string' && v.length > 0) {
+          headerLines.push(`[${k} "${v.replace(/"/g, "'")}"]`);
+        }
+      }
+    }
+    if (!headerLines.some((l) => l.startsWith('[Result '))) {
+      headerLines.push(`[Result "*"]`);
+    }
+    headerLines.push(`[SetUp "1"]`);
+    headerLines.push(`[FEN "${initialFen}"]`);
+
+    const tail = movetext.length > 0 ? `${movetext.join(' ')} *` : `*`;
+    return `${headerLines.join('\n')}\n\n${tail}`;
   }
 
   /**
