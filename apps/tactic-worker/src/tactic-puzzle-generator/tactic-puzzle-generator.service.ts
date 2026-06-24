@@ -281,7 +281,8 @@ export class TacticPuzzleGeneratorService {
       wdlW: candidate.wdl.w,
       wdlD: candidate.wdl.d,
       wdlL: candidate.wdl.l,
-      objective: candidate.objective,
+      // KS-4368/KS-4370: поле `objective` удалено из TacticPuzzleCandidate
+      // и из Prisma-модели (миграция `tactic_puzzles_drop_objective`).
       themes: '',
       sourceGameId: game.id,
       sourceMoveNum: candidate.ply,
