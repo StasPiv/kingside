@@ -1,8 +1,19 @@
 # ADR-142: Переключение между окнами анализа во время записи лекции
 
-**Статус:** Черновик на ревью координатором
+**Статус:** Согласовано пользователем (правка от 2026-06-25 по результатам ревью backend и пользователем)
 **Дата:** 2026-06-25
 **Задача:** KS-4626
+
+**История правок:**
+- 2026-06-25 v1 — первоначальная версия (черновик).
+- 2026-06-25 v2 — по результатам ревью backend и решения пользователя:
+  «Analysis в БД — единственный первоисточник дерева. При переключении окна
+  фронт сам делает `GET /analyses/:id` и тянет дерево; backend в Redis state
+  хранит только `activeAnalysisId`; WS-событие и REST-body несут только
+  `{analysisId, title}`. Никакого `tree` в Redis, WS и REST.»
+  Правка устраняет противоречие между §2.2/§2.3/§2.6 первой версии и
+  выравнивает решение с правилом KS-3780 (backend не парсит/не реплицирует
+  содержимое дерева).
 **Связанные ADR:** [ADR-110](./110-live-analysis-broadcast.md), [ADR-111](./111-live-analysis-full-broadcast.md), [ADR-112](./112-live-analysis-per-analysis-binding.md), [ADR-113](./113-coach-page.md), [ADR-116](./116-lecture-audio-p2p.md), [ADR-117](./117-lecture-student-tools-policy.md), [ADR-119](./119-lecture-ui-coach-student.md)
 
 ## 1. Контекст
@@ -58,71 +69,73 @@
 
 Сохраняем модель «одна `LiveAnalysis` на лекцию». Расширяем семантику live-сессии: внутри одной сессии есть **текущий активный `analysisId`**, который может меняться в эфире. Каждое переключение пишется отдельным событием в поток записи.
 
-Концептуально это аналог `reset`, но «жирный»: вместо чистого FEN — полный snapshot нового окна анализа (стартовая позиция + дерево вариаций + ориентация + метаданные).
+**Принцип единого источника** (правка v2, KS-3780-совместимо): `Analysis` в БД — единственный источник истины для содержимого окна анализа (`tree`, `fen`, `boardOrientation`, headers, заголовок). Backend **не читает** и **не реплицирует** дерево анализа: ни в Redis state, ни в WS-payload, ни в REST-ответ. Backend оперирует только `analysisId` как указателем; фронт (тренер, зритель, replay) сам делает `GET /analyses/:id` и берёт содержимое из БД.
+
+Концептуально переключение окна — это «смена указателя `activeAnalysisId`» с одновременным обнулением рабочего состояния позиции в Redis (так как ходы и patch'и старого окна перестают быть актуальными).
 
 ### 2.2 Новый тип события `analysis-switch`
 
-В существующий набор событий записи (см. `recordLectureEvent` в `live-analysis.service.ts:600`) добавляется тип `analysis-switch` со следующим payload:
+В существующий набор событий записи (см. `recordLectureEvent` в `live-analysis.service.ts:600`) добавляется тип `analysis-switch` с **минимальным** payload — только указатель на `Analysis` и человекочитаемый заголовок:
 
 ```ts
 type AnalysisSwitchEvent = {
   t: number;                    // мс от lecture.startedAt
   type: 'analysis-switch';
   payload: {
-    /** Источник: id Analysis, на который тренер переключился. */
+    /** Источник: id Analysis, на который тренер переключился.
+     *  Содержимое окна (tree, fen, orientation, headers) фронт получает
+     *  отдельным запросом GET /analyses/:id. */
     analysisId: string;
-    /** Заголовок окна — для отображения у зрителя ("На разбор: Каро-Канн"). */
+    /** Заголовок окна (`Analysis.title` на момент переключения) — нужен,
+     *  чтобы зритель сразу видел "Сейчас разбираем: X" и чтобы заголовок
+     *  отображался в replay, даже если Analysis к этому моменту удалён. */
     title: string;
-    /** Стартовый FEN; null — стандартная начальная позиция. */
-    startingFen: string | null;
-    /** Ориентация доски в момент переключения. */
-    orientation: 'white' | 'black';
-    /** Полное дерево вариаций (формат `Analysis.tree`/`state.tree`).
-     *  null — окно ещё без дерева, доска стартует со startingFen. */
-    tree: unknown | null;
-    /** Текущая глобальная позиция в дереве (как в state.currentGlobalIndex);
-     *  null — корень. */
-    currentGlobalIndex: number | null;
-    /** Опционально — PGN headers (white/black/event/date/result),
-     *  чтобы зритель видел контекст партии. */
-    headers?: {
-      white?: string; black?: string; event?: string;
-      date?: string; result?: string;
-    };
   };
 };
 ```
 
 Новый тип расширяет union `'move' | 'state-patch' | 'reset' | 'closed' | 'analysis-switch'` в `recordLectureEvent`.
 
-**Почему отдельный тип, а не расширенный `reset`.** `reset` уже описан в трекере и фронте как «сменить позицию» (узкая операция). Семантика переключения окна шире: это смена контекста партии целиком. Отдельный тип:
+**Что НЕ хранится в payload (намеренно):** `tree`, `startingFen`, `orientation`, `currentGlobalIndex`, PGN headers. Всё это — содержимое `Analysis` в БД, фронт делает `GET /analyses/:id` и получает напрямую. `title` дублируется в payload как «надгробная» подпись на случай, если сам `Analysis` к моменту replay'я был удалён владельцем (см. §6.5).
+
+**Почему отдельный тип, а не расширенный `reset`.** `reset` уже описан в трекере и фронте как «сменить позицию» (узкая операция). Семантика переключения окна шире: это смена контекста партии целиком (другой Analysis, другой FEN, другое дерево). Отдельный тип:
 - не ломает существующий код, читающий `reset`;
 - ясно отличается в analytics и в replay-логе;
-- payload крупный (целое дерево), не путается с лёгким `reset.payload`.
+- читается фронтом по-разному: `reset` применяется inline, `analysis-switch` требует асинхронного fetch'а из БД.
 
 ### 2.3 Изменение Redis-state у `LiveAnalysis`
 
-В hash `live_analysis:<id>:state` добавляется ключ:
+В hash `live_analysis:<id>:state` добавляются **два** скалярных ключа:
 
 - `activeAnalysisId: string | null` — id текущего активного Analysis. Инициализируется значением `LiveAnalysis.analysisId` при первом subscribe (если оба null — остаётся null).
+- `activeTitle: string | null` — заголовок активного Analysis. Сохраняется на момент switch'а, чтобы `sync`-snapshot при reconnect нёс его сразу без дополнительного fetch'а к Analysis (фронт всё равно потом подтянет полное содержимое, но мгновенный заголовок улучшает UX переподключения).
+
+`tree`, `startingFen`, `orientation`, `currentGlobalIndex` в state hash **не пишутся при switch'е** из содержимого Analysis. Они остаются обычными полями state, которыми управляют:
+- существующий `state-patch` тренера (когда тренер ведёт ходы поверх загруженного окна и обновляет дерево);
+- существующий `applyReset` (лёгкий сброс FEN без смены окна).
 
 При `analysis-switch`:
 
-1. Валидация: switchTarget — это `Analysis`, принадлежащий тому же `User`, что владеет `LiveAnalysis`. Чужие анализы не переключаются.
-2. Snapshot выбранного `Analysis` забирается из БД (`tree`, `fen` как startingFen, `boardOrientation`, заголовок, headers).
-3. Записывается в state hash: `startingFen`, `orientation`, `tree`, `currentGlobalIndex`, `activeAnalysisId`. Очищаются производные (currentPgn, lastPatchAt). Чистится `moves`-список (нет ходов поверх нового дерева).
-4. Эмитится `live-analysis:sync` snapshot с новым `startingFen`, `orientation`, `tree`, `activeAnalysisId`, `title`.
-5. В `lecture_recording:<liveAnalysisId>:events` пишется событие `analysis-switch` с полной нагрузкой (см. §2.2).
+1. **Валидация.** `Analysis.findFirst({id, userId: actingUserId})` — переключаться можно только на собственный анализ. Чужой / несуществующий → `404 analysis_not_found` (для несуществующего) или `403 forbidden_analysis` (для чужого).
+2. **Чтение из БД — минимальное.** Backend читает только `Analysis.id`, `Analysis.userId`, `Analysis.title`. Поля `tree`, `pgn`, `fen` **не читаются** — это содержимое, которое раздают `GET /analyses/:id` стандартным путём.
+3. **Запись в Redis state hash:**
+   - `HSET state activeAnalysisId=<A2>, activeTitle=<title>`;
+   - `HDEL state tree, currentPgn, currentGlobalIndex, lastPatchAt, currentFen, startingFen, orientation`. Эти поля стирают рабочее состояние старого окна — оно перестало быть актуальным.
+   - `DEL moves_list` — ходы старого окна больше не применимы.
+4. **WS-broadcast:** `live-analysis:analysis-switch { slug, analysisId, title }` — только указатель (см. §2.7).
+5. **Запись в журнал:** RPUSH в `lecture_recording:<liveAnalysisId>:events` события `{t, type:'analysis-switch', payload:{analysisId, title}}`.
+
+После switch'а сценарий полностью симметричен «свежей» live-сессии: state очищен, тренер первым state-patch'ем заливает актуальное дерево (которое он только что подтянул на свой клиент из `GET /analyses/:id`), оно ложится в Redis как обычно — этот путь уже отлажен и не задействует парсинг PGN на стороне backend (KS-3780).
 
 **Поле `LiveAnalysis.analysisId` в БД не меняется.** Оно остаётся неизменной отметкой «исходник трансляции». Это:
 
 - сохраняет partial UNIQUE индекс «один автор × один анализ = один active» (ADR-112) без необходимости обновлять при каждом switch;
 - упрощает аудит «с чего тренер начал»;
-- активное окно — короткоживущее runtime-состояние, корректное место для него Redis (как `currentFen`, `tree`).
+- активное окно — короткоживущее runtime-состояние, корректное место для него Redis hash.
 
 ### 2.4 Snapshot текущего активного окна
 
-`sync`-snapshot, который получает зритель при subscribe и при switch, расширяется опциональным полем:
+`sync`-snapshot, который получает зритель при subscribe и при switch, расширяется двумя опциональными полями:
 
 ```ts
 type LiveAnalysisSyncSnapshot = {
@@ -130,12 +143,17 @@ type LiveAnalysisSyncSnapshot = {
   /** KS-4626: текущий активный Analysis. null — лекция без привязки или
    *  тренер не начинал переключение (используется исходный LiveAnalysis.analysisId). */
   activeAnalysisId?: string | null;
-  /** Заголовок активного окна — для UI зрителя ("Сейчас разбираем: X"). */
-  activeTitle?: string;
+  /** Заголовок активного окна — для UI зрителя ("Сейчас разбираем: X").
+   *  Содержимое окна (tree, fen, orientation) фронт берёт отдельным
+   *  GET /analyses/:activeAnalysisId. */
+  activeTitle?: string | null;
 };
 ```
 
-Frontend зрителя при `analysis-switch`/`sync` обновляет надпись над доской и сбрасывает локальное состояние дерева.
+`tree`/`currentGlobalIndex` в `sync` остаются опциональными как и сейчас (приходят из `state-patch`'ей тренера — это не содержимое из БД, а текущее рабочее состояние). Frontend зрителя:
+
+1. На `sync` с известным `activeAnalysisId` — параллельно стартует `GET /analyses/:activeAnalysisId` (если ещё не закэшировано), параллельно применяет inline-поля snapshot'а;
+2. На `analysis-switch` event — сбрасывает локальное состояние, ставит «грузится…» plus `activeTitle`, делает `GET /analyses/:analysisId`, после ответа рендерит дерево.
 
 ### 2.5 Влияние на схему БД
 
@@ -176,17 +194,17 @@ model LectureAnalysisSlot {
 
 ```
 POST /live-analysis/:slug/switch-analysis
-Body: { analysisId: string }
-Resp: LiveAnalysisSyncSnapshot
+Body: { analysisId: string }                          ← только указатель, без tree
+Resp: LiveAnalysisSyncSnapshot                        ← без tree (см. §2.4)
 ```
 
 Гарды и проверки:
 
 - `JwtAuthGuard` — только аутентифицированные.
 - `assertOwnerAndActive(slug, userId)` — переключать может только владелец трансляции.
-- Валидация: `Analysis.userId === userId` (нельзя переключиться на чужой анализ). При нарушении — `403 forbidden_analysis`.
-- Rate-limit: используется существующий `authorStatePatchLimiter` (логически switch ≈ жирный state-patch) либо отдельный bucket с 1 op/sec (Phase 1 — переиспользуем существующий).
-- Размер payload (`tree`): тот же hard cap, что у `state-patch` — 256 KB на сериализованное дерево. При превышении — `400 tree_too_large`.
+- Валидация: `Analysis.findFirst({id, userId})` — нельзя переключиться на чужой / несуществующий анализ. Чужой → `403 forbidden_analysis`, отсутствует → `404 analysis_not_found`.
+- Rate-limit: отдельный bucket `authorAnalysisSwitchLimiter` со скоростью **2 op/sec** (switch — редкая и относительно дорогая операция в UX-плане, чаще учебная пауза; жёсткий лимит защищает от случайного спама). Использовать тот же тип `TokenBucketLimiter`, что и для state-patch.
+- **Никаких ограничений по размеру** — backend в `Analysis.tree` не заглядывает, payload запроса и ответа лёгкие (несколько байт).
 
 `POST` (не `PATCH`), потому что операция меняет состояние трансляции и пишет событие в журнал — семантически action, не частичное обновление поля.
 
@@ -194,17 +212,24 @@ Resp: LiveAnalysisSyncSnapshot
 
 - `GET /live-analysis/:slug/snapshot` — в ответ добавляется `activeAnalysisId?`, `activeTitle?` (см. §2.4).
 - `GET /lectures/:id` (ADR-119) — без изменений; информация о switch'ах живёт в `recording.events`.
+- `GET /analyses/:id` — без изменений; этот существующий endpoint и есть путь, которым фронт зрителя/replay'я получает содержимое окна. Доступ к чужому Analysis — по существующим правилам (приватный/публичный), которые на стороне Analysis-модуля.
 
 ### 2.7 WebSocket-контракт
 
 В существующий namespace `/live-analysis` (ADR-110) добавляется:
 
-- **Server → клиент**: событие `live-analysis:analysis-switch` — payload идентичен `AnalysisSwitchEvent.payload` (см. §2.2). Срабатывает у всех подключённых зрителей в room=`slug`. Зрители на это событие:
-  - сбрасывают локальное дерево;
-  - применяют `startingFen` / `orientation` / `tree` / `currentGlobalIndex` к доске;
-  - показывают transient-уведомление «Тренер переключился на: <title>».
+- **Server → клиент**: событие `live-analysis:analysis-switch` с payload:
+  ```ts
+  { slug: string; analysisId: string; title: string }
+  ```
+  Срабатывает у всех подключённых зрителей в room=`slug`. **Никакого `tree` / `fen` / `orientation` в payload нет** — это намеренно. Зритель на это событие:
+  - сбрасывает локальное состояние доски (дерево, currentGlobalIndex, currentFen);
+  - показывает «загрузка нового окна…» plus заголовок `title`;
+  - делает `GET /analyses/:analysisId` (через тот же путь, что использует обычная страница `/analysis/:id`);
+  - после ответа применяет `tree`/`fen`/`boardOrientation` из ответа Analysis;
+  - показывает transient-уведомление «Тренер переключился на: <title>».
 
-- **Server → клиент**: существующий `live-analysis:sync` теперь несёт `activeAnalysisId`, `activeTitle` в payload.
+- **Server → клиент**: существующий `live-analysis:sync` теперь несёт `activeAnalysisId`, `activeTitle` в payload (см. §2.4).
 
 - Клиентских команд не добавляется. Тренер инициирует switch через REST (см. §2.6); WS-broadcast — производное событие.
 
@@ -213,13 +238,21 @@ Resp: LiveAnalysisSyncSnapshot
 `LectureReplayPage` (ADR-119) на каждом такте таймера ищет события `event.t <= currentTimeMs` и применяет их. Логика поведения по типам:
 
 - `move` / `state-patch` / `reset` — как сейчас.
-- **Новое**: `analysis-switch` — плеер делает «жирный сброс» состояния: переинициализирует `chess.js`-движок с `payload.startingFen`, заливает дерево, ставит ориентацию, обновляет «title-bar» доски заголовком `payload.title`. Дальше move-события применяются к новому дереву.
+- **Новое**: `analysis-switch` — плеер делает асинхронный «жирный сброс»:
+  1. Берёт `payload.analysisId`;
+  2. Делает `GET /analyses/:analysisId` (через тот же путь, что страница `/analysis/:id`). Содержимое — `tree`, `fen`, `boardOrientation`, headers — приходит из БД, единый источник истины.
+  3. Применяет полученное содержимое к доске; обновляет «title-bar» заголовком `payload.title` (либо `Analysis.title` из ответа, если доступен).
+  4. Дальше `move`/`state-patch` события применяются к новому дереву.
+
+**Кэширование fetch'ей.** Плеер держит `Map<analysisId, AnalysisDetail>` на время сессии воспроизведения. Один и тот же `analysisId` за лекцию читается из БД один раз; при seek через ту же границу — повторного fetch'а нет.
+
+**Деградация при удалённом Analysis.** Если `GET /analyses/:id` вернул 404 (тренер удалил окно после записи лекции) — плеер показывает на доске сообщение «Окно анализа «<title>» удалено владельцем» и таймер продолжает идти. `title` в `payload` (см. §2.2) — единственное, что точно переживёт удаление, поэтому держим его в событии. См. также риск §6.5.
 
 При перемотке назад через границу switch:
-- Плеер ищет последний `analysis-switch` event с `t <= currentTimeMs`; если нет — стартует с исходного `LiveAnalysis.analysisId` (см. `LectureRecording.startingFen`). Затем применяет события от точки switch'а до `currentTimeMs`.
-- Реализация: при seek пере-проигрывается всё с последнего «жирного» события (`reset` или `analysis-switch`) — O(secondsInSegment), не O(всейЛекции).
+- Плеер ищет последний `analysis-switch` event с `t <= currentTimeMs`; если нет — стартует с исходного `LiveAnalysis.analysisId` (известен из `LectureRecording.startingFen`/синтетического switch'а на t=0, см. §6.5). Затем применяет события от точки switch'а до `currentTimeMs`.
+- Реализация: при seek пере-проигрывается всё с последнего «жирного» события (`reset` или `analysis-switch`) — O(secondsInSegment), не O(всейЛекции). Fetch к Analysis — из кэша.
 
-В timeline-баре плеера (Phase 2) — отметки переключений: цветные риски с подписями «→ Каро-Канн», «→ Эндшпиль». Помогают ученику ориентироваться и быстро прыгать к нужной теме.
+В timeline-баре плеера (Phase 2) — отметки переключений: цветные риски с подписями «→ Каро-Канн», «→ Эндшпиль» (заголовки берутся из payload событий). Помогают ученику ориентироваться и быстро прыгать к нужной теме.
 
 ### 2.9 UI тренера
 
@@ -265,11 +298,13 @@ Resp: LiveAnalysisSyncSnapshot
 `AnalysisPage` в режиме `liveSession.mode='viewer'` подписывается на `analysis-switch`. По событию:
 
 - Сверху доски короткий toast: «Тренер переключился на: <title>» (5 сек, dismissable).
-- Заголовок над доской меняется на `payload.title`.
-- Доска и дерево перерисовываются полностью (новые `startingFen` / `tree` / `orientation`).
+- Заголовок над доской меняется на `payload.title` сразу (без ожидания fetch'а).
+- Состояние доски сбрасывается, показывается skeleton/«загрузка окна…».
+- Параллельно стартует `GET /analyses/:analysisId`. После ответа применяются `tree` / `fen` / `boardOrientation`.
 - Любые «локальные» вариации зрителя в Workshop-режиме (если ADR-117 разрешает) — сбрасываются вместе с деревом тренера. Без специального confirm'а: ученик понимает, что тема сменилась.
+- Если `GET /analyses/:id` упал (404/403/сеть) — на доске остаётся последняя позиция плюс надпись «не удалось загрузить окно `<title>`», следующий `move`/`state-patch` от тренера лечит ситуацию (когда тренер сделает первый ход после switch'а, его state-patch принесёт актуальное дерево).
 
-Если ученик в момент `analysis-switch` оказался offline и переподключился — `live-analysis:sync` отдаст ему сразу актуальный snapshot с активным окном (см. §2.4). Никаких «потерянных» switch'ей нет.
+Если ученик в момент `analysis-switch` оказался offline и переподключился — `live-analysis:sync` отдаст ему сразу `activeAnalysisId`+`activeTitle` (см. §2.4); фронт по тому же пути делает `GET /analyses/:activeAnalysisId`. Никаких «потерянных» switch'ей нет.
 
 ### 2.11 UI зрителя (replay)
 
@@ -302,16 +337,21 @@ sequenceDiagram
 
     T->>API: POST /live-analysis/L1/switch-analysis { analysisId:A2 }
     API->>API: assertOwnerAndActive(L1, user)
-    API->>DB: Analysis.findUnique(id=A2, userId=...)
-    API-->>API: 403 если userId не совпал
-    API->>R: HSET state {startingFen,tree,orientation,activeAnalysisId=A2}
+    API->>DB: Analysis.findFirst(id=A2, userId=user) — читаем только id/title
+    API-->>API: 403/404 если чужой/нет
+    API->>R: HSET state {activeAnalysisId=A2, activeTitle=<title>}
+    API->>R: HDEL state {tree, currentPgn, currentGlobalIndex, startingFen, ...}
     API->>R: DEL moves_list
-    API->>R: RPUSH lecture_recording:L1:events analysis-switch event
-    API->>S: WS broadcast 'live-analysis:analysis-switch' { ...payload }
+    API->>R: RPUSH lecture_recording:L1:events {type:'analysis-switch', payload:{analysisId, title}}
+    API->>S: WS broadcast 'live-analysis:analysis-switch' {slug, analysisId:A2, title}
     API-->>T: 200 { syncSnapshot }
-    Note over S: Зритель сбрасывает дерево, рендерит payload.tree
+    Note over S: Зритель: reset board, show "загрузка окна <title>"
+    S->>API: GET /analyses/A2
+    API->>DB: Analysis.findUnique(A2)
+    API-->>S: { tree, fen, boardOrientation, title, ... }
+    Note over S: Зритель рендерит содержимое окна A2
 
-    Note over T,S: Тренер ведёт ходы по новому окну, всё как обычно.
+    Note over T,S: Тренер ведёт ходы по новому окну, всё как обычно (state-patch / move).
 
     T->>API: POST /lectures/:id/end
     API->>R: LRANGE lecture_recording:L1:events 0 -1
@@ -336,15 +376,15 @@ Contra:
 
 ### 4.2 Расширить `reset` (вместо нового типа события)
 
-`applyReset(slug, fen)` → `applyReset(slug, { fen, tree, orientation, analysisId, title })`.
+`applyReset(slug, fen)` → `applyReset(slug, { fen, analysisId, title })`.
 
 Pro: одна точка изменения, меньше типов.
 Contra:
-- Семантическая перегрузка: `reset` сейчас лёгкий (только FEN), будет тяжёлый (целое дерево). В analytics и логах не отличается.
-- Текущие клиенты (`useLiveAnalysisViewer` хук) обрабатывают `reset` как «локальный сброс FEN» и не ожидают payload с деревом.
-- Backward compat: если когда-то останется старый клиент, он получит «жирный» reset и проигнорирует tree — ошибочный UX.
+- Семантическая перегрузка: `reset` сейчас — «локальный сброс FEN» в существующих клиентах, не «смена окна анализа с асинхронным fetch'ем содержимого».
+- Текущий `useLiveAnalysisViewer` хук обрабатывает `reset` синхронно. Добавление сюда `analysisId` смешивает два разных поведенческих контракта на одном событии.
+- В analytics и логах два сценария не отличаются.
 
-Отдельный тип события ясно разделяет «сброс на чистую позицию» (`reset`) и «смена окна анализа» (`analysis-switch`).
+Отдельный тип события ясно разделяет «сброс на чистую позицию» (`reset` — синхронный) и «смена окна анализа» (`analysis-switch` — асинхронный fetch).
 
 ### 4.3 Хранить активный analysisId в БД (`LiveAnalysis.activeAnalysisId`)
 
@@ -377,12 +417,12 @@ Contra:
 
 ### Эпик A — Backend (1-2 дня)
 
-- **KS-A01 [backend]** — Расширить тип события: добавить `analysis-switch` в union `recordLectureEvent`. Обновить `RecordedEvent` type в `packages/shared/types/api-contracts.ts`.
-- **KS-A02 [backend]** — `LiveAnalysisService.applySwitchAnalysis(slug, actingUserId, analysisId)`: валидация owner-trainer + owner-analysis, чтение `Analysis.tree/fen/orientation/title`, запись в Redis state hash, очистка moves-list, publish `live-analysis:analysis-switch`, RPUSH события в `lecture_recording:<id>:events`.
-- **KS-A03 [backend]** — `POST /live-analysis/:slug/switch-analysis` controller + DTO; guard `JwtAuthGuard`; rate-limit reuse `authorStatePatchLimiter`. Размер `tree` — cap 256 KB.
-- **KS-A04 [backend]** — Расширить `LiveAnalysisSyncSnapshot`: `activeAnalysisId?`, `activeTitle?`. Прокинуть в `sync`-broadcast и в `GET /live-analysis/:slug/snapshot`.
-- **KS-A05 [backend]** — Финализатор записи (`finalizeLectureRecording`): events с типом `analysis-switch` сохраняются как есть в `LectureRecording.events`; считаются для `byteSize`/`eventCount` штатно. Никаких особых ветвлений не нужно.
-- **KS-A06 [backend]** — Unit-тесты: `applySwitchAnalysis` (валидация owner, рассинхрон tree → 400, чужой analysis → 403, корректный sync snapshot, корректная запись в Redis).
+- **KS-A01 [backend]** — Расширить тип события: добавить `analysis-switch` в union `recordLectureEvent`. Обновить `RecordedEvent` type в `packages/shared/types/api-contracts.ts`. Payload минимальный — `{analysisId, title}`, без tree/fen/orientation.
+- **KS-A02 [backend]** — `LiveAnalysisService.applySwitchAnalysis(slug, actingUserId, analysisId)`: валидация owner-trainer + owner-analysis (через `Analysis.findFirst` только по `id`, `userId`, `title` — без чтения `tree`/`pgn`/`fen`), HSET в Redis state `activeAnalysisId`/`activeTitle`, HDEL производных полей старого окна, DEL moves-list, publish `live-analysis:analysis-switch`, RPUSH события в `lecture_recording:<id>:events`.
+- **KS-A03 [backend]** — `POST /live-analysis/:slug/switch-analysis` controller + DTO; guard `JwtAuthGuard`; новый rate-limit bucket `authorAnalysisSwitchLimiter` (2 op/sec). Никакого ограничения по размеру — payload запроса лёгкий, tree в нём нет.
+- **KS-A04 [backend]** — Расширить `LiveAnalysisSyncSnapshot`: `activeAnalysisId?`, `activeTitle?`. Прокинуть в `sync`-broadcast и в `GET /live-analysis/:slug/snapshot`. Поля читаются из Redis state hash, БД не дёргается.
+- **KS-A05 [backend]** — Финализатор записи (`finalizeLectureRecording`): events с типом `analysis-switch` сохраняются как есть в `LectureRecording.events`; считаются для `byteSize`/`eventCount` штатно. Синтетический `analysis-switch` на t=0 с данными исходного `LiveAnalysis.analysisId` (для replay-консистентности, см. §6.5) — добавлять при INSERT'е recording'а, если первое событие — не `analysis-switch`.
+- **KS-A06 [backend]** — Unit-тесты: `applySwitchAnalysis` (валидация owner, чужой/несуществующий analysis → 403/404, корректный sync snapshot, корректные HSET/HDEL ключи в Redis, корректная запись в журнал, поведение rate-limit'а).
 
 ### Эпик B — Frontend тренера (2 дня)
 
@@ -392,27 +432,29 @@ Contra:
 
 ### Эпик C — Frontend зрителя (live + replay)
 
-- **KS-C01 [frontend]** — Подписка `AnalysisPage` (mode='viewer') на `live-analysis:analysis-switch`: сбрасывает локальное состояние, применяет payload, показывает toast.
-- **KS-C02 [frontend]** — Обработка `activeAnalysisId`/`activeTitle` в `sync` snapshot (на reconnect).
-- **KS-C03 [frontend]** — `LectureReplayPage`: применение `analysis-switch` событий по таймеру; при seek — пере-проигрывание от последнего «жирного» события.
-- **KS-C04 [frontend]** — Заголовок над доской в replay — берётся из ближайшего предыдущего `analysis-switch.title` (или `lecture.title` если switch'ей не было).
+- **KS-C01 [frontend]** — Подписка `AnalysisPage` (mode='viewer') на `live-analysis:analysis-switch`: сбрасывает локальное состояние, ставит skeleton + `title` сразу, делает `GET /analyses/:analysisId`, применяет ответ к доске; toast «Тренер переключился на: <title>». Деградация при 404/403/сеть — оставить пустую доску, ждать первого `move`/`state-patch` от тренера.
+- **KS-C02 [frontend]** — Обработка `activeAnalysisId`/`activeTitle` в `sync` snapshot (на reconnect): тот же путь `GET /analyses/:activeAnalysisId`.
+- **KS-C03 [frontend]** — `LectureReplayPage`: применение `analysis-switch` событий по таймеру. Реализовать локальный кэш `Map<analysisId, AnalysisDetail>` на время сессии воспроизведения, чтобы повторные seek'и через ту же границу не дёргали БД. При seek — пере-проигрывание от последнего «жирного» события.
+- **KS-C04 [frontend]** — Заголовок над доской в replay — берётся из `payload.title` ближайшего предыдущего `analysis-switch` (этот заголовок переживает удаление Analysis); если switch'ей не было — `lecture.title`.
+- **KS-C05 [frontend]** — Деградация в replay при удалённом Analysis (404 от `GET /analyses/:id`): показывать на доске сообщение «Окно анализа «<title>» удалено владельцем», таймер продолжает; следующий `state-patch` event'из журнала перерисует доску актуальным деревом тренера (его state-patch'и пишутся в журнал независимо от Analysis в БД).
 
 ### Эпик D — Shared types
 
 - **KS-D01 [backend]** — Добавить в `packages/shared/types/api-contracts.ts`:
-  - тип события `AnalysisSwitchEvent` в дискриминированный union `RecordedEvent`;
-  - `SwitchAnalysisRequest`/`SwitchAnalysisResponse`;
-  - расширить `LiveAnalysisSyncSnapshot` опциональными `activeAnalysisId`/`activeTitle`.
+  - тип события `AnalysisSwitchEvent` в дискриминированный union `RecordedEvent` с payload `{analysisId: string; title: string}`;
+  - `SwitchAnalysisRequest = {analysisId: string}` / `SwitchAnalysisResponse = LiveAnalysisSyncSnapshot`;
+  - расширить `LiveAnalysisSyncSnapshot` опциональными `activeAnalysisId?: string | null`, `activeTitle?: string | null`.
 
 ### Эпик E — QA
 
-- **KS-E01 [qa]** — Тренер начинает лекцию из A1, через минуту переключается на A2 → зритель видит новое дерево и `title` ≤1 сек после клика.
-- **KS-E02 [qa]** — Тренер делает 3 переключения, завершает лекцию → в `LectureRecording.events` ровно 3 события `analysis-switch` с корректными `t`.
-- **KS-E03 [qa]** — Replay: запускаем запись, наблюдаем переключения в нужные моменты; seek назад через границу switch'а корректно восстанавливает дерево.
-- **KS-E04 [qa]** — Чужой Analysis в POST `/switch-analysis` → 403.
-- **KS-E05 [qa]** — Tree размером 300 KB → 400 tree_too_large.
-- **KS-E06 [qa]** — Zритель reconnect в момент после switch'а → получает актуальное окно через `sync` snapshot.
+- **KS-E01 [qa]** — Тренер начинает лекцию из A1, через минуту переключается на A2 → зритель видит новое дерево и `title` ≤2 сек после клика (включая время `GET /analyses/:id`).
+- **KS-E02 [qa]** — Тренер делает 3 переключения, завершает лекцию → в `LectureRecording.events` ровно 3 события `analysis-switch` с корректными `t` и payload `{analysisId, title}` без лишних полей.
+- **KS-E03 [qa]** — Replay: запускаем запись, наблюдаем переключения в нужные моменты; seek назад через границу switch'а корректно восстанавливает дерево (с использованием кэша, без повторного fetch'а к БД при том же analysisId).
+- **KS-E04 [qa]** — Чужой Analysis в POST `/switch-analysis` → 403; несуществующий → 404.
+- **KS-E05 [qa]** — Несуществующий Analysis в replay (тренер удалил окно после записи лекции): на доске сообщение «Окно «<title>» удалено владельцем», таймер идёт, следующий `state-patch` из журнала рендерит дерево.
+- **KS-E06 [qa]** — Зритель reconnect в момент после switch'а → получает actualный `activeAnalysisId`/`activeTitle` через `sync` snapshot и делает `GET /analyses/:id`.
 - **KS-E07 [qa]** — Аудио тренера непрерывно в момент switch'а: в записи нет дырки/щелчка.
+- **KS-E08 [qa]** — Спам switch'ей подряд (10 кликов за 2 сек): rate-limit отбивает лишние с `429`, лекция не зависает.
 
 ### Phase 2 — отложенное (не в первой выкатке)
 
@@ -435,25 +477,29 @@ E (QA) ─→ после A+B+C
 
 ## 6. Риски и подводные камни
 
-1. **Большой `tree` в payload.** У некоторых анализов дерево вариаций — 100+ KB. WS-сообщение `analysis-switch` уйдёт всем зрителям одной комнаты — при 50 зрителях это 5 МБ исходящего на один клик тренера. Митигация: уже работающий cap 256 KB (тот же, что для `state-patch`); если в проде увидим всплески у тренеров с громоздкими анализами — рассмотреть отдельный `GET /analyses/:id/tree` и пересылку только указателя `analysisId` через WS (зритель сам подтягивает дерево). В MVP — inline-payload.
+1. **Задержка fetch'а содержимого окна у зрителя.** При switch зритель тратит дополнительный RTT на `GET /analyses/:id`. На быстром канале — 50-150 мс, на мобильном — 200-500 мс. UX: показываем skeleton + `title` сразу из WS-payload, доска перерисовывается через долю секунды. Это плата за принцип «БД — единый источник», но взамен мы экономим до сотен КБ исходящего на каждого зрителя на каждом switch'е (см. также §6.10). Митигация: фронт может префетчить `GET /analyses/:id` для ожидаемого следующего окна (Phase 2 с плейлистом — известно заранее).
 
-2. **Тренер переключился, не сохранив правки в текущем окне.** Текущий `state-patch` живёт только в Redis state lecture-сессии — у самого `Analysis` в БД он не сохраняется (источник правды — события). После switch'а runtime-state перезаписывается; правки тренера к старому окну остаются в `LectureRecording.events` (history), но не в `Analysis.tree`. Это уже текущее поведение `reset` — не регрессия. Если тренер хочет «сохранить вариации в Analysis перед switch'ом» — отдельный UX-флоу, вне скоупа KS-4626.
+2. **Тренер переключился, не сохранив правки в текущем окне.** `state-patch` живёт только в Redis state lecture-сессии — в `Analysis.tree` БД не пишется (источник правды — события записи лекции). После switch'а runtime-state перезаписывается; правки тренера к старому окну остаются в `LectureRecording.events` (history), но не в `Analysis.tree`. Это уже текущее поведение `reset` — не регрессия. Если тренер хочет «сохранить вариации в Analysis перед switch'ом» — отдельный UX-флоу, вне скоупа KS-4626.
 
 3. **Конкурентный switch при двух открытых вкладках тренера.** Маловероятный случай (тренер ведёт лекцию из одной вкладки), но возможный. `runExclusive(slug)` в `LiveAnalysisService` (`live-analysis.service.ts:1131`) уже сериализует операции, два switch'а отработают по очереди. Последний переписывает state — нормально.
 
 4. **Зритель в момент `analysis-switch` пишет/анализирует локально.** В `studentToolsPolicy` (ADR-117) зрителю могут быть разрешены свои вариации (`disabledTools` не запрещает Workshop). После switch'а локальные вариации зрителя теряются. Это by design — тема урока сменилась. Можно показывать confirm «Вы потеряете свои заметки»; в MVP — без confirm'а (упрощение).
 
-5. **Replay seek через границу switch'а.** Корректное поведение — найти последний `analysis-switch ≤ t` и применить его, потом forward до `t`. Если seek в самое начало лекции (до первого switch'а) — стартовое окно берётся из `LectureRecording.startingFen`/`orientation`, дерево — пустое (как сейчас при start без `state-patch`). Особый кейс: лекция стартовала с дерева исходного `Analysis`. Решение: финализатор инжектит синтетический `analysis-switch` событие на t=0 с данными исходного `LiveAnalysis.analysisId`, чтобы replay имел всегда явную «нулевую точку». Реализация в KS-A05.
+5. **Удалённый Analysis к моменту replay'я.** Тренер за месяцы после лекции может удалить `Analysis`, на который переключался во время лекции. `GET /analyses/:id` вернёт 404. Решение: `title` дублируется в `analysis-switch.payload` именно как «надгробная» подпись (см. §2.2). Replay показывает «Окно «<title>» удалено владельцем», таймер продолжает, последующие `state-patch` из журнала рендерят актуальное дерево тренера (state-patch'и тренера в lecture_recording независимы от Analysis в БД — они «жирные» и хранят полное дерево самостоятельно). Этот механизм restoration работает даже без живого Analysis.
+
+   Доп. соображение для KS-A05: финализатор инжектит синтетический `analysis-switch` событие на t=0 с данными исходного `LiveAnalysis.analysisId` (если первое событие — не switch). Если исходный анализ потом удалён — те же правила: показываем `title` из payload, ждём первого state-patch.
 
 6. **Audio offset (ADR-116) при долгих лекциях с многими switch'ами.** Аудио идёт сквозным потоком, switch'и в треке не отражаются. Синхронизация замыкается на `recorderStartedAtClient` (один offset на всю лекцию). Не задето.
 
-7. **Дрожание UI зрителя при частых switch'ах.** Если тренер быстро перещёлкивает окна (debug-сценарий), у зрителя успеет смениться доска 3-4 раза за пару секунд. Frontend: throttle на toast'ы (не более 1 в 2 секунды), сама доска обновляется без анимации. Дополнительно — backend rate-limit на switch (если переиспользуем `authorStatePatchLimiter` с лимитом 5 op/sec, это уже спасает).
+7. **Дрожание UI зрителя при частых switch'ах.** Если тренер быстро перещёлкивает окна (debug-сценарий), у зрителя успеет смениться доска 3-4 раза за пару секунд + столько же fetch'ей. Frontend: throttle на toast'ы (не более 1 в 2 секунды), отмена in-flight `GET /analyses/:id` при новом switch'е (AbortController). Backend rate-limit `authorAnalysisSwitchLimiter` — 2 op/sec, отсекает корень проблемы.
 
-8. **Анализ удалён в момент switch'а.** Тренер выбрал A2, между показом popover'а и кликом успел удалить A2 в другой вкладке. POST вернёт `404 analysis_not_found`. UI: toast «Анализ не найден, обновите список». Не критично, лекция продолжается на текущем окне.
+8. **Analysis удалён в момент клика «Переключить» тренером.** Тренер выбрал A2, между показом popover'а и кликом успел удалить A2 в другой вкладке. POST вернёт `404 analysis_not_found`. UI: toast «Анализ не найден, обновите список». Не критично, лекция продолжается на текущем окне.
 
 9. **Анализ публичный, но не принадлежит тренеру (`isPublic=true` чужого пользователя).** Тренер не может переключиться на чужой анализ даже публичный — это вопрос UX-доверия (тренер показывает чужие материалы как свои). Решение: в MVP — только свои. Если потребуется «вставить чужую известную партию» — отдельный UX-flow (например, «дублировать к себе → переключиться»).
 
 10. **Финализатор и порядок событий при многих switch'ах.** События идут через RPUSH в один Redis-список с monotonic `t = Date.now() - startedAt`. Порядок гарантирован Redis. Финализатор парсит as-is. Никаких особых сортировок не нужно.
+
+11. **Доступ к `Analysis` у зрителя.** Зритель делает `GET /analyses/:id` — этот endpoint имеет свои правила доступа (приватный/публичный, см. `Analysis.isPublic`). Если тренер переключился на свой **приватный** Analysis, зритель получит 403 при попытке fetch'а — окно не загрузится. Решение для MVP: backend при switch'е НЕ проверяет `Analysis.isPublic` — это ответственность Analysis-модуля. Если возникнет проблема (тренеры жалуются, что зрители не видят содержимое) — добавить логику автоматического «временного публичного доступа на время лекции» как Phase 2 (отдельный ADR). Альтернатива — endpoint `GET /lectures/:lectureId/analysis/:analysisId`, проверяющий, что Analysis активен в этой лекции и зритель имеет доступ к лекции (см. §6.11 Phase 2 идея).
 
 ## 7. Связь с соседними ADR
 
@@ -467,8 +513,9 @@ E (QA) ─→ после A+B+C
 
 ## 8. Резюме для координатора
 
-- **Что меняется:** один новый REST-endpoint (`POST /live-analysis/:slug/switch-analysis`), один новый WS-event (`live-analysis:analysis-switch`), один новый тип события записи (`analysis-switch`). Без миграций БД.
-- **Что не меняется:** структура Lecture/LiveAnalysis, аудио-конвейер, чат, ACL.
+- **Принцип:** `Analysis` в БД — единственный источник истины для содержимого окна анализа. Backend не парсит и не реплицирует дерево; фронт сам делает `GET /analyses/:id`. KS-3780-совместимо.
+- **Что меняется:** один новый REST-endpoint (`POST /live-analysis/:slug/switch-analysis`, body `{analysisId}`), один новый WS-event (`live-analysis:analysis-switch`, payload `{slug, analysisId, title}`), один новый тип события записи (`analysis-switch`, payload `{analysisId, title}`). Без миграций БД.
+- **Что не меняется:** структура Lecture/LiveAnalysis, аудио-конвейер, чат, ACL, существующий `Analysis` API, `GET /analyses/:id`.
 - **Объём:** ≈ 1-2 backend-дня + 2 frontend-дня + QA. Покрывается одним эпиком KS-4626 с 5-6 задачами.
-- **Phase 2 (опц.):** таблица `LectureAnalysisSlot` для заранее настроенного плейлиста. Отдельный эпик, не блокирует MVP.
-- **Главный риск:** объём `tree`-payload в WS-broadcast при 50+ зрителях. Митигировано существующим cap'ом 256 KB; запас под отдельный fetch на стороне зрителя.
+- **Phase 2 (опц.):** таблица `LectureAnalysisSlot` для заранее настроенного плейлиста; возможный `GET /lectures/:lectureId/analysis/:analysisId` для контроля доступа зрителя к приватным анализам тренера. Отдельный эпик, не блокирует MVP.
+- **Главные риски:** (а) задержка fetch'а у зрителя при switch'е (50-500 мс); (б) приватный Analysis тренера → зритель получит 403 при fetch'е, окно не загрузится — UX-проблема, не безопасности, разбираем по факту жалоб; (в) удалённый Analysis в replay — мититировано хранением `title` в payload и независимостью state-patch'ей.
