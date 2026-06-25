@@ -37,8 +37,15 @@ export class LiveAnalysisApiError extends Error {
   }
 }
 
+/**
+ * KS-4635: тот же fallback, что в общем `apps/web/src/api.ts`
+ * (`http://localhost:3001` — порт NestJS dev-сервера). Раньше fallback
+ * был `window.location.origin`, и на локальном dev запрос уходил на
+ * `http://localhost:5173/...` — vite отвечал 404 пустым телом. На
+ * проде разницы не было (same-origin), поэтому отловилось только сейчас.
+ */
 function getApiUrl(): string {
-  return import.meta.env.VITE_API_URL ?? window.location.origin;
+  return import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 }
 
 function getAuthToken(): string | null {
