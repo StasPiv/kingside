@@ -93,6 +93,30 @@ const COVER_INTERCEPTOR = FileInterceptor('cover', {
   },
 });
 
+/**
+ * KS-4661. Multipart-приёмник для эндпоинта `POST /admin/blog/media` —
+ * загрузка картинки в тело статьи (вставляется как `![alt](url)`).
+ * Поле `file`, не `cover`. Лимит и whitelist MIME совпадают с
+ * обложечным `COVER_INTERCEPTOR` — отдельная константа, чтобы не
+ * случайно поменять одну сторону без другой.
+ */
+const BODY_MEDIA_INTERCEPTOR = FileInterceptor('file', {
+  limits: { fileSize: BLOG_COVER_MAX_BYTES, files: 1 },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fileFilter: (_req: any, file: any, cb: any) => {
+    if (BLOG_COVER_ALLOWED_MIMES.has(file.mimetype as string)) {
+      cb(null, true);
+      return;
+    }
+    cb(
+      new BadRequestException(
+        `Unsupported body image MIME: "${file.mimetype}" (allowed: image/png, image/jpeg, image/webp)`,
+      ),
+      false,
+    );
+  },
+});
+
 @UseGuards(AdminOrServiceGuard)
 @Controller('admin/blog')
 export class BlogAdminController {
@@ -221,6 +245,49 @@ export class BlogAdminController {
   @Post('posts/preview')
   preview(@Body() body: PreviewBlogMarkdownDto) {
     return this.admin.previewMarkdown(body.bodyMd);
+  }
+
+  /**
+   * KS-4661. Разовая загрузка изображения для тела статьи блога.
+   * Возвращает публичный CDN-URL, который маркетинг вставляет в
+   * markdown как `![alt](url)`. Ключ не привязан к slug —
+   * content-addressable, одну картинку можно использовать в нескольких
+   * статьях.
+   *
+   * Защита та же, что у `POST posts` — `AdminOrServiceGuard` +
+   * `blog:write` scope. Лимит 5 MB, MIME — PNG/JPEG/WebP.
+   */
+  @Post('media')
+  @RequiredScope('blog:write')
+  @UseInterceptors(BODY_MEDIA_INTERCEPTOR)
+  async uploadBodyImage(
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<{ url: string; key: string }> {
+    if (!file) {
+      throw new BadRequestException(
+        'file is required (multipart field "file")',
+      );
+    }
+    if (!this.media.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'BLOG_MEDIA_* env is not configured on this instance',
+      );
+    }
+    try {
+      return await this.media.uploadBodyImage({
+        buffer: file.buffer,
+        mimetype: file.mimetype,
+        size: file.size,
+      });
+    } catch (e) {
+      if (e instanceof BlogMediaInvalidMimeError) {
+        throw new BadRequestException(e.message);
+      }
+      if (e instanceof BlogMediaNotConfiguredError) {
+        throw new ServiceUnavailableException(e.message);
+      }
+      throw e;
+    }
   }
 
   // ─── authors ───────────────────────────────────────────────────────

@@ -217,6 +217,118 @@ describe('BlogMediaService.uploadCover', () => {
   });
 });
 
+describe('BlogMediaService.uploadBodyImage (KS-4661)', () => {
+  beforeEach(() => {
+    loadSendSpy().length = 0;
+  });
+
+  function makeService(
+    env: Record<string, string | undefined> = {
+      BLOG_MEDIA_BUCKET: 'kingside-blog-media',
+      BLOG_MEDIA_REGION: 'eu-central-1',
+      BLOG_MEDIA_CDN_BASE: 'https://media.kingside.site',
+    },
+  ): BlogMediaService {
+    return new BlogMediaService(configMock(env) as never);
+  }
+
+  it('формирует ключ blog-body/<sha256[:8]>.<ext> и url (без slug)', async () => {
+    const svc = makeService();
+    const buf = Buffer.from('body-png-content');
+    const r = await svc.uploadBodyImage({ buffer: buf, mimetype: 'image/png' });
+    const expectedHash = sha256Hex(buf).slice(0, 8);
+    expect(r.key).toBe(`blog-body/${expectedHash}.png`);
+    expect(r.url).toBe(
+      `https://media.kingside.site/blog-body/${expectedHash}.png`,
+    );
+  });
+
+  it('идемпотентность: один и тот же buffer → один и тот же ключ', async () => {
+    const svc = makeService();
+    const buf = Buffer.from('same-bytes');
+    const a = await svc.uploadBodyImage({ buffer: buf, mimetype: 'image/png' });
+    const b = await svc.uploadBodyImage({ buffer: buf, mimetype: 'image/png' });
+    expect(a.key).toBe(b.key);
+  });
+
+  it('разный контент → разный ключ', async () => {
+    const svc = makeService();
+    const a = await svc.uploadBodyImage({
+      buffer: Buffer.from('a'),
+      mimetype: 'image/png',
+    });
+    const b = await svc.uploadBodyImage({
+      buffer: Buffer.from('b'),
+      mimetype: 'image/png',
+    });
+    expect(a.key).not.toBe(b.key);
+  });
+
+  it.each([
+    ['image/png', 'png'],
+    ['image/jpeg', 'jpg'],
+    ['image/webp', 'webp'],
+  ])('MIME %s → расширение %s', async (mime, ext) => {
+    const svc = makeService();
+    const r = await svc.uploadBodyImage({
+      buffer: Buffer.from('x'),
+      mimetype: mime,
+    });
+    expect(r.key.endsWith(`.${ext}`)).toBe(true);
+  });
+
+  it('S3 PutObject вызван с CacheControl immutable и правильным ContentType', async () => {
+    const svc = makeService();
+    await svc.uploadBodyImage({
+      buffer: Buffer.from('x'),
+      mimetype: 'image/webp',
+    });
+    const sends = loadSendSpy();
+    expect(sends).toHaveLength(1);
+    expect(sends[0].input.CacheControl).toBe(
+      'public, max-age=31536000, immutable',
+    );
+    expect(sends[0].input.ContentType).toBe('image/webp');
+    expect(sends[0].input.Bucket).toBe('kingside-blog-media');
+    expect(sends[0].input.Key.startsWith('blog-body/')).toBe(true);
+  });
+
+  it('неподдерживаемый MIME → BlogMediaInvalidMimeError', async () => {
+    const svc = makeService();
+    await expect(
+      svc.uploadBodyImage({
+        buffer: Buffer.from('gif-bytes'),
+        mimetype: 'image/gif',
+      }),
+    ).rejects.toBeInstanceOf(BlogMediaInvalidMimeError);
+  });
+
+  it('пустой BLOG_MEDIA_BUCKET → BlogMediaNotConfiguredError', async () => {
+    const svc = makeService({ BLOG_MEDIA_CDN_BASE: 'https://x' });
+    await expect(
+      svc.uploadBodyImage({
+        buffer: Buffer.from('x'),
+        mimetype: 'image/png',
+      }),
+    ).rejects.toBeInstanceOf(BlogMediaNotConfiguredError);
+  });
+
+  it('CDN_BASE с trailing slash → нормализуется (без двойного слэша)', async () => {
+    const svc = makeService({
+      BLOG_MEDIA_BUCKET: 'b',
+      BLOG_MEDIA_CDN_BASE: 'https://media.kingside.site/',
+    });
+    const r = await svc.uploadBodyImage({
+      buffer: Buffer.from('x'),
+      mimetype: 'image/png',
+    });
+    expect(r.url.startsWith('https://media.kingside.site/blog-body/')).toBe(
+      true,
+    );
+    expect(r.url).not.toContain('site//blog');
+  });
+});
+
 describe('BlogMediaService.isConfigured', () => {
   it('обе env есть → true', () => {
     const svc = new BlogMediaService(

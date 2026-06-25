@@ -107,6 +107,49 @@ export class BlogMediaService {
     return { url: `${cdnBase}/${key}`, key };
   }
 
+  /**
+   * KS-4661. Загружает изображение для тела статьи в S3 — без привязки
+   * к slug: одна и та же картинка может вставляться в несколько статей
+   * через `![alt](url)` в markdown. Ключ content-addressable:
+   * `blog-body/<sha256(content)[:8]>.<ext>` — повторная загрузка того же
+   * файла отдаёт тот же URL (S3 перезапишет байты в байт).
+   *
+   * MIME-whitelist тот же, что у обложек (PNG/JPEG/WebP — см.
+   * `BLOG_COVER_MIME_TO_EXT`). Cache-Control — `public, immutable`
+   * на год, как у обложек: хеш в имени гарантирует, что изменение
+   * картинки = новый URL, инвалидация CDN не нужна.
+   */
+  async uploadBodyImage(
+    file: BlogCoverInput,
+  ): Promise<BlogCoverUploadResult> {
+    const { bucket, cdnBase } = this.ensureConfigured();
+    const ext = BLOG_COVER_MIME_TO_EXT[file.mimetype];
+    if (!ext) {
+      throw new BlogMediaInvalidMimeError(
+        `Unsupported MIME for blog body image: "${file.mimetype}" (allowed: ${Object.keys(
+          BLOG_COVER_MIME_TO_EXT,
+        ).join(', ')})`,
+      );
+    }
+    const hash = sha256Hex(file.buffer).slice(0, 8);
+    const key = `blog-body/${hash}.${ext}`;
+
+    const [s3, sdk] = await Promise.all([this.getS3(), loadS3Sdk()]);
+    await s3.send(
+      new sdk.PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        CacheControl: 'public, max-age=31536000, immutable',
+      }),
+    );
+    this.logger.log(
+      `uploaded blog body image key=${key} bytes=${file.buffer.length}`,
+    );
+    return { url: `${cdnBase}/${key}`, key };
+  }
+
   /** Точечная проверка из контроллера — нужна для условного отключения
    *  multipart-приёмника в дев-режиме без env. */
   isConfigured(): boolean {

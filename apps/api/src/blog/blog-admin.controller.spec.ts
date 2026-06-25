@@ -36,12 +36,28 @@ function makeAdmin() {
   };
 }
 
-function makeMedia(opts: { configured?: boolean; uploadResult?: { url: string }; uploadThrows?: Error } = {}) {
+function makeMedia(opts: {
+  configured?: boolean;
+  uploadResult?: { url: string; key?: string };
+  uploadThrows?: Error;
+  uploadBodyResult?: { url: string; key: string };
+  uploadBodyThrows?: Error;
+} = {}) {
   return {
     isConfigured: jest.fn().mockReturnValue(opts.configured ?? true),
     uploadCover: jest.fn(async () => {
       if (opts.uploadThrows) throw opts.uploadThrows;
       return opts.uploadResult ?? { url: 'https://cdn/blog-covers/x.png', key: 'blog-covers/x.png' };
+    }),
+    // KS-4661: загрузка картинки в тело статьи.
+    uploadBodyImage: jest.fn(async () => {
+      if (opts.uploadBodyThrows) throw opts.uploadBodyThrows;
+      return (
+        opts.uploadBodyResult ?? {
+          url: 'https://cdn/blog-body/abcd1234.png',
+          key: 'blog-body/abcd1234.png',
+        }
+      );
     }),
     getAllowedMimeTypes: jest.fn().mockReturnValue(['image/png', 'image/jpeg', 'image/webp']),
   };
@@ -186,5 +202,108 @@ describe('BlogAdminController.updatePost (multipart)', () => {
     const arg = admin.updatePost.mock.calls[0][1];
     expect(arg.coverUrl).toBe('https://cdn/from-file.png');
     expect(arg.coverAlt).toBeUndefined(); // не зануляется
+  });
+});
+
+describe('BlogAdminController.uploadBodyImage (KS-4661)', () => {
+  function makeBodyFile(
+    mimetype = 'image/png',
+    name = 'screenshot.png',
+  ): Express.Multer.File {
+    return {
+      fieldname: 'file',
+      originalname: name,
+      encoding: '7bit',
+      mimetype,
+      buffer: Buffer.from('body-bytes'),
+      size: 10,
+      destination: '',
+      filename: '',
+      path: '',
+      stream: undefined as never,
+    };
+  }
+
+  it('с файлом → uploadBodyImage вызван и возвращён { url, key }', async () => {
+    const admin = makeAdmin();
+    const media = makeMedia({
+      uploadBodyResult: {
+        url: 'https://cdn/blog-body/deadbeef.png',
+        key: 'blog-body/deadbeef.png',
+      },
+    });
+    const ctrl = new BlogAdminController(
+      admin as never,
+      media as never,
+      undefined as never,
+    );
+    const result = await ctrl.uploadBodyImage(makeBodyFile());
+    expect(media.uploadBodyImage).toHaveBeenCalledWith({
+      buffer: expect.any(Buffer),
+      mimetype: 'image/png',
+      size: 10,
+    });
+    expect(result).toEqual({
+      url: 'https://cdn/blog-body/deadbeef.png',
+      key: 'blog-body/deadbeef.png',
+    });
+  });
+
+  it('без файла → 400 BadRequest', async () => {
+    const admin = makeAdmin();
+    const media = makeMedia();
+    const ctrl = new BlogAdminController(
+      admin as never,
+      media as never,
+      undefined as never,
+    );
+    await expect(ctrl.uploadBodyImage(undefined)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(media.uploadBodyImage).not.toHaveBeenCalled();
+  });
+
+  it('media.isConfigured()=false → 503', async () => {
+    const admin = makeAdmin();
+    const media = makeMedia({ configured: false });
+    const ctrl = new BlogAdminController(
+      admin as never,
+      media as never,
+      undefined as never,
+    );
+    await expect(ctrl.uploadBodyImage(makeBodyFile())).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(media.uploadBodyImage).not.toHaveBeenCalled();
+  });
+
+  it('BlogMediaInvalidMimeError → 400', async () => {
+    const admin = makeAdmin();
+    const media = makeMedia({
+      uploadBodyThrows: new BlogMediaInvalidMimeError('bad mime'),
+    });
+    const ctrl = new BlogAdminController(
+      admin as never,
+      media as never,
+      undefined as never,
+    );
+    await expect(ctrl.uploadBodyImage(makeBodyFile())).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('BlogMediaNotConfiguredError из сервиса → 503', async () => {
+    const admin = makeAdmin();
+    const media = makeMedia({
+      uploadBodyThrows: new BlogMediaNotConfiguredError('no env'),
+    });
+    const ctrl = new BlogAdminController(
+      admin as never,
+      media as never,
+      undefined as never,
+    );
+    await expect(ctrl.uploadBodyImage(makeBodyFile())).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 });
