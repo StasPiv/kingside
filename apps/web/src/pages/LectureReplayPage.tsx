@@ -7,9 +7,10 @@ import {
 } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type {
-  LectureAudioInfo,
-  LectureDisabledTool,
+import {
+  buildMoveTimestampIndex,
+  type LectureAudioInfo,
+  type LectureDisabledTool,
 } from '@kingside/shared';
 import { api } from '../api';
 import { ApiError } from '../ApiError';
@@ -524,6 +525,20 @@ export function LectureReplayPage() {
     );
   }, [state, currentTimeMs]);
 
+  // KS-4640 / ADR-143 §6.2. Индекс упоминаний — строится один раз по
+  // `events + durationMs`. Детерминированный, гарантирует одинаковый
+  // результат у любых клиентов на одних и тех же входных данных.
+  // useMemo на оба входа: events меняется только при переключении
+  // другой лекции (включается ремаунт через AnalysisPage.key), durationMs
+  // — стабильна в пределах одной записи.
+  const moveTimestampIndex = useMemo(() => {
+    if (state.kind !== 'ready') return undefined;
+    return buildMoveTimestampIndex(
+      state.recording.events,
+      state.recording.durationMs,
+    );
+  }, [state]);
+
   const replay: ReplayLectureProps | null = useMemo(() => {
     if (state.kind !== 'ready') return null;
     // `replay.currentTimeMs` для AnalysisPage — момент последнего
@@ -548,8 +563,17 @@ export function LectureReplayPage() {
       // replay-контракта. Фактический фильтр UI применяется через
       // отдельный пропс `studentToolsPolicy` AnalysisPage (см. ниже).
       disabledTools: state.lecture.disabledTools ?? [],
+      // KS-4640 / ADR-143 §6.2. Index прокидывается в AnalysisPage —
+      // там handler клика по узлу Moves panel'и собирает MoveKey и
+      // делает lookup. См. `handleReplayMoveClick` в AnalysisPage.
+      moveTimestampIndex,
+      // KS-4640 / ADR-143 §7.2 / §7.5. Колбэк seek'а аудио: получаем
+      // абсолютный таймштамп от Lecture.startedAt и через handleSeek
+      // выставляем `audio.currentTime`. Авто-play намеренно не
+      // запускаем (§7.5) — handleSeek меняет только позицию.
+      onSeekAudio: handleSeek,
     };
-  }, [state, applicableEventIndex]);
+  }, [state, applicableEventIndex, moveTimestampIndex, handleSeek]);
 
   // ─── Render ────────────────────────────────────────────────────────
 

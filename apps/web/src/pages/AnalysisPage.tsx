@@ -88,9 +88,12 @@ import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
 import { liveAnalysisSocket } from '../socket';
 import {
   LiveAnalysisEvents,
+  serializeMoveKey,
   type AnalysisResponse,
   type LiveAnalysisAnalysisSwitchEvent,
+  type MoveTimestampIndex,
 } from '@kingside/shared';
+import { useCurrentSegment } from '../hooks/useCurrentSegment';
 import { LecturePublisherStatusBadge } from '../components/lecture/LecturePublisherStatusBadge';
 import { LectureAnalysisSwitcher } from '../components/lecture/LectureAnalysisSwitcher';
 import { LectureAudioListenerCompact } from '../components/lecture/LectureAudioListenerCompact';
@@ -552,6 +555,24 @@ export interface ReplayLectureProps {
    * без поля) не падали по TS.
    */
   disabledTools?: LectureDisabledTool[];
+  /**
+   * KS-4640 / ADR-143 §6.2. Индекс упоминаний ходов в записи лекции.
+   * Строится контейнером (`LectureReplayPage`) через
+   * `buildMoveTimestampIndex(events, durationMs)` единожды по
+   * useMemo. Опциональное — у legacy-вызовов поле может отсутствовать
+   * (старые ветки) и кликов с seek'ом не будет, текущее поведение
+   * `gotoMove` сохраняется как fallback.
+   */
+  moveTimestampIndex?: MoveTimestampIndex;
+  /**
+   * KS-4640 / ADR-143 §7.2 / §7.5. Колбэк перемотки аудио. Принимает
+   * абсолютный таймштамп от `Lecture.startedAt` в мс — конвертацию в
+   * `audio.currentTime` и проверку `paused/played.length` контейнер
+   * (`LectureReplayPage`) делает сам. Опциональное — если контейнер
+   * не передал, ветки `1 visit` / `>1 visits` теряют seek и
+   * сводятся к простому `gotoMove`.
+   */
+  onSeekAudio?: (atMs: number) => void;
 }
 
 /**
@@ -1116,6 +1137,16 @@ function AnalysisPageInner({
   // тот же publicMode-флаг, что и для viewer-live.
   const isReplay = !!replay;
   const publicMode = publicModeProp || embedded || isViewerLive || isReplay;
+
+  // KS-4640 / ADR-143 §6.3 / §7.2 / §7.4. Активный сегмент записи в
+  // момент `replay.currentTimeMs` — нужен, чтобы при клике по узлу
+  // собрать `MoveKey { segment, globalIndex }`. На non-replay вызовах
+  // `segmentBoundaries` — undefined → хук вернёт null, обёртка
+  // `handleReplayMoveClick` ниже свалится на простой `gotoMove`.
+  const replayCurrentSegment = useCurrentSegment(
+    replay?.currentTimeMs ?? 0,
+    replay?.moveTimestampIndex?.segmentBoundaries,
+  );
   // KS-3908 / ADR-117 C04. Производные флаги доступа учеников к
   // инструментам. Формула из ADR: запрет применяется ТОЛЬКО в
   // publicMode (viewer-live лекции). У владельца страница работает
@@ -1616,6 +1647,42 @@ function AnalysisPageInner({
       applyAnalysisFromBackend(dto, fallbackTitle);
     },
     [applyAnalysisFromBackend],
+  );
+
+  // KS-4640 / ADR-143 §6.3 / §7.1-§7.4. Обёртка над `gotoMove` для
+  // replay-режима. На каждый клик по узлу Moves panel'и:
+  //   1) `gotoMove(node)` — переключаем доску (всегда).
+  //   2) Если есть индекс упоминаний — собираем `MoveKey { segment,
+  //      globalIndex }`, lookup `visits`.
+  //   3) По числу visits:
+  //        - 0   → ничего больше не делаем (§7.4 вариант b).
+  //        - 1   → `onSeekAudio(visits[0].enteredAtMs)` (§7.2).
+  //        - >1  → KS-4641 (popover); до его реализации seek'аем на
+  //                хронологически первое упоминание — это безопасный
+  //                MVP-fallback, отвечает «начало серии упоминаний».
+  //                Popover расширит выбор.
+  // Контейнер (`LectureReplayPage`) внутри `onSeekAudio` сам решает,
+  // запускать ли auto-play (§7.5 — на паузе не запускаем).
+  const handleReplayMoveClick = useCallback(
+    (node: ChessMove) => {
+      gotoMove(node);
+      if (!replay?.moveTimestampIndex || !replay?.onSeekAudio) return;
+      if (!replayCurrentSegment) return;
+      const key = serializeMoveKey({
+        segment: replayCurrentSegment.segment,
+        globalIndex: node.globalIndex,
+      });
+      const visits = replay.moveTimestampIndex.visits.get(key) ?? [];
+      if (visits.length === 0) return;
+      // 1 visit или >1 (popover пока не подключён — берём первое).
+      replay.onSeekAudio(visits[0].enteredAtMs);
+    },
+    [
+      gotoMove,
+      replay?.moveTimestampIndex,
+      replay?.onSeekAudio,
+      replayCurrentSegment,
+    ],
   );
 
   // KS-3794 + KS-4630 / ADR-142 §2.8: пересчёт состояния replay на
@@ -4959,7 +5026,7 @@ function AnalysisPageInner({
         onTreeHover={handleTreeHover}
         history={history}
         currentGlobalIndex={currentGlobalIndex}
-        onMoveClick={gotoMove}
+        onMoveClick={isReplay ? handleReplayMoveClick : gotoMove}
         onPromoteVariation={(m) => promoteVariation(m as ChessMove)}
         onDeleteVariation={(m) => removeVariation(m as ChessMove)}
         onTruncateRemaining={(m) => truncateRemaining(m as ChessMove)}
