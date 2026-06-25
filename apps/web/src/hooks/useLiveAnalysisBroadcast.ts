@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  type LiveAnalysisAnalysisSwitchEvent,
   type LiveAnalysisClosedEvent,
   type LiveAnalysisCloseReason,
   type LiveAnalysisErrorEvent,
@@ -117,6 +118,16 @@ export interface UseLiveAnalysisBroadcastState {
    */
   activeTitle: string | null;
   /**
+   * KS-4629 / ADR-142 §2.7. Последнее событие смены активного окна
+   * (или `null`, если switch'а ещё не было в текущей сессии). Содержит
+   * полный payload broadcast'а: title, startingFen, orientation, tree,
+   * currentGlobalIndex. Каждое новое событие — новая ссылка, чтобы
+   * `useEffect`-консьюмер мог реагировать на каждый switch (даже если
+   * activeAnalysisId не изменился — теоретически можно «переключиться
+   * на то же окно с другого момента»).
+   */
+  lastAnalysisSwitch: LiveAnalysisAnalysisSwitchEvent | null;
+  /**
    * Эмит `state-patch` с дебаунсом 500 мс (trailing-edge). Внутри
    * запоминается последний `tree`/`currentGlobalIndex`/`orientation`,
    * и таймер сбрасывается. По истечению дебаунса уходит ровно один
@@ -162,6 +173,10 @@ export function useLiveAnalysisBroadcast({
   // KS-4628 / ADR-142 §2.4: активное окно анализа (после switch'а).
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string | null>(null);
+  // KS-4629 / ADR-142 §2.7: последнее событие смены окна — для
+  // потребителя (toast + сброс review-state).
+  const [lastAnalysisSwitch, setLastAnalysisSwitch] =
+    useState<LiveAnalysisAnalysisSwitchEvent | null>(null);
 
   // ─── Подписка на сокет ────────────────────────────────────────────
   const {
@@ -230,7 +245,38 @@ export function useLiveAnalysisBroadcast({
     onError: useCallback((payload: LiveAnalysisErrorEvent) => {
       setError(payload);
     }, []),
+    // KS-4629 / ADR-142 §2.7. Тренер переключил активное окно.
+    // Применяем все поля payload в наш state — потребитель (AnalysisPage)
+    // через `lastAnalysisSwitch` получает сигнал «сбрось локальное дерево
+    // и покажи toast». Полный sync snapshot с теми же полями прилетит
+    // следом (backend публикует и `analysis-switch`, и `sync`), но
+    // обработать оба идемпотентно ничего не стоит — повторная установка
+    // того же tree/orientation/index — no-op.
+    onAnalysisSwitch: useCallback(
+      (payload: LiveAnalysisAnalysisSwitchEvent) => {
+        setTree(payload.tree);
+        setCurrentGlobalIndex(
+          typeof payload.currentGlobalIndex === 'number'
+            ? payload.currentGlobalIndex
+            : null,
+        );
+        setOrientation(payload.orientation);
+        setActiveAnalysisId(payload.analysisId);
+        setActiveTitle(payload.title);
+        setLastAnalysisSwitch(payload);
+      },
+      [],
+    ),
   });
+
+  // KS-4629 / ADR-142 §2.7. При смене slug — сбрасываем последний
+  // switch-event, чтобы потребитель не реагировал на switch из старой
+  // трансляции при переходе на новую (например, /live/A → /live/B).
+  useEffect(() => {
+    setLastAnalysisSwitch(null);
+    setActiveAnalysisId(null);
+    setActiveTitle(null);
+  }, [slug]);
 
   // ─── Дебаунс state-patch (owner-only) ─────────────────────────────
   // Trailing-edge debounce: сохраняем последний payload, сбрасываем
@@ -333,6 +379,7 @@ export function useLiveAnalysisBroadcast({
       closed,
       activeAnalysisId,
       activeTitle,
+      lastAnalysisSwitch,
       emitStatePatch,
       emitMove,
       emitReset,
@@ -348,6 +395,7 @@ export function useLiveAnalysisBroadcast({
       closed,
       activeAnalysisId,
       activeTitle,
+      lastAnalysisSwitch,
       emitStatePatch,
       emitMove,
       emitReset,

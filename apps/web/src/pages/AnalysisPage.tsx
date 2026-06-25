@@ -1395,6 +1395,14 @@ function AnalysisPageInner({
   // тот же snapshot не применился дважды.
   const lastAppliedLiveTreeRef = useRef<string | null>(null);
   const [pendingLiveTree, setPendingLiveTree] = useState<string | null>(null);
+  // KS-4629 / ADR-142 §2.10. Тост «Тренер переключился на: <title>»
+  // для зрителя. Появляется при каждом `analysis-switch`-event и
+  // сам убирается через 5 секунд (см. useEffect ниже). `key` — счётчик,
+  // чтобы повторное переключение на то же окно тоже триггерило новый
+  // тост. `null` — тоста нет.
+  const [analysisSwitchToast, setAnalysisSwitchToast] = useState<
+    { title: string; key: number } | null
+  >(null);
 
   // KS-3780: при смене slug у зрителя (переход с /live/A на /live/B
   // в той же вкладке) принудительно сбрасываем review-state и live-
@@ -1614,6 +1622,48 @@ function AnalysisPageInner({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isViewerLive, liveFull.tree, applyLiveTree, isViewerFenInAuthorTree]);
+
+  // KS-4629 / ADR-142 §2.10. При получении `analysis-switch`:
+  //   1) Сбрасываем pending — старые локальные вариации к ушедшему
+  //      окну больше не имеют смысла.
+  //   2) Принудительно применяем новый tree/startingFen/orientation
+  //      (минуя guard «в дереве автора», т.к. окно сменилось целиком).
+  //   3) Показываем transient-toast 5 сек с заголовком нового окна.
+  // Шлюз `liveFull.tree` ниже отработает свой apply следующим тиком —
+  // он идемпотентен через `lastAppliedLiveTreeRef`, повторного парсинга
+  // не будет.
+  useEffect(() => {
+    if (!isViewerLive) return;
+    if (!liveFull.lastAnalysisSwitch) return;
+    const payload = liveFull.lastAnalysisSwitch;
+    // Применяем дерево, если оно есть. null — окно ещё без дерева;
+    // тогда чистим historу и ставим только startingFen/orientation.
+    if (payload.tree) {
+      applyLiveTree(payload.tree);
+    } else {
+      // tree=null: пустое окно без вариаций. Сбрасываем historу,
+      // ставим стартовый FEN и ориентацию.
+      setInitialFen(payload.startingFen);
+      loadFromPgn([]);
+      setBoardOrientation(payload.orientation);
+      lastAppliedLiveTreeRef.current = null;
+    }
+    if (pendingLiveTree !== null) setPendingLiveTree(null);
+    // Toast — каждый switch отдельный key, чтобы повторное переключение
+    // на тот же analysisId тоже триггерило новый тост.
+    setAnalysisSwitchToast((prev) => ({
+      title: payload.title,
+      key: (prev?.key ?? 0) + 1,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveFull.lastAnalysisSwitch, isViewerLive, applyLiveTree]);
+
+  // KS-4629: автоснятие toast через 5 секунд после появления.
+  useEffect(() => {
+    if (!analysisSwitchToast) return;
+    const id = setTimeout(() => setAnalysisSwitchToast(null), 5000);
+    return () => clearTimeout(id);
+  }, [analysisSwitchToast]);
 
   // KS-3777/KS-3778: чистая навигация автора по дереву (стрелки
   // назад/вперёд, клик по ходу, переход на стартовую позицию) меняет
@@ -4241,7 +4291,64 @@ function AnalysisPageInner({
             (mobile). См. ShareAnalysisButton ниже + handler в
             overflow-menu. Шапка освободилась — особенно над доской
             на mobile. */}
-        <div className="analysis-board-wrapper">
+        <div className="analysis-board-wrapper" style={{ position: 'relative' }}>
+          {/* KS-4629 / ADR-142 §2.10. Заголовок текущего активного окна
+              анализа над доской — только для зрителя live-режима. На
+              автора и не-live режим не выводится (там работает обычный
+              GameMetaBar). */}
+          {isViewerLive && liveFull.activeTitle && (
+            <div
+              data-testid="analysis-active-window-title"
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#1976d2',
+                padding: '4px 8px',
+                marginBottom: 6,
+                background: '#e3f2fd',
+                borderRadius: 4,
+                textAlign: 'center',
+              }}
+            >
+              {liveFull.activeTitle}
+            </div>
+          )}
+
+          {/* KS-4629 / ADR-142 §2.10. Транзитный toast «Тренер
+              переключился на: <title>». Появляется при каждом
+              `analysis-switch` (key инкрементируется), сам убирается
+              через 5 сек useEffect'ом. Dismissable клик по самому
+              тосту. */}
+          {isViewerLive && analysisSwitchToast && (
+            <div
+              key={analysisSwitchToast.key}
+              data-testid="analysis-switch-toast"
+              role="status"
+              onClick={() => setAnalysisSwitchToast(null)}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 25,
+                padding: '8px 14px',
+                borderRadius: 6,
+                background: '#1976d2',
+                color: '#fff',
+                fontSize: 13,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                cursor: 'pointer',
+                maxWidth: 'calc(100% - 32px)',
+              }}
+            >
+              {t(
+                'liveAnalysisViewer.analysisSwitchedToast',
+                'Trainer switched to: {{title}}',
+                { title: analysisSwitchToast.title },
+              )}
+            </div>
+          )}
+
           <AnalysisBoard
             gameInfo={gameInfo}
             boardContainerRef={boardContainerRef}

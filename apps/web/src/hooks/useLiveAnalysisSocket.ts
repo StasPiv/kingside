@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   LiveAnalysisEvents,
+  type LiveAnalysisAnalysisSwitchEvent,
   type LiveAnalysisClosedEvent,
   type LiveAnalysisErrorEvent,
   type LiveAnalysisMoveEvent,
@@ -49,6 +50,12 @@ export interface UseLiveAnalysisSocketArgs {
   onClosed?: (payload: LiveAnalysisClosedEvent) => void;
   /** Колбэк на server-error (`slug-not-found`, `forbidden`, `illegal-move`, …). */
   onError?: (payload: LiveAnalysisErrorEvent) => void;
+  /**
+   * KS-4629 / ADR-142 §2.7. Колбэк на `analysis-switch` — тренер
+   * сменил активное окно анализа. Зритель должен сбросить дерево и
+   * применить новые `startingFen` / `tree` / `orientation` / `title`.
+   */
+  onAnalysisSwitch?: (payload: LiveAnalysisAnalysisSwitchEvent) => void;
 }
 
 export interface UseLiveAnalysisSocketState {
@@ -103,6 +110,7 @@ export function useLiveAnalysisSocket({
   onViewers,
   onClosed,
   onError,
+  onAnalysisSwitch,
 }: UseLiveAnalysisSocketArgs): UseLiveAnalysisSocketState {
   const [connected, setConnected] = useState(false);
   const [snapshot, setSnapshot] = useState<LiveAnalysisSyncSnapshot | null>(null);
@@ -114,6 +122,7 @@ export function useLiveAnalysisSocket({
   const onViewersRef = useRef(onViewers);
   const onClosedRef = useRef(onClosed);
   const onErrorRef = useRef(onError);
+  const onAnalysisSwitchRef = useRef(onAnalysisSwitch);
   useEffect(() => {
     onMoveRef.current = onMove;
   }, [onMove]);
@@ -129,6 +138,9 @@ export function useLiveAnalysisSocket({
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+  useEffect(() => {
+    onAnalysisSwitchRef.current = onAnalysisSwitch;
+  }, [onAnalysisSwitch]);
 
   useEffect(() => {
     if (!slug) {
@@ -213,6 +225,12 @@ export function useLiveAnalysisSocket({
     const handleError = (payload: LiveAnalysisErrorEvent) => {
       onErrorRef.current?.(payload);
     };
+    // KS-4629 / ADR-142 §2.7. Server → client: тренер переключил
+    // активное окно анализа. Тот же cross-room guard, что и у sync/move.
+    const handleAnalysisSwitch = (payload: LiveAnalysisAnalysisSwitchEvent) => {
+      if (payload?.slug !== slug) return;
+      onAnalysisSwitchRef.current?.(payload);
+    };
 
     s.on('connect', handleConnect);
     s.on('disconnect', handleDisconnect);
@@ -222,6 +240,7 @@ export function useLiveAnalysisSocket({
     s.on(LiveAnalysisEvents.VIEWERS, handleViewers);
     s.on(LiveAnalysisEvents.CLOSED, handleClosed);
     s.on(LiveAnalysisEvents.ERROR, handleError);
+    s.on(LiveAnalysisEvents.ANALYSIS_SWITCH, handleAnalysisSwitch);
 
     console.info('[live-analysis-sock] mount', {
       slug,
@@ -250,6 +269,7 @@ export function useLiveAnalysisSocket({
       s.off(LiveAnalysisEvents.VIEWERS, handleViewers);
       s.off(LiveAnalysisEvents.CLOSED, handleClosed);
       s.off(LiveAnalysisEvents.ERROR, handleError);
+      s.off(LiveAnalysisEvents.ANALYSIS_SWITCH, handleAnalysisSwitch);
       // Не disconnect-аем: socket глобальный (см. broadcastSocket-комментарий).
     };
   }, [slug]);

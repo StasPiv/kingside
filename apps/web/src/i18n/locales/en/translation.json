@@ -1176,7 +1176,8 @@
     "notFoundBody": "The broadcast link is invalid or the broadcast has been removed.",
     "loadError": "Failed to load broadcast.",
     "updateAvailable": "New update from the author",
-    "applyUpdate": "Apply"
+    "applyUpdate": "Apply",
+    "analysisSwitchedToast": "Trainer switched to: {{title}}"
   },
   "myLiveAnalyses": {
     "title": "My live broadcasts",

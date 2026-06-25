@@ -1353,6 +1353,7 @@
     "loadError": "Не удалось загрузить трансляцию.",
     "updateAvailable": "Получено обновление от автора",
     "applyUpdate": "Применить",
+    "analysisSwitchedToast": "Тренер переключился на: {{title}}",
     "accessRevokedTitle": "Доступ закрыт",
     "accessRevokedVisibility": "Автор изменил видимость лекции. Перенаправление…",
     "accessRevokedRevoked": "Автор закрыл вам доступ к этой лекции. Перенаправление…"
