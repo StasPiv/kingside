@@ -1909,6 +1909,9 @@ function AnalysisPageInner({
       setAnalysisTitle(payload.title);
       setTitleInput(payload.title);
       if (pendingLiveTree !== null) setPendingLiveTree(null);
+      // KS-4635: блокируем autosave-effect'ы — они бы перетёрли
+      // исходный Analysis (id1) деревом нового окна (id2).
+      ownerSwitchedAwayRef.current = true;
       setAnalysisSwitchToast((prev) => ({
         title: payload.title,
         key: (prev?.key ?? 0) + 1,
@@ -2530,6 +2533,13 @@ function AnalysisPageInner({
 
   // --- Position save/restore ---
   const suppressPositionSaveRef = useRef(true);
+  // KS-4635: после `analysis-switch` тренер визуально на новом окне
+  // (id2), но URL и `localIdRef` остаются от исходного Analysis (id1).
+  // Любые autosave (PGN, currentPosition) пойдут на id1 и затрут
+  // оригинальный анализ деревом второго окна. Флаг блокирует оба
+  // autosave-effect'а до перезагрузки страницы; никакого «обратного
+  // switch'а на свой Analysis» в MVP нет.
+  const ownerSwitchedAwayRef = useRef(false);
 
   useEffect(() => {
     if (pendingPositionRef.current == null || history.length === 0) return;
@@ -2559,6 +2569,9 @@ function AnalysisPageInner({
     if (suppressPositionSaveRef.current) return;
     // KS-2672: в publicMode не сохраняем currentPosition — read-only.
     if (publicMode) return;
+    // KS-4635: после analysis-switch не пишем currentPosition в
+    // исходный Analysis — это уже не его доска (см. ownerSwitchedAwayRef).
+    if (ownerSwitchedAwayRef.current) return;
     if (positionSaveRef.current) clearTimeout(positionSaveRef.current);
     positionSaveRef.current = setTimeout(() => {
       const id = localIdRef.current;
@@ -2573,6 +2586,10 @@ function AnalysisPageInner({
           if (idx !== null) position = idx;
         } catch { /* keep runtime index */ }
       }
+      // KS-4635 defensive: backend требует currentPosition >= 0 — не
+      // отправляем отрицательные значения (бывает при transient-state
+      // после loadFromPgn([]) до gotoMove).
+      if (position < 0) return;
       updateAnalysis(id, { currentPosition: position }).catch(() => {});
     }, 1000);
     return () => { if (positionSaveRef.current) clearTimeout(positionSaveRef.current); };
@@ -2603,6 +2620,11 @@ function AnalysisPageInner({
     // владелец, открывший public-URL своего анализа, тоже read-only —
     // для редактирования пусть перейдёт на /analysis/:id.
     if (publicMode) return;
+    // KS-4635: после analysis-switch у тренера в state — дерево другого
+    // окна, но `localIdRef.current` всё ещё указывает на исходный
+    // Analysis. PGN-autosave перетёр бы оригинал. Полностью блокируем
+    // autosave до перезагрузки страницы.
+    if (ownerSwitchedAwayRef.current) return;
     // KS-3724: `hasCustomFen` — кастомная стартовая позиция,
     // выставленная пользователем через «Установить позицию», тоже
     // должна триггерить autosave даже когда история ходов пустая и
