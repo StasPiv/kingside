@@ -86,6 +86,10 @@ import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
 // `LecturePublisherControls` / `LectureAudioListener` захламляли окно
 // анализа — здесь используются компактные «значки в шапке».
 import { liveAnalysisSocket } from '../socket';
+import {
+  LiveAnalysisEvents,
+  type LiveAnalysisAnalysisSwitchEvent,
+} from '@kingside/shared';
 import { LecturePublisherStatusBadge } from '../components/lecture/LecturePublisherStatusBadge';
 import { LectureAnalysisSwitcher } from '../components/lecture/LectureAnalysisSwitcher';
 import { LectureAudioListenerCompact } from '../components/lecture/LectureAudioListenerCompact';
@@ -1703,6 +1707,15 @@ function AnalysisPageInner({
     if (!liveSession) return;
     if (!liveFull.lastAnalysisSwitch) return;
     const payload = liveFull.lastAnalysisSwitch;
+    // KS-4635: лог для отладки регрессии — оставить временно, пока
+    // пользователь не подтвердит, что доска/заголовок обновляются.
+    // eslint-disable-next-line no-console
+    console.info('[analysis-switch] applying', {
+      mode: liveSession.mode,
+      title: payload.title,
+      analysisId: payload.analysisId,
+      hasTree: !!payload.tree,
+    });
     // Применяем дерево, если оно есть. null — окно ещё без дерева;
     // тогда чистим historу и ставим только startingFen/orientation.
     if (payload.tree) {
@@ -1715,6 +1728,13 @@ function AnalysisPageInner({
       setBoardOrientation(payload.orientation);
       lastAppliedLiveTreeRef.current = null;
     }
+    // KS-4635: title — критичен для тренера. URL остаётся прежним
+    // (ADR-142 §2.3 не меняет `lecture.liveAnalysisId`), но
+    // отображаемый `analysisTitle` (шапка, breadcrumbs, GameMetaBar)
+    // нужно обновить, иначе на странице остаётся «First move e4»
+    // после switch'а на «First move d4».
+    setAnalysisTitle(payload.title);
+    setTitleInput(payload.title);
     if (pendingLiveTree !== null) setPendingLiveTree(null);
     // Toast — каждый switch отдельный key, чтобы повторное переключение
     // на тот же analysisId тоже триггерило новый тост. На owner'е toast
@@ -1852,6 +1872,54 @@ function AnalysisPageInner({
     // у нас нет реальной WS-сессии, эмитить state-patch некуда.
     disabled: isViewerLive || isReplay,
   });
+
+  // KS-4635 / ADR-142 §2.7. Подписка тренера на `analysis-switch`.
+  // Маршрут `/analysis/:id` НЕ передаёт `liveSession` — поэтому
+  // `liveFull` (useLiveAnalysisBroadcast) спит, `lastAnalysisSwitch`
+  // там null, и effect для viewer'а у тренера не сработает. Берём
+  // slug напрямую из `liveBroadcast.slug` (стартер тренера через
+  // useAnalysisLiveBroadcast — он либо запустил трансляцию POST'ом,
+  // либо подхватил существующую через REST-restore). Слушаем
+  // socket-event и применяем switch к review-state + заголовку.
+  useEffect(() => {
+    const ownerSlug = liveBroadcast.slug;
+    if (!ownerSlug) return;
+    // Если уже есть `liveSession` (например, тренер открыл свою же
+    // лекцию через /live/:slug) — пропускаем, основной effect
+    // отработает через `liveFull.lastAnalysisSwitch`.
+    if (liveSession) return;
+    const sock = liveAnalysisSocket;
+    const handler = (payload: LiveAnalysisAnalysisSwitchEvent) => {
+      if (payload?.slug !== ownerSlug) return;
+      // eslint-disable-next-line no-console
+      console.info('[analysis-switch:owner] applying', {
+        slug: ownerSlug,
+        title: payload.title,
+        analysisId: payload.analysisId,
+        hasTree: !!payload.tree,
+      });
+      if (payload.tree) {
+        applyLiveTree(payload.tree);
+      } else {
+        setInitialFen(payload.startingFen);
+        loadFromPgn([]);
+        setBoardOrientation(payload.orientation);
+        lastAppliedLiveTreeRef.current = null;
+      }
+      setAnalysisTitle(payload.title);
+      setTitleInput(payload.title);
+      if (pendingLiveTree !== null) setPendingLiveTree(null);
+      setAnalysisSwitchToast((prev) => ({
+        title: payload.title,
+        key: (prev?.key ?? 0) + 1,
+      }));
+    };
+    sock.on(LiveAnalysisEvents.ANALYSIS_SWITCH, handler);
+    return () => {
+      sock.off(LiveAnalysisEvents.ANALYSIS_SWITCH, handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveBroadcast.slug, liveSession, applyLiveTree]);
 
   // Обёртка над `rawMakeVariantMove`: пробрасываем UCI в live-трансляцию
   // после успешно применённого хода. Если трансляция не активна — внутри

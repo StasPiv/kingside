@@ -171,6 +171,14 @@ export function LectureAnalysisSwitcher({
           }),
         });
         setOpen(false);
+        // KS-4635: НЕ делаем navigate на `/analysis/<newId>`.
+        // По ADR-142 §2.3 `lecture.liveAnalysisId` в БД не меняется
+        // при switch'е (slug привязан к исходному Analysis), а маршрут
+        // `/analysis/:id` не получает `liveSession` через props — туда
+        // его прокидывает только `LiveAnalysisViewerPage`. Navigate
+        // оборвал бы live-сессию тренера. Вместо этого AnalysisPage
+        // обновляет заголовок и дерево по `liveFull.lastAnalysisSwitch`
+        // (см. useEffect там).
       } catch (err) {
         const code =
           err instanceof LiveAnalysisApiError ? err.code : 'unknown';
