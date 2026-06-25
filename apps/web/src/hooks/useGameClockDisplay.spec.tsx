@@ -43,17 +43,22 @@ describe('computeClockDisplay — чистая функция', () => {
     expect(out.blackDisplayMs).toBe(59_250);
   });
 
-  it('isFinished=true → ничего не уменьшается', () => {
+  it('isFinished=true + activeColor — активная экстраполируется до 0 (KS-4658)', () => {
+    // Раньше при finished экстраполяция останавливалась, и табло
+    // зависало на серверном snapshot'е (например, 12_000 мс) —
+    // пользователь видел «0:12» вместо «0:00» после просрочки.
+    // Теперь экстраполируем активной стороне, неактивная статична.
     const out = computeClockDisplay(
       makeInput({
         activeColor: 'white',
         whiteMs: 12_000,
         blackMs: 34_000,
+        snapshotAt: 1_000,
         isFinished: true,
       }),
-      10_000,
+      14_000, // прошло 13 000 мс — больше серверного остатка
     );
-    expect(out.whiteDisplayMs).toBe(12_000);
+    expect(out.whiteDisplayMs).toBe(0);
     expect(out.blackDisplayMs).toBe(34_000);
   });
 
@@ -124,20 +129,23 @@ describe('computeClockDisplay — чистая функция', () => {
     expect(out.blackMode).toBe('normal');
   });
 
-  it('isFinished → mode всегда normal, даже при critical urgency', () => {
+  it('isFinished + критическая активная сторона → mode hundredths (KS-4658)', () => {
+    // После KS-4658 mode сохраняется как у активной стороны и при
+    // finished — чтобы цифра не «прыгала» с 0.00 на 0:00 в момент
+    // окончания партии.
     const out = computeClockDisplay(
       makeInput({
         whiteMs: 500,
         blackMs: 500,
         activeColor: 'white',
+        snapshotAt: 0,
         isFinished: true,
       }),
       0,
     );
-    // Урgency считается по числу — оно мало, но mode у обоих normal,
-    // потому что часы остановлены.
     expect(out.whiteUrgency).toBe('critical');
-    expect(out.whiteMode).toBe('normal');
+    expect(out.whiteMode).toBe('hundredths');
+    // Неактивная всегда normal.
     expect(out.blackMode).toBe('normal');
   });
 
@@ -231,7 +239,7 @@ describe('useGameClockDisplay — реактивный wrapper', () => {
     expect(result.current.whiteMode).toBe('tenths');
   });
 
-  it('isFinished=true → таймер не запускается, output статичен', () => {
+  it('isFinished=true с момента старта → таймер не запускается, output статичен', () => {
     const { result } = renderHook(() =>
       useGameClockDisplay({
         whiteMs: 12_000,
@@ -243,12 +251,52 @@ describe('useGameClockDisplay — реактивный wrapper', () => {
       }),
     );
 
+    // KS-4658: при finished + activeColor хук экстраполирует один
+    // раз при инициализации, потом не тикает. Стартовый now = 1_000
+    // (см. beforeEach), snapshotAt = 1_000 → elapsed = 0 → 12_000.
     expect(result.current.whiteDisplayMs).toBe(12_000);
     act(() => {
       vi.advanceTimersByTime(5_000);
     });
-    // Без таймера значения не изменились.
     expect(result.current.whiteDisplayMs).toBe(12_000);
+  });
+
+  it('переход isFinished=false→true после просрочки → display=0 (KS-4658)', () => {
+    // Сценарий пользователя: активная сторона дошла до 0, серверный
+    // snapshot ещё содержит положительное значение (например, 13_000),
+    // потом приходит `status=finished` и `activeColor=null`. До
+    // KS-4658 display зависал на 13_000 → «0:13». Теперь хук помнит
+    // последнюю активную сторону и продолжает экстраполировать.
+    const props = {
+      whiteMs: 60_000,
+      blackMs: 13_000,
+      activeColor: 'black' as 'white' | 'black' | null,
+      snapshotAt: 1_000,
+      initialMs: 60_000,
+      isFinished: false,
+    };
+    const { result, rerender } = renderHook(
+      (p: typeof props) => useGameClockDisplay(p),
+      { initialProps: props },
+    );
+
+    // Прокручиваем 13 секунд — флаг чёрного по таймеру.
+    act(() => {
+      vi.setSystemTime(new Date(14_000));
+      (performance.now as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        14_000,
+      );
+      vi.advanceTimersByTime(13_000);
+    });
+    // На последнем кадре rAF/interval display чёрных = 0.
+    expect(result.current.blackDisplayMs).toBe(0);
+
+    // Партия переходит в finished, родитель сбрасывает activeColor.
+    rerender({ ...props, isFinished: true, activeColor: null });
+    // Зависает не на 13_000 — а на 0 (последняя активная — чёрные,
+    // продолжаем экстраполировать до клампа).
+    expect(result.current.blackDisplayMs).toBe(0);
+    expect(result.current.whiteDisplayMs).toBe(60_000);
   });
 
   it('смена активной стороны переключает экстраполяцию', () => {

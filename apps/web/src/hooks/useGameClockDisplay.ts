@@ -72,10 +72,19 @@ function urgencyToMode(
 }
 
 /**
- * KS-4652 / ADR-144 §3.4. Чистый расчёт состояния часов для одного
- * момента времени `now` (`performance.now()`). Экстраполяция элапса
- * применяется только к активной стороне; неактивная остаётся на
- * серверном значении.
+ * KS-4652 / KS-4658 / ADR-144 §3.4. Чистый расчёт состояния часов
+ * для одного момента времени `now` (`performance.now()`).
+ *
+ * Экстраполяция элапса применяется к активной стороне всегда —
+ * включая случай `isFinished=true`. Это сознательно: при просрочке
+ * партия переходит в `finished` со старым серверным `snapshotAt`,
+ * но `whiteMs/blackMs` ещё не нули (сервер прислал 13 000 мс
+ * 13 секунд назад, флаг сработал по клиентскому таймауту). Без
+ * экстраполяции display зависнет на 13 000 → пользователь видит
+ * «0:13» вместо «0:00» (KS-4658, скриншот в комментарии задачи).
+ *
+ * Для неактивной (или той, что неактивна была последней) elapsed
+ * не вычитается — её часы не тратились.
  *
  * Покрывается unit-тестами без таймеров.
  */
@@ -85,11 +94,11 @@ export function computeClockDisplay(
 ): GameClockOutput {
   const wRaw = input.whiteMs ?? 0;
   const bRaw = input.blackMs ?? 0;
-  // Партия активна и есть валидный снимок — считаем элапс с момента
-  // снимка. Защита от обратного хода `now < snapshotAt`
-  // (теоретический edge при манипуляциях с `performance.now()`):
-  // `Math.max(0, ...)`.
-  const running = !input.isFinished && input.activeColor != null;
+  // KS-4658. Экстраполяция применяется как только есть активная
+  // сторона (нужно для просрочки при finished). Снимок считается
+  // невалидным только пока `activeColor == null` (waiting / нет
+  // последней активной стороны).
+  const running = input.activeColor != null;
   const elapsed = running ? Math.max(0, now - input.snapshotAt) : 0;
 
   let whiteDisplayMs = wRaw;
@@ -103,13 +112,20 @@ export function computeClockDisplay(
   const whiteUrgency = computeClockUrgency(whiteDisplayMs, input.initialMs);
   const blackUrgency = computeClockUrgency(blackDisplayMs, input.initialMs);
 
+  // KS-4658. Mode для активной стороны выбирается по urgency даже при
+  // `isFinished=true` — иначе после просрочки часы прыгают с
+  // `hundredths`/`tenths` обратно на `normal` и теряют визуальную
+  // целостность. Для НЕактивной mode всегда `normal` (ADR §3.3).
+  const whiteIsActive = running && input.activeColor === 'white';
+  const blackIsActive = running && input.activeColor === 'black';
+
   return {
     whiteDisplayMs,
     blackDisplayMs,
     whiteUrgency,
     blackUrgency,
-    whiteMode: urgencyToMode(whiteUrgency, running && input.activeColor === 'white'),
-    blackMode: urgencyToMode(blackUrgency, running && input.activeColor === 'black'),
+    whiteMode: urgencyToMode(whiteUrgency, whiteIsActive),
+    blackMode: urgencyToMode(blackUrgency, blackIsActive),
   };
 }
 
@@ -139,13 +155,36 @@ function tickStrategy(output: GameClockOutput): 'interval' | 'raf' {
 export function useGameClockDisplay(
   input: GameClockInput,
 ): GameClockOutput {
-  const inputRef = useRef(input);
-  inputRef.current = input;
+  // KS-4658. Запоминаем последнюю известную активную сторону. При
+  // `isFinished=true` родитель обычно переключает `activeColor=null`
+  // (status != 'active'), но именно на просрочке нам нужно знать,
+  // чьи часы доэкстраполировать до нуля. Ref обновляется только пока
+  // партия не завершена — после finished остаётся последнее значение.
+  const lastActiveRef = useRef<GameClockInput['activeColor']>(null);
+  if (!input.isFinished && input.activeColor != null) {
+    lastActiveRef.current = input.activeColor;
+  }
+
+  // Эффективный `activeColor` для computeClockDisplay: при finished
+  // используем последнюю известную, иначе текущую. Это переводит
+  // вычисление в режим «доэкстраполировать активную сторону до 0,
+  // потом зафиксировать» — фикс KS-4658.
+  const effectiveActive: GameClockInput['activeColor'] = input.isFinished
+    ? lastActiveRef.current
+    : input.activeColor;
+
+  const effectiveInput: GameClockInput = {
+    ...input,
+    activeColor: effectiveActive,
+  };
+
+  const inputRef = useRef(effectiveInput);
+  inputRef.current = effectiveInput;
 
   const nowFn = (): number => performance.now();
 
   const [output, setOutput] = useState<GameClockOutput>(() =>
-    computeClockDisplay(input, nowFn()),
+    computeClockDisplay(effectiveInput, nowFn()),
   );
 
   // Перерасчёт при изменении любого примитива во входе. Сюда же
