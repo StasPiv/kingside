@@ -820,7 +820,7 @@ describe('LiveAnalysisService', () => {
     });
   });
 
-  // ─── KS-4627: applySwitchAnalysis ─────────────────────────────────
+  // ─── KS-4627: applySwitchAnalysis (ADR-142 v2) ────────────────────
 
   describe('applySwitchAnalysis', () => {
     function arrangeOwnerActive() {
@@ -832,14 +832,12 @@ describe('LiveAnalysisService', () => {
       });
     }
 
-    it('пишет state, эмитит analysis-switch + sync, кладёт событие в журнал', async () => {
+    it('пишет только activeAnalysisId+activeTitle, эмитит analysis-switch+sync, пишет в журнал', async () => {
       arrangeOwnerActive();
       prisma.analysis.findUnique.mockResolvedValueOnce({
         id: 'a-2',
         userId: 'u-1',
         title: 'Каро-Канн',
-        fen: null,
-        boardOrientation: 'black',
       });
       // Симулируем активную лекцию — иначе recordLectureEvent — no-op.
       prisma.lecture.findFirst.mockResolvedValueOnce({
@@ -850,36 +848,46 @@ describe('LiveAnalysisService', () => {
 
       const snap = await service.applySwitchAnalysis('s', 'u-1', {
         analysisId: 'a-2',
-        tree: '{"history":[]}',
-        currentGlobalIndex: 0,
       });
 
-      // Snapshot содержит активное окно
+      // Snapshot — указатель + нейтральные дефолты (фронт сам сходит в /analyses/:id).
       expect(snap.activeAnalysisId).toBe('a-2');
       expect(snap.activeTitle).toBe('Каро-Канн');
-      expect(snap.orientation).toBe('black');
-      expect(snap.tree).toBe('{"history":[]}');
-      expect(snap.currentGlobalIndex).toBe(0);
+      expect(snap.startingFen).toContain('rnbqkbnr'); // INITIAL_FEN
+      expect(snap.orientation).toBe('white');
+      expect(snap.tree).toBeUndefined();
+      expect(snap.currentGlobalIndex).toBeUndefined();
 
-      // Redis state — содержит новые поля
+      // Redis state — только activeAnalysisId/activeTitle.
       const state = await redis.hgetall('live_analysis:la-1:state');
       expect(state.activeAnalysisId).toBe('a-2');
       expect(state.activeTitle).toBe('Каро-Канн');
-      expect(state.orientation).toBe('black');
-      expect(state.tree).toBe('{"history":[]}');
+      expect(state.tree).toBeUndefined();
 
-      // moves предыдущего окна очищены
+      // moves предыдущего окна очищены.
       const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
       expect(moves).toEqual([]);
 
-      // оба канала publish — sync (legacy) и analysis-switch (new)
+      // Оба канала publish — sync (для backward-compat snapshot'ов) и
+      // analysis-switch (новый указатель для фронта).
       const publishedChannels = (redis.publish as jest.Mock).mock.calls.map(
         ([ch]) => ch,
       );
       expect(publishedChannels).toContain('live-analysis:sync');
       expect(publishedChannels).toContain('live-analysis:analysis-switch');
 
-      // Событие в журнал лекции
+      // analysis-switch payload — только указатель.
+      const switchCall = (redis.publish as jest.Mock).mock.calls.find(
+        ([ch]) => ch === 'live-analysis:analysis-switch',
+      );
+      const switchPayload = JSON.parse(switchCall[1]);
+      expect(switchPayload).toEqual({
+        slug: 's',
+        analysisId: 'a-2',
+        title: 'Каро-Канн',
+      });
+
+      // Событие в журнал лекции — тоже только указатель.
       const recorded = await redis.lrange(
         'lecture_recording:la-1:events',
         0,
@@ -888,45 +896,43 @@ describe('LiveAnalysisService', () => {
       expect(recorded.length).toBe(1);
       const parsed = JSON.parse(recorded[0]);
       expect(parsed.type).toBe('analysis-switch');
-      expect(parsed.payload.analysisId).toBe('a-2');
-      expect(parsed.payload.title).toBe('Каро-Канн');
-      expect(parsed.payload.tree).toBe('{"history":[]}');
-      expect(parsed.payload.currentGlobalIndex).toBe(0);
+      expect(parsed.payload).toEqual({
+        analysisId: 'a-2',
+        title: 'Каро-Канн',
+      });
     });
 
-    it('без переданных tree/currentGlobalIndex — оба сбрасываются (HDEL)', async () => {
+    it('очищает все эфемерные поля прежнего окна (tree, currentGlobalIndex, currentPgn, lastPatchAt, currentFen, currentPly, startingFen, orientation) и moves', async () => {
       arrangeOwnerActive();
-      // Предварительно положим в state hash старое tree / currentGlobalIndex,
-      // как будто было предыдущее окно с деревом и автор стоял в узле 5.
+      // Предварительно положим в state hash «грязь» от предыдущего окна.
       await redis.hset('live_analysis:la-1:state', {
-        startingFen: 'old',
-        currentFen: 'old',
+        startingFen: 'old-fen',
+        currentFen: 'old-fen',
         currentPly: '3',
-        orientation: 'white',
+        orientation: 'black',
         tree: '{"old":true}',
         currentGlobalIndex: '5',
+        currentPgn: 'old-pgn',
         lastPatchAt: '123',
       });
+      await redis.rpush('live_analysis:la-1:moves', 'e2e4', 'e7e5');
       prisma.analysis.findUnique.mockResolvedValueOnce({
         id: 'a-2',
         userId: 'u-1',
         title: 'X',
-        fen: null,
-        boardOrientation: null,
       });
 
-      const snap = await service.applySwitchAnalysis('s', 'u-1', {
-        analysisId: 'a-2',
-      });
+      await service.applySwitchAnalysis('s', 'u-1', { analysisId: 'a-2' });
 
-      expect(snap.tree).toBeUndefined();
-      expect(snap.currentGlobalIndex).toBeUndefined();
       const state = await redis.hgetall('live_analysis:la-1:state');
-      expect(state.tree).toBeUndefined();
-      expect(state.currentGlobalIndex).toBeUndefined();
-      expect(state.lastPatchAt).toBeUndefined();
-      // currentPly должен быть сброшен в '0' (ходов поверх нового окна нет).
-      expect(state.currentPly).toBe('0');
+      // Должны остаться только activeAnalysisId+activeTitle.
+      expect(Object.keys(state).sort()).toEqual([
+        'activeAnalysisId',
+        'activeTitle',
+      ]);
+      // moves тоже очищены.
+      const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
+      expect(moves).toEqual([]);
     });
 
     it('403 если не владелец трансляции', async () => {
@@ -950,33 +956,10 @@ describe('LiveAnalysisService', () => {
         id: 'a-2',
         userId: 'OTHER',
         title: 'X',
-        fen: null,
-        boardOrientation: null,
       });
       await expect(
         service.applySwitchAnalysis('s', 'u-1', { analysisId: 'a-2' }),
       ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('400 если tree > 256 KB', async () => {
-      arrangeOwnerActive();
-      prisma.analysis.findUnique.mockResolvedValueOnce({
-        id: 'a-2',
-        userId: 'u-1',
-        title: 'X',
-        fen: null,
-        boardOrientation: null,
-      });
-      const tooLarge = 'a'.repeat(262_145);
-      await expect(
-        service.applySwitchAnalysis('s', 'u-1', {
-          analysisId: 'a-2',
-          tree: tooLarge,
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
-        'tree_too_large',
-      );
     });
 
     it('404 если live-сессии нет/закрыта', async () => {

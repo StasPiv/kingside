@@ -369,45 +369,28 @@ export type LiveAnalysisSyncSnapshot = {
 // ─── KS-4627 / ADR-142: переключение окна анализа во время лекции ────
 
 /**
- * KS-4627 / ADR-142 §2.6. Тело запроса `POST /live-analyses/:slug/switch-analysis`.
+ * KS-4627 / ADR-142 v2 §2.6. Тело запроса
+ * `POST /live-analyses/:slug/switch-analysis`. Минимальный контракт:
+ * только `analysisId` — backend сам по нему смотрит `Analysis.title`
+ * в БД, прочих метаданных дерева не дублирует. Фронт за деревом
+ * вариаций (`Analysis.tree` / PGN) и `boardOrientation`/`fen` ходит
+ * сам в `GET /analyses/:id` после получения WS-события
+ * `live-analysis:analysis-switch` (`payload.analysisId`).
  *
- * Тренер переключает «активное окно» на другой свой `Analysis`. Backend:
+ * Backend на этом endpoint'е:
  *   - проверяет владельца трансляции (`assertOwnerAndActive`);
  *   - проверяет, что `Analysis.userId === actor.userId` (нельзя
  *     переключиться на чужой анализ; ADR §2.3 п.1);
- *   - складывает `tree`/`startingFen`/`orientation`/`activeAnalysisId`
- *     в Redis state hash, чистит moves-list и tree-связанные поля;
- *   - публикует `SYNC` snapshot и отдельное событие `analysis-switch`
- *     (см. `LiveAnalysisAnalysisSwitchEvent`).
- *
- * Поля `tree`/`startingFen`/`orientation`/`title`/`currentGlobalIndex`
- * клиент передаёт сам — backend по контракту KS-3780 НЕ парсит PGN
- * выбранного `Analysis` на стороне сервера. Если поле опущено —
- * используется значение из `Analysis` в БД (для `startingFen` — `fen`
- * или `INITIAL_FEN`; для `orientation` — `boardOrientation` или 'white';
- * для `title` — `Analysis.title`). `tree` без сервер-парсинга — если
- * клиент не передал, в Redis state поле `tree` очищается (как при
- * reset): зритель увидит чистый startingFen без дерева, до первого
- * последующего `state-patch`.
+ *   - в Redis state hash меняет `activeAnalysisId`/`activeTitle`,
+ *     очищает все поля прежнего окна (tree/currentGlobalIndex/
+ *     currentPgn/lastPatchAt/currentFen/currentPly/startingFen/
+ *     orientation) и буфер `moves` (ходов поверх старого дерева больше нет);
+ *   - публикует `SYNC` snapshot (без `tree`) + отдельное событие
+ *     `analysis-switch` (см. `LiveAnalysisAnalysisSwitchEvent`).
  */
 export type SwitchAnalysisRequest = {
   /** UUID `Analysis.id`, на который переключаемся. */
   analysisId: string;
-  /**
-   * JSON-сериализованное дерево анализа (тот же формат, что у
-   * `LiveAnalysisStatePatchPayload.tree`). ≤ 256 KB. Если опущено —
-   * Redis-state очищает поле `tree` и зритель получает sync без
-   * дерева (продолжение — через первый `state-patch`).
-   */
-  tree?: string;
-  /** Стартовый FEN активного окна. Если опущено — берём `Analysis.fen` или INITIAL_FEN. */
-  startingFen?: string;
-  /** Ориентация. Если опущено — `Analysis.boardOrientation` или 'white'. */
-  orientation?: LiveAnalysisOrientation;
-  /** Заголовок (для UI зрителя). Если опущено — `Analysis.title`. */
-  title?: string;
-  /** Индекс узла дерева, на котором стоит тренер в момент switch'а. */
-  currentGlobalIndex?: number;
 };
 
 /**
@@ -419,21 +402,19 @@ export type SwitchAnalysisRequest = {
 export type SwitchAnalysisResponse = LiveAnalysisSyncSnapshot;
 
 /**
- * KS-4627 / ADR-142 §2.2 / §2.7. Server → client. Эмитится всем
+ * KS-4627 / ADR-142 v2 §2.2 / §2.7. Server → client. Эмитится всем
  * зрителям комнаты, когда тренер переключил активное окно анализа.
  *
- * Зритель на это событие:
- *   - сбрасывает локальное дерево;
- *   - применяет `startingFen` / `orientation` / `tree` / `currentGlobalIndex`;
+ * Payload — указатель, БЕЗ inline-дерева/FEN/orientation. Зритель на
+ * это событие:
+ *   - сбрасывает локальное состояние доски;
+ *   - идёт `GET /analyses/:analysisId` за свежим `tree`, `fen`,
+ *     `boardOrientation`, `title`, `headers`;
  *   - показывает transient-уведомление с `title`.
  *
- * Payload идентичен ADR §2.2 (`AnalysisSwitchEvent.payload`) с
- * дополнительным `slug` для совместимости с подпиской по комнате
- * (как у `MoveEvent.slug`/`SyncSnapshot.slug`).
- *
  * Это же событие в финализаторе записи лекции попадает в массив
- * `LectureRecording.events` как `RecordedAnalysisSwitchEvent` — там
- * без `slug` (внутреннее поле канала), но с теми же полями payload.
+ * `LectureRecording.events` как `RecordedAnalysisSwitchEvent` (там без
+ * `slug` — внутреннее поле канала, но с теми же `analysisId`/`title`).
  */
 export type LiveAnalysisAnalysisSwitchEvent = {
   slug: string;
@@ -441,21 +422,6 @@ export type LiveAnalysisAnalysisSwitchEvent = {
   analysisId: string;
   /** Заголовок активного окна — для UI зрителя. */
   title: string;
-  /** Стартовый FEN; INITIAL_FEN если выбранный Analysis без fen. */
-  startingFen: string;
-  /** Ориентация доски в момент переключения. */
-  orientation: LiveAnalysisOrientation;
-  /**
-   * JSON-сериализованное дерево вариаций (тот же формат, что у
-   * `LiveAnalysisSyncSnapshot.tree`). `null` — окно ещё без дерева,
-   * доска стартует со startingFen.
-   */
-  tree: string | null;
-  /**
-   * Текущая глобальная позиция в дереве (как в state.currentGlobalIndex);
-   * `null` — корень.
-   */
-  currentGlobalIndex: number | null;
 };
 
 // ─── KS-4627 / ADR-142 §2.2: события записи лекции ───────────────────
@@ -504,11 +470,14 @@ export type RecordedClosedEvent = {
 };
 
 /**
- * KS-4627 / ADR-142 §2.2. Запись о переключении активного окна
+ * KS-4627 / ADR-142 v2 §2.2. Запись о переключении активного окна
  * анализа во время лекции. Хранится в `LectureRecording.events` для
- * корректного replay. Заголовок и дерево сохраняются «inline» — после
- * лекции автор может удалить исходный `Analysis`, а replay-плеер
- * должен всё ещё восстанавливать снимок.
+ * корректного replay. Указатель + название — без inline-дерева
+ * (источник истины `Analysis` в БД). При replay плеер так же идёт
+ * `GET /analyses/:analysisId`. Известный риск: если автор удалит
+ * `Analysis` после лекции, дерево для replay'я будет недоступно —
+ * по ADR-142 v2 принято осознанно (показывать «окно недоступно»),
+ * см. §6 риск 2.
  */
 export type RecordedAnalysisSwitchEvent = {
   t: number;
@@ -516,10 +485,6 @@ export type RecordedAnalysisSwitchEvent = {
   payload: {
     analysisId: string;
     title: string;
-    startingFen: string;
-    orientation: LiveAnalysisOrientation;
-    tree: string | null;
-    currentGlobalIndex: number | null;
   };
 };
 

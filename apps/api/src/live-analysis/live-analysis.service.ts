@@ -732,29 +732,15 @@ export class LiveAnalysisService implements OnModuleInit {
         if (live?.analysisId && !hasEarlyAnalysisSwitch) {
           const origAnalysis = await this.prisma.analysis.findUnique({
             where: { id: live.analysisId },
-            select: { title: true, fen: true, boardOrientation: true },
+            select: { title: true },
           });
           if (origAnalysis) {
+            // ADR-142 v2: payload синтетического события — указатель
+            // {analysisId, title}. Tree/fen/orientation replay-плеер
+            // подтянет тем же `GET /analyses/:id`, что и live-зритель.
             const syntheticPayload: RecordedAnalysisSwitchEvent['payload'] = {
               analysisId: live.analysisId,
               title: origAnalysis.title,
-              // Если в state hash startingFen уже был — берём его (он мог
-              // быть переписан reset'ом); иначе — fen самого Analysis;
-              // иначе — стандартная начальная.
-              startingFen:
-                state?.startingFen ??
-                origAnalysis.fen ??
-                LiveAnalysisService.INITIAL_FEN,
-              orientation:
-                (orientation as LiveAnalysisOrientation | null) ??
-                (origAnalysis.boardOrientation as LiveAnalysisOrientation | null) ??
-                'white',
-              // `tree` бэк не парсит из PGN (KS-3780). Синтетический
-              // event несёт только метаданные окна; дерево, если оно
-              // приходило тренеру первым state-patch'ем, восстановится
-              // следующим событием в потоке.
-              tree: null,
-              currentGlobalIndex: null,
             };
             const synthetic: RecordedAnalysisSwitchEvent = {
               t: 0,
@@ -1289,41 +1275,29 @@ export class LiveAnalysisService implements OnModuleInit {
   }
 
   /**
-   * KS-4627 / ADR-142 §2.3, §2.6. Переключить активное окно анализа
-   * во время live-сессии. Тренер выбрал другой свой `Analysis` —
-   * сервис атомарно (per-slug mutex) перезаписывает Redis state hash
-   * под новое окно, чистит ходы предыдущего, эмитит обычный
-   * `SYNC` snapshot + специальное `analysis-switch` событие, пишет
-   * `analysis-switch` запись в журнал лекции для replay.
+   * KS-4627 / ADR-142 v2 §2.3, §2.6. Переключить активное окно анализа
+   * во время live-сессии. Минимальный контракт: backend меняет в Redis
+   * state hash только `activeAnalysisId` + `activeTitle`, всё, что
+   * относилось к предыдущему окну (tree/currentGlobalIndex/currentPgn/
+   * lastPatchAt/currentFen/currentPly/startingFen/orientation), чистит,
+   * вместе с buffer'ом ходов (DEL moves). Дерево/FEN/orientation
+   * нового окна — НЕ дублируются в state: фронт зрителя и тренер сами
+   * идут `GET /analyses/:analysisId` после WS-события (источник истины
+   * — `Analysis` в БД, см. ADR-142 v2 §2).
    *
-   * Все шаги:
-   *   1. assertOwnerAndActive(slug, actingUserId) — только владелец.
-   *   2. Достать `Analysis(id=dto.analysisId)`; 404 если нет, 403 если
-   *      `userId !== actingUserId` (нельзя переключаться на чужой,
-   *      ADR §2.3 п.1). MVP — публичные чужие тоже запрещены (риск 9).
-   *   3. Hard cap длины `tree` 256 KB — переиспользуем
-   *      `STATE_PATCH_PGN_HARD_CAP_BYTES` (см. §2.6).
-   *   4. Rate-limit — переиспользуем `authorStatePatchLimiter` (5 op/sec
-   *      burst 10): switch ≈ жирный state-patch.
-   *   5. Сборка фактических полей: пользователь может либо передать
-   *      `tree/startingFen/orientation/title/currentGlobalIndex` (свежий
-   *      снимок, сформированный на фронте), либо опустить — fallback на
-   *      `Analysis.fen/boardOrientation/title`. Backend не парсит PGN
-   *      (KS-3780), tree берётся как есть; если фронт не передал, в
-   *      Redis-state поле tree очищается.
-   *   6. HSET state hash: `startingFen`, `orientation`, `activeAnalysisId`,
-   *      `activeTitle`, опц. `tree`/`currentGlobalIndex`. HDEL — поля
-   *      хода предыдущего окна (`currentFen`, `currentPly`, legacy
-   *      `currentPgn`, `lastPatchAt`) + при отсутствии tree — `tree`/
-   *      `currentGlobalIndex`. DEL moves-list (ходов поверх нового
-   *      дерева ещё нет).
-   *   7. publish `CHANNEL_SYNC` с актуальным snapshot'ом — backward-
-   *      compat для клиентов, не знающих `analysis-switch` event'а.
-   *   8. publish `CHANNEL_ANALYSIS_SWITCH` — payload идентичен ADR §2.2.
-   *   9. recordLectureEvent('analysis-switch', payload) — без `slug`,
-   *      событие финализатор увидит в общем потоке записи.
-   *  10. touchLastActivity(force=true) — switch обновляет
-   *      `lastActivityAt` сразу (как reset).
+   * Шаги:
+   *   1. assertOwnerAndActive — только владелец трансляции.
+   *   2. `Analysis` принадлежит actor'у (404/403).
+   *   3. Rate-limit (переиспользуем `authorStatePatchLimiter`).
+   *   4. HSET `activeAnalysisId`+`activeTitle`; HDEL всех полей старого
+   *      окна; DEL moves; продлеваем TTL state hash.
+   *   5. touchLastActivity(force=true).
+   *   6. publish `CHANNEL_SYNC` snapshot (без `tree`, со сброшенными
+   *      `startingFen=INITIAL_FEN`/`orientation='white'` — нейтральные
+   *      дефолты, фронт всё равно перезатрёт после `GET /analyses/:id`).
+   *   7. publish `CHANNEL_ANALYSIS_SWITCH` — указатель `{slug, analysisId, title}`.
+   *   8. recordLectureEvent('analysis-switch', {analysisId, title}) —
+   *      запись в журнал лекции для replay.
    */
   async applySwitchAnalysis(
     slug: string,
@@ -1335,15 +1309,11 @@ export class LiveAnalysisService implements OnModuleInit {
       const meta = await this.assertOwnerAndActive(slug, actingUserId);
 
       // (2) Analysis принадлежит actor'у. Не публичный, не чужой.
+      // MVP-ограничение: даже публичный чужой Analysis тренер
+      // переключить не может — UX-доверие (см. ADR-142 риск 9).
       const analysis = await this.prisma.analysis.findUnique({
         where: { id: dto.analysisId },
-        select: {
-          id: true,
-          userId: true,
-          title: true,
-          fen: true,
-          boardOrientation: true,
-        },
+        select: { id: true, userId: true, title: true },
       });
       if (!analysis) {
         throw new NotFoundException(
@@ -1356,19 +1326,7 @@ export class LiveAnalysisService implements OnModuleInit {
         );
       }
 
-      // (3) tree size cap (если фронт передал свежий снимок).
-      if (
-        dto.tree !== undefined &&
-        dto.tree.length > LiveAnalysisService.STATE_PATCH_PGN_HARD_CAP_BYTES
-      ) {
-        this.metrics.incLiveAnalysisStatePatchRejected('tree_too_large');
-        this.logger.warn(
-          `analysis-switch rejected (tree too large) slug=${slug} bytes=${dto.tree.length}`,
-        );
-        throw new BadRequestException('tree-too-large');
-      }
-
-      // (4) rate-limit — переиспользуем bucket state-patch.
+      // (3) rate-limit — переиспользуем bucket state-patch.
       if (!this.authorStatePatchLimiter.tryConsume(slug)) {
         this.metrics.incLiveAnalysisStatePatchRejected('rate_limit');
         this.logger.warn(
@@ -1377,101 +1335,66 @@ export class LiveAnalysisService implements OnModuleInit {
         throw new BadRequestException('Rate limit exceeded (analysis-switch)');
       }
 
-      // (5) сборка эффективных полей нового окна.
-      const startingFen = this.normalizeStartingFen(
-        dto.startingFen ?? analysis.fen ?? undefined,
-      );
-      const orientation: LiveAnalysisOrientation =
-        dto.orientation ??
-        (analysis.boardOrientation as LiveAnalysisOrientation | null) ??
-        'white';
-      const title = dto.title ?? analysis.title;
-      const treeOpt = dto.tree;
-      const currentGlobalIndexValue =
-        typeof dto.currentGlobalIndex === 'number' &&
-        Number.isInteger(dto.currentGlobalIndex) &&
-        dto.currentGlobalIndex >= 0
-          ? dto.currentGlobalIndex
-          : undefined;
-
-      // (6) Redis state hash перезаписываем под новое окно.
+      // (4) Redis state: пишем только указатель активного окна, чистим
+      // всё прежнее (включая buffer state-patch'ей и ходов).
       const stateKey = this.stateKey(meta.id);
       const movesKey = this.movesKey(meta.id);
-      const fieldsToSet: Record<string, string> = {
-        startingFen,
-        currentFen: startingFen,
-        currentPly: '0',
-        orientation,
-        activeAnalysisId: analysis.id,
-        activeTitle: title,
-      };
-      if (treeOpt !== undefined) {
-        fieldsToSet.tree = treeOpt;
-      }
-      if (currentGlobalIndexValue !== undefined) {
-        fieldsToSet.currentGlobalIndex = String(currentGlobalIndexValue);
-      }
       const pipeline = this.redis
         .multi()
         .del(movesKey)
-        .hset(stateKey, fieldsToSet);
-      // HDEL мёртвых полей предыдущего окна. Поля, которые мы только
-      // что выставили выше, тут не дублируем — иначе HDEL сотрёт
-      // только что записанное. tree/currentGlobalIndex чистим только
-      // если фронт их не передал (иначе они уже в fieldsToSet).
-      const fieldsToDel: string[] = ['currentPgn', 'lastPatchAt'];
-      if (treeOpt === undefined) {
-        fieldsToDel.push('tree');
-      }
-      if (currentGlobalIndexValue === undefined) {
-        fieldsToDel.push('currentGlobalIndex');
-      }
+        .hset(stateKey, {
+          activeAnalysisId: analysis.id,
+          activeTitle: analysis.title,
+        });
+      // HDEL всех «эфемерных» полей прежнего окна. tree/currentGlobalIndex/
+      // currentPgn/lastPatchAt — буфер state-patch'ей; currentFen/
+      // currentPly — состояние ходов; startingFen/orientation — метаданные
+      // прежнего окна, чтобы snapshot не врал о старом fen'е.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (pipeline as any).hdel(stateKey, ...fieldsToDel);
+      (pipeline as any).hdel(
+        stateKey,
+        'tree',
+        'currentGlobalIndex',
+        'currentPgn',
+        'lastPatchAt',
+        'currentFen',
+        'currentPly',
+        'startingFen',
+        'orientation',
+      );
       await pipeline
         .expire(stateKey, LiveAnalysisService.STATE_TTL_SEC)
         .exec();
 
-      // (10) lastActivityAt — force (как при reset).
+      // (5) lastActivityAt — force (как при reset).
       await this.touchLastActivity(slug, meta.id, /*force*/ true);
 
-      // (7) обычный SYNC snapshot — для legacy-клиентов.
+      // (6) SYNC snapshot — без tree. startingFen/orientation — дефолты
+      // (фронт перезатрёт после GET /analyses/:id).
       const syncSnapshot: LiveAnalysisSyncSnapshot = {
         slug,
-        startingFen,
-        orientation,
-        ...(treeOpt !== undefined && { tree: treeOpt }),
-        ...(currentGlobalIndexValue !== undefined && {
-          currentGlobalIndex: currentGlobalIndexValue,
-        }),
+        startingFen: LiveAnalysisService.INITIAL_FEN,
+        orientation: 'white',
         activeAnalysisId: analysis.id,
-        activeTitle: title,
+        activeTitle: analysis.title,
       };
       await this.publish(LiveAnalysisService.CHANNEL_SYNC, syncSnapshot);
 
-      // (8) специальное `analysis-switch` событие — payload по ADR §2.2.
+      // (7) `analysis-switch` — указатель.
       const switchEvent: LiveAnalysisAnalysisSwitchEvent = {
         slug,
         analysisId: analysis.id,
-        title,
-        startingFen,
-        orientation,
-        tree: treeOpt ?? null,
-        currentGlobalIndex: currentGlobalIndexValue ?? null,
+        title: analysis.title,
       };
       await this.publish(
         LiveAnalysisService.CHANNEL_ANALYSIS_SWITCH,
         switchEvent,
       );
 
-      // (9) запись в журнал лекции — без slug (внутреннее поле канала).
+      // (8) запись в журнал лекции — без slug (внутреннее поле канала).
       const recordedPayload: RecordedAnalysisSwitchEvent['payload'] = {
         analysisId: analysis.id,
-        title,
-        startingFen,
-        orientation,
-        tree: treeOpt ?? null,
-        currentGlobalIndex: currentGlobalIndexValue ?? null,
+        title: analysis.title,
       };
       await this.recordLectureEvent(
         meta.id,
