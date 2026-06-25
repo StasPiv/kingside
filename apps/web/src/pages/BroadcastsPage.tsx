@@ -210,6 +210,24 @@ export function BroadcastsPage() {
       />
       <h1>{t('broadcasts.title')}<HelpButton section="broadcasts" /></h1>
 
+      {/* KS-4646: заметная ссылка на каталог лекций. До этого аноним
+          с раздела трансляций не имел перехода на `/lectures` — для
+          Googlebot'а это значило, что каталог достижим только через
+          боковую навигацию. Текстовая ссылка в шапке раздела
+          гарантирует обход бота. */}
+      <p
+        className="broadcasts-lectures-link"
+        data-testid="broadcasts-lectures-link"
+        style={{ margin: '0 0 12px', fontSize: 14, opacity: 0.95 }}
+      >
+        <Link to="/lectures">
+          {t(
+            'broadcasts.lecturesLink',
+            'Watch lectures by coaches →',
+          )}
+        </Link>
+      </p>
+
       {/* Featured — pinned live broadcasts (avg Elo >= threshold). */}
       {featured.length > 0 && (
         <div className="broadcasts-featured-section" data-testid="broadcasts-featured">

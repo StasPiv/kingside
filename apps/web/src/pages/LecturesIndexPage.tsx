@@ -32,6 +32,7 @@ import { useAuth } from '../context/AuthContext';
 import { MyLecturesPage } from './MyLecturesPage';
 import { StudentLecturesPage } from './StudentLecturesPage';
 import { PublicLecturesCatalog } from '../components/lectures/PublicLecturesCatalog';
+import { CoachesPromo } from '../components/lectures/CoachesPromo';
 import { SeoHelmet } from '../components/seo/SeoHelmet';
 import { usePublicLectures } from '../hooks/usePublicLectures';
 
@@ -95,6 +96,10 @@ export function LecturesIndexPage() {
       >
         {seoBlock}
         <PublicLecturesCatalog mode="full" showGuestCta={!user} />
+        {/* KS-4646: «Coaches» — отдельная секция с обложками тренеров
+            (а не текстовые ссылки внутри карточек). Усиливает обход
+            `/coach/<handle>` Googlebot'ом с публичной страницы каталога. */}
+        <CoachesPromo variant="section" testId="lectures-coaches-section" />
       </div>
     );
   }
@@ -135,6 +140,12 @@ export function LecturesIndexPage() {
         </h2>
         <PublicLecturesCatalog mode="preview" limit={6} showGuestCta={false} />
       </section>
+
+      {/* KS-4646: секция «Coaches» отображается и для авторизованных —
+          ссылки на `/coach/<handle>` нужны и им (логика SEO одинакова:
+          залогиненный пользователь тоже листает каталог и пробует
+          перейти к тренеру). */}
+      <CoachesPromo variant="section" testId="lectures-coaches-section" />
     </div>
   );
 }

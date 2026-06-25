@@ -20,6 +20,13 @@ import {
   type RecordedEvent,
   type ReplayLectureProps,
 } from './AnalysisPage';
+// KS-4646: блок «More lectures» с 4-6 ссылками на другие публичные
+// лекции. Рендерим только в scheduled/cancelled/live-no-slug
+// (рекордный плеер живёт в полноэкранном flex-layout с overflow:hidden
+// — добавлять туда контент ниже плеера некуда без переразметки).
+// Канонический URL `/lectures/:id` обслуживает LectureLandingPage,
+// у которой блок уже есть.
+import { MoreLecturesBlock } from '../components/lectures/MoreLecturesBlock';
 
 /**
  * KS-3794 / ADR-113 §4 крупная задача 2. Страница воспроизведения
@@ -1188,6 +1195,12 @@ function ScheduledOrCancelledOrLive({
           </p>
         </div>
       )}
+
+      {/* KS-4646: блок «More lectures» для не-record-плеера. На рекорд-
+          плеере полноэкранный layout не оставляет место под доп.
+          контент; SEO-обход доступен через `/lectures/:id`
+          (LectureLandingPage). */}
+      <MoreLecturesBlock excludeId={lecture.id} limit={6} />
     </div>
   );
 }

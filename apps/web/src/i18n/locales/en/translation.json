@@ -356,7 +356,8 @@
     "badgeUpcoming": "UPCOMING",
     "badgeFinished": "FINISHED",
     "expandFinished": "Show finished",
-    "collapseFinished": "Hide finished"
+    "collapseFinished": "Hide finished",
+    "lecturesLink": "Watch lectures by coaches →"
   },
   "broadcast": {
     "tabLive": "Live",
@@ -1512,15 +1513,7 @@
       "error": "Failed to load Maia",
       "retry": "Try again"
     },
-    "engine": {
-      "sort": {
-        "eval": "Eval",
-        "maia": "Maia%",
-        "line": "Line",
-        "maiaUnavailableTip": "Maia unavailable — Stockfish order",
-        "maiaUnsupportedTip": "Maia mode unavailable for external engine — Stockfish order"
-      }
-    },
+    "engine": "Engine",
     "review": {
       "runCta": "Analyze game",
       "title": "Game review",
@@ -1570,7 +1563,6 @@
     "stop": "Stop",
     "start": "Start",
     "off": "Off",
-    "engine": "Engine",
     "engineError": "Engine error",
     "ready": "Ready",
     "notSupported": "Not supported",
@@ -4582,7 +4574,11 @@
     "trends": {
       "title": "Best-streak trend",
       "bucketAria": "Trend bucket",
-      "bucket": { "day": "Day", "week": "Week", "month": "Month" },
+      "bucket": {
+        "day": "Day",
+        "week": "Week",
+        "month": "Month"
+      },
       "session": "session",
       "sessions": "sessions",
       "empty": "No data for this period yet",
@@ -5024,5 +5020,33 @@
         "descriptionNoPlayers": "Kingside critical moment (#{{shortId}}). Difficulty {{difficulty}}%. Find the only strong move and keep the line alive until the engine confirms a draw."
       }
     }
+  },
+  "home": {
+    "lecturesPromo": {
+      "title": "Chess lectures by titled coaches",
+      "subtitle": "Live and recorded lectures: openings, middlegame, endgame.",
+      "allLink": "All lectures →"
+    },
+    "coachesPromo": {
+      "title": "Meet our coaches",
+      "subtitle": "Open profiles, lectures and lessons by Kingside coaches."
+    }
+  },
+  "coachesPromo": {
+    "title": "Meet our coaches",
+    "subtitle": "Live and recorded chess lectures by our titled coaches.",
+    "stanislav": {
+      "label": "Chess coach"
+    },
+    "kingside": {
+      "label": "Official Kingside coach"
+    }
+  },
+  "lecturesPublic": {
+    "moreLecturesTitle": "More lectures",
+    "allLecturesLink": "All lectures →"
+  },
+  "lectureLanding": {
+    "author": "Coach"
   }
 }

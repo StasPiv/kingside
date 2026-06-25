@@ -7,6 +7,12 @@ import { landingApi, type LandingStats } from '../api/landingApi';
 import { blogFeedPath, toBlogLocale } from '../utils/blogUrl';
 // KS-4589. Inline-SVG логотипа Patreon (для коралловой hero-кнопки).
 import { PatreonLogo } from '../components/PatreonLogo';
+// KS-4646: SEO-перелинковка на лекции и тренеров с гостевой главной.
+// Cекции рендерятся ниже «Cards», перед «Proof», чтобы Googlebot
+// видел ссылки на `/lectures/<uuid>` и `/coach/<handle>` в основном
+// контентном потоке `/`.
+import { LecturesPromoSection } from '../components/lectures/LecturesPromoSection';
+import { CoachesPromo } from '../components/lectures/CoachesPromo';
 
 const SECTIONS = ['play', 'analyze', 'puzzles', 'workshop', 'broadcasts', 'social', 'customize', 'rating'] as const;
 const ICONS: Record<string, string> = {
@@ -219,6 +225,16 @@ function GuestLandingHome() {
           ))}
         </div>
       </section>
+
+      {/* KS-4646: промо «Chess lectures» + «Meet our coaches» — обе
+          секции вставлены между Cards и Proof, в основном контентном
+          потоке (а не в подвале), чтобы Googlebot обходил `/lectures/
+          <uuid>` и `/coach/<handle>` с первой страницы. Карточки лекций
+          подтягиваются динамически из публичного каталога; блок
+          скрывается, если API упал или лекций нет (тогда хотя бы
+          обзорная ссылка «All lectures» из CoachesPromo остаётся). */}
+      <LecturesPromoSection limit={4} />
+      <CoachesPromo variant="compact" testId="home-coaches-promo" />
 
       {/* §5.4 Proof — отрисовать ТОЛЬКО при успешном ответе backend'а.
           5xx / timeout / пустые данные → секция не рендерится (по §5.4

@@ -255,11 +255,13 @@ export function MobileBottomBar() {
                   {t('nav.profile', 'Profile')}
                 </Link>
               ) : null;
-            // KS-3965 / ADR-119 §8 эпик A. Пункт «Лекции» для
-            // авторизованных пользователей в mobile-drawer'е. Ведёт
-            // на корневой `/lectures` (список «Мои лекции» появится
-            // в эпике B).
-            const lecturesItem = user ? (
+            // KS-4646: «Лекции» — публичный раздел (каталог
+            // `/lectures` отдаёт гостям полный список). Делаем пункт
+            // видимым и без авторизации, чтобы Googlebot и аноним
+            // имели стабильный путь в каталог из mobile-навигации.
+            // Прежний gate `user ?` оставлял ссылку только в личном
+            // меню — Google её не находил (см. KS-4644).
+            const lecturesItem = (
               <Link
                 key="lectures"
                 to="/lectures"
@@ -267,7 +269,7 @@ export function MobileBottomBar() {
               >
                 {t('nav.lectures', 'Lectures')}
               </Link>
-            ) : null;
+            );
             const settingsItem = user ? (
               <Link
                 key="settings"
@@ -277,6 +279,9 @@ export function MobileBottomBar() {
                 {t('nav.settings', 'Settings')}
               </Link>
             ) : null;
+            // KS-4646: lecturesItem теперь всегда truthy (виден гостю),
+            // поэтому секция «Аккаунт» рендерится даже без user. Это
+            // приемлемо: у гостя в ней одна публичная ссылка «Лекции».
             if (!profileItem && !lecturesItem && !settingsItem) return null;
             return (
               <div

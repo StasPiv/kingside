@@ -35,6 +35,10 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLectureDetail } from '../hooks/useLectureDetail';
 import { SeoHelmet } from '../components/seo/SeoHelmet';
+// KS-4646: блок «More lectures» — 4-6 ссылок на другие публичные
+// лекции под основным контентом лендинга. Усиливает обход
+// `/lectures/<uuid>` Googlebot'ом изнутри карточки конкретной лекции.
+import { MoreLecturesBlock } from '../components/lectures/MoreLecturesBlock';
 
 function LectureLandingSkeleton() {
   return (
@@ -226,6 +230,30 @@ export function LectureLandingPage() {
       </header>
 
       <main className="lecture-landing-page__main">
+        {/* KS-4646: активная ссылка на автора-тренера. До этого имя
+            тренера фигурировало только в SEO-метаданных (`<title>`,
+            JSON-LD provider) и в карточке `/lectures` каталога, но на
+            самом лендинге лекции ссылки не было — пользователь не мог
+            перейти к остальным материалам тренера, а Googlebot не
+            находил `/coach/<handle>` отсюда. Источник имени —
+            `LectureDetail.coach.username` (KS-4219). Для системных
+            лекций без owner поле `null` — строку не показываем. */}
+        {lecture.coach?.username && (
+          <p
+            className="lecture-landing-page__owner"
+            data-testid="lecture-landing-owner"
+            style={{ margin: '4px 0 12px', fontSize: 14, opacity: 0.9 }}
+          >
+            {t('lectureLanding.author', 'Coach')}:{' '}
+            <Link
+              to={`/coach/${encodeURIComponent(lecture.coach.username)}`}
+              data-testid="lecture-landing-owner-link"
+            >
+              {lecture.coach.username}
+            </Link>
+          </p>
+        )}
+
         {/* Описание + автор. ownerUsername в LectureDetail на этом шаге
             backend не отдаёт — выводим только описание; ссылка на
             профиль автора появится в эпике B вместе с расширением
@@ -359,6 +387,13 @@ export function LectureLandingPage() {
           </div>
         )}
       </aside>
+
+      {/* KS-4646: блок «More lectures» — 4-6 ссылок на другие
+          публичные лекции (текущая исключена по id). Размещён ниже
+          основной двухколоночной разметки, чтобы не конкурировать с
+          CTA, но оставался в DOM до футера — Googlebot читает его в
+          порядке потока. */}
+      <MoreLecturesBlock excludeId={lecture.id} limit={6} />
     </div>
   );
 }

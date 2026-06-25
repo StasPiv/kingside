@@ -356,7 +356,8 @@
     "badgeUpcoming": "UPCOMING",
     "badgeFinished": "FINISHED",
     "expandFinished": "Показать завершённые",
-    "collapseFinished": "Скрыть завершённые"
+    "collapseFinished": "Скрыть завершённые",
+    "lecturesLink": "Лекции от наших тренеров →"
   },
   "broadcast": {
     "tabLive": "Live",
@@ -1118,7 +1119,8 @@
     "recorded": {
       "body": "Доступна запись лекции.",
       "cta": "Смотреть запись"
-    }
+    },
+    "author": "Тренер"
   },
   "lectureUnavailable": {
     "cancelled": {
@@ -1691,15 +1693,7 @@
       "error": "Не удалось загрузить Maia",
       "retry": "Попробовать снова"
     },
-    "engine": {
-      "sort": {
-        "eval": "Оценка",
-        "maia": "Maia%",
-        "line": "Линия",
-        "maiaUnavailableTip": "Maia недоступна — порядок Stockfish",
-        "maiaUnsupportedTip": "Maia-режим недоступен для внешнего движка — порядок Stockfish"
-      }
-    },
+    "engine": "Движок",
     "review": {
       "runCta": "Разобрать партию",
       "title": "Разбор партии",
@@ -1749,7 +1743,6 @@
     "stop": "Стоп",
     "start": "Старт",
     "off": "Выключен",
-    "engine": "Движок",
     "engineError": "Ошибка движка",
     "ready": "Готов",
     "notSupported": "Не поддерживается",
@@ -4793,7 +4786,11 @@
     "trends": {
       "title": "Тренд лучшей серии",
       "bucketAria": "Группировка тренда",
-      "bucket": { "day": "День", "week": "Неделя", "month": "Месяц" },
+      "bucket": {
+        "day": "День",
+        "week": "Неделя",
+        "month": "Месяц"
+      },
       "session": "сессия",
       "sessions": "сессий",
       "empty": "За этот период данных пока нет",
@@ -5071,5 +5068,30 @@
         "descriptionNoPlayers": "Критический момент Kingside (#{{shortId}}). Сложность {{difficulty}}%. На доске один сильный ход — найди его и продолжай линию, пока движок не подтвердит ничью."
       }
     }
+  },
+  "home": {
+    "lecturesPromo": {
+      "title": "Шахматные лекции от наших тренеров",
+      "subtitle": "Прямые эфиры и записи: дебюты, миттельшпиль, эндшпиль.",
+      "allLink": "Все лекции →"
+    },
+    "coachesPromo": {
+      "title": "Наши тренеры",
+      "subtitle": "Профили, лекции и уроки тренеров Kingside."
+    }
+  },
+  "coachesPromo": {
+    "title": "Наши тренеры",
+    "subtitle": "Прямые эфиры и записи лекций от тренеров Kingside.",
+    "stanislav": {
+      "label": "Шахматный тренер"
+    },
+    "kingside": {
+      "label": "Официальный тренер Kingside"
+    }
+  },
+  "lecturesPublic": {
+    "moreLecturesTitle": "Ещё лекции",
+    "allLecturesLink": "Все лекции →"
   }
 }
