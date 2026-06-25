@@ -820,6 +820,178 @@ describe('LiveAnalysisService', () => {
     });
   });
 
+  // ─── KS-4627: applySwitchAnalysis ─────────────────────────────────
+
+  describe('applySwitchAnalysis', () => {
+    function arrangeOwnerActive() {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        ownerId: 'u-1',
+        status: 'active',
+        startingFen: null,
+      });
+    }
+
+    it('пишет state, эмитит analysis-switch + sync, кладёт событие в журнал', async () => {
+      arrangeOwnerActive();
+      prisma.analysis.findUnique.mockResolvedValueOnce({
+        id: 'a-2',
+        userId: 'u-1',
+        title: 'Каро-Канн',
+        fen: null,
+        boardOrientation: 'black',
+      });
+      // Симулируем активную лекцию — иначе recordLectureEvent — no-op.
+      prisma.lecture.findFirst.mockResolvedValueOnce({
+        id: 'lec-1',
+        liveAnalysisId: 'la-1',
+        startedAt: new Date(Date.now() - 5000),
+      });
+
+      const snap = await service.applySwitchAnalysis('s', 'u-1', {
+        analysisId: 'a-2',
+        tree: '{"history":[]}',
+        currentGlobalIndex: 0,
+      });
+
+      // Snapshot содержит активное окно
+      expect(snap.activeAnalysisId).toBe('a-2');
+      expect(snap.activeTitle).toBe('Каро-Канн');
+      expect(snap.orientation).toBe('black');
+      expect(snap.tree).toBe('{"history":[]}');
+      expect(snap.currentGlobalIndex).toBe(0);
+
+      // Redis state — содержит новые поля
+      const state = await redis.hgetall('live_analysis:la-1:state');
+      expect(state.activeAnalysisId).toBe('a-2');
+      expect(state.activeTitle).toBe('Каро-Канн');
+      expect(state.orientation).toBe('black');
+      expect(state.tree).toBe('{"history":[]}');
+
+      // moves предыдущего окна очищены
+      const moves = await redis.lrange('live_analysis:la-1:moves', 0, -1);
+      expect(moves).toEqual([]);
+
+      // оба канала publish — sync (legacy) и analysis-switch (new)
+      const publishedChannels = (redis.publish as jest.Mock).mock.calls.map(
+        ([ch]) => ch,
+      );
+      expect(publishedChannels).toContain('live-analysis:sync');
+      expect(publishedChannels).toContain('live-analysis:analysis-switch');
+
+      // Событие в журнал лекции
+      const recorded = await redis.lrange(
+        'lecture_recording:la-1:events',
+        0,
+        -1,
+      );
+      expect(recorded.length).toBe(1);
+      const parsed = JSON.parse(recorded[0]);
+      expect(parsed.type).toBe('analysis-switch');
+      expect(parsed.payload.analysisId).toBe('a-2');
+      expect(parsed.payload.title).toBe('Каро-Канн');
+      expect(parsed.payload.tree).toBe('{"history":[]}');
+      expect(parsed.payload.currentGlobalIndex).toBe(0);
+    });
+
+    it('без переданных tree/currentGlobalIndex — оба сбрасываются (HDEL)', async () => {
+      arrangeOwnerActive();
+      // Предварительно положим в state hash старое tree / currentGlobalIndex,
+      // как будто было предыдущее окно с деревом и автор стоял в узле 5.
+      await redis.hset('live_analysis:la-1:state', {
+        startingFen: 'old',
+        currentFen: 'old',
+        currentPly: '3',
+        orientation: 'white',
+        tree: '{"old":true}',
+        currentGlobalIndex: '5',
+        lastPatchAt: '123',
+      });
+      prisma.analysis.findUnique.mockResolvedValueOnce({
+        id: 'a-2',
+        userId: 'u-1',
+        title: 'X',
+        fen: null,
+        boardOrientation: null,
+      });
+
+      const snap = await service.applySwitchAnalysis('s', 'u-1', {
+        analysisId: 'a-2',
+      });
+
+      expect(snap.tree).toBeUndefined();
+      expect(snap.currentGlobalIndex).toBeUndefined();
+      const state = await redis.hgetall('live_analysis:la-1:state');
+      expect(state.tree).toBeUndefined();
+      expect(state.currentGlobalIndex).toBeUndefined();
+      expect(state.lastPatchAt).toBeUndefined();
+      // currentPly должен быть сброшен в '0' (ходов поверх нового окна нет).
+      expect(state.currentPly).toBe('0');
+    });
+
+    it('403 если не владелец трансляции', async () => {
+      arrangeOwnerActive();
+      await expect(
+        service.applySwitchAnalysis('s', 'OTHER', { analysisId: 'a-2' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('404 если Analysis не найден', async () => {
+      arrangeOwnerActive();
+      prisma.analysis.findUnique.mockResolvedValueOnce(null);
+      await expect(
+        service.applySwitchAnalysis('s', 'u-1', { analysisId: 'a-MISSING' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('403 если Analysis принадлежит другому пользователю', async () => {
+      arrangeOwnerActive();
+      prisma.analysis.findUnique.mockResolvedValueOnce({
+        id: 'a-2',
+        userId: 'OTHER',
+        title: 'X',
+        fen: null,
+        boardOrientation: null,
+      });
+      await expect(
+        service.applySwitchAnalysis('s', 'u-1', { analysisId: 'a-2' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('400 если tree > 256 KB', async () => {
+      arrangeOwnerActive();
+      prisma.analysis.findUnique.mockResolvedValueOnce({
+        id: 'a-2',
+        userId: 'u-1',
+        title: 'X',
+        fen: null,
+        boardOrientation: null,
+      });
+      const tooLarge = 'a'.repeat(262_145);
+      await expect(
+        service.applySwitchAnalysis('s', 'u-1', {
+          analysisId: 'a-2',
+          tree: tooLarge,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(metrics.incLiveAnalysisStatePatchRejected).toHaveBeenCalledWith(
+        'tree_too_large',
+      );
+    });
+
+    it('404 если live-сессии нет/закрыта', async () => {
+      prisma.liveAnalysis.findUnique.mockResolvedValue({
+        id: 'la-1',
+        ownerId: 'u-1',
+        status: 'closed',
+        startingFen: null,
+      });
+      await expect(
+        service.applySwitchAnalysis('s', 'u-1', { analysisId: 'a-2' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ─── KS-3734: token-bucket автора ─────────────────────────────────
 
   describe('applyMove — token-bucket', () => {

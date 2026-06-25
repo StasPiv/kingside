@@ -15,11 +15,13 @@ import { ConfigService } from '@nestjs/config';
 import type {
   LiveAnalysisListItem,
   LiveAnalysisResponse,
+  SwitchAnalysisResponse,
 } from '@kingside/shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { CreateLiveAnalysisDto } from './dto/create-live-analysis.dto';
+import { SwitchAnalysisDto } from './dto/switch-analysis.dto';
 import { LiveAnalysisService } from './live-analysis.service';
 import { LiveAnalysisGateway } from './live-analysis.gateway';
 import { LecturesAccessService } from '../lectures/lectures-access.service';
@@ -139,6 +141,28 @@ export class LiveAnalysisController {
       // получили `closed`-event без таймаута на pub/sub round-trip.
       this.gateway.broadcastClosed(slug, 'by_owner');
     }
+  }
+
+  /**
+   * KS-4627 / ADR-142 §2.6. Тренер переключил активное окно анализа во
+   * время live-лекции. Возвращает актуальный `SyncSnapshot` (тренер
+   * применяет его локально без round-trip через WS). Подписчики комнаты
+   * параллельно получают `live-analysis:sync` (legacy) и
+   * `live-analysis:analysis-switch` (новое событие, ADR §2.7) — оба
+   * публикуются сервисом через Redis pub/sub.
+   *
+   * Ошибки: 401 (без JWT), 403 (не владелец трансляции / Analysis принадлежит
+   * другому пользователю), 404 (трансляция закрыта или Analysis не найден),
+   * 400 (`tree` > 256 KB, rate-limit).
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post(':slug/switch-analysis')
+  async switchAnalysis(
+    @Request() req: AuthenticatedRequest,
+    @Param('slug') slug: string,
+    @Body() body: SwitchAnalysisDto,
+  ): Promise<SwitchAnalysisResponse> {
+    return this.service.applySwitchAnalysis(slug, req.user.id, body);
   }
 
   private publicBaseUrl(): string {

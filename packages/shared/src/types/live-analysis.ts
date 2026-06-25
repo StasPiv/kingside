@@ -345,7 +345,190 @@ export type LiveAnalysisSyncSnapshot = {
    * привязанных к лекции.
    */
   lectureHideMetricsTab?: boolean;
+  /**
+   * KS-4627 / ADR-142 §2.4. UUID активного `Analysis`, на который
+   * тренер переключился через `POST /live-analyses/:slug/switch-analysis`.
+   * До первого переключения совпадает с исходным `LiveAnalysis.analysisId`
+   * (если он есть). `null` — лекция без привязки к Analysis (bare
+   * lecture-session) и тренер ещё не переключался. Опциональное:
+   * присутствует, как только в Redis state hash появилось поле
+   * `activeAnalysisId`; зритель использует его, чтобы знать «какой
+   * именно анализ сейчас в эфире».
+   */
+  activeAnalysisId?: string | null;
+  /**
+   * KS-4627 / ADR-142 §2.4. Заголовок активного окна анализа — для
+   * UI зрителя («Сейчас разбираем: <title>»). Источник — `Analysis.title`
+   * выбранного при switch'е (или название исходного при первом sync).
+   * Опциональное: отсутствует у трансляций без привязки к Analysis
+   * (тренер ещё не делал switch).
+   */
+  activeTitle?: string;
 };
+
+// ─── KS-4627 / ADR-142: переключение окна анализа во время лекции ────
+
+/**
+ * KS-4627 / ADR-142 §2.6. Тело запроса `POST /live-analyses/:slug/switch-analysis`.
+ *
+ * Тренер переключает «активное окно» на другой свой `Analysis`. Backend:
+ *   - проверяет владельца трансляции (`assertOwnerAndActive`);
+ *   - проверяет, что `Analysis.userId === actor.userId` (нельзя
+ *     переключиться на чужой анализ; ADR §2.3 п.1);
+ *   - складывает `tree`/`startingFen`/`orientation`/`activeAnalysisId`
+ *     в Redis state hash, чистит moves-list и tree-связанные поля;
+ *   - публикует `SYNC` snapshot и отдельное событие `analysis-switch`
+ *     (см. `LiveAnalysisAnalysisSwitchEvent`).
+ *
+ * Поля `tree`/`startingFen`/`orientation`/`title`/`currentGlobalIndex`
+ * клиент передаёт сам — backend по контракту KS-3780 НЕ парсит PGN
+ * выбранного `Analysis` на стороне сервера. Если поле опущено —
+ * используется значение из `Analysis` в БД (для `startingFen` — `fen`
+ * или `INITIAL_FEN`; для `orientation` — `boardOrientation` или 'white';
+ * для `title` — `Analysis.title`). `tree` без сервер-парсинга — если
+ * клиент не передал, в Redis state поле `tree` очищается (как при
+ * reset): зритель увидит чистый startingFen без дерева, до первого
+ * последующего `state-patch`.
+ */
+export type SwitchAnalysisRequest = {
+  /** UUID `Analysis.id`, на который переключаемся. */
+  analysisId: string;
+  /**
+   * JSON-сериализованное дерево анализа (тот же формат, что у
+   * `LiveAnalysisStatePatchPayload.tree`). ≤ 256 KB. Если опущено —
+   * Redis-state очищает поле `tree` и зритель получает sync без
+   * дерева (продолжение — через первый `state-patch`).
+   */
+  tree?: string;
+  /** Стартовый FEN активного окна. Если опущено — берём `Analysis.fen` или INITIAL_FEN. */
+  startingFen?: string;
+  /** Ориентация. Если опущено — `Analysis.boardOrientation` или 'white'. */
+  orientation?: LiveAnalysisOrientation;
+  /** Заголовок (для UI зрителя). Если опущено — `Analysis.title`. */
+  title?: string;
+  /** Индекс узла дерева, на котором стоит тренер в момент switch'а. */
+  currentGlobalIndex?: number;
+};
+
+/**
+ * KS-4627 / ADR-142 §2.6. Ответ `POST /live-analyses/:slug/switch-analysis` —
+ * актуальный sync snapshot. Идентичен тому, что улетит broadcast'ом
+ * подписчикам через `live-analysis:sync`. Возвращается, чтобы тренер
+ * мог локально применить state без round-trip через WS.
+ */
+export type SwitchAnalysisResponse = LiveAnalysisSyncSnapshot;
+
+/**
+ * KS-4627 / ADR-142 §2.2 / §2.7. Server → client. Эмитится всем
+ * зрителям комнаты, когда тренер переключил активное окно анализа.
+ *
+ * Зритель на это событие:
+ *   - сбрасывает локальное дерево;
+ *   - применяет `startingFen` / `orientation` / `tree` / `currentGlobalIndex`;
+ *   - показывает transient-уведомление с `title`.
+ *
+ * Payload идентичен ADR §2.2 (`AnalysisSwitchEvent.payload`) с
+ * дополнительным `slug` для совместимости с подпиской по комнате
+ * (как у `MoveEvent.slug`/`SyncSnapshot.slug`).
+ *
+ * Это же событие в финализаторе записи лекции попадает в массив
+ * `LectureRecording.events` как `RecordedAnalysisSwitchEvent` — там
+ * без `slug` (внутреннее поле канала), но с теми же полями payload.
+ */
+export type LiveAnalysisAnalysisSwitchEvent = {
+  slug: string;
+  /** UUID `Analysis.id`, на который тренер переключился. */
+  analysisId: string;
+  /** Заголовок активного окна — для UI зрителя. */
+  title: string;
+  /** Стартовый FEN; INITIAL_FEN если выбранный Analysis без fen. */
+  startingFen: string;
+  /** Ориентация доски в момент переключения. */
+  orientation: LiveAnalysisOrientation;
+  /**
+   * JSON-сериализованное дерево вариаций (тот же формат, что у
+   * `LiveAnalysisSyncSnapshot.tree`). `null` — окно ещё без дерева,
+   * доска стартует со startingFen.
+   */
+  tree: string | null;
+  /**
+   * Текущая глобальная позиция в дереве (как в state.currentGlobalIndex);
+   * `null` — корень.
+   */
+  currentGlobalIndex: number | null;
+};
+
+// ─── KS-4627 / ADR-142 §2.2: события записи лекции ───────────────────
+
+/**
+ * KS-4627. Событие записи лекции — расширенный дискриминированный
+ * union типов, которые финализатор кладёт в `LectureRecording.events`.
+ * Источник истины формата — `recordLectureEvent` в `live-analysis.service.ts`.
+ *
+ * До KS-4627 union жил локально во фронте (`AnalysisPage.RecordedEvent`);
+ * вынесён в shared, чтобы backend и replay-плеер использовали один тип.
+ * `t` — миллисекунды от `Lecture.startedAt`. Сортировка по `t` —
+ * гарантирована порядком RPUSH в Redis (см. §6 риск 10 ADR-142).
+ *
+ * **Синтетический `analysis-switch` на `t=0`.** Финализатор инжектит
+ * это событие первым, если у `LiveAnalysis` был исходный `analysisId`,
+ * чтобы replay-плеер всегда имел явную «нулевую точку» окна (риск 5
+ * ADR-142). Совпадает с обычным `analysis-switch`-событием по схеме.
+ */
+export type RecordedMoveEvent = {
+  t: number;
+  type: 'move';
+  payload: { uci: string; ply: number };
+};
+
+export type RecordedStatePatchEvent = {
+  t: number;
+  type: 'state-patch';
+  payload: {
+    tree: string;
+    currentGlobalIndex?: number;
+    orientation: LiveAnalysisOrientation;
+  };
+};
+
+export type RecordedResetEvent = {
+  t: number;
+  type: 'reset';
+  payload: { fen: string; orientation: LiveAnalysisOrientation };
+};
+
+export type RecordedClosedEvent = {
+  t: number;
+  type: 'closed';
+  payload: { reason: LiveAnalysisCloseReason };
+};
+
+/**
+ * KS-4627 / ADR-142 §2.2. Запись о переключении активного окна
+ * анализа во время лекции. Хранится в `LectureRecording.events` для
+ * корректного replay. Заголовок и дерево сохраняются «inline» — после
+ * лекции автор может удалить исходный `Analysis`, а replay-плеер
+ * должен всё ещё восстанавливать снимок.
+ */
+export type RecordedAnalysisSwitchEvent = {
+  t: number;
+  type: 'analysis-switch';
+  payload: {
+    analysisId: string;
+    title: string;
+    startingFen: string;
+    orientation: LiveAnalysisOrientation;
+    tree: string | null;
+    currentGlobalIndex: number | null;
+  };
+};
+
+export type RecordedEvent =
+  | RecordedMoveEvent
+  | RecordedStatePatchEvent
+  | RecordedResetEvent
+  | RecordedClosedEvent
+  | RecordedAnalysisSwitchEvent;
 
 /**
  * `viewers` — изменение числа зрителей. Эмит дросселирован (~раз в
@@ -467,6 +650,16 @@ export const LiveAnalysisEvents = {
    * `LiveAnalysisAccessRevokedPayload` (см. api-contracts).
    */
   ACCESS_REVOKED: 'live-analysis:access-revoked',
+  /**
+   * KS-4627 / ADR-142 §2.7. Сервер сообщает всем зрителям комнаты,
+   * что тренер переключил активное окно анализа. Payload —
+   * `LiveAnalysisAnalysisSwitchEvent`. Эмитится как побочный эффект
+   * `POST /live-analyses/:slug/switch-analysis`; параллельно сервер
+   * шлёт обычный `SYNC` snapshot, расширенный полями `activeAnalysisId`/
+   * `activeTitle` — для backward-compat с клиентами, не знающими нового
+   * события.
+   */
+  ANALYSIS_SWITCH: 'live-analysis:analysis-switch',
 } as const;
 
 export type LiveAnalysisEventName =

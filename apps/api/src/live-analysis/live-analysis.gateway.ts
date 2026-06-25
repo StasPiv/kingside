@@ -29,6 +29,7 @@ import {
   type LectureChatMutedEvent,
   type LectureChatSnapshotEvent,
   type LectureToolsChangedEvent,
+  type LiveAnalysisAnalysisSwitchEvent,
   type LiveAnalysisClosedEvent,
   type LiveAnalysisCloseReason,
   type LiveAnalysisErrorEvent,
@@ -207,6 +208,10 @@ export class LiveAnalysisGateway
         LiveAnalysisService.CHANNEL_MOVE,
         LiveAnalysisService.CHANNEL_SYNC,
         LiveAnalysisService.CHANNEL_CLOSED,
+        // KS-4627 / ADR-142 §2.7. Канал переключения активного окна
+        // анализа во время лекции. Парный с CHANNEL_SYNC; gateway
+        // ретранслирует на `LiveAnalysisEvents.ANALYSIS_SWITCH`.
+        LiveAnalysisService.CHANNEL_ANALYSIS_SWITCH,
         LiveAnalysisGateway.CHANNEL_LECTURE_TOOLS_CHANGED,
         LiveAnalysisGateway.CHANNEL_LECTURE_ACCESS_REVOKED,
       )
@@ -240,6 +245,21 @@ export class LiveAnalysisGateway
           .to(room)
           .emit(LiveAnalysisEvents.CLOSED, payload as LiveAnalysisClosedEvent);
         this.server.in(room).socketsLeave(room);
+      } else if (
+        channel === LiveAnalysisService.CHANNEL_ANALYSIS_SWITCH
+      ) {
+        // KS-4627 / ADR-142 §2.7. Зрители комнаты получают одно
+        // событие со всеми полями нового окна (analysisId/title/
+        // startingFen/orientation/tree/currentGlobalIndex). Параллельно
+        // приходит обычный SYNC snapshot (см. ветка CHANNEL_SYNC выше),
+        // расширенный полями activeAnalysisId/activeTitle — он
+        // поддерживает legacy-клиентов, не знающих нового события.
+        this.server
+          .to(room)
+          .emit(
+            LiveAnalysisEvents.ANALYSIS_SWITCH,
+            payload as LiveAnalysisAnalysisSwitchEvent,
+          );
       } else if (
         channel === LiveAnalysisGateway.CHANNEL_LECTURE_TOOLS_CHANGED
       ) {
