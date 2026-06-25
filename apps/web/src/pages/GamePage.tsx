@@ -31,6 +31,9 @@ import { useChallenge } from '../hooks/useChallenge';
 import { useBotEngine } from '../hooks/useBotEngine';
 import { useLazySocket } from '../hooks/useLazySocket';
 import { useSounds } from '../hooks/useSounds';
+// KS-4652 / ADR-144 §3.4 — миллисекундный snapshot часов +
+// экстраполяция через `performance.now()` вместо setInterval(1000).
+import { useGameClockDisplay } from '../hooks/useGameClockDisplay';
 import { socket, messagesSocket } from '../socket';
 import { sendClientLog } from '../utils/clientLogger';
 import { openAnalysis } from '../utils/openAnalysis';
@@ -40,10 +43,23 @@ import { BotEngineDebugPanel } from '../components/BotEngineDebugPanel';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
-function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
+/**
+ * KS-4652 / ADR-144 §3.4. Серверный снимок часов в мс + момент его
+ * приёма (`performance.now()`). Этого пакета достаточно
+ * `useGameClockDisplay`, чтобы экстраполировать остатки между
+ * серверными снимками и пересчитывать urgency/mode.
+ */
+interface ClocksSnapshotMs {
+  whiteMs: number;
+  blackMs: number;
+  snapshotAt: number;
+}
+
+function clocksFromPayload(clocks: ClockPayload | undefined): ClocksSnapshotMs {
   return {
-    white: Math.floor((clocks?.whiteMs ?? 0) / 1000),
-    black: Math.floor((clocks?.blackMs ?? 0) / 1000),
+    whiteMs: clocks?.whiteMs ?? 0,
+    blackMs: clocks?.blackMs ?? 0,
+    snapshotAt: performance.now(),
   };
 }
 
@@ -64,7 +80,15 @@ export function GamePage() {
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState(INITIAL_FEN);
   const [moves, setMoves] = useState<string[]>([]);
-  const [clocks, setClocks] = useState({ white: 300, black: 300 });
+  // KS-4652 / ADR-144 §3.4. Часы в миллисекундах + момент приёма.
+  // Изначально 300 000 мс — стандартный 5+0; перезаписывается первым
+  // же `game:state` от сервера (snapshotAt тоже фиксируется в момент
+  // приёма).
+  const [clocksMs, setClocksMs] = useState<ClocksSnapshotMs>(() => ({
+    whiteMs: 300_000,
+    blackMs: 300_000,
+    snapshotAt: performance.now(),
+  }));
   const [status, setStatus] = useState<'waiting' | 'active' | 'finished'>(
     'waiting',
   );
@@ -110,12 +134,11 @@ export function GamePage() {
   const getBotMoveRef = useRef(getBotMove);
   getBotMoveRef.current = getBotMove;
 
-  // KS-4335: актуальные остатки часов и инкремент для передачи Stockfish'у
-  // через UCI `go wtime btime winc binc`. Кладём в ref, чтобы не пересоздавать
-  // `triggerBotMove` при каждом тике часов и не плодить лишние подписки WS.
-  // Сами refs объявляем здесь, а заполнение — в useEffect ниже, чтобы не
-  // обращаться к `gameMeta` до его объявления (TDZ при первом рендере).
-  const clocksRef = useRef(clocks);
+  // KS-4335 / KS-4652: актуальный мс-снимок часов и инкремент для
+  // передачи Stockfish'у через UCI `go wtime btime winc binc`.
+  // Раньше ref хранил секунды; теперь сразу мс — Stockfish тоже их
+  // получает.
+  const clocksMsRef = useRef(clocksMs);
   const incrementSecRef = useRef(0);
 
   /**
@@ -151,8 +174,8 @@ export function GamePage() {
         ? Math.ceil(playedPlies / 2)
         : Math.floor(playedPlies / 2);
       const incMs = Math.max(0, Math.round(incrementSecRef.current * 1000));
-      const wMs = Math.max(1, Math.round(clocksRef.current.white * 1000));
-      const bMs = Math.max(1, Math.round(clocksRef.current.black * 1000));
+      const wMs = Math.max(1, Math.round(clocksMsRef.current.whiteMs));
+      const bMs = Math.max(1, Math.round(clocksMsRef.current.blackMs));
       const clockInfo =
         botMovesDone >= 10
           ? {
@@ -224,12 +247,14 @@ export function GamePage() {
   } | null>(null);
   const { sendChallenge, state: challengeState } = useChallenge();
 
-  // KS-4335: синхронизация refs для clockInfo. Делаем именно в эффектах,
-  // а не присваиванием прямо в теле компонента, чтобы избежать TDZ —
-  // `gameMeta` объявлен ниже `triggerBotMove`.
+  // KS-4335 / KS-4652: синхронизация refs для clockInfo. Делаем именно
+  // в эффектах, а не присваиванием прямо в теле компонента, чтобы
+  // избежать TDZ — `gameMeta` объявлен ниже `triggerBotMove`. Ref
+  // хранит мс-снимок (используется `triggerBotMove` для UCI
+  // `go wtime btime`).
   useEffect(() => {
-    clocksRef.current = clocks;
-  }, [clocks]);
+    clocksMsRef.current = clocksMs;
+  }, [clocksMs]);
   useEffect(() => {
     incrementSecRef.current = gameMeta?.increment ?? 0;
   }, [gameMeta]);
@@ -278,7 +303,7 @@ export function GamePage() {
       game.load(state.fen);
       setFen(state.fen);
       setMoves(state.moves);
-      setClocks(msToSeconds(state.clocks));
+      setClocksMs(clocksFromPayload(state.clocks));
       setStatus(state.status as 'waiting' | 'active' | 'finished');
       if (state.result) setResult(state.result);
       // KS-4150: исходный state не содержит координат последнего хода
@@ -362,7 +387,7 @@ export function GamePage() {
       // (for server-authoritative time) — skip board state changes
       // to avoid a redundant re-render that causes piece flicker.
       if (game.fen() === data.fen) {
-        setClocks(msToSeconds(data.clocks));
+        setClocksMs(clocksFromPayload(data.clocks));
         // Триггерим ход бота для любой bot-партии — локальный
         // `useBotEngine` (KS-4308/KS-4310).
         if (isBotRef.current && gameId) {
@@ -381,7 +406,7 @@ export function GamePage() {
         san: data.san,
         ply: nextPly,
       });
-      setClocks(msToSeconds(data.clocks));
+      setClocksMs(clocksFromPayload(data.clocks));
     };
 
     const onGameEnd = (data: WsGameEndPayload) => {
@@ -404,7 +429,7 @@ export function GamePage() {
     const onBerserk = (data: { color: string; clocks: ClockPayload }) => {
       if (data.color === 'white') setWhiteBerserk(true);
       if (data.color === 'black') setBlackBerserk(true);
-      setClocks(msToSeconds(data.clocks));
+      setClocksMs(clocksFromPayload(data.clocks));
     };
 
     socket.on(GameEvents.STATE, onGameState);
@@ -428,38 +453,58 @@ export function GamePage() {
     };
   }, [gameId, game, updateFromState, refreshUser, playSound, navigate, t]);
 
-  // Клиентский «тик» часов между серверными обновлениями
-  useEffect(() => {
-    if (status !== 'active') return;
-    const turn = game.turn() === 'w' ? 'white' : 'black';
-    console.log(
-      '[Clock] interval start, turn=' + turn + ', status=' + status,
-    );
-    const interval = setInterval(() => {
-      setClocks((prev) => {
-        const next = Math.max(0, prev[turn] - 1);
-        if (next <= 5 || next % 10 === 0) {
-          console.log(
-            '[Clock] tick ' + turn + ': ' + prev[turn] + ' -> ' + next,
-          );
-        }
-        return { ...prev, [turn]: next };
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [status, fen, game]);
+  // KS-4652 / ADR-144 §3.4. Локальный `setInterval(1000)`, декрементивший
+  // активной стороне 1 секунду, удалён. Точный отсчёт по
+  // `performance.now()` живёт в `useGameClockDisplay` (вызывается ниже)
+  // — он же выбирает частоту тика (250 мс / rAF) в зависимости от
+  // urgency. Серверный `whiteMs/blackMs` остаётся источником истины и
+  // переписывает экстраполяцию при каждом `game:state`/`game:move`.
 
-  // Claim timeout when any clock reaches 0 (only after receiving server state)
-  // Retry every 2s because client clock may reach 0 before server clock (rounding)
+  // KS-4652 / ADR-144. Активная сторона по `chess.turn()` — нужна
+  // хуку часов для экстраполяции; пока партия не активна или нет
+  // серверного снимка — `null` (часы рендерятся статично).
+  const activeColor: 'white' | 'black' | null =
+    status === 'active' && stateReceivedRef.current
+      ? game.turn() === 'w'
+        ? 'white'
+        : 'black'
+      : null;
+
+  // KS-4652: `initialMs` для расчёта порогов urgency. Берём из REST
+  // GET /games/:id (g.timeInitialSec * 1000), который GamePage уже
+  // тянет в `gameMeta`. До прихода ответа — `null` → хук применит
+  // fallback emergency1=30_000, emergency2=8_000 (см. ADR §3.2 и
+  // комментарий к задаче KS-4652). REST приходит за сотни мс — в
+  // окно от старта партии до достижения порогов это укладывается с
+  // огромным запасом.
+  const initialMs =
+    gameMeta?.timeInitial != null ? gameMeta.timeInitial * 1000 : null;
+
+  const clockDisplay = useGameClockDisplay({
+    whiteMs: clocksMs.whiteMs,
+    blackMs: clocksMs.blackMs,
+    activeColor,
+    snapshotAt: clocksMs.snapshotAt,
+    initialMs,
+    isFinished: status === 'finished',
+  });
+
+  // KS-4652. Claim-timeout. Раньше триггерился по `clocks.white === 0
+  // || clocks.black === 0` (секундная модель). Теперь источник —
+  // серверный мс-снимок: claim-timeout запускается, когда любой из
+  // `whiteMs`/`blackMs` <= 0. Локальный экстраполированный display не
+  // используется — иначе на rounding'е клиент опередит сервер. Retry
+  // каждые 2 с сохранён.
+  const anyClockExpired = clocksMs.whiteMs <= 0 || clocksMs.blackMs <= 0;
   useEffect(() => {
     if (status !== 'active' || !stateReceivedRef.current) return;
-    if (clocks.white > 0 && clocks.black > 0) return;
+    if (!anyClockExpired) return;
 
     console.log(
-      '[Timeout] clock at 0, starting claim interval. white=' +
-        clocks.white +
-        ' black=' +
-        clocks.black,
+      '[Timeout] clock at 0, starting claim interval. whiteMs=' +
+        clocksMs.whiteMs +
+        ' blackMs=' +
+        clocksMs.blackMs,
     );
     const sendClaim = () => {
       console.log(
@@ -470,7 +515,7 @@ export function GamePage() {
     sendClaim();
     const interval = setInterval(sendClaim, 2000);
     return () => clearInterval(interval);
-  }, [status, clocks.white === 0 || clocks.black === 0, gameId]);
+  }, [status, anyClockExpired, gameId, clocksMs.whiteMs, clocksMs.blackMs]);
 
   // ─── onMove (ход игрока): применяем локально и отправляем на сервер
   const handleMove = useCallback(
@@ -551,7 +596,12 @@ export function GamePage() {
       chess={game}
       fen={fen}
       moves={moves}
-      clocks={clocks}
+      whiteClockMs={clockDisplay.whiteDisplayMs}
+      blackClockMs={clockDisplay.blackDisplayMs}
+      whiteClockMode={clockDisplay.whiteMode}
+      blackClockMode={clockDisplay.blackMode}
+      whiteClockUrgency={clockDisplay.whiteUrgency}
+      blackClockUrgency={clockDisplay.blackUrgency}
       status={status}
       result={result}
       playerColor={playerColor}

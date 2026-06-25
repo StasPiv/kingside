@@ -34,6 +34,12 @@ import type {
 import { MemoChessboard } from '../MemoChessboard';
 import { PromotionPicker } from '../PromotionPicker';
 import { HelpButton } from '../HelpButton';
+// KS-4652 / ADR-144 §3.3 — единое форматирование часов.
+import {
+  formatGameClock,
+  type ClockMode,
+  type ClockUrgency,
+} from '../../utils/formatGameClock';
 import { GameResultSheet } from './GameResultSheet';
 import { GameActionBar } from './GameActionBar';
 import { GameWaitingOverlay } from './GameWaitingOverlay';
@@ -63,8 +69,20 @@ export interface GameShellProps {
   fen: string;
   /** История ходов в SAN. */
   moves: string[];
-  /** Часы в секундах. */
-  clocks: { white: number; black: number };
+  /**
+   * KS-4652 / ADR-144 §3.4. Отображаемые часы в миллисекундах для
+   * каждой стороны, плюс выбранный формат вывода (`mode`) и уровень
+   * срочности (`urgency`). Значения готовит `useGameClockDisplay`
+   * (live, local-bot) либо передающая сторона напрямую (broadcast).
+   * Раньше пропс был `clocks: { white: sec, black: sec }` — секунды
+   * после миграции вырезаны вместе с `formatTime`.
+   */
+  whiteClockMs: number;
+  blackClockMs: number;
+  whiteClockMode: ClockMode;
+  blackClockMode: ClockMode;
+  whiteClockUrgency: ClockUrgency;
+  blackClockUrgency: ClockUrgency;
   status: GameStatus;
   /** Итог партии — 'white' | 'black' | 'draw' | null. */
   result: string | null;
@@ -180,13 +198,6 @@ export interface GameShellProps {
   onHelp?: () => void;
 }
 
-function formatTime(seconds: number): string {
-  const safe = Math.max(0, Math.floor(seconds));
-  const m = Math.floor(safe / 60);
-  const s = safe % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
 function isPromotionAttempt(chess: Chess, from: Square, to: Square): boolean {
   const piece = chess.get(from);
   if (!piece || piece.type !== 'p') return false;
@@ -202,7 +213,12 @@ export function GameShell(props: GameShellProps) {
     chess,
     fen,
     moves,
-    clocks,
+    whiteClockMs,
+    blackClockMs,
+    whiteClockMode,
+    blackClockMode,
+    whiteClockUrgency,
+    blackClockUrgency,
     status,
     result,
     playerColor,
@@ -757,6 +773,18 @@ export function GameShell(props: GameShellProps) {
     opponentColor === 'white' ? whiteBerserk : blackBerserk;
   const selfBerserk = playerColor === 'white' ? whiteBerserk : blackBerserk;
 
+  // KS-4652 / ADR-144 §3.3. Хелперы выбора ms/mode/urgency по
+  // цвету — чтобы 4 места рендера часов (mobile/desktop × opponent/
+  // self) одинаково тянули правильную пару значений.
+  const msFor = (color: GameColor): number =>
+    color === 'white' ? whiteClockMs : blackClockMs;
+  const modeFor = (color: GameColor): ClockMode =>
+    color === 'white' ? whiteClockMode : blackClockMode;
+  const urgencyFor = (color: GameColor): ClockUrgency =>
+    color === 'white' ? whiteClockUrgency : blackClockUrgency;
+  const clockText = (color: GameColor): string =>
+    hideClocks ? '—' : formatGameClock(msFor(color), modeFor(color));
+
   return (
     <div className="game-page" ref={gamePageRef}>
       {/* KS-4259: убран рендер `.back-nav-link` — обрезанная плашка
@@ -798,10 +826,9 @@ export function GameShell(props: GameShellProps) {
           className="game-clock-bar game-clock-bar--opponent"
           data-clock-color={opponentColor}
           data-active={isOpponentClockActive ? 'true' : 'false'}
+          data-urgency={urgencyFor(opponentColor)}
         >
-          <span className="clock">
-            {hideClocks ? '—' : formatTime(clocks[opponentColor])}
-          </span>
+          <span className="clock">{clockText(opponentColor)}</span>
         </div>
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
@@ -864,10 +891,9 @@ export function GameShell(props: GameShellProps) {
           className="game-clock-bar game-clock-bar--self"
           data-clock-color={playerColor}
           data-active={isSelfClockActive ? 'true' : 'false'}
+          data-urgency={urgencyFor(playerColor)}
         >
-          <span className="clock">
-            {hideClocks ? '—' : formatTime(clocks[playerColor])}
-          </span>
+          <span className="clock">{clockText(playerColor)}</span>
         </div>
 
         {belowBoardBlock}
@@ -889,8 +915,9 @@ export function GameShell(props: GameShellProps) {
           className="game-sidebar-clock game-sidebar-clock--opponent"
           data-clock-color={opponentColor}
           data-active={isOpponentClockActive ? 'true' : 'false'}
+          data-urgency={urgencyFor(opponentColor)}
         >
-          {hideClocks ? '—' : formatTime(clocks[opponentColor])}
+          {clockText(opponentColor)}
         </div>
         <div className="move-list">
           <h3>{t('game.moves')}</h3>
@@ -918,8 +945,9 @@ export function GameShell(props: GameShellProps) {
           className="game-sidebar-clock game-sidebar-clock--self"
           data-clock-color={playerColor}
           data-active={isSelfClockActive ? 'true' : 'false'}
+          data-urgency={urgencyFor(playerColor)}
         >
-          {hideClocks ? '—' : formatTime(clocks[playerColor])}
+          {clockText(playerColor)}
         </div>
 
         <div className="game-actions-top">

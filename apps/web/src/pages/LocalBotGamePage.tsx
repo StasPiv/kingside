@@ -99,7 +99,18 @@ export function LocalBotGamePage() {
       chess={game.chess}
       fen={game.fen}
       moves={game.moves}
-      clocks={game.clocks}
+      /* KS-4652: GameShell перешёл на ms-пропсы. Local-bot пока хранит
+         часы в секундах (миграция самого `useLocalBotGame` на мс +
+         подключение `useGameClockDisplay` — задача №5 серии ADR-144).
+         Здесь умножаем sec → ms и передаём фиксированный
+         normal/normal mode/urgency, чтобы поведение оставалось
+         таким же, как до KS-4652. */
+      whiteClockMs={game.clocks.white * 1000}
+      blackClockMs={game.clocks.black * 1000}
+      whiteClockMode="normal"
+      blackClockMode="normal"
+      whiteClockUrgency="normal"
+      blackClockUrgency="normal"
       status={game.status}
       result={game.result}
       playerColor={game.playerColor}
