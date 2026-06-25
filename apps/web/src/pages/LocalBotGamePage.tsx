@@ -23,12 +23,11 @@ import {
   useLocalBotGame,
   type LocalBotTimeControl,
 } from '../hooks/useLocalBotGame';
-// KS-4654 / ADR-144 §3.6 — метроном-тик на собственных часах при
-// низком времени. Расчёт `urgency` идёт по секундной модели часов
-// local-bot (полный переезд `useLocalBotGame` на мс-snapshot + хук
-// `useGameClockDisplay` — задача №5 серии). До тех пор используем
-// чистую `computeClockUrgency` напрямую.
-import { computeClockUrgency } from '../utils/formatGameClock';
+// KS-4655 / ADR-144 §3.4. Полный переезд local-bot часов на тот же
+// pipeline, что и live (KS-4652): `useGameClockDisplay` экстраполирует
+// от мс-snapshot'а через `performance.now()` и сам выбирает
+// частоту (250 мс / rAF) и формат (normal/tenths/hundredths).
+import { useGameClockDisplay } from '../hooks/useGameClockDisplay';
 import { useClockTickScheduler } from '../hooks/useClockTickScheduler';
 
 /**
@@ -81,22 +80,32 @@ export function LocalBotGamePage() {
   // стандартный (react-chessboard default). Если выбрал — уважаем.
   const forceStandardPieces = useMemo(() => !readHasExplicitPieceSet(), []);
 
-  // KS-4654 / ADR-144 §3.6. Метроном-тик на своих часах. В local-bot
-  // активная сторона определяется по `chess.turn()`; если ход мой —
-  // считаем `urgency` по моему остатку и initial-времени, передаём
-  // в планировщик. Хук сам молчит при `noClock`/нет initial/normal.
+  // KS-4655 / ADR-144 §3.4. Активная сторона + initialMs для
+  // экстраполяции часов. В `noClock` режиме `initialMs=null`
+  // (`useGameClockDisplay` всё равно рендерит статичные мс, но в
+  // GameShell блок часов скрыт через `hideClocks`).
   const activeColor: 'white' | 'black' | null =
     game.status === 'active'
       ? game.chess.turn() === 'w'
         ? 'white'
         : 'black'
       : null;
+  const clockDisplay = useGameClockDisplay({
+    whiteMs: game.clocksMs.whiteMs,
+    blackMs: game.clocksMs.blackMs,
+    activeColor,
+    snapshotAt: game.clocksMs.snapshotAt,
+    initialMs: game.noClock ? null : game.initialMs,
+    isFinished: game.status === 'finished',
+  });
+
+  // KS-4654 / ADR-144 §3.6. Метроном-тик на собственных часах.
+  // Тикает только когда `isSelfActive=true` и urgency != 'normal'.
   const isSelfActive = activeColor === game.playerColor;
-  const selfRemainingMs =
-    (game.playerColor === 'white' ? game.clocks.white : game.clocks.black) *
-    1000;
-  const initialMs = game.noClock ? null : game.initialSec * 1000;
-  const selfUrgency = computeClockUrgency(selfRemainingMs, initialMs);
+  const selfUrgency =
+    game.playerColor === 'white'
+      ? clockDisplay.whiteUrgency
+      : clockDisplay.blackUrgency;
   useClockTickScheduler({ urgency: selfUrgency, isSelfActive });
 
   return (
@@ -124,18 +133,14 @@ export function LocalBotGamePage() {
       chess={game.chess}
       fen={game.fen}
       moves={game.moves}
-      /* KS-4652: GameShell перешёл на ms-пропсы. Local-bot пока хранит
-         часы в секундах (миграция самого `useLocalBotGame` на мс +
-         подключение `useGameClockDisplay` — задача №5 серии ADR-144).
-         Здесь умножаем sec → ms и передаём фиксированный
-         normal/normal mode/urgency, чтобы поведение оставалось
-         таким же, как до KS-4652. */
-      whiteClockMs={game.clocks.white * 1000}
-      blackClockMs={game.clocks.black * 1000}
-      whiteClockMode="normal"
-      blackClockMode="normal"
-      whiteClockUrgency="normal"
-      blackClockUrgency="normal"
+      /* KS-4655: пропсы часов берутся прямо из `useGameClockDisplay`
+         (как в live). Локальной sec↔ms-конвертации больше нет. */
+      whiteClockMs={clockDisplay.whiteDisplayMs}
+      blackClockMs={clockDisplay.blackDisplayMs}
+      whiteClockMode={clockDisplay.whiteMode}
+      blackClockMode={clockDisplay.blackMode}
+      whiteClockUrgency={clockDisplay.whiteUrgency}
+      blackClockUrgency={clockDisplay.blackUrgency}
       status={game.status}
       result={game.result}
       playerColor={game.playerColor}

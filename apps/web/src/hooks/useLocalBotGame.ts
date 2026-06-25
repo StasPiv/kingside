@@ -2,7 +2,7 @@
  * KS-4150: источник данных для локальной партии с ботом
  * (`/play/local-bot`). Полностью клиентский: chess.js хранит позицию,
  * `useBotEngine` (Stockfish 18 WASM) играет за оппонента,
- * клиентский таймер ведёт часы обоих игроков.
+ * клиентские часы ведут отсчёт.
  *
  * Хук возвращает плоский набор полей и действий, которые
  * `LocalBotGamePage` подставляет в общую визуальную оболочку
@@ -10,17 +10,21 @@
  * Сетевых вызовов нет: ни REST, ни WebSocket. Партия живёт только
  * в памяти страницы и теряется при перезагрузке.
  *
- * Контроль времени:
- *   - таймер тикает каждые 250 мс, уменьшая часы того, чей сейчас ход;
- *   - при достижении 0 партия завершается победой соперника по времени;
- *   - после каждого хода к часам игрока добавляется инкремент.
+ * KS-4655 / ADR-144 §3.4. Часы хранятся в мс + `snapshotAt`
+ * (`performance.now()`): локального `setInterval(250)` больше нет,
+ * точный отсчёт между ходами делает `useGameClockDisplay` на
+ * стороне `LocalBotGamePage` (тот же подход, что в live-партии,
+ * KS-4652). Флаг по нулю часов запускается отдельным `setTimeout`
+ * на время «текущий остаток активной стороны»: если до его
+ * срабатывания приходит ход — таймер отменяется и пересоздаётся
+ * для нового активного цвета.
  *
  * KS-4151: единый `Chess` инстанс мутируется через `.move()/.reset()`,
  * новый объект не создаётся. Это сохраняет идентичность ссылки между
  * рендерами и не пересоздаёт колбэки в `useBoardHighlights` →
  * `boardOptions` остаётся стабильным, доска не дёргается.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 
@@ -61,11 +65,32 @@ export interface UseLocalBotGameOptions {
   timeControl?: LocalBotTimeControl;
 }
 
+/**
+ * KS-4655 / ADR-144 §3.4. Серверный (для local-bot — клиентский)
+ * мс-снимок часов: `whiteMs`/`blackMs` — последний зафиксированный
+ * остаток; `snapshotAt` — `performance.now()` в момент фиксации
+ * (после хода игрока/бота, при старте партии, при resign).
+ *
+ * `useGameClockDisplay` экстраполирует от `snapshotAt` до текущего
+ * `performance.now()` и считает urgency/mode.
+ */
+export interface LocalBotClocksMs {
+  whiteMs: number;
+  blackMs: number;
+  snapshotAt: number;
+}
+
 export interface LocalBotGameState {
   chess: Chess;
   fen: string;
   moves: string[];
-  clocks: { white: number; black: number };
+  /**
+   * KS-4655. Часы в миллисекундах + момент последней фиксации
+   * (`performance.now()`). Заменяет старое поле `clocks: {white,
+   * black}` (секунды). Потребитель передаёт это в
+   * `useGameClockDisplay` (тот же контракт, что у live, KS-4652).
+   */
+  clocksMs: LocalBotClocksMs;
   status: 'waiting' | 'active' | 'finished';
   /** 'white' | 'black' | 'draw' | null. */
   result: string | null;
@@ -80,8 +105,7 @@ export interface LocalBotGameState {
   botError: string | null;
   /**
    * KS-4303: причина ошибки инициализации движка — для UI с retry-
-   * кнопкой. null когда движок здоров. Отдельно от `botError`, который
-   * включает ещё и таймауты конкретного `go`-запроса.
+   * кнопкой. null когда движок здоров.
    */
   engineError: BotEngineErrorReason | null;
   /** KS-4303: пересоздать воркер Stockfish после ошибки инициализации. */
@@ -89,13 +113,11 @@ export interface LocalBotGameState {
   /** KS-4153: партия без часов — UI должен скрыть таймер или показать прочерк. */
   noClock: boolean;
   /**
-   * KS-4654 / ADR-144 §3.2. Начальное время контроля в секундах —
-   * UI потребляет, чтобы посчитать `computeClockUrgency(remainingMs,
-   * initialMs)` для метронома тиканья. При `noClock=true` значение
-   * не имеет смысла, но всё равно есть (исходный fallback из
-   * `useLocalBotGame`).
+   * KS-4655. Начальное время контроля в миллисекундах — потребляется
+   * `useGameClockDisplay` (`initialMs`) для расчёта порогов
+   * urgency. При `noClock=true` — 0 (значение игнорируется).
    */
-  initialSec: number;
+  initialMs: number;
   /** Применить ход игрока. Возвращает true, если ход легален. */
   onMove: (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') => boolean;
   /** Сдаться: засчитать поражение, статус → finished. */
@@ -114,6 +136,21 @@ function clampLevel(level: number | undefined): number {
   return Math.max(1, Math.min(10, n));
 }
 
+/**
+ * KS-4655. Рассчитать остаток времени активной стороны на момент
+ * `now` с учётом фиксированного `snapshotAt`. Чистая функция,
+ * экспортируется для тестов.
+ */
+function remainingOf(
+  clocks: LocalBotClocksMs,
+  color: GameColor,
+  now: number,
+): number {
+  const base = color === 'white' ? clocks.whiteMs : clocks.blackMs;
+  const elapsed = Math.max(0, now - clocks.snapshotAt);
+  return Math.max(0, base - elapsed);
+}
+
 export function useLocalBotGame(
   options: UseLocalBotGameOptions,
 ): LocalBotGameState {
@@ -130,15 +167,16 @@ export function useLocalBotGame(
     ? 0
     : Math.max(10, timeControl?.initialSec ?? 600);
   const incrementSec = noClock ? 0 : Math.max(0, timeControl?.incrementSec ?? 0);
+  // KS-4655. Единые мс-величины — используются и в state, и в
+  // экспортируемом `initialMs`, и в инкрементной формуле.
+  const initialMs = initialSec * 1000;
+  const incrementMs = incrementSec * 1000;
 
   const [playerColor] = useState<GameColor>(() => resolveColor(color));
   const [botLevel] = useState<number>(() => clampLevel(level));
   const [resetSeq, setResetSeq] = useState(0);
 
   // KS-4151: единый chess-инстанс — мутируется, никогда не заменяется.
-  // Это сохраняет идентичность ссылки в зависимостях `useBoardHighlights`,
-  // `useFastDrag` и других хуков GameShell, что предотвращает
-  // пересоздание мемоизированного `boardOptions` и дрожание доски.
   const [chess] = useState<Chess>(() => new Chess());
   const [fen, setFen] = useState<string>(() => chess.fen());
   const [moves, setMoves] = useState<string[]>([]);
@@ -146,12 +184,35 @@ export function useLocalBotGame(
     'active',
   );
   const [result, setResult] = useState<string | null>(null);
-  const [clocks, setClocks] = useState({ white: initialSec, black: initialSec });
+  // KS-4655. Часы в мс + snapshotAt. Изначально равные, `snapshotAt`
+  // фиксируется в момент монтирования.
+  const [clocksMs, setClocksMs] = useState<LocalBotClocksMs>(() => ({
+    whiteMs: initialMs,
+    blackMs: initialMs,
+    snapshotAt: performance.now(),
+  }));
+  // KS-4655. Ref на текущий снимок часов — для эффекта хода бота:
+  // читаем `clocksMs.whiteMs/blackMs` при составлении `clockInfo`,
+  // но не хотим перезапускать эффект при каждой смене снимка
+  // (пере-render'ы от ходов в любом случае триггерят эффект через `fen`).
+  const clocksMsRef = useRef<LocalBotClocksMs>({
+    whiteMs: initialMs,
+    blackMs: initialMs,
+    snapshotAt: 0,
+  });
   const [botThinking, setBotThinking] = useState(false);
   const [botError, setBotError] = useState<string | null>(null);
   const [lastMove, setLastMove] = useState<
     { from: Square; to: Square; san: string; ply: number } | null
   >(null);
+
+  // KS-4655. Синхронизируем ref после каждого изменения состояния
+  // часов — чтобы эффект хода бота читал актуальный снимок без
+  // включения `clocksMs` в свои deps (иначе двойной перезапуск
+  // эффекта на каждом ходу — он и так перезапускается на `fen`).
+  useEffect(() => {
+    clocksMsRef.current = clocksMs;
+  }, [clocksMs]);
 
   // useBotEngine хочет gameId для логов — берём стабильный «local-<N>».
   const localGameId = `local-${resetSeq}`;
@@ -160,9 +221,7 @@ export function useLocalBotGame(
     botLevel,
     status === 'active',
   );
-  // KS-4303: при retry движка ещё и сбрасываем `botError` (ошибку
-  // конкретного `go`-запроса), чтобы UI не остался с устаревшим
-  // сообщением, и эффект хода бота снова отработал на текущем fen.
+  // KS-4303: при retry движка ещё и сбрасываем `botError`.
   const retryEngine = useCallback(() => {
     setBotError(null);
     retryEngineRaw();
@@ -180,11 +239,9 @@ export function useLocalBotGame(
     (g: Chess) => {
       let r: string;
       if (g.isCheckmate()) {
-        // chess.turn() — у кого ход сейчас. Этот игрок получил мат.
         const loser: GameColor = g.turn() === 'w' ? 'white' : 'black';
         r = loser === 'white' ? 'black' : 'white';
       } else {
-        // Все ничейные исходы — ничья.
         r = 'draw';
       }
       setStatus('finished');
@@ -193,31 +250,46 @@ export function useLocalBotGame(
     [],
   );
 
-  // Часы: уменьшаем счётчик активного цвета каждые 250 мс.
-  // KS-4153: в режиме «Без часов» таймер не запускается вообще.
-  useEffect(() => {
-    if (noClock) return;
-    if (status !== 'active') return;
-    const turn: GameColor = chess.turn() === 'w' ? 'white' : 'black';
-    const id = setInterval(() => {
-      setClocks((prev) => {
-        const next = Math.max(0, +(prev[turn] - 0.25).toFixed(2));
-        return { ...prev, [turn]: next };
+  /**
+   * KS-4655 / ADR-144. После хода `mover`-цвета фиксируем новый
+   * мс-снимок: списываем elapsed с его часов, прибавляем инкремент,
+   * обновляем `snapshotAt`. Часы другого цвета остаются как были
+   * (он не тратил время).
+   */
+  const fixClocksAfterMove = useCallback(
+    (mover: GameColor) => {
+      if (noClock) return;
+      const now = performance.now();
+      setClocksMs((prev) => {
+        const remaining = remainingOf(prev, mover, now);
+        const updated = remaining + incrementMs;
+        return mover === 'white'
+          ? { whiteMs: updated, blackMs: prev.blackMs, snapshotAt: now }
+          : { whiteMs: prev.whiteMs, blackMs: updated, snapshotAt: now };
       });
-    }, 250);
-    return () => clearInterval(id);
-  }, [status, fen, chess, noClock]);
+    },
+    [noClock, incrementMs],
+  );
 
-  // Если у кого-то ноль на часах — техническое поражение по времени.
-  // KS-4153: в режиме «Без часов» проверка отключена.
+  // KS-4655 / ADR-144. Флаг по нулю часов: вместо `setInterval(250)`
+  // ставим `setTimeout` ровно на остаток времени активной стороны.
+  // При смене активной стороны (новый ход) или конце партии таймер
+  // снимается и пересоздаётся для нового активного цвета.
   useEffect(() => {
     if (noClock) return;
     if (status !== 'active') return;
-    if (clocks.white > 0 && clocks.black > 0) return;
-    const loser: GameColor = clocks.white <= 0 ? 'white' : 'black';
-    setStatus('finished');
-    setResult(loser === 'white' ? 'black' : 'white');
-  }, [clocks.white, clocks.black, status, noClock]);
+    const active: GameColor = chess.turn() === 'w' ? 'white' : 'black';
+    const remaining = remainingOf(clocksMs, active, performance.now());
+    const id = setTimeout(() => {
+      // Партия могла закончиться раньше (ход прошёл и эффект перезапустился),
+      // защищаемся проверкой status в callback'е через closure: на момент
+      // вызова setTimeout `status === 'active'`. Если успел смениться —
+      // setTimeout уже снят cleanup'ом.
+      setStatus('finished');
+      setResult(active === 'white' ? 'black' : 'white');
+    }, remaining);
+    return () => clearTimeout(id);
+  }, [status, noClock, chess, fen, clocksMs]);
 
   // Ход бота — когда сейчас ход не наш и партия идёт.
   useEffect(() => {
@@ -227,40 +299,28 @@ export function useLocalBotGame(
     let cancelled = false;
     setBotThinking(true);
     (async () => {
-      // KS-4305: запрашиваем ход бота с повторными попытками, как это
-      // делает резервный (fallback) бот в общем вызове игры —
-      // `GamePage.triggerBotMove` (см. `apps/web/src/pages/GamePage.tsx`).
-      // Первый запрос после старта `useBotEngine` иногда падает на
-      // мобильной сети, пока wasm-Stockfish ещё проходит uci-handshake
-      // и `waitForReady` отдаёт промежуточный таймаут. Одной попытки
-      // не хватало — игра вставала «через раз». Три попытки с
-      // нарастающей задержкой (500 / 1000 мс) совпадают с настройкой
-      // общего вызова и закрывают эту гонку без перемонтирования
-      // компонента.
+      // KS-4305: ретраи запроса хода — Stockfish иногда падает первым
+      // запросом, пока не завершил uci-handshake.
       const MAX_ATTEMPTS = 3;
       let uci: string | null = null;
       let lastErr: unknown = null;
-      // KS-4335: передаём Stockfish'у фактические остатки на часах в мс
-      // + инкременты, движок сам выберет «человеческое» время на ход.
-      // В режиме «Без часов» (noClock) clockInfo не передаём — fallback
-      // к старому `go depth movetime` в `useBotEngine`.
-      // KS-4335 (follow-up): первые 10 ходов бота играются быстро (без
-      // clockInfo), с 11-го начинаем передавать остаток часов. Подсчёт
-      // ходов бота — по истории `chess.history()`: если бот белый, его
-      // k-й ход на полуходе 2k-1; если чёрный — 2k.
+      // KS-4335 (follow-up): первые 10 ходов бота — без clockInfo (быстрый
+      // дебют). С 11-го — передаём текущий остаток и инкремент.
       const playedPlies = chess.history().length;
       const isBotWhite = playerColor === 'black';
       const botMovesDone = isBotWhite
         ? Math.ceil(playedPlies / 2)
         : Math.floor(playedPlies / 2);
+      // KS-4655. Берём ms-остатки из ref'а — он отражает последний
+      // снимок без необходимости включать `clocksMs` в deps эффекта.
       const clockInfo =
         noClock || botMovesDone < 10
           ? undefined
           : {
-              wtimeMs: Math.max(1, Math.round(clocks.white * 1000)),
-              btimeMs: Math.max(1, Math.round(clocks.black * 1000)),
-              wincMs: Math.max(0, Math.round(incrementSec * 1000)),
-              bincMs: Math.max(0, Math.round(incrementSec * 1000)),
+              wtimeMs: Math.max(1, Math.round(clocksMsRef.current.whiteMs)),
+              btimeMs: Math.max(1, Math.round(clocksMsRef.current.blackMs)),
+              wincMs: Math.max(0, Math.round(incrementMs)),
+              bincMs: Math.max(0, Math.round(incrementMs)),
             };
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         if (cancelled) return;
@@ -296,18 +356,12 @@ export function useLocalBotGame(
           dualLog('error', `[local-bot] illegal uci from engine: ${uci}`);
           return;
         }
-        // Применяем ход и одновременно прибавляем инкремент тому, кто
-        // только что походил (бот).
         const ply = chess.history().length;
         setFen(chess.fen());
         setMoves((prev) => [...prev, move.san]);
         setLastMove({ from, to, san: move.san, ply });
-        if (incrementSec > 0) {
-          setClocks((prev) => ({
-            ...prev,
-            [turnColor]: prev[turnColor] + incrementSec,
-          }));
-        }
+        // KS-4655. Зафиксировать новый снимок часов после хода бота.
+        fixClocksAfterMove(turnColor);
         if (chess.isGameOver()) finalize(chess);
       } catch (e) {
         if (!cancelled) {
@@ -322,8 +376,6 @@ export function useLocalBotGame(
     return () => {
       cancelled = true;
     };
-    // KS-4303: добавлен `engineError` — при successful retry он
-    // обнуляется и эффект перезапускает getBotMove на текущей позиции.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fen, status, playerColor, engineError]);
 
@@ -348,22 +400,17 @@ export function useLocalBotGame(
       setFen(chess.fen());
       setMoves((prev) => [...prev, move.san]);
       setLastMove({ from, to, san: move.san, ply });
-      if (incrementSec > 0) {
-        setClocks((prev) => ({
-          ...prev,
-          [turnColor]: prev[turnColor] + incrementSec,
-        }));
-      }
+      // KS-4655. Фиксация мс-снимка после хода игрока.
+      fixClocksAfterMove(turnColor);
       if (chess.isGameOver()) finalize(chess);
       return true;
     },
-    [chess, status, playerColor, incrementSec, finalize],
+    [chess, status, playerColor, finalize, fixClocksAfterMove],
   );
 
   const onResign = useCallback(() => {
     if (status !== 'active') return;
     setStatus('finished');
-    // Победа соперника.
     setResult(playerColor === 'white' ? 'black' : 'white');
   }, [status, playerColor]);
 
@@ -375,15 +422,20 @@ export function useLocalBotGame(
     setStatus('active');
     setResult(null);
     setBotError(null);
-    setClocks({ white: initialSec, black: initialSec });
+    // KS-4655. Новый snapshot и полные часы.
+    setClocksMs({
+      whiteMs: initialMs,
+      blackMs: initialMs,
+      snapshotAt: performance.now(),
+    });
     setResetSeq((s) => s + 1);
-  }, [chess, initialSec]);
+  }, [chess, initialMs]);
 
   return {
     chess,
     fen,
     moves,
-    clocks,
+    clocksMs,
     status,
     result,
     playerColor,
@@ -395,14 +447,7 @@ export function useLocalBotGame(
     engineError,
     retryEngine,
     noClock,
-    /**
-     * KS-4654 / ADR-144 §3.2. Начальное время контроля в секундах —
-     * нужно потребителю (`LocalBotGamePage`), чтобы посчитать
-     * `computeClockUrgency(remainingMs, initialMs)` для метронома
-     * тиканья при низком времени. Раньше хук это значение наружу не
-     * отдавал.
-     */
-    initialSec,
+    initialMs,
     onMove,
     onResign,
     onNewGame,
