@@ -253,6 +253,77 @@ body:has(.game-page),
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45);
 }
 
+/* KS-4653 / ADR-144 шаг 3: подсветка часов по нехватке времени.
+   Атрибут `data-urgency="normal|low|critical"` выставляет GameShell.tsx
+   из хука useGameClockDisplay (KS-4652).
+
+   normal   — без переопределений, обычная пилюля (или зелёная активная).
+   low      — янтарный фон (warning, ~8–30 с по умолчанию).
+   critical — красный фон + плавная пульсация (~2–8 с).
+
+   Правила перекрывают зелёный `data-active='true'` ФОН (срочность важнее
+   индикатора «кто думает»), но активность по-прежнему считывается:
+   при `data-active='true'` добавляется внутреннее белое кольцо
+   через `box-shadow inset` (см. отдельный селектор ниже). Так visual cue
+   виден обоим игрокам, и на активной/неактивной стороне различается.
+
+   Палитра берётся из существующих токенов (--warning-strong, --danger-strong)
+   через семантические алиасы --clock-low-bg / --clock-critical-bg —
+   так цвет урgency меняется в одном месте, без правок по селекторам. */
+:root {
+  --clock-low-bg: var(--warning-strong);
+  --clock-critical-bg: var(--danger-strong);
+  --clock-urgency-ring: rgba(255, 255, 255, 0.55);
+}
+
+.game-sidebar-clock[data-urgency='low'],
+.game-clock-bar[data-urgency='low'],
+[data-theme='light'] .game-sidebar-clock[data-urgency='low'],
+[data-theme='light'] .game-clock-bar[data-urgency='low'] {
+  background: var(--clock-low-bg);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.game-sidebar-clock[data-urgency='critical'],
+.game-clock-bar[data-urgency='critical'],
+[data-theme='light'] .game-sidebar-clock[data-urgency='critical'],
+[data-theme='light'] .game-clock-bar[data-urgency='critical'] {
+  background: var(--clock-critical-bg);
+  color: #ffffff;
+  border-color: transparent;
+  animation: ks-clock-pulse 900ms ease-in-out infinite;
+}
+
+/* Активная сторона при low/critical: тот же inset-ring, что и у зелёной
+   активной пилюли, — сохраняет различимость «кто сейчас на ходу».
+   Специфичность (0,3,1) перекрывает базовое active-правило выше. */
+.game-sidebar-clock[data-active='true'][data-urgency='low'],
+.game-clock-bar[data-active='true'][data-urgency='low'],
+.game-sidebar-clock[data-active='true'][data-urgency='critical'],
+.game-clock-bar[data-active='true'][data-urgency='critical'] {
+  box-shadow: inset 0 0 0 2px var(--clock-urgency-ring);
+}
+
+@keyframes ks-clock-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.66;
+  }
+}
+
+/* Доступность: при `prefers-reduced-motion: reduce` отключаем пульсацию,
+   но красный фон остаётся — visual cue важнее анимации. */
+@media (prefers-reduced-motion: reduce) {
+  .game-sidebar-clock[data-urgency='critical'],
+  .game-clock-bar[data-urgency='critical'] {
+    animation: none;
+  }
+}
+
 .board-container {
   border-radius: 4px;
   overflow: hidden;
