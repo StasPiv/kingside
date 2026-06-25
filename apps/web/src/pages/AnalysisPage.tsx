@@ -88,6 +88,7 @@ import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
 import { liveAnalysisSocket } from '../socket';
 import {
   LiveAnalysisEvents,
+  type AnalysisResponse,
   type LiveAnalysisAnalysisSwitchEvent,
 } from '@kingside/shared';
 import { LecturePublisherStatusBadge } from '../components/lecture/LecturePublisherStatusBadge';
@@ -510,21 +511,17 @@ export type RecordedEvent =
       type: 'closed';
       payload: { reason: 'by_owner' | 'inactivity' };
     }
-  // KS-4630 / ADR-142 §2.8. Тренер сменил активное окно анализа во
-  // время лекции. В replay-плеере это «жирное» событие наравне с
-  // `reset` — сбрасывает state-patch'и до него и задаёт новый tree /
-  // startingFen / orientation. Заголовок `title` ставится над доской
-  // (см. `replayActiveTitle` в AnalysisPage).
+  // KS-4630 + KS-4636 / ADR-142 v2 §2.8. Тренер сменил активное окно
+  // анализа во время лекции. Payload — только указатель + заголовок;
+  // содержимое (tree/fen/orientation) replay-плеер берёт через
+  // GET /analyses/:analysisId. В replay это «жирное» событие наравне
+  // с `reset` — сбрасывает state-patch'и до себя.
   | {
       t: number;
       type: 'analysis-switch';
       payload: {
         analysisId: string;
         title: string;
-        startingFen: string;
-        orientation: 'white' | 'black';
-        tree: string | null;
-        currentGlobalIndex: number | null;
       };
     };
 
@@ -1538,6 +1535,89 @@ function AnalysisPageInner({
     [loadFromPgn, gotoMove, gotoFirst],
   );
 
+  // KS-4636 / ADR-142 v2 §2.10. Apply switch к ANALYSIS из БД.
+  // По v2 событие `analysis-switch` несёт только {analysisId, title}
+  // — без inline-дерева. Зритель и тренер должны:
+  //   1) Сбросить локальный state доски.
+  //   2) Сделать GET /analyses/:analysisId.
+  //   3) Применить tree/fen/orientation из ответа.
+  // Также используется replay-плеером (KS-4630 v2) — там тот же путь
+  // через GET, с собственным кэшем `analysisFetchCacheRef`.
+  //
+  // Возвращает Promise — caller может await'нуть для последовательности.
+  const analysisFetchCacheRef = useRef<Map<string, AnalysisResponse>>(new Map());
+  const applyAnalysisFromBackend = useCallback(
+    (dto: AnalysisResponse, fallbackTitle?: string | null) => {
+      try {
+        // Стартовый FEN: явный fen из dto или FEN-тег из PGN; иначе DEFAULT.
+        const fenFromPgn = dto.pgn
+          ? dto.pgn.match(/\[FEN\s+"([^"]+)"\]/)?.[1] ?? null
+          : null;
+        const startingFen = dto.fen ?? fenFromPgn ?? DEFAULT_FEN;
+        setInitialFen(startingFen);
+        if (dto.pgn) {
+          loadFromPgn(
+            parseAnnotatedPgn(dto.pgn),
+            extractInitialAnnotations(dto.pgn),
+          );
+          setPgnHeaders(parsePgnHeaders(dto.pgn));
+        } else {
+          loadFromPgn([]);
+          setPgnHeaders({});
+        }
+        if (
+          dto.boardOrientation === 'white' ||
+          dto.boardOrientation === 'black'
+        ) {
+          setBoardOrientation(dto.boardOrientation);
+        }
+        setAnalysisTitle(dto.title || fallbackTitle || '');
+        setTitleInput(dto.title || fallbackTitle || '');
+        gotoFirst();
+        lastAppliedLiveTreeRef.current = null;
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[analysis-switch] applyAnalysisFromBackend failed', e);
+      }
+    },
+    [loadFromPgn, gotoFirst],
+  );
+  const applyAnalysisSwitchById = useCallback(
+    async (analysisId: string, fallbackTitle?: string | null) => {
+      // Кэш — один и тот же analysisId за сессию читается из БД один раз
+      // (ADR-142 v2 §2.8 для replay; для live тоже не вредно).
+      const cached = analysisFetchCacheRef.current.get(analysisId);
+      if (cached) {
+        applyAnalysisFromBackend(cached, fallbackTitle);
+        return;
+      }
+      let dto: AnalysisResponse | null = null;
+      try {
+        dto = await api.get<AnalysisResponse>(
+          `/analyses/${encodeURIComponent(analysisId)}`,
+        );
+      } catch (err) {
+        // 404 — окно удалено (ADR §2.8 «деградация при удалённом
+        // Analysis»). Не бросаем, оставляем доску как есть, заголовок —
+        // fallbackTitle (он переживает удаление в payload события).
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[analysis-switch] GET /analyses/:id failed; analysis may be deleted',
+          { analysisId, err },
+        );
+        if (fallbackTitle) {
+          setAnalysisTitle(fallbackTitle);
+          setTitleInput(fallbackTitle);
+        }
+        return;
+      }
+      if (!dto) return;
+      analysisFetchCacheRef.current.set(analysisId, dto);
+      applyAnalysisFromBackend(dto, fallbackTitle);
+    },
+    [applyAnalysisFromBackend],
+  );
+
   // KS-3794 + KS-4630 / ADR-142 §2.8: пересчёт состояния replay на
   // каждое изменение currentTimeMs. Стратегия:
   //  1. Найти последнее «жирное» событие (`reset` ИЛИ `analysis-switch`)
@@ -1607,8 +1687,8 @@ function AnalysisPageInner({
     lastAppliedReplaySignatureRef.current = signature;
     setReplayActiveTitle(lastSwitchTitle);
 
-    // 1) initialFen + orientation — из последнего жирного или из
-    // recording.startingFen.
+    // 1) initialFen + orientation + (для analysis-switch) дерево из
+    // БД через GET /analyses/:analysisId (ADR-142 v2 §2.8).
     let appliedTreeFromFat = false;
     if (lastFatIdx >= 0 && lastFatType === 'reset') {
       const resetEvent = events[lastFatIdx];
@@ -1619,17 +1699,17 @@ function AnalysisPageInner({
     } else if (lastFatIdx >= 0 && lastFatType === 'analysis-switch') {
       const switchEvent = events[lastFatIdx];
       if (switchEvent.type === 'analysis-switch') {
-        setInitialFen(switchEvent.payload.startingFen);
-        setBoardOrientation(switchEvent.payload.orientation);
-        // KS-4630: payload.tree может быть null — окно без дерева,
-        // зритель видит чистый startingFen.
-        if (switchEvent.payload.tree) {
-          applyReplayTree(
-            switchEvent.payload.tree,
-            switchEvent.payload.currentGlobalIndex,
-          );
-          appliedTreeFromFat = true;
-        }
+        // KS-4636: payload теперь {analysisId,title} без inline-дерева.
+        // Делаем асинхронный fetch через `applyAnalysisSwitchById`
+        // (внутри есть кэш analysisFetchCacheRef — повторного GET'а
+        // при seek через ту же границу не будет). Помечаем
+        // appliedTreeFromFat=true, чтобы ниже не обнулить дерево
+        // через loadFromPgn([]) — fetch применит сам.
+        void applyAnalysisSwitchById(
+          switchEvent.payload.analysisId,
+          switchEvent.payload.title,
+        );
+        appliedTreeFromFat = true;
       }
     } else if (startingFen) {
       setInitialFen(startingFen);
@@ -1642,7 +1722,7 @@ function AnalysisPageInner({
     }
 
     // 2) state-patch — если есть после жирного, применяем дерево
-    // автора (он более свежий, чем inline-tree analysis-switch'а).
+    // автора (он более свежий, чем содержимое БД из analysis-switch).
     if (lastStatePatchIdx >= 0) {
       const sp = events[lastStatePatchIdx];
       if (sp.type === 'state-patch') {
@@ -1655,15 +1735,15 @@ function AnalysisPageInner({
         setBoardOrientation(sp.payload.orientation);
       }
     } else if (!appliedTreeFromFat) {
-      // 3) Нет state-patch'а и нет дерева из analysis-switch —
-      // показываем стартовую позицию (initialFen уже выставлен выше).
+      // 3) Нет state-patch'а и нет analysis-switch'а — показываем
+      // стартовую позицию (initialFen уже выставлен выше).
       loadFromPgn([]);
     }
     // loadFromPgn / setInitialFen / setBoardOrientation /
-    // applyReplayTree стабильны (useCallback), но добавляем в deps
-    // только реально меняющиеся значения — события и текущее время.
+    // applyReplayTree / applyAnalysisSwitchById стабильны (useCallback);
+    // в deps — только реально меняющиеся значения (события и время).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replay?.events, replay?.currentTimeMs, applyReplayTree]);
+  }, [replay?.events, replay?.currentTimeMs, applyReplayTree, applyAnalysisSwitchById]);
 
   // Шлюз входящих state-patch'ей. Решаем: применить сразу или отложить.
   useEffect(() => {
@@ -1707,44 +1787,19 @@ function AnalysisPageInner({
     if (!liveSession) return;
     if (!liveFull.lastAnalysisSwitch) return;
     const payload = liveFull.lastAnalysisSwitch;
-    // KS-4635: лог для отладки регрессии — оставить временно, пока
-    // пользователь не подтвердит, что доска/заголовок обновляются.
-    // eslint-disable-next-line no-console
-    console.info('[analysis-switch] applying', {
-      mode: liveSession.mode,
-      title: payload.title,
-      analysisId: payload.analysisId,
-      hasTree: !!payload.tree,
-    });
-    // Применяем дерево, если оно есть. null — окно ещё без дерева;
-    // тогда чистим historу и ставим только startingFen/orientation.
-    if (payload.tree) {
-      applyLiveTree(payload.tree);
-    } else {
-      // tree=null: пустое окно без вариаций. Сбрасываем historу,
-      // ставим стартовый FEN и ориентацию.
-      setInitialFen(payload.startingFen);
-      loadFromPgn([]);
-      setBoardOrientation(payload.orientation);
-      lastAppliedLiveTreeRef.current = null;
-    }
-    // KS-4635: title — критичен для тренера. URL остаётся прежним
-    // (ADR-142 §2.3 не меняет `lecture.liveAnalysisId`), но
-    // отображаемый `analysisTitle` (шапка, breadcrumbs, GameMetaBar)
-    // нужно обновить, иначе на странице остаётся «First move e4»
-    // после switch'а на «First move d4».
+    // KS-4636 / ADR-142 v2 §2.10. Payload теперь только {analysisId,title}
+    // — без inline-дерева. Сразу обновляем заголовок (мгновенный UX,
+    // до прихода БД) и стартуем GET /analyses/:analysisId.
     setAnalysisTitle(payload.title);
     setTitleInput(payload.title);
     if (pendingLiveTree !== null) setPendingLiveTree(null);
-    // Toast — каждый switch отдельный key, чтобы повторное переключение
-    // на тот же analysisId тоже триггерило новый тост. На owner'е toast
-    // тоже полезен как подтверждение успешного switch'а.
     setAnalysisSwitchToast((prev) => ({
       title: payload.title,
       key: (prev?.key ?? 0) + 1,
     }));
+    void applyAnalysisSwitchById(payload.analysisId, payload.title);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveFull.lastAnalysisSwitch, liveSession, applyLiveTree]);
+  }, [liveFull.lastAnalysisSwitch, liveSession, applyAnalysisSwitchById]);
 
   // KS-4629: автоснятие toast через 5 секунд после появления.
   useEffect(() => {
@@ -1891,38 +1946,26 @@ function AnalysisPageInner({
     const sock = liveAnalysisSocket;
     const handler = (payload: LiveAnalysisAnalysisSwitchEvent) => {
       if (payload?.slug !== ownerSlug) return;
-      // eslint-disable-next-line no-console
-      console.info('[analysis-switch:owner] applying', {
-        slug: ownerSlug,
-        title: payload.title,
-        analysisId: payload.analysisId,
-        hasTree: !!payload.tree,
-      });
-      if (payload.tree) {
-        applyLiveTree(payload.tree);
-      } else {
-        setInitialFen(payload.startingFen);
-        loadFromPgn([]);
-        setBoardOrientation(payload.orientation);
-        lastAppliedLiveTreeRef.current = null;
-      }
+      // KS-4636 / ADR-142 v2 §2.10. Payload теперь {slug,analysisId,title}.
+      // Мгновенно обновляем заголовок (до прихода БД) + блокируем
+      // autosave (он бы перетёр исходный Analysis), и стартуем
+      // GET /analyses/:analysisId для применения tree/fen/orientation.
       setAnalysisTitle(payload.title);
       setTitleInput(payload.title);
       if (pendingLiveTree !== null) setPendingLiveTree(null);
-      // KS-4635: блокируем autosave-effect'ы — они бы перетёрли
-      // исходный Analysis (id1) деревом нового окна (id2).
       ownerSwitchedAwayRef.current = true;
       setAnalysisSwitchToast((prev) => ({
         title: payload.title,
         key: (prev?.key ?? 0) + 1,
       }));
+      void applyAnalysisSwitchById(payload.analysisId, payload.title);
     };
     sock.on(LiveAnalysisEvents.ANALYSIS_SWITCH, handler);
     return () => {
       sock.off(LiveAnalysisEvents.ANALYSIS_SWITCH, handler);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveBroadcast.slug, liveSession, applyLiveTree]);
+  }, [liveBroadcast.slug, liveSession, applyAnalysisSwitchById]);
 
   // Обёртка над `rawMakeVariantMove`: пробрасываем UCI в live-трансляцию
   // после успешно применённого хода. Если трансляция не активна — внутри
