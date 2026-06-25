@@ -8,7 +8,7 @@
  * стоит статическая стартовая позиция, размер доски берётся из
  * `useResponsiveBoardSize` (тот же хук, что в `GameShell`).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Chessboard } from 'react-chessboard';
 
 import { useResponsiveBoardSize } from '../../hooks/useResponsiveBoardSize';
@@ -19,8 +19,38 @@ const STARTING_FEN =
 type Theme = 'dark' | 'light';
 
 export default function GameLayoutPreviewPage() {
-  const [theme, setTheme] = useState<Theme>('dark');
+  // KS-4634: начальные значения берём из query (`?theme=light&turn=opp`)
+  // — для headless-скриншотов без интерактивных кликов.
+  const initialTheme: Theme = (() => {
+    if (typeof window === 'undefined') return 'dark';
+    const p = new URLSearchParams(window.location.search);
+    return p.get('theme') === 'light' ? 'light' : 'dark';
+  })();
+  const initialTurn: 'self' | 'opp' | 'none' = (() => {
+    if (typeof window === 'undefined') return 'self';
+    const p = new URLSearchParams(window.location.search);
+    const v = p.get('turn');
+    return v === 'opp' || v === 'none' ? v : 'self';
+  })();
+  const [theme, setTheme] = useState<Theme>(initialTheme);
   const [showBotBanner, setShowBotBanner] = useState(true);
+  // KS-4634: глобальная тема контролируется через `data-theme` на
+  // `<html>` (см. ThemeContext проекта). Для preview-страницы
+  // принудительно синхронизируем его с локальным selector'ом тулбара —
+  // иначе [data-theme="light"]-селекторы из game.css не применяются.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const prev = document.documentElement.dataset.theme;
+    document.documentElement.dataset.theme = theme;
+    return () => {
+      if (prev) document.documentElement.dataset.theme = prev;
+      else delete document.documentElement.dataset.theme;
+    };
+  }, [theme]);
+  // KS-4634: переключатель «чей сейчас ход» для preview/скриншотов.
+  // 'self' — мой ход (подсвечиваются часы внизу), 'opp' — ход
+  // соперника, 'none' — статус !== active (нет подсветки).
+  const [activeTurn, setActiveTurn] = useState<'self' | 'opp' | 'none'>(initialTurn);
   // KS-4257 / KS-4274: то же, что делает GameShell — учитываем bot-banner
   // и MobileBottomBar в расчёте. В песочнице путь `/__dev/game-layout`,
   // не `/game/...` — bar не скрыт, как на боевой `/play/local-bot`.
@@ -88,6 +118,29 @@ export default function GameLayoutPreviewPage() {
           />
           bot banner
         </label>
+        <span style={{ color: 'var(--text-muted)' }}>turn:</span>
+        {(['self', 'opp', 'none'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setActiveTurn(t)}
+            style={{
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid var(--border-mid)',
+              background:
+                activeTurn === t ? 'var(--accent-primary)' : 'transparent',
+              color:
+                activeTurn === t
+                  ? 'var(--text-on-accent)'
+                  : 'var(--text-primary)',
+              cursor: 'pointer',
+              fontSize: 11,
+            }}
+          >
+            {t}
+          </button>
+        ))}
       </div>
 
       <div className="game-board-area">
@@ -102,8 +155,13 @@ export default function GameLayoutPreviewPage() {
         )}
 
         {/* KS-4621: mobile-only clock-bar над player-info (на desktop
-            скрыт через `.game-clock-bar { display: none }`). */}
-        <div className="game-clock-bar game-clock-bar--opponent">
+            скрыт через `.game-clock-bar { display: none }`).
+            KS-4634: `data-active` подсвечивает блок, если сейчас ход
+            этого игрока. */}
+        <div
+          className="game-clock-bar game-clock-bar--opponent"
+          data-active={activeTurn === 'opp' ? 'true' : 'false'}
+        >
           <span className="clock">4:39</span>
         </div>
         <div className="player-info opponent-info">
@@ -131,7 +189,10 @@ export default function GameLayoutPreviewPage() {
           <span className="color-indicator white" />
           <span className="player-name">Stanislav</span>
         </div>
-        <div className="game-clock-bar game-clock-bar--self">
+        <div
+          className="game-clock-bar game-clock-bar--self"
+          data-active={activeTurn === 'self' ? 'true' : 'false'}
+        >
           <span className="clock">4:52</span>
         </div>
       </div>
@@ -139,7 +200,10 @@ export default function GameLayoutPreviewPage() {
       <div className="game-sidebar">
         {/* KS-4621: часы соперника как контрастная «пилюля» в правой
             sidebar (lichess-стиль). */}
-        <div className="game-sidebar-clock game-sidebar-clock--opponent">
+        <div
+          className="game-sidebar-clock game-sidebar-clock--opponent"
+          data-active={activeTurn === 'opp' ? 'true' : 'false'}
+        >
           4:39
         </div>
         <div className="move-list">
@@ -160,7 +224,10 @@ export default function GameLayoutPreviewPage() {
           </div>
         </div>
         {/* KS-4621: часы игрока под move-list. */}
-        <div className="game-sidebar-clock game-sidebar-clock--self">
+        <div
+          className="game-sidebar-clock game-sidebar-clock--self"
+          data-active={activeTurn === 'self' ? 'true' : 'false'}
+        >
           4:52
         </div>
         <div className="game-actions-top">

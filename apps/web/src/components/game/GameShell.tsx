@@ -665,6 +665,13 @@ export function GameShell(props: GameShellProps) {
 
   // ─── Производные данные результата ─────────────────────────────
   const opponentColor: GameColor = playerColor === 'white' ? 'black' : 'white';
+  // KS-4634: цвет, чей сейчас ход (для подсветки активных часов). На
+  // status !== 'active' (waiting / finished) — нет подсветки ни у
+  // кого: `activeTurnColor === null`. Источник истины — `chess.turn()`.
+  const activeTurnColor: GameColor | null =
+    status === 'active' ? (chess.turn() === 'w' ? 'white' : 'black') : null;
+  const isOpponentClockActive = activeTurnColor === opponentColor;
+  const isSelfClockActive = activeTurnColor === playerColor;
   const playerRatingBefore = ratingChange
     ? playerColor === 'white'
       ? ratingChange.whiteRatingBefore
@@ -787,7 +794,11 @@ export function GameShell(props: GameShellProps) {
             `display: none` по умолчанию, `display: flex` в @media
             `max-width: 899px`). На desktop часы переехали в
             `.game-sidebar` — см. `.game-sidebar-clock` ниже. */}
-        <div className="game-clock-bar game-clock-bar--opponent" data-clock-color={opponentColor}>
+        <div
+          className="game-clock-bar game-clock-bar--opponent"
+          data-clock-color={opponentColor}
+          data-active={isOpponentClockActive ? 'true' : 'false'}
+        >
           <span className="clock">
             {hideClocks ? '—' : formatTime(clocks[opponentColor])}
           </span>
@@ -849,7 +860,11 @@ export function GameShell(props: GameShellProps) {
         {/* KS-4621: часы игрока как отдельный контрастный блок под
             player-info. Видим только на mobile. На desktop — в
             `.game-sidebar` (`.game-sidebar-clock`). */}
-        <div className="game-clock-bar game-clock-bar--self" data-clock-color={playerColor}>
+        <div
+          className="game-clock-bar game-clock-bar--self"
+          data-clock-color={playerColor}
+          data-active={isSelfClockActive ? 'true' : 'false'}
+        >
           <span className="clock">
             {hideClocks ? '—' : formatTime(clocks[playerColor])}
           </span>
@@ -873,6 +888,7 @@ export function GameShell(props: GameShellProps) {
         <div
           className="game-sidebar-clock game-sidebar-clock--opponent"
           data-clock-color={opponentColor}
+          data-active={isOpponentClockActive ? 'true' : 'false'}
         >
           {hideClocks ? '—' : formatTime(clocks[opponentColor])}
         </div>
@@ -901,6 +917,7 @@ export function GameShell(props: GameShellProps) {
         <div
           className="game-sidebar-clock game-sidebar-clock--self"
           data-clock-color={playerColor}
+          data-active={isSelfClockActive ? 'true' : 'false'}
         >
           {hideClocks ? '—' : formatTime(clocks[playerColor])}
         </div>

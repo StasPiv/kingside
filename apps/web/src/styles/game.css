@@ -218,6 +218,35 @@ body:has(.game-page),
   border-color: transparent;
 }
 
+/* KS-4634: подсветка активных часов (того игрока, чей сейчас ход).
+   `data-active="true"` выставляется в `GameShell.tsx` из `chess.turn()`
+   при `status === 'active'`. На waiting/finished оба блока сохраняют
+   нейтральный вид.
+
+   Реализация — через inset `outline` (offset: -3px), чтобы:
+     - не менять размер блока (нет «прыжка» при смене хода);
+     - не быть обрезанным `overflow: hidden` родительского
+       `.game-sidebar` (раньше внешний outline у верхнего блока резался
+       и подсветка не была видна).
+
+   Стиль:
+     - Активный блок получает амбер-обводку (#f4b400) — заметна
+       периферийным зрением.
+     - Один цвет работает в обеих темах: золото контрастно и на
+       белом (dark-тема), и на тёмном (light-тема) фоне часов.
+     - `transition` короткий, чтобы переключение хода не было резким. */
+.game-sidebar-clock,
+.game-clock-bar {
+  outline: 3px solid transparent;
+  outline-offset: -3px;
+  transition: outline-color 120ms ease-out;
+}
+
+.game-sidebar-clock[data-active='true'],
+.game-clock-bar[data-active='true'] {
+  outline-color: #f4b400;
+}
+
 .board-container {
   border-radius: 4px;
   overflow: hidden;
