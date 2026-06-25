@@ -983,6 +983,43 @@
       "bindHint": "The chosen lecture will go live with this analysis. Title, description, tools and access stay as configured."
     }
   },
+  "lectureChat": {
+    "title": "Lecture chat",
+    "moderator": "moderator",
+    "moderatorHint": "You are the trainer: you can delete messages and temporarily mute participants.",
+    "loading": "Loading messages…",
+    "empty": "No messages yet. Be the first.",
+    "unknown": "participant",
+    "muteHint": "Mute this participant in this lecture",
+    "trainerLabel": "Trainer",
+    "deleteAria": "Delete message",
+    "newMessages": "↓ New: {{count}}",
+    "anonHint": "Sign in to join the chat.",
+    "anonCta": "Sign in",
+    "mutedSelf": "The trainer has muted your chat in this lecture.",
+    "placeholder": "Message…",
+    "inputAria": "Lecture chat message",
+    "send": "Send",
+    "muteConfirm": "Mute chat for {{name}} until the end of the lecture?",
+    "muteCancel": "Cancel",
+    "muteOk": "Mute",
+    "handleAria": "Resize chat",
+    "openAria": "Open lecture chat",
+    "openLabel": "Chat",
+    "collapseAria": "Collapse chat",
+    "errors": {
+      "rate_limited": "Too fast. Please wait a few seconds.",
+      "too_long": "Message is too long.",
+      "too_short": "Message must not be empty.",
+      "duplicate": "You have already sent this message.",
+      "muted": "Your chat has been muted by the trainer.",
+      "forbidden": "Not enough permissions.",
+      "closed": "Chat is closed — the lecture has ended.",
+      "invalid_payload": "Message rejected by the server.",
+      "not_found": "Recipient not found.",
+      "control_char": "Message contains forbidden characters."
+    }
+  },
   "studentVisibility": {
     "sectionLabel": "What students see",
     "items": {

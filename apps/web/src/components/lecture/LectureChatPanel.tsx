@@ -76,17 +76,24 @@ interface ScrollLockState {
   pendingCount: number;
 }
 
+/**
+ * KS-4632: english fallbacks for error codes (так что в случае
+ * пропуска i18n-ключа `lectureChat.errors.<code>` пользователь
+ * увидит английский текст, а не русский — английский нейтрален
+ * для обоих локалей). Перевод на конкретный язык подтягивает
+ * `t('lectureChat.errors.<code>', ERROR_TEXT[code])`.
+ */
 const ERROR_TEXT: Record<string, string> = {
-  rate_limited: 'Слишком быстро. Подождите несколько секунд.',
-  too_long: 'Слишком длинное сообщение.',
-  too_short: 'Сообщение не должно быть пустым.',
-  duplicate: 'Это сообщение вы уже отправляли.',
-  muted: 'Ваш чат отключён тренером.',
-  forbidden: 'Недостаточно прав.',
-  closed: 'Чат закрыт — лекция завершена.',
-  invalid_payload: 'Сообщение отклонено сервером.',
-  not_found: 'Получатель не найден.',
-  control_char: 'Сообщение содержит запрещённые символы.',
+  rate_limited: 'Too fast. Please wait a few seconds.',
+  too_long: 'Message is too long.',
+  too_short: 'Message must not be empty.',
+  duplicate: 'You have already sent this message.',
+  muted: 'Your chat has been muted by the trainer.',
+  forbidden: 'Not enough permissions.',
+  closed: 'Chat is closed — the lecture has ended.',
+  invalid_payload: 'Message rejected by the server.',
+  not_found: 'Recipient not found.',
+  control_char: 'Message contains forbidden characters.',
 };
 
 function formatTime(iso: string): string {
@@ -249,16 +256,16 @@ export function LectureChatPanel({
           justifyContent: 'space-between',
         }}
       >
-        <span>{t('lectureChat.title', 'Чат лекции')}</span>
+        <span>{t('lectureChat.title', 'Lecture chat')}</span>
         {mode === 'owner' && (
           <span
             style={{ fontSize: 11, color: '#888', fontWeight: 400 }}
             title={t(
               'lectureChat.moderatorHint',
-              'Вы тренер: можете удалять сообщения и временно отключать участников.',
+              'You are the trainer: you can delete messages and temporarily mute participants.',
             )}
           >
-            {t('lectureChat.moderator', 'модератор')}
+            {t('lectureChat.moderator', 'moderator')}
           </span>
         )}
       </div>
@@ -284,14 +291,14 @@ export function LectureChatPanel({
             data-testid={`${testIdPrefix}-empty`}
             style={{ color: '#999', textAlign: 'center', marginTop: 16 }}
           >
-            {t('lectureChat.loading', 'Загрузка сообщений…')}
+            {t('lectureChat.loading', 'Loading messages…')}
           </div>
         ) : messages.length === 0 ? (
           <div
             data-testid={`${testIdPrefix}-empty`}
             style={{ color: '#999', textAlign: 'center', marginTop: 16 }}
           >
-            {t('lectureChat.empty', 'Сообщений пока нет. Будьте первым.')}
+            {t('lectureChat.empty', 'No messages yet. Be the first.')}
           </div>
         ) : (
           messages.map((m) => {
@@ -339,7 +346,7 @@ export function LectureChatPanel({
                       setConfirmMuteFor({
                         userId: m.authorId as string,
                         username:
-                          m.authorUsername ?? t('lectureChat.unknown', 'участник'),
+                          m.authorUsername ?? t('lectureChat.unknown', 'participant'),
                       });
                     }}
                     disabled={!canModerate}
@@ -354,11 +361,11 @@ export function LectureChatPanel({
                     }}
                     title={
                       canModerate
-                        ? t('lectureChat.muteHint', 'Отключить участника в этой лекции')
+                        ? t('lectureChat.muteHint', 'Mute this participant in this lecture')
                         : undefined
                     }
                   >
-                    {m.authorUsername ?? t('lectureChat.unknown', 'участник')}
+                    {m.authorUsername ?? t('lectureChat.unknown', 'participant')}
                   </button>
                   {isOwnerMsg && (
                     <span
@@ -371,7 +378,7 @@ export function LectureChatPanel({
                         borderRadius: 4,
                       }}
                     >
-                      {t('lectureChat.trainerLabel', 'Тренер')}
+                      {t('lectureChat.trainerLabel', 'Trainer')}
                     </span>
                   )}
                   <span style={{ fontSize: 11, color: '#999' }}>
@@ -382,8 +389,8 @@ export function LectureChatPanel({
                       type="button"
                       data-testid={`${testIdPrefix}-delete`}
                       onClick={() => onDelete(m.id)}
-                      aria-label={t('lectureChat.deleteAria', 'Удалить сообщение')}
-                      title={t('lectureChat.deleteAria', 'Удалить сообщение')}
+                      aria-label={t('lectureChat.deleteAria', 'Delete message')}
+                      title={t('lectureChat.deleteAria', 'Delete message')}
                       style={{
                         marginLeft: 'auto',
                         background: 'none',
@@ -430,7 +437,7 @@ export function LectureChatPanel({
             boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
           }}
         >
-          {t('lectureChat.newMessages', '↓ Новых: {{count}}', {
+          {t('lectureChat.newMessages', '↓ New: {{count}}', {
             count: scroll.pendingCount,
           })}
         </button>
@@ -449,7 +456,10 @@ export function LectureChatPanel({
             borderTop: '1px solid #f3c2c0',
           }}
         >
-          {ERROR_TEXT[lastError.code] ?? lastError.message ?? lastError.code}
+          {t(
+            `lectureChat.errors.${lastError.code}`,
+            ERROR_TEXT[lastError.code] ?? lastError.message ?? lastError.code,
+          )}
         </div>
       )}
 
@@ -469,7 +479,7 @@ export function LectureChatPanel({
           }}
         >
           <span style={{ color: '#555' }}>
-            {t('lectureChat.anonHint', 'Войдите, чтобы участвовать в чате.')}
+            {t('lectureChat.anonHint', 'Sign in to join the chat.')}
           </span>
           <a
             href="/login"
@@ -482,7 +492,7 @@ export function LectureChatPanel({
               fontWeight: 600,
             }}
           >
-            {t('lectureChat.anonCta', 'Войти')}
+            {t('lectureChat.anonCta', 'Sign in')}
           </a>
         </div>
       ) : mutedSelf ? (
@@ -496,7 +506,7 @@ export function LectureChatPanel({
             fontSize: 12,
           }}
         >
-          {t('lectureChat.mutedSelf', 'Тренер отключил ваш чат в этой лекции.')}
+          {t('lectureChat.mutedSelf', 'The trainer has muted your chat in this lecture.')}
         </div>
       ) : (
         <form
@@ -521,8 +531,8 @@ export function LectureChatPanel({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder={t('lectureChat.placeholder', 'Сообщение…')}
-            aria-label={t('lectureChat.inputAria', 'Сообщение в чат лекции')}
+            placeholder={t('lectureChat.placeholder', 'Message…')}
+            aria-label={t('lectureChat.inputAria', 'Lecture chat message')}
             style={{
               flex: 1,
               resize: 'none',
@@ -570,7 +580,7 @@ export function LectureChatPanel({
                 fontSize: 12,
               }}
             >
-              {t('lectureChat.send', 'Отправить')}
+              {t('lectureChat.send', 'Send')}
             </button>
           </div>
         </form>
@@ -606,7 +616,7 @@ export function LectureChatPanel({
             <p style={{ margin: 0, fontSize: 13, color: '#222' }}>
               {t(
                 'lectureChat.muteConfirm',
-                'Отключить чат пользователю {{name}} до конца лекции?',
+                'Mute chat for {{name}} until the end of the lecture?',
                 { name: confirmMuteFor.username },
               )}
             </p>
@@ -630,7 +640,7 @@ export function LectureChatPanel({
                   fontSize: 12,
                 }}
               >
-                {t('lectureChat.muteCancel', 'Отмена')}
+                {t('lectureChat.muteCancel', 'Cancel')}
               </button>
               <button
                 type="button"
@@ -650,7 +660,7 @@ export function LectureChatPanel({
                   fontWeight: 600,
                 }}
               >
-                {t('lectureChat.muteOk', 'Отключить')}
+                {t('lectureChat.muteOk', 'Mute')}
               </button>
             </div>
           </div>

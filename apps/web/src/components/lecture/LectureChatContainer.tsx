@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Socket } from 'socket.io-client';
+import { useTranslation } from 'react-i18next';
 import { useLectureChatSocket } from '../../hooks/useLectureChatSocket';
 import { LectureChatPanel } from './LectureChatPanel';
 import { ChatBadgeIndicator } from './ChatBadgeIndicator';
@@ -80,6 +81,7 @@ export function LectureChatContainer({
   isOwner,
   currentUserId,
 }: LectureChatContainerProps) {
+  const { t } = useTranslation();
   const chat = useLectureChatSocket({ lectureId, socket });
   const isMobile = useIsMobile();
   const [sheetMode, setSheetMode] = useState<ChatBottomSheetMode>('collapsed');
@@ -142,7 +144,7 @@ export function LectureChatContainer({
           type="button"
           data-testid="lecture-chat-desktop-toggle"
           onClick={toggleDesktop}
-          aria-label="Открыть чат лекции"
+          aria-label={t('lectureChat.openAria', 'Open lecture chat')}
           style={{
             position: 'fixed',
             right: 16,
@@ -163,7 +165,7 @@ export function LectureChatContainer({
           }}
         >
           <span aria-hidden="true">💬</span>
-          <span>Чат</span>
+          <span>{t('lectureChat.openLabel', 'Chat')}</span>
           {unreadCount > 0 && (
             <span
               data-testid="lecture-chat-desktop-toggle-count"
@@ -205,7 +207,7 @@ export function LectureChatContainer({
           type="button"
           data-testid="lecture-chat-desktop-close"
           onClick={toggleDesktop}
-          aria-label="Свернуть чат"
+          aria-label={t('lectureChat.collapseAria', 'Collapse chat')}
           style={{
             position: 'absolute',
             top: 6,

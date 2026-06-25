@@ -122,7 +122,7 @@ export function ChatBottomSheet({
         data-testid="chat-bottom-sheet"
         data-mode={mode}
         role="dialog"
-        aria-label={t('lectureChat.title', 'Чат лекции')}
+        aria-label={t('lectureChat.title', 'Lecture chat')}
         aria-hidden={!isOpen}
         style={{
           position: 'fixed',
@@ -154,7 +154,7 @@ export function ChatBottomSheet({
           onClick={handleHandleClick}
           role="button"
           tabIndex={0}
-          aria-label={t('lectureChat.handleAria', 'Изменить размер чата')}
+          aria-label={t('lectureChat.handleAria', 'Resize chat')}
           style={{
             padding: '8px 0 4px',
             cursor: 'grab',
