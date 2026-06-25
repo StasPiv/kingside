@@ -16,7 +16,7 @@ const T_5S_AGO = new Date(NOW - 5_000).toISOString();
 const T_30S_AGO = new Date(NOW - 30_000).toISOString();
 
 describe('computeBroadcastClock KS-2700', () => {
-  it('null входы → hasClocks=false, оба null', () => {
+  it('null входы → hasClocks=false, оба null, urgency/mode normal', () => {
     const r = computeBroadcastClock(
       {
         whiteClockMs: null,
@@ -26,11 +26,13 @@ describe('computeBroadcastClock KS-2700', () => {
       },
       NOW,
     );
-    expect(r).toEqual({
-      whiteRemainingMs: null,
-      blackRemainingMs: null,
-      hasClocks: false,
-    });
+    expect(r.whiteRemainingMs).toBeNull();
+    expect(r.blackRemainingMs).toBeNull();
+    expect(r.hasClocks).toBe(false);
+    expect(r.whiteUrgency).toBe('normal');
+    expect(r.blackUrgency).toBe('normal');
+    expect(r.whiteMode).toBe('normal');
+    expect(r.blackMode).toBe('normal');
   });
 
   it('только один из clockMs null → hasClocks=false', () => {
@@ -152,5 +154,71 @@ describe('formatBroadcastClock KS-2700', () => {
   });
   it('отрицательное → 0:00 (clamp)', () => {
     expect(formatBroadcastClock(-1_000)).toBe('0:00');
+  });
+  // KS-4656: формат с десятыми/сотыми через второй аргумент `mode`.
+  it('mode=tenths → mm:ss.t', () => {
+    expect(formatBroadcastClock(9_400, 'tenths')).toBe('0:09.4');
+  });
+  it('mode=hundredths → ss.tt без минут пока < 60 с', () => {
+    expect(formatBroadcastClock(9_430, 'hundredths')).toBe('9.43');
+  });
+});
+
+describe('computeBroadcastClock — urgency/mode KS-4656', () => {
+  it('активная сторона при низком времени → low/tenths; неактивная — нормальный mode', () => {
+    // Прошло 30 секунд — белым 5000-30000<0, clamp 0; чёрные неактивны.
+    // Возьмём другой расклад: белые активны, осталось 7000 мс.
+    const r = computeBroadcastClock(
+      {
+        whiteClockMs: 7_000,
+        blackClockMs: 60_000,
+        clockUpdatedAt: new Date(NOW).toISOString(),
+        isBlackTurn: false,
+      },
+      NOW,
+    );
+    expect(r.whiteRemainingMs).toBe(7_000);
+    // С fallback initialMs=null: emergency1=30_000, emergency2=8_000.
+    // 7_000 <= 8_000 → critical.
+    expect(r.whiteUrgency).toBe('critical');
+    expect(r.whiteMode).toBe('hundredths');
+    // Чёрные неактивны — mode='normal' независимо от urgency.
+    expect(r.blackMode).toBe('normal');
+  });
+
+  it('isFinished=true → mode у обоих normal, даже при низком времени', () => {
+    const r = computeBroadcastClock(
+      {
+        whiteClockMs: 500,
+        blackClockMs: 500,
+        clockUpdatedAt: new Date(NOW).toISOString(),
+        isBlackTurn: false,
+        isFinished: true,
+      },
+      NOW,
+    );
+    // Урgency считается по числу — оба critical (≤8000 при fallback),
+    // но mode normal — часы остановлены.
+    expect(r.whiteUrgency).toBe('critical');
+    expect(r.whiteMode).toBe('normal');
+    expect(r.blackMode).toBe('normal');
+  });
+
+  it('initialMs учитывается при расчёте порогов', () => {
+    // Bullet 1+0: initialMs=60_000 → emergency1=clamp(0.10*60_000,
+    // 8_000, 30_000)=8_000; emergency2=clamp(0.025*60_000, 2_000,
+    // 8_000)=2_000. 5_000 → low (между 8_000 и 2_000).
+    const r = computeBroadcastClock(
+      {
+        whiteClockMs: 5_000,
+        blackClockMs: 60_000,
+        clockUpdatedAt: new Date(NOW).toISOString(),
+        isBlackTurn: false,
+        initialMs: 60_000,
+      },
+      NOW,
+    );
+    expect(r.whiteUrgency).toBe('low');
+    expect(r.whiteMode).toBe('tenths');
   });
 });

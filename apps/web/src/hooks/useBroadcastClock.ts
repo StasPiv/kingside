@@ -1,23 +1,35 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  computeClockUrgency,
+  formatGameClock,
+  type ClockMode,
+  type ClockUrgency,
+} from '../utils/formatGameClock';
 
 /**
- * KS-2700. Хук для отображения часов broadcast-партии. Backend KS-2699
- * отдаёт `whiteClockMs` / `blackClockMs` (оставшееся время в мс на момент
- * `clockUpdatedAt`) — фронт отсчитывает локально через `Date.now() -
- * clockUpdatedAt` для активной стороны.
+ * KS-2700 / KS-4656. Хук для отображения часов broadcast-партии.
+ * Backend (KS-2699) отдаёт `whiteClockMs` / `blackClockMs` (мс на
+ * момент `clockUpdatedAt`) — фронт отсчитывает локально через
+ * `Date.now() - clockUpdatedAt` для активной стороны.
+ *
+ * KS-4656 / ADR-144 §3.4. Вывод хука дополнен `urgency` и `mode` для
+ * каждой стороны: при малом времени активной стороны переключаемся
+ * на десятые/сотые (ADR §3.3) и поднимаем частоту тика до rAF, чтобы
+ * цифра не «прыгала». Звука тиканья здесь намеренно нет (§2 ADR:
+ * зритель смотрит несколько досок, метрономы перекрылись бы).
  *
  * Логика:
- *  - Активная сторона (чей ход по `isBlackTurn`): тикает каждую секунду,
- *    значение = `clockMs - (now - clockUpdatedAt)`.
- *  - Неактивная: статичное `clockMs` без отсчёта.
- *  - Если `clockUpdatedAt === null` или один из `whiteClockMs/blackClockMs
- *    === null` — возвращаем `null` для обоих, рендерить таймеры не нужно
- *    (партия до старта / источник без `%clk`).
- *
- * Тикер чистится при unmount/смене входных значений. Cеточные расхождения
- * (системное время клиента vs сервера) игнорируем — это best-effort, как
- * в Lichess. Расхождение в пределах сетевой задержки приемлемо
- * (см. acceptance KS-2700, «Не делать»).
+ *  - Активная сторона (чей ход по `isBlackTurn`): значение =
+ *    `clockMs - (now - clockUpdatedAt)`.
+ *  - Неактивная: статичное `clockMs` без отсчёта; `mode` всегда
+ *    `'normal'` (ADR §3.3).
+ *  - Если `clockUpdatedAt === null` или один из `whiteClockMs`/
+ *    `blackClockMs === null` — возвращаем `null` для обоих,
+ *    рендерить таймеры не нужно.
+ *  - `initialMs` (опционально) задаёт пороги urgency. Broadcast не
+ *    знает TC партии (`BroadcastGameSummary` не содержит initialSec)
+ *    — fallback 30_000 / 8_000 из `computeClockUrgency` достаточно
+ *    для разумной подсветки последней минуты-полминуты.
  */
 
 export interface BroadcastClockInput {
@@ -28,9 +40,15 @@ export interface BroadcastClockInput {
   isBlackTurn: boolean;
   /**
    * Если партия завершена, тикать не нужно (фриз на последнем известном
-   * значении). Передаём явно — Chess.fen() сам по себе не знает результат.
+   * значении).
    */
   isFinished?: boolean;
+  /**
+   * KS-4656 / ADR-144 §3.2. Начальное время контроля в мс — нужно
+   * для расчёта порогов urgency. `null` / undefined → fallback
+   * (emergency1=30_000, emergency2=8_000).
+   */
+  initialMs?: number | null;
 }
 
 export interface BroadcastClockState {
@@ -40,90 +58,174 @@ export interface BroadcastClockState {
   blackRemainingMs: number | null;
   /** true если у партии вообще есть clocks для рендера. */
   hasClocks: boolean;
+  /**
+   * KS-4656 / ADR-144 §3.2. Срочность по часам каждой стороны.
+   * `'normal'` если нет данных (`hasClocks=false`).
+   */
+  whiteUrgency: ClockUrgency;
+  blackUrgency: ClockUrgency;
+  /**
+   * KS-4656 / ADR-144 §3.3. Формат вывода для каждой стороны.
+   * Неактивной — всегда `'normal'`. Активной — выбирается по urgency
+   * (low → tenths, critical → hundredths).
+   */
+  whiteMode: ClockMode;
+  blackMode: ClockMode;
+}
+
+const NEUTRAL: BroadcastClockState = {
+  whiteRemainingMs: null,
+  blackRemainingMs: null,
+  hasClocks: false,
+  whiteUrgency: 'normal',
+  blackUrgency: 'normal',
+  whiteMode: 'normal',
+  blackMode: 'normal',
+};
+
+function urgencyToMode(
+  urgency: ClockUrgency,
+  isActiveAndRunning: boolean,
+): ClockMode {
+  if (!isActiveAndRunning) return 'normal';
+  if (urgency === 'critical') return 'hundredths';
+  if (urgency === 'low') return 'tenths';
+  return 'normal';
 }
 
 /**
- * Расчёт remaining-msов на конкретную точку во времени (`now`). Чистая
- * функция, экспортируется для unit-тестов.
+ * KS-2700 / KS-4656. Чистый расчёт состояния часов broadcast'а на
+ * точку `now` (`Date.now()`). Экспортируется отдельно для unit-тестов.
  */
 export function computeBroadcastClock(
   input: BroadcastClockInput,
   now: number,
 ): BroadcastClockState {
-  const { whiteClockMs, blackClockMs, clockUpdatedAt, isBlackTurn, isFinished } =
-    input;
+  const {
+    whiteClockMs,
+    blackClockMs,
+    clockUpdatedAt,
+    isBlackTurn,
+    isFinished,
+    initialMs,
+  } = input;
   if (
     whiteClockMs == null ||
     blackClockMs == null ||
     !clockUpdatedAt
   ) {
-    return {
-      whiteRemainingMs: null,
-      blackRemainingMs: null,
-      hasClocks: false,
-    };
+    return NEUTRAL;
   }
   const updatedAtMs = new Date(clockUpdatedAt).getTime();
   if (Number.isNaN(updatedAtMs)) {
-    return {
-      whiteRemainingMs: null,
-      blackRemainingMs: null,
-      hasClocks: false,
-    };
+    return NEUTRAL;
   }
   const elapsed = isFinished ? 0 : Math.max(0, now - updatedAtMs);
-  // Тикает только активная сторона; у неактивной время «приросло» обратно
-  // к моменту последнего хода — рендерим как `clockMs` без вычета.
   const whiteRemainingMs = isBlackTurn
     ? whiteClockMs
     : Math.max(0, whiteClockMs - elapsed);
   const blackRemainingMs = isBlackTurn
     ? Math.max(0, blackClockMs - elapsed)
     : blackClockMs;
+
+  const effectiveInitial = initialMs ?? null;
+  const whiteUrgency = computeClockUrgency(whiteRemainingMs, effectiveInitial);
+  const blackUrgency = computeClockUrgency(blackRemainingMs, effectiveInitial);
+
+  const isWhiteRunning = !isFinished && !isBlackTurn;
+  const isBlackRunning = !isFinished && isBlackTurn;
+
   return {
     whiteRemainingMs,
     blackRemainingMs,
     hasClocks: true,
+    whiteUrgency,
+    blackUrgency,
+    whiteMode: urgencyToMode(whiteUrgency, isWhiteRunning),
+    blackMode: urgencyToMode(blackUrgency, isBlackRunning),
   };
 }
 
+function tickStrategy(state: BroadcastClockState): 'interval' | 'raf' {
+  if (state.whiteUrgency !== 'normal') return 'raf';
+  if (state.blackUrgency !== 'normal') return 'raf';
+  return 'interval';
+}
+
 /**
- * Хук-обёртка над `computeBroadcastClock` с локальным интервалом 1 секунда
- * для активной стороны. Сбрасывает таймер при изменении входных данных
- * (ход → новый `clockUpdatedAt` → новый расчёт с нуля).
+ * KS-2700 / KS-4656 / ADR-144 §3.4. Хук-обёртка над
+ * `computeBroadcastClock`. Стратегия частоты:
+ *  - Оба `urgency='normal'` → `setInterval(250)` — четверть секунды
+ *    достаточно, цифра не «отстаёт».
+ *  - Хоть один `low|critical` → `requestAnimationFrame` — десятые/
+ *    сотые бегут плавно.
+ *  - Без `hasClocks` или `isFinished` → таймер не запускается.
+ *
+ * Раньше использовался фиксированный `setInterval(1000)`. После
+ * KS-4656 стратегия совпадает с `useGameClockDisplay` из KS-4652.
  */
 export function useBroadcastClock(
   input: BroadcastClockInput,
 ): BroadcastClockState {
+  const nowFn = (): number => Date.now();
   const [state, setState] = useState<BroadcastClockState>(() =>
-    computeBroadcastClock(input, Date.now()),
+    computeBroadcastClock(input, nowFn()),
   );
 
+  const inputRef = useRef(input);
+  inputRef.current = input;
+
+  // Пересчёт при любом изменении входа.
   useEffect(() => {
-    // Пересчитываем сразу при изменении входов, чтобы UI не ждал тика.
-    setState(computeBroadcastClock(input, Date.now()));
-    // Если данных нет или партия завершена — не запускаем интервал.
-    if (
-      input.whiteClockMs == null ||
-      input.blackClockMs == null ||
-      !input.clockUpdatedAt ||
-      input.isFinished
-    ) {
-      return;
-    }
-    const id = setInterval(() => {
-      setState(computeBroadcastClock(input, Date.now()));
-    }, 1000);
-    return () => clearInterval(id);
-    // Перечисляем примитивные поля `input` явно — новый объект `input`
-    // на каждом ререндере не должен пересоздавать interval. Если родитель
-    // не мемоизирует `input`, такая зависимость даст «жидкий» таймер.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setState(computeBroadcastClock(inputRef.current, nowFn()));
   }, [
     input.whiteClockMs,
     input.blackClockMs,
     input.clockUpdatedAt,
     input.isBlackTurn,
+    input.isFinished,
+    input.initialMs,
+  ]);
+
+  const strategy = tickStrategy(state);
+
+  useEffect(() => {
+    // Партия завершена / нет данных — таймер не нужен.
+    if (input.isFinished) return;
+    if (
+      input.whiteClockMs == null ||
+      input.blackClockMs == null ||
+      !input.clockUpdatedAt
+    ) {
+      return;
+    }
+
+    let rafId: number | null = null;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const tick = (): void => {
+      setState(computeBroadcastClock(inputRef.current, nowFn()));
+    };
+
+    if (strategy === 'raf') {
+      const loop = (): void => {
+        tick();
+        rafId = requestAnimationFrame(loop);
+      };
+      rafId = requestAnimationFrame(loop);
+    } else {
+      intervalId = setInterval(tick, 250);
+    }
+
+    return () => {
+      if (rafId != null) cancelAnimationFrame(rafId);
+      if (intervalId != null) clearInterval(intervalId);
+    };
+  }, [
+    strategy,
+    input.whiteClockMs,
+    input.blackClockMs,
+    input.clockUpdatedAt,
     input.isFinished,
   ]);
 
@@ -131,21 +233,18 @@ export function useBroadcastClock(
 }
 
 /**
- * Форматирование `mm:ss` или `H:MM:SS` (если ≥ 1 часа), с округлением
- * вниз до секунды. Negative/null входы → `null` (не рендерим).
+ * KS-2700 / KS-4656. Совместимый wrapper над `formatGameClock` для
+ * старых call-site'ов, которые передают только `remainingMs` без
+ * `mode`. Возвращает `null` если `remainingMs == null` (не рендерить
+ * вообще), иначе — стандартный `mm:ss` / `H:MM:SS`.
  *
- * Pure-функция, без локали — формат единый для RU/EN
- * (двоеточия и цифры в обеих локалях одинаковые; «1:23:45» читается
- * однозначно).
+ * Новые места рендера (KS-4656) должны звать `formatGameClock(ms,
+ * mode)` напрямую, чтобы получать десятые/сотые при `low`/`critical`.
  */
-export function formatBroadcastClock(remainingMs: number | null): string | null {
+export function formatBroadcastClock(
+  remainingMs: number | null,
+  mode: ClockMode = 'normal',
+): string | null {
   if (remainingMs == null) return null;
-  const total = Math.max(0, Math.floor(remainingMs / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  }
-  return `${m}:${s.toString().padStart(2, '0')}`;
+  return formatGameClock(remainingMs, mode);
 }

@@ -10,9 +10,11 @@ import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 // KS-3320 follow-up: подключить выбранный piece-set из настроек.
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import {
-  formatBroadcastClock,
   useBroadcastClock,
 } from '../hooks/useBroadcastClock';
+// KS-4656 / ADR-144 §3.3. Единый форматтер из KS-4651 — даёт
+// десятые/сотые в режимах low/critical, заданных `useBroadcastClock`.
+import { formatGameClock } from '../utils/formatGameClock';
 import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 // KS-3258: forfeit-плашка вместо «Партия ещё не началась» для
 // `[Termination "Unplayed"]` PGN'ов из lichess.
@@ -310,8 +312,17 @@ export function BroadcastLiveGamePage() {
     isBlackTurn,
     isFinished,
   });
-  const whiteClockText = formatBroadcastClock(clock.whiteRemainingMs);
-  const blackClockText = formatBroadcastClock(clock.blackRemainingMs);
+  // KS-4656 / ADR-144 §3.3. Формат подбирается через `mode` от
+  // `useBroadcastClock` — нормальный `mm:ss`, при `low` десятые,
+  // при `critical` сотые. `null` остатка → блок часов не рендерится.
+  const whiteClockText =
+    clock.whiteRemainingMs == null
+      ? null
+      : formatGameClock(clock.whiteRemainingMs, clock.whiteMode);
+  const blackClockText =
+    clock.blackRemainingMs == null
+      ? null
+      : formatGameClock(clock.blackRemainingMs, clock.blackMode);
 
   const handleOpenInAnalysis = () => {
     if (!game?.pgn) return;
@@ -468,6 +479,7 @@ export function BroadcastLiveGamePage() {
               <span
                 className={`broadcast-live-game__clock${isBlackTurn && !isFinished ? ' broadcast-live-game__clock--active' : ''}`}
                 data-testid="broadcast-live-clock-black"
+                data-urgency={clock.blackUrgency}
               >
                 {blackClockText}
               </span>
@@ -502,6 +514,7 @@ export function BroadcastLiveGamePage() {
               <span
                 className={`broadcast-live-game__clock${!isBlackTurn && !isFinished ? ' broadcast-live-game__clock--active' : ''}`}
                 data-testid="broadcast-live-clock-white"
+                data-urgency={clock.whiteUrgency}
               >
                 {whiteClockText}
               </span>
