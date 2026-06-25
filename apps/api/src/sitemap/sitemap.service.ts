@@ -76,6 +76,12 @@ export const SITEMAP_FILES = [
   // KS-4402: блог. Источник — таблица `blog_posts` (см.
   // `generateBlogXml`).
   'sitemap-blog.xml',
+  // KS-4649: курсы и уроки `/lessons` (системные опубликованные +
+  // авторские публичные). Источник — таблицы `courses` и `lessons`
+  // (см. `generateLessonsXml`). Раздел `/lessons` ранее не имел
+  // отдельной карты и Google получал только косвенные ссылки на
+  // курсы/уроки из лобби.
+  'sitemap-lessons.xml',
 ] as const;
 export type SitemapFile = (typeof SITEMAP_FILES)[number];
 
@@ -148,6 +154,9 @@ export class SitemapService {
       // тикетом-чисткой кода.
       // KS-4402: блог. Список статей читается из `blog_posts`.
       ['sitemap-blog.xml', () => this.generateBlogXml()],
+      // KS-4649: курсы/уроки. Системные опубликованные + авторские
+      // публичные. См. `generateLessonsXml`.
+      ['sitemap-lessons.xml', () => this.generateLessonsXml()],
     ];
 
     for (const [name, gen] of generators) {
@@ -494,6 +503,136 @@ export class SitemapService {
         alternates,
       });
     }
+    return buildUrlset(entries);
+  }
+
+  /**
+   * KS-4649. `sitemap-lessons.xml` — каталог `/lessons`, страницы
+   * курсов `/lessons/<courseSlug>` и страницы уроков
+   * `/lessons/<courseSlug>/<lessonSlug>`.
+   *
+   * Критерий «публично доступного» — тот же, что у анонимного Read
+   * в `LessonsAccessGuard`:
+   *   - **системный курс**: `ownerId IS NULL AND isPublished=true`.
+   *   - **авторский курс**: `ownerId IS NOT NULL AND isPublic=true`.
+   *
+   * Для уроков:
+   *   - в системном курсе — `lesson.isPublished=true` дополнительно
+   *     к публичности курса (системные уроки имеют per-row
+   *     publish-флаг).
+   *   - в авторском курсе — отдельного `isPublished` у уроков нет;
+   *     гард пускает все уроки публичного авторского курса. В
+   *     sitemap включаем уроки с `slug IS NOT NULL` (без slug URL
+   *     `/lessons/<courseSlug>/<lessonSlug>` не построить).
+   *
+   * Дедупликация по slug: один курс может иметь несколько языковых
+   * вариантов (`Course.parentCourseId` + `lang`), а URL `/lessons/<slug>`
+   * lang не несёт. Берём `Map<slug, max(updatedAt)>` для курсов и
+   * `Map<courseSlug/lessonSlug, max(updatedAt)>` для уроков.
+   *
+   * Каталог `/lessons` — всегда первой записью. `lastmod` каталога —
+   * максимум среди всех собранных entry'ов (если есть): добавление
+   * нового курса сдвигает дату листинга.
+   */
+  async generateLessonsXml(): Promise<string> {
+    const base = this.baseUrl();
+
+    // ─── Курсы ─────────────────────────────────────────────────────
+    const courses = await this.prisma.course.findMany({
+      where: {
+        OR: [
+          { ownerId: null, isPublished: true },
+          { ownerId: { not: null }, isPublic: true },
+        ],
+      },
+      select: { slug: true, updatedAt: true },
+      take: 50_000,
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const courseLastmodBySlug = new Map<string, Date>();
+    for (const c of courses) {
+      if (!c.slug) continue;
+      const existing = courseLastmodBySlug.get(c.slug);
+      if (!existing || c.updatedAt.getTime() > existing.getTime()) {
+        courseLastmodBySlug.set(c.slug, c.updatedAt);
+      }
+    }
+
+    // ─── Уроки ─────────────────────────────────────────────────────
+    const lessons = await this.prisma.lesson.findMany({
+      where: {
+        slug: { not: null },
+        OR: [
+          {
+            isPublished: true,
+            course: { ownerId: null, isPublished: true },
+          },
+          {
+            course: { ownerId: { not: null }, isPublic: true },
+          },
+        ],
+      },
+      select: {
+        slug: true,
+        updatedAt: true,
+        course: { select: { slug: true } },
+      },
+      take: 50_000,
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const lessonLastmodByPath = new Map<string, Date>();
+    for (const l of lessons) {
+      if (!l.slug) continue;
+      const courseSlug = l.course?.slug;
+      if (!courseSlug) continue;
+      const path = `${courseSlug}/${l.slug}`;
+      const existing = lessonLastmodByPath.get(path);
+      if (!existing || l.updatedAt.getTime() > existing.getTime()) {
+        lessonLastmodByPath.set(path, l.updatedAt);
+      }
+    }
+
+    // ─── Каталог `/lessons` ────────────────────────────────────────
+    // `lastmod` — максимум по всем собранным entry'ам.
+    const allLastmods: Date[] = [
+      ...courseLastmodBySlug.values(),
+      ...lessonLastmodByPath.values(),
+    ];
+    const listingLastmod = allLastmods.reduce<Date | null>(
+      (acc, d) => (!acc || d.getTime() > acc.getTime() ? d : acc),
+      null,
+    );
+
+    const entries: SitemapUrlEntry[] = [
+      {
+        loc: `${base}/lessons`,
+        lastmod: listingLastmod,
+        changefreq: 'daily',
+        priority: 0.7,
+      },
+    ];
+
+    for (const [slug, lastmod] of courseLastmodBySlug) {
+      entries.push({
+        loc: `${base}/lessons/${encodeURIComponent(slug)}`,
+        lastmod,
+        changefreq: 'weekly',
+        priority: 0.6,
+      });
+    }
+
+    for (const [path, lastmod] of lessonLastmodByPath) {
+      const [courseSlug, lessonSlug] = path.split('/');
+      entries.push({
+        loc: `${base}/lessons/${encodeURIComponent(courseSlug)}/${encodeURIComponent(lessonSlug)}`,
+        lastmod,
+        changefreq: 'monthly',
+        priority: 0.5,
+      });
+    }
+
     return buildUrlset(entries);
   }
 

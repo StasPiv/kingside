@@ -40,6 +40,9 @@ interface PrismaMock {
   user: { findMany: jest.Mock };
   lecture: { findMany: jest.Mock };
   blogPost: { findMany: jest.Mock };
+  // KS-4649
+  course: { findMany: jest.Mock };
+  lesson: { findMany: jest.Mock };
 }
 
 interface ArchivePrismaMock {
@@ -53,6 +56,9 @@ function makePrismaMock(): PrismaMock {
     user: { findMany: jest.fn().mockResolvedValue([]) },
     lecture: { findMany: jest.fn().mockResolvedValue([]) },
     blogPost: { findMany: jest.fn().mockResolvedValue([]) },
+    // KS-4649
+    course: { findMany: jest.fn().mockResolvedValue([]) },
+    lesson: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 
@@ -189,6 +195,8 @@ describe('SitemapService.SITEMAP_FILES (KS-4612)', () => {
     expect(SITEMAP_FILES).toContain('sitemap-coaches.xml');
     expect(SITEMAP_FILES).toContain('sitemap-lectures.xml');
     expect(SITEMAP_FILES).toContain('sitemap-blog.xml');
+    // KS-4649: новый раздел уроков.
+    expect(SITEMAP_FILES).toContain('sitemap-lessons.xml');
   });
 });
 
@@ -282,6 +290,119 @@ describe('SitemapService.generateArchivePlayersXml (KS-4488)', () => {
     expect(xml).toContain(
       '<loc>https://kingside.site/archive/players/foo%20bar</loc>',
     );
+  });
+});
+
+describe('SitemapService.generateLessonsXml (KS-4649)', () => {
+  it('пустые курсы и уроки → urlset с одним каталогом /lessons', async () => {
+    const { service, prisma } = await createService();
+    prisma.course.findMany.mockResolvedValueOnce([]);
+    prisma.lesson.findMany.mockResolvedValueOnce([]);
+    const xml = await service.generateLessonsXml();
+    expect(xml).toContain('<loc>https://kingside.site/lessons</loc>');
+    // Только одна запись — каталог. Других /lessons/<…> нет.
+    const urls = xml.match(/<loc>[^<]+<\/loc>/g) ?? [];
+    expect(urls).toHaveLength(1);
+  });
+
+  it('передаёт фильтр публичных курсов (системные + авторские)', async () => {
+    const { service, prisma } = await createService();
+    prisma.course.findMany.mockResolvedValueOnce([]);
+    prisma.lesson.findMany.mockResolvedValueOnce([]);
+    await service.generateLessonsXml();
+    const args = prisma.course.findMany.mock.calls[0][0];
+    expect(args.where.OR).toEqual([
+      { ownerId: null, isPublished: true },
+      { ownerId: { not: null }, isPublic: true },
+    ]);
+    expect(args.take).toBe(50_000);
+  });
+
+  it('передаёт фильтр уроков (системные опубликованные + любой урок публичного авторского курса; slug NOT NULL)', async () => {
+    const { service, prisma } = await createService();
+    prisma.course.findMany.mockResolvedValueOnce([]);
+    prisma.lesson.findMany.mockResolvedValueOnce([]);
+    await service.generateLessonsXml();
+    const args = prisma.lesson.findMany.mock.calls[0][0];
+    expect(args.where.slug).toEqual({ not: null });
+    expect(args.where.OR).toEqual([
+      {
+        isPublished: true,
+        course: { ownerId: null, isPublished: true },
+      },
+      {
+        course: { ownerId: { not: null }, isPublic: true },
+      },
+    ]);
+  });
+
+  it('собирает url курса и урока с encodeURIComponent', async () => {
+    const { service, prisma } = await createService();
+    prisma.course.findMany.mockResolvedValueOnce([
+      { slug: 'beginner-basics', updatedAt: new Date('2026-06-10T00:00:00Z') },
+    ]);
+    prisma.lesson.findMany.mockResolvedValueOnce([
+      {
+        slug: 'pieces',
+        updatedAt: new Date('2026-06-15T00:00:00Z'),
+        course: { slug: 'beginner-basics' },
+      },
+    ]);
+    const xml = await service.generateLessonsXml();
+    expect(xml).toContain(
+      '<loc>https://kingside.site/lessons/beginner-basics</loc>',
+    );
+    expect(xml).toContain(
+      '<loc>https://kingside.site/lessons/beginner-basics/pieces</loc>',
+    );
+    // lastmod каталога = максимум среди записей (урок свежее курса).
+    expect(xml).toContain('<lastmod>2026-06-15</lastmod>');
+  });
+
+  it('дедуплицирует курсы по slug (несколько lang-вариантов = один URL, lastmod=max)', async () => {
+    const { service, prisma } = await createService();
+    prisma.course.findMany.mockResolvedValueOnce([
+      { slug: 'tactics', updatedAt: new Date('2026-06-10T00:00:00Z') },
+      { slug: 'tactics', updatedAt: new Date('2026-06-20T00:00:00Z') }, // EN
+      { slug: 'tactics', updatedAt: new Date('2026-06-15T00:00:00Z') }, // ES
+    ]);
+    prisma.lesson.findMany.mockResolvedValueOnce([]);
+    const xml = await service.generateLessonsXml();
+    const locs = xml.match(/<loc>https:\/\/kingside\.site\/lessons\/tactics<\/loc>/g);
+    expect(locs).toHaveLength(1);
+    expect(xml).toContain('<lastmod>2026-06-20</lastmod>');
+  });
+
+  it('пропускает уроки без slug (авторские без slug) и без courseSlug', async () => {
+    const { service, prisma } = await createService();
+    prisma.course.findMany.mockResolvedValueOnce([]);
+    prisma.lesson.findMany.mockResolvedValueOnce([
+      {
+        slug: null,
+        updatedAt: new Date('2026-06-15T00:00:00Z'),
+        course: { slug: 'beginner-basics' },
+      },
+      {
+        slug: 'no-course-link',
+        updatedAt: new Date('2026-06-15T00:00:00Z'),
+        course: null,
+      },
+    ]);
+    const xml = await service.generateLessonsXml();
+    expect(xml).not.toContain('/lessons/beginner-basics/');
+    expect(xml).not.toContain('no-course-link');
+  });
+
+  it('пропускает курсы без slug', async () => {
+    const { service, prisma } = await createService();
+    prisma.course.findMany.mockResolvedValueOnce([
+      { slug: '', updatedAt: new Date('2026-06-10T00:00:00Z') },
+      { slug: null as unknown as string, updatedAt: new Date('2026-06-10T00:00:00Z') },
+    ]);
+    prisma.lesson.findMany.mockResolvedValueOnce([]);
+    const xml = await service.generateLessonsXml();
+    const urls = xml.match(/<loc>[^<]+<\/loc>/g) ?? [];
+    expect(urls).toHaveLength(1); // только /lessons
   });
 });
 
