@@ -505,6 +505,23 @@ export type RecordedEvent =
       t: number;
       type: 'closed';
       payload: { reason: 'by_owner' | 'inactivity' };
+    }
+  // KS-4630 / ADR-142 §2.8. Тренер сменил активное окно анализа во
+  // время лекции. В replay-плеере это «жирное» событие наравне с
+  // `reset` — сбрасывает state-patch'и до него и задаёт новый tree /
+  // startingFen / orientation. Заголовок `title` ставится над доской
+  // (см. `replayActiveTitle` в AnalysisPage).
+  | {
+      t: number;
+      type: 'analysis-switch';
+      payload: {
+        analysisId: string;
+        title: string;
+        startingFen: string;
+        orientation: 'white' | 'black';
+        tree: string | null;
+        currentGlobalIndex: number | null;
+      };
     };
 
 export interface ReplayLectureProps {
@@ -1517,65 +1534,111 @@ function AnalysisPageInner({
     [loadFromPgn, gotoMove, gotoFirst],
   );
 
-  // KS-3794: пересчёт состояния replay на каждое изменение
-  // currentTimeMs. Стратегия:
-  //  1. Найти последний `reset` с t ≤ currentTimeMs — он задаёт
-  //     initialFen и orientation (если был).
+  // KS-3794 + KS-4630 / ADR-142 §2.8: пересчёт состояния replay на
+  // каждое изменение currentTimeMs. Стратегия:
+  //  1. Найти последнее «жирное» событие (`reset` ИЛИ `analysis-switch`)
+  //     с t ≤ currentTimeMs — оно задаёт initialFen / orientation и
+  //     (для analysis-switch) ещё tree + currentGlobalIndex inline.
+  //     Каждое жирное сбрасывает накопленные state-patch'и до себя.
   //  2. Найти последний `state-patch` с t ≤ currentTimeMs И с
-  //     индексом ПОСЛЕ найденного reset'а — он несёт актуальное
-  //     дерево автора через `deserializeLiveTree` + currentGlobalIndex.
-  //  3. Если state-patch'а не нашлось — applied состояние: «пустое
-  //     дерево + initialFen из reset/recording.startingFen».
-  //  4. Move-события игнорируются (после KS-3780 они не двигают
-  //     курсор зрителя; реальное состояние всегда даёт state-patch).
+  //     индексом ПОСЛЕ найденного жирного события — он несёт более
+  //     свежее дерево автора (тренер уже редактировал после switch'а).
+  //  3. Если state-patch'а нет, но жирное событие — `analysis-switch`,
+  //     применяется его inline-tree (если есть).
+  //  4. Если ничего нет — пустое дерево + recording.startingFen.
+  //  5. Move-события игнорируются (после KS-3780 они не двигают
+  //     курсор зрителя; реальное состояние всегда даёт state-patch
+  //     или tree из analysis-switch).
+  //
+  // Также вычисляем `replayActiveTitle` (заголовок текущего активного
+  // окна = title последнего analysis-switch ≤ currentTimeMs) — для
+  // подписи над доской (ADR-142 §2.11).
   //
   // Поскольку каждый расчёт берёт состояние «с нуля», seek назад
   // работает так же, как seek вперёд — никакого инкрементального
   // накопления, никакого baseline-кэша.
   const lastAppliedReplaySignatureRef = useRef<string | null>(null);
+  const [replayActiveTitle, setReplayActiveTitle] = useState<string | null>(
+    null,
+  );
   useEffect(() => {
-    if (!replay) return;
+    if (!replay) {
+      setReplayActiveTitle(null);
+      return;
+    }
     const { events, currentTimeMs, startingFen, orientation } = replay;
-    // Ищем индексы reset и state-patch с t ≤ currentTimeMs. events
-    // отсортирован по t (гарантирует backend, см. KS-3793).
-    let lastResetIdx = -1;
+    // KS-4630: lastFatIdx — индекс последнего «жирного» события
+    // (`reset` или `analysis-switch`). lastFatType — какого именно
+    // типа, чтобы ниже разветвить ветку применения.
+    let lastFatIdx = -1;
+    let lastFatType: 'reset' | 'analysis-switch' | null = null;
     let lastStatePatchIdx = -1;
+    let lastSwitchTitle: string | null = null;
     for (let i = 0; i < events.length; i += 1) {
       const e = events[i];
       if (e.t > currentTimeMs) break;
       if (e.type === 'reset') {
-        lastResetIdx = i;
-        // Сбрасываем state-patch — после reset берётся только
-        // последующий state-patch.
+        lastFatIdx = i;
+        lastFatType = 'reset';
         lastStatePatchIdx = -1;
+      } else if (e.type === 'analysis-switch') {
+        lastFatIdx = i;
+        lastFatType = 'analysis-switch';
+        lastStatePatchIdx = -1;
+        lastSwitchTitle = e.payload.title;
       } else if (e.type === 'state-patch') {
         lastStatePatchIdx = i;
       }
     }
-    // Сигнатура «что должно быть применено». Если она совпала с
-    // последней — ничего не делаем, не дёргаем reducer.
-    const signature = `${lastResetIdx}|${lastStatePatchIdx}`;
-    if (lastAppliedReplaySignatureRef.current === signature) return;
+    // Сигнатура — добавляем тип жирного, чтобы переключение
+    // reset↔analysis-switch на одной и той же позиции триггерило
+    // пересчёт (иначе lastFatIdx тот же, signature совпадает).
+    const signature = `${lastFatIdx}:${lastFatType ?? '-'}|${lastStatePatchIdx}`;
+    if (lastAppliedReplaySignatureRef.current === signature) {
+      // Заголовок может измениться, даже если signature тот же
+      // (например, seek в пределах текущего окна) — обновляем отдельно.
+      setReplayActiveTitle(lastSwitchTitle);
+      return;
+    }
     lastAppliedReplaySignatureRef.current = signature;
+    setReplayActiveTitle(lastSwitchTitle);
 
-    // 1) initialFen — из последнего reset или из recording.startingFen.
-    if (lastResetIdx >= 0) {
-      const resetEvent = events[lastResetIdx];
+    // 1) initialFen + orientation — из последнего жирного или из
+    // recording.startingFen.
+    let appliedTreeFromFat = false;
+    if (lastFatIdx >= 0 && lastFatType === 'reset') {
+      const resetEvent = events[lastFatIdx];
       if (resetEvent.type === 'reset') {
         setInitialFen(resetEvent.payload.fen);
         setBoardOrientation(resetEvent.payload.orientation);
+      }
+    } else if (lastFatIdx >= 0 && lastFatType === 'analysis-switch') {
+      const switchEvent = events[lastFatIdx];
+      if (switchEvent.type === 'analysis-switch') {
+        setInitialFen(switchEvent.payload.startingFen);
+        setBoardOrientation(switchEvent.payload.orientation);
+        // KS-4630: payload.tree может быть null — окно без дерева,
+        // зритель видит чистый startingFen.
+        if (switchEvent.payload.tree) {
+          applyReplayTree(
+            switchEvent.payload.tree,
+            switchEvent.payload.currentGlobalIndex,
+          );
+          appliedTreeFromFat = true;
+        }
       }
     } else if (startingFen) {
       setInitialFen(startingFen);
       setBoardOrientation(orientation);
     } else {
-      // Лекция началась со стандартной позиции и без reset'ов —
+      // Лекция началась со стандартной позиции и без жирных —
       // сбрасываем дерево, оставляя текущий initialFen (default).
       loadFromPgn([]);
       setBoardOrientation(orientation);
     }
 
-    // 2) state-patch — если есть, применяем дерево автора.
+    // 2) state-patch — если есть после жирного, применяем дерево
+    // автора (он более свежий, чем inline-tree analysis-switch'а).
     if (lastStatePatchIdx >= 0) {
       const sp = events[lastStatePatchIdx];
       if (sp.type === 'state-patch') {
@@ -1587,9 +1650,9 @@ function AnalysisPageInner({
         );
         setBoardOrientation(sp.payload.orientation);
       }
-    } else {
-      // 3) Нет state-patch'а в текущем интервале — показываем
-      // стартовую позицию (initialFen уже выставлен выше).
+    } else if (!appliedTreeFromFat) {
+      // 3) Нет state-patch'а и нет дерева из analysis-switch —
+      // показываем стартовую позицию (initialFen уже выставлен выше).
       loadFromPgn([]);
     }
     // loadFromPgn / setInitialFen / setBoardOrientation /
@@ -4311,6 +4374,30 @@ function AnalysisPageInner({
               }}
             >
               {liveFull.activeTitle}
+            </div>
+          )}
+
+          {/* KS-4630 / ADR-142 §2.11. Заголовок активного окна для
+              replay-плеера — берётся из последнего analysis-switch
+              событиях ≤ currentTimeMs (см. useEffect выше). Появляется
+              только когда в записи действительно были switch'и; для
+              лекций без переключений (старые записи / лекция с одним
+              окном) — не рендерится. */}
+          {replay && replayActiveTitle && (
+            <div
+              data-testid="analysis-replay-active-window-title"
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#1976d2',
+                padding: '4px 8px',
+                marginBottom: 6,
+                background: '#e3f2fd',
+                borderRadius: 4,
+                textAlign: 'center',
+              }}
+            >
+              {replayActiveTitle}
             </div>
           )}
 
