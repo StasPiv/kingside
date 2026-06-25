@@ -1012,6 +1012,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_PROJECT",
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND",
         "ROLE_READ_APPS_WEB",
+        "ROLE_GSC",
     ],
     "coordinator": [
         "ROLE_READ_PROJECT",
@@ -1071,10 +1072,122 @@ ENDPOINT_ROLE: dict[str, object] = {
         "all": "ROLE_DEPLOY_ALL",
         "": "ROLE_DEPLOY_ALL",
     },
+    "/gsc/url-inspect": "ROLE_GSC",
+    "/gsc/search-analytics": "ROLE_GSC",
+    "/gsc/sitemaps": "ROLE_GSC",
+    "/gsc/sites": "ROLE_GSC",
 }
 
 DOCKER_COMPOSE_ALLOWED = {"build", "up", "down", "logs", "ps", "config", "restart"}
 NPM_RUN_ALLOWED = {"build", "test", "lint", "prisma:generate", "prisma:migrate"}
+
+
+# ---------------------------------------------------------------------------
+# Google Search Console — сервис-аккаунт, проверка индексации
+# ---------------------------------------------------------------------------
+GSC_KEY_FILE = os.environ.get("GSC_SERVICE_ACCOUNT_KEY_FILE", "")
+GSC_SITE_URL = os.environ.get("GSC_SITE_URL", "sc-domain:kingside.site")
+_gsc_creds = None
+
+def _gsc_token() -> str | None:
+    """Возвращает свежий OAuth-токен сервис-аккаунта или None если не настроен."""
+    global _gsc_creds
+    if not GSC_KEY_FILE or not os.path.exists(GSC_KEY_FILE):
+        return None
+    try:
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request as _GReq
+        if _gsc_creds is None:
+            _gsc_creds = service_account.Credentials.from_service_account_file(
+                GSC_KEY_FILE,
+                scopes=[
+                    "https://www.googleapis.com/auth/webmasters.readonly",
+                    "https://www.googleapis.com/auth/webmasters",
+                ],
+            )
+        if not _gsc_creds.valid:
+            _gsc_creds.refresh(_GReq())
+        return _gsc_creds.token
+    except Exception as e:
+        log(f"GSC token error: {e}")
+        return None
+
+
+def _gsc_request(method: str, url: str, body: dict | None = None) -> tuple[int, dict | str]:
+    token = _gsc_token()
+    if not token:
+        return 503, {"error": "GSC service account not configured"}
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {token}")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            err_body = json.loads(e.read())
+        except Exception:
+            err_body = str(e)
+        return e.code, err_body
+    except Exception as e:
+        return 500, {"error": str(e)}
+
+
+def handle_gsc_url_inspect(handler, payload):
+    url = (payload.get("url") or "").strip()
+    site = payload.get("siteUrl") or GSC_SITE_URL
+    if not url:
+        handler.send_response(400); handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "missing 'url'"}).encode()); return
+    code, body = _gsc_request(
+        "POST",
+        "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",
+        {"inspectionUrl": url, "siteUrl": site, "languageCode": "ru-RU"},
+    )
+    handler.send_response(code); handler.send_header("Content-Type", "application/json"); handler.end_headers()
+    handler.wfile.write(json.dumps(body, ensure_ascii=False).encode())
+
+
+def handle_gsc_search_analytics(handler, payload):
+    site = payload.get("siteUrl") or GSC_SITE_URL
+    body_req = {
+        "startDate": payload.get("startDate"),
+        "endDate": payload.get("endDate"),
+        "dimensions": payload.get("dimensions") or [],
+        "rowLimit": int(payload.get("rowLimit") or 25),
+    }
+    if not body_req["startDate"] or not body_req["endDate"]:
+        handler.send_response(400); handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "missing startDate/endDate"}).encode()); return
+    if payload.get("dimensionFilterGroups"):
+        body_req["dimensionFilterGroups"] = payload["dimensionFilterGroups"]
+    site_enc = urllib.parse.quote(site, safe="")
+    code, body = _gsc_request(
+        "POST",
+        f"https://www.googleapis.com/webmasters/v3/sites/{site_enc}/searchAnalytics/query",
+        body_req,
+    )
+    handler.send_response(code); handler.send_header("Content-Type", "application/json"); handler.end_headers()
+    handler.wfile.write(json.dumps(body, ensure_ascii=False).encode())
+
+
+def handle_gsc_sitemaps(handler, payload):
+    site = payload.get("siteUrl") or GSC_SITE_URL
+    site_enc = urllib.parse.quote(site, safe="")
+    code, body = _gsc_request(
+        "GET",
+        f"https://www.googleapis.com/webmasters/v3/sites/{site_enc}/sitemaps",
+    )
+    handler.send_response(code); handler.send_header("Content-Type", "application/json"); handler.end_headers()
+    handler.wfile.write(json.dumps(body, ensure_ascii=False).encode())
+
+
+def handle_gsc_sites(handler, payload):
+    code, body = _gsc_request("GET", "https://www.googleapis.com/webmasters/v3/sites")
+    handler.send_response(code); handler.send_header("Content-Type", "application/json"); handler.end_headers()
+    handler.wfile.write(json.dumps(body, ensure_ascii=False).encode())
 
 
 def handle_feedback_notify(handler):
@@ -2951,6 +3064,25 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             handle_telegram_send(self, payload)
+            return
+
+        if path in ("/gsc/url-inspect", "/gsc/search-analytics", "/gsc/sitemaps", "/gsc/sites"):
+            if not self._check_role(path):
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            if path == "/gsc/url-inspect":
+                handle_gsc_url_inspect(self, payload)
+            elif path == "/gsc/search-analytics":
+                handle_gsc_search_analytics(self, payload)
+            elif path == "/gsc/sitemaps":
+                handle_gsc_sitemaps(self, payload)
+            else:
+                handle_gsc_sites(self, payload)
             return
 
         if path == "/feedback/notify":

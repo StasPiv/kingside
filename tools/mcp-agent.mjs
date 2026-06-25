@@ -63,6 +63,14 @@ const TOOLS = [
     }, required: ['agent'] } },
   { name: 'telegram_send', description: 'Отправить сообщение пользователю в Telegram.',
     inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } },
+  { name: 'gsc_url_inspect', description: 'Google Search Console — проверить статус индексации URL (coverageState, indexingState, lastCrawlTime, robots-блокировки, canonical). Возвращает inspectionResult из GSC API. Источник истины по индексации одного URL.',
+    inputSchema: { type: 'object', properties: { url: { type: 'string', description: 'Полный URL включая https://' }, siteUrl: { type: 'string', description: 'Опционально, по умолчанию sc-domain:kingside.site' } }, required: ['url'] } },
+  { name: 'gsc_search_analytics', description: 'Google Search Console — отчёт по эффективности (импрессии, клики, CTR, позиция). dimensions=[] даёт суммарные числа; dimensions=["page"] или ["query"] разбивает по странице/запросу. rowLimit ≤25000.',
+    inputSchema: { type: 'object', properties: { startDate: { type: 'string', description: 'YYYY-MM-DD' }, endDate: { type: 'string', description: 'YYYY-MM-DD' }, dimensions: { type: 'array', items: { type: 'string', enum: ['date','query','page','country','device','searchAppearance'] } }, rowLimit: { type: 'number' }, siteUrl: { type: 'string' } }, required: ['startDate', 'endDate'] } },
+  { name: 'gsc_sitemaps', description: 'Google Search Console — список загруженных sitemap-ов и их статус (warnings, errors, lastSubmitted, isPending). Для проверки что sitemap.xml подхвачен Google.',
+    inputSchema: { type: 'object', properties: { siteUrl: { type: 'string' } } } },
+  { name: 'gsc_sites', description: 'Google Search Console — список property-ей, к которым у сервис-аккаунта есть доступ, и уровень прав.',
+    inputSchema: { type: 'object', properties: {} } },
   { name: 'deploy', description: 'Запустить деплой одного сервиса на AWS — атомарно, один scope за вызов. scope (обязателен): frontend | api | game-service | broadcast-service | archive-service | tactic-worker | synthetic-bot | prerender-service. ЗАПРЕЩЕНО: "all", "workers", "" (auto) — webhook вернёт 400. Если нужно несколько сервисов — несколько последовательных вызовов с явным scope.',
     inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['frontend', 'api', 'game-service', 'broadcast-service', 'archive-service', 'tactic-worker', 'synthetic-bot', 'prerender-service'] } }, required: ['scope'] } },
   { name: 'npm_install', description: 'Запустить npm install на хосте (после изменения package.json).',
@@ -232,6 +240,14 @@ async function call(name, args) {
       return webhookPost('/agent/logs', { agent: args.agent, limit: args.limit || 30 });
     case 'telegram_send':
       return webhookPost('/telegram/send', { message: args.message });
+    case 'gsc_url_inspect':
+      return webhookPost('/gsc/url-inspect', { url: args.url, siteUrl: args.siteUrl });
+    case 'gsc_search_analytics':
+      return webhookPost('/gsc/search-analytics', { startDate: args.startDate, endDate: args.endDate, dimensions: args.dimensions, rowLimit: args.rowLimit, siteUrl: args.siteUrl });
+    case 'gsc_sitemaps':
+      return webhookPost('/gsc/sitemaps', { siteUrl: args.siteUrl });
+    case 'gsc_sites':
+      return webhookPost('/gsc/sites', {});
     case 'deploy':
       return webhookPost('/deploy', { scope: args.scope || '' });
     case 'npm_install':
