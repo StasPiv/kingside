@@ -102,6 +102,14 @@ interface ReviewMoveListProps {
    * `<ForfeitPlaceholder>` вместо «No moves» на forfeit-партиях.
    */
   emptyState?: React.ReactNode;
+  /**
+   * KS-4641 / ADR-143 §7.3. Опциональный рендерер бейджа рядом с
+   * SAN'ом хода. Используется в replay-режиме для метки `× N` —
+   * количества упоминаний этого хода тренером (если N > 1). Если не
+   * передан — бейдж не рендерится. Вызывается на каждый main-line/
+   * variation узел; возвращает `null` чтобы не рендерить ничего.
+   */
+  getMoveBadge?: (move: ChessMove) => React.ReactNode | null;
 }
 
 export function ReviewMoveList({
@@ -117,6 +125,7 @@ export function ReviewMoveList({
   readOnly = false,
   concealAfterPly = null,
   emptyState,
+  getMoveBadge,
 }: ReviewMoveListProps) {
   const editable = !readOnly && Boolean(
     onPromoteVariation ||
@@ -576,6 +585,11 @@ export function ReviewMoveList({
             {isConcealed ? '???' : item.display}
             {!isConcealed && move && renderNagSymbols(move)}
             {!isConcealed && move && renderEvalClock(move)}
+            {/* KS-4641 / ADR-143 §7.3. Бейдж количества упоминаний
+                хода тренером (× N) для replay-режима. Стилизуется
+                через className в слое layout (`apps/web/src/styles/...`),
+                JSX без inline-style. */}
+            {!isConcealed && move && getMoveBadge && getMoveBadge(move)}
           </span>,
           ' ',
         ];

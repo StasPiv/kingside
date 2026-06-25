@@ -1339,6 +1339,15 @@
       "end": "Конец"
     }
   },
+  "moveTimestamps": {
+    "title": "Тренер возвращался к этому ходу",
+    "titleWithMove": "Тренер возвращался к этому ходу ({{move}})",
+    "dialogAria": "Выбрать момент для перемотки звука",
+    "durationLabel": "пробыл {{sec}} сек",
+    "longestTag": "самое долгое",
+    "noSeek": "Перейти к позиции без перемотки звука",
+    "visitsBadgeAria": "упоминаний {{count}}"
+  },
   "liveAnalysisViewer": {
     "defaultTitle": "Живой разбор",
     "byOwner": "автор:",

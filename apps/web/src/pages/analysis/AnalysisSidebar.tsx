@@ -124,6 +124,13 @@ export interface AnalysisSidebarProps {
   onSetNag: (globalIndex: number, nags: number[]) => void;
   onSetComment: (globalIndex: number, comment: string) => void;
   onSetVariationColor: (moveIndex: number, color: VariationColor | null) => void;
+  /**
+   * KS-4641 / ADR-143 §7.3. Опциональный рендерер бейджа `× N` рядом
+   * с ходом — используется replay-режимом для подсветки ходов, к
+   * которым тренер возвращался > 1 раз. Прозрачно пробрасывается в
+   * `ReviewMoveList`.
+   */
+  getMoveBadge?: (move: ChessMove) => React.ReactNode | null;
 
   /* ---------- mobile tabs ---------- */
   mobileTab: AnalysisMobileTab;
@@ -253,6 +260,7 @@ export function AnalysisSidebar({
   onSetNag,
   onSetComment,
   onSetVariationColor,
+  getMoveBadge,
   mobileTab,
   onMobileTabChange,
   readOnly = false,
@@ -820,6 +828,7 @@ export function AnalysisSidebar({
               readOnly={readOnly}
               concealAfterPly={concealAfterPly}
               emptyState={forfeitEmpty}
+              getMoveBadge={getMoveBadge}
             />
           </div>
         )}
@@ -1109,6 +1118,7 @@ export function AnalysisSidebar({
                 onSetComment={onSetComment}
                 onSetVariationColor={onSetVariationColor}
                 emptyState={forfeitEmpty}
+                getMoveBadge={getMoveBadge}
               />
             </div>
           </div>

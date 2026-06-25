@@ -1163,6 +1163,15 @@
       "hint": "The Stockfish metrics panel will not be visible to viewers."
     }
   },
+  "moveTimestamps": {
+    "title": "Trainer revisited this move",
+    "titleWithMove": "Trainer revisited this move ({{move}})",
+    "dialogAria": "Choose timestamp to seek audio",
+    "durationLabel": "duration {{sec}}s",
+    "longestTag": "longest",
+    "noSeek": "Open position without seeking audio",
+    "visitsBadgeAria": "{{count}} mentions"
+  },
   "liveAnalysisViewer": {
     "defaultTitle": "Live analysis",
     "byOwner": "by",

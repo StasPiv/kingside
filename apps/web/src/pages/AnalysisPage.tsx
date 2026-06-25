@@ -92,10 +92,12 @@ import {
   type AnalysisResponse,
   type LiveAnalysisAnalysisSwitchEvent,
   type MoveTimestampIndex,
+  type MoveVisit,
 } from '@kingside/shared';
 import { useCurrentSegment } from '../hooks/useCurrentSegment';
 import { LecturePublisherStatusBadge } from '../components/lecture/LecturePublisherStatusBadge';
 import { LectureAnalysisSwitcher } from '../components/lecture/LectureAnalysisSwitcher';
+import { MoveTimestampsPopover } from '../components/lecture/MoveTimestampsPopover';
 import { LectureAudioListenerCompact } from '../components/lecture/LectureAudioListenerCompact';
 import { LectureRecordingBadge } from '../components/lecture/LectureRecordingBadge';
 // KS-4009 / ADR-121 Phase 1: чат лекции.
@@ -1649,18 +1651,57 @@ function AnalysisPageInner({
     [applyAnalysisFromBackend],
   );
 
-  // KS-4640 / ADR-143 §6.3 / §7.1-§7.4. Обёртка над `gotoMove` для
-  // replay-режима. На каждый клик по узлу Moves panel'и:
+  // KS-4641 / ADR-143 §7.3. State popover'а выбора момента упоминания.
+  // null — закрыт; объект — открыт со списком visits активного узла.
+  const [replayPopover, setReplayPopover] = useState<
+    { visits: ReadonlyArray<MoveVisit>; moveLabel: string | undefined } | null
+  >(null);
+
+  // KS-4641 / ADR-143 §7.3. Бейдж `× N` рядом с ходом — для
+  // replay-режима, когда `visits.length > 1`. Класс `review-move__badge`
+  // оформляет слой layout (KS-4642); JSX без inline-style. При
+  // `replay === null` или одном/нулевом упоминании — `null`, бейдж не
+  // рендерится. Сегмент берётся из активного `replayCurrentSegment`
+  // (синхронизирован с моментом плеера), так что бейдж меняется при
+  // смене сегмента (через `analysis-switch` / `reset`).
+  const getReplayMoveBadge = useCallback(
+    (node: ChessMove): React.ReactNode | null => {
+      const index = replay?.moveTimestampIndex;
+      if (!index || !replayCurrentSegment) return null;
+      const key = serializeMoveKey({
+        segment: replayCurrentSegment.segment,
+        globalIndex: node.globalIndex,
+      });
+      const count = index.visits.get(key)?.length ?? 0;
+      if (count <= 1) return null;
+      return (
+        <span
+          className="review-move__badge"
+          data-testid="review-move-badge"
+          data-visits-count={count}
+          aria-label={t('moveTimestamps.visitsBadgeAria', '{{count}} mentions', {
+            count,
+          })}
+        >
+          ×{count}
+        </span>
+      );
+    },
+    [replay?.moveTimestampIndex, replayCurrentSegment, t],
+  );
+
+  // KS-4640 + KS-4641 / ADR-143 §6.3 / §7.1-§7.4. Обёртка над
+  // `gotoMove` для replay-режима. На каждый клик по узлу Moves panel'и:
   //   1) `gotoMove(node)` — переключаем доску (всегда).
   //   2) Если есть индекс упоминаний — собираем `MoveKey { segment,
   //      globalIndex }`, lookup `visits`.
   //   3) По числу visits:
   //        - 0   → ничего больше не делаем (§7.4 вариант b).
   //        - 1   → `onSeekAudio(visits[0].enteredAtMs)` (§7.2).
-  //        - >1  → KS-4641 (popover); до его реализации seek'аем на
-  //                хронологически первое упоминание — это безопасный
-  //                MVP-fallback, отвечает «начало серии упоминаний».
-  //                Popover расширит выбор.
+  //        - >1  → открываем popover (`MoveTimestampsPopover`, §7.3):
+  //                доска уже переключена выше, popover управляет
+  //                только seek'ом аудио. Выбор строки → `onSeekAudio` +
+  //                close; «без перемотки» → close без seek.
   // Контейнер (`LectureReplayPage`) внутри `onSeekAudio` сам решает,
   // запускать ли auto-play (§7.5 — на паузе не запускаем).
   const handleReplayMoveClick = useCallback(
@@ -1674,8 +1715,19 @@ function AnalysisPageInner({
       });
       const visits = replay.moveTimestampIndex.visits.get(key) ?? [];
       if (visits.length === 0) return;
-      // 1 visit или >1 (popover пока не подключён — берём первое).
-      replay.onSeekAudio(visits[0].enteredAtMs);
+      if (visits.length === 1) {
+        replay.onSeekAudio(visits[0].enteredAtMs);
+        return;
+      }
+      // >1 visits → выбор в popover'е. Метка хода — SAN узла, если
+      // доступна; иначе undefined (popover покажет generic-title).
+      setReplayPopover({
+        visits,
+        moveLabel:
+          typeof (node as { san?: string }).san === 'string'
+            ? (node as { san: string }).san
+            : undefined,
+      });
     },
     [
       gotoMove,
@@ -5027,6 +5079,7 @@ function AnalysisPageInner({
         history={history}
         currentGlobalIndex={currentGlobalIndex}
         onMoveClick={isReplay ? handleReplayMoveClick : gotoMove}
+        getMoveBadge={isReplay ? getReplayMoveBadge : undefined}
         onPromoteVariation={(m) => promoteVariation(m as ChessMove)}
         onDeleteVariation={(m) => removeVariation(m as ChessMove)}
         onTruncateRemaining={(m) => truncateRemaining(m as ChessMove)}
@@ -5097,6 +5150,22 @@ function AnalysisPageInner({
           onConnectExternal={ec.handleConnectExternal}
           onSelectSavedConfig={ec.handleSelectSavedConfig}
           onDeleteConfig={ec.handleDeleteConfig}
+        />
+      )}
+
+      {/* KS-4641 / ADR-143 §7.3. Popover выбора момента упоминания
+          хода в записи лекции. Открывается при клике по узлу с >1
+          visits (см. `handleReplayMoveClick` выше). Доска уже
+          переключена; popover управляет только seek'ом аудио. */}
+      {replayPopover && (
+        <MoveTimestampsPopover
+          visits={replayPopover.visits}
+          moveLabel={replayPopover.moveLabel}
+          onSeek={(atMs) => {
+            replay?.onSeekAudio?.(atMs);
+            setReplayPopover(null);
+          }}
+          onClose={() => setReplayPopover(null)}
         />
       )}
 
