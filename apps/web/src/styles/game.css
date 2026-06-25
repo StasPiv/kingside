@@ -218,33 +218,39 @@ body:has(.game-page),
   border-color: transparent;
 }
 
-/* KS-4634: подсветка активных часов (того игрока, чей сейчас ход).
-   `data-active="true"` выставляется в `GameShell.tsx` из `chess.turn()`
-   при `status === 'active'`. На waiting/finished оба блока сохраняют
-   нейтральный вид.
+/* KS-4634 / KS-4635: подсветка активных часов. `data-active="true|false"`
+   выставляется в `GameShell.tsx` из `chess.turn()` при
+   `status === 'active'`.
 
-   Реализация — через inset `outline` (offset: -3px), чтобы:
-     - не менять размер блока (нет «прыжка» при смене хода);
-     - не быть обрезанным `overflow: hidden` родительского
-       `.game-sidebar` (раньше внешний outline у верхнего блока резался
-       и подсветка не была видна).
+   Раньше (KS-4634) была 3px золотая inset-обводка — пользователь
+   жаловался «ни хуя не видна»: тонкий outline на крупной пилюле
+   тонет периферийным зрением. KS-4635 заменяет её на акцентный
+   зелёный ФОН активной пилюли + белый текст — контраст «работает /
+   ждёт» виден сразу, без всматривания.
 
-   Стиль:
-     - Активный блок получает амбер-обводку (#f4b400) — заметна
-       периферийным зрением.
-     - Один цвет работает в обеих темах: золото контрастно и на
-       белом (dark-тема), и на тёмном (light-тема) фоне часов.
-     - `transition` короткий, чтобы переключение хода не было резким. */
+   Цвет — насыщенный зелёный #16a34a (есть в палитре как success-strong,
+   шахматные таймеры классически зелёные). Один цвет работает в обеих
+   темах: контрастен и на тёмной (dark), и на светлой (light) странице.
+
+   inset shadow добавляет лёгкое внутреннее белое кольцо — рисуется
+   ВНУТРИ блока, не срезается `overflow: hidden` родительского
+   `.game-sidebar` (это была проблема прежнего outer outline). */
 .game-sidebar-clock,
 .game-clock-bar {
-  outline: 3px solid transparent;
-  outline-offset: -3px;
-  transition: outline-color 120ms ease-out;
+  transition: background-color 150ms ease-out,
+              color 150ms ease-out,
+              box-shadow 150ms ease-out,
+              border-color 150ms ease-out;
 }
 
 .game-sidebar-clock[data-active='true'],
-.game-clock-bar[data-active='true'] {
-  outline-color: #f4b400;
+.game-clock-bar[data-active='true'],
+[data-theme='light'] .game-sidebar-clock[data-active='true'],
+[data-theme='light'] .game-clock-bar[data-active='true'] {
+  background: #16a34a;
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45);
 }
 
 .board-container {
