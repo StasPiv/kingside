@@ -254,11 +254,14 @@ export class AuthService {
       throw new ForbiddenException('Invalid secret');
     }
 
-    // KS-1788: dev-bypass юзеры стартуют с locale='ru' по умолчанию
-    // (Prisma-дефолт `en` перекрывает выбор на фронте при логине).
-    // Уже существующим dev-юзерам при каждом bypass'е обновляем locale
-    // на 'ru' — это dev-стенд, prod не затрагивается.
-    const DEV_LOCALE = 'ru';
+    // KS-1788 / KS-4622. Локаль `ru` ставится только при ПЕРВОМ создании
+    // dev-пользователя (Prisma-дефолт `en` иначе перебивал бы ручной
+    // выбор на фронте при логине). Уже существующим dev-юзерам локаль
+    // НЕ переписываем — dev-bypass это auth-механика, не «настройка
+    // локали». Иначе чейн вызовов `/auth/dev-bypass` (например, видео-
+    // обзоры в tools/video-overview/record.mjs) сбрасывал бы EN-юзера
+    // обратно в `ru` после каждого шага, ломая EN-сценарии.
+    const DEV_DEFAULT_LOCALE = 'ru';
 
     // If a specific username is requested, find or create that user
     if (username) {
@@ -266,7 +269,9 @@ export class AuthService {
       if (existing) {
         await this.prisma.user.update({
           where: { id: existing.id },
-          data: { lastSeenAt: new Date(), locale: DEV_LOCALE },
+          // KS-4622. ТОЛЬКО `lastSeenAt`. `locale` существующего юзера
+          // не трогаем — см. комментарий к `DEV_DEFAULT_LOCALE` выше.
+          data: { lastSeenAt: new Date() },
         });
         return this.generateTokens(existing.id, existing.username);
       }
@@ -277,7 +282,7 @@ export class AuthService {
           username,
           email: `${username.toLowerCase()}@kingside.local`,
           passwordHash: devPasswordHash,
-          locale: DEV_LOCALE,
+          locale: DEV_DEFAULT_LOCALE,
         },
       });
       return this.generateTokens(created.id, created.username);
@@ -287,13 +292,15 @@ export class AuthService {
     const devPasswordHash = await bcrypt.hash('dev-no-login', 10);
     const user = await this.prisma.user.upsert({
       where: { id: DEV_USER_ID },
-      update: { locale: DEV_LOCALE },
+      // KS-4622. На update — только `lastSeenAt`. Локаль не трогаем,
+      // см. комментарий к `DEV_DEFAULT_LOCALE` выше.
+      update: { lastSeenAt: new Date() },
       create: {
         id: DEV_USER_ID,
         username: DEV_USERNAME,
         email: 'dev@kingside.local',
         passwordHash: devPasswordHash,
-        locale: DEV_LOCALE,
+        locale: DEV_DEFAULT_LOCALE,
       },
     });
 

@@ -438,6 +438,65 @@ describe('AuthService', () => {
         ForbiddenException,
       );
     });
+
+    describe('KS-4622: не сбрасывать locale существующих dev-пользователей', () => {
+      beforeEach(() => {
+        process.env.NODE_ENV = 'development';
+        configService.get.mockImplementation((key: string) =>
+          key === 'DEV_BYPASS_SECRET' ? 'right-secret' : '15m',
+        );
+      });
+
+      it('named user (existing, locale=en): update НЕ содержит locale', async () => {
+        const existing = {
+          id: 'u-en-1',
+          username: 'viewer-demo-en',
+          locale: 'en',
+        };
+        prisma.user.findUnique.mockResolvedValue(existing);
+        prisma.user.update = jest.fn().mockResolvedValue(existing);
+
+        await service.devBypass('right-secret', 'viewer-demo-en');
+
+        expect(prisma.user.update).toHaveBeenCalledTimes(1);
+        const updateArg = prisma.user.update.mock.calls[0][0];
+        expect(updateArg.where).toEqual({ id: 'u-en-1' });
+        // Главная проверка задачи: на повторных bypass'ах локаль не
+        // переписывается. Иначе EN-серия видеообзоров сбрасывалась.
+        expect(updateArg.data).not.toHaveProperty('locale');
+        expect(updateArg.data.lastSeenAt).toBeInstanceOf(Date);
+      });
+
+      it('named user (создание нового): локаль `ru` ставится один раз — это seed', async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+        prisma.user.create = jest.fn().mockResolvedValue({
+          id: 'u-new',
+          username: 'new-dev',
+        });
+        (bcrypt.hash as jest.Mock).mockResolvedValue('hashed');
+
+        await service.devBypass('right-secret', 'new-dev');
+
+        const createArg = prisma.user.create.mock.calls[0][0];
+        expect(createArg.data.locale).toBe('ru');
+      });
+
+      it('default DEV_USER (upsert): update НЕ содержит locale', async () => {
+        prisma.user.upsert = jest.fn().mockResolvedValue({
+          id: '00000000-0000-4000-a000-000000000000',
+          username: 'dev',
+        });
+        (bcrypt.hash as jest.Mock).mockResolvedValue('hashed');
+
+        await service.devBypass('right-secret');
+
+        const upsertArg = prisma.user.upsert.mock.calls[0][0];
+        expect(upsertArg.update).not.toHaveProperty('locale');
+        expect(upsertArg.update.lastSeenAt).toBeInstanceOf(Date);
+        // create как seed по-прежнему ставит дефолтную локаль.
+        expect(upsertArg.create.locale).toBe('ru');
+      });
+    });
   });
 
   describe('getMe', () => {
