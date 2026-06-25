@@ -30,7 +30,12 @@ export type SoundEvent =
   // KS-2423: тихий короткий «click» при выборе клетки/подъёме фигуры
   // в тренажёрах. Должен быть НАМНОГО тише чем move/capture, иначе на
   // shape='squares' (где набирается несколько кликов подряд) утомляет.
-  | 'select';
+  | 'select'
+  // KS-4654 / ADR-144 §3.6: метроном-тик часов при низком времени.
+  // Длительность 25-30 мс, амплитуда меньше move/capture, чтобы при
+  // 2 Гц в critical-режиме не утомлять. Тембр и реализация на каждую
+  // тему — в массивах ниже; параметры взяты из таблицы §3.6 ADR-144.
+  | 'clock-tick';
 
 export type SoundTheme = 'standard' | 'wood' | 'minimal' | 'eightbit';
 
@@ -201,6 +206,11 @@ const standardTheme: Record<SoundEvent, (ctx: AudioContext) => void> = {
     const t = ctx.currentTime;
     playTone(ctx, 1200, 0.025, t, 'sine', 0.05);
   },
+  // KS-4654 / ADR-144 §3.6: метроном-тик для standard-темы.
+  'clock-tick': (ctx) => {
+    const t = ctx.currentTime;
+    playTone(ctx, 800, 0.025, t, 'square', 0.10);
+  },
 };
 
 // =============================================================================
@@ -273,6 +283,12 @@ const woodTheme: Record<SoundEvent, (ctx: AudioContext) => void> = {
     playNoise(ctx, 0.02, t, 0.1, 1500);
     playTone(ctx, 220, 0.025, t, 'triangle', 0.1);
   },
+  // KS-4654 / ADR-144 §3.6: метроном-тик для wood-темы — короткий
+  // фильтрованный шум, имитирует «постук» по деревянной доске.
+  'clock-tick': (ctx) => {
+    const t = ctx.currentTime;
+    playNoise(ctx, 0.012, t, 0.18, 2500);
+  },
 };
 
 // =============================================================================
@@ -326,6 +342,12 @@ const minimalTheme: Record<SoundEvent, (ctx: AudioContext) => void> = {
   select: (ctx) => {
     const t = ctx.currentTime;
     playTone(ctx, 1500, 0.02, t, 'sine', 0.04);
+  },
+  // KS-4654 / ADR-144 §3.6: метроном-тик для minimal-темы — самый
+  // тихий и высокий, чтобы не выламываться из общей эстетики.
+  'clock-tick': (ctx) => {
+    const t = ctx.currentTime;
+    playTone(ctx, 1000, 0.02, t, 'sine', 0.06);
   },
 };
 
@@ -408,6 +430,12 @@ const eightbitTheme: Record<SoundEvent, (ctx: AudioContext) => void> = {
   select: (ctx) => {
     const t = ctx.currentTime;
     playTone(ctx, 880, 0.025, t, 'square', 0.08);
+  },
+  // KS-4654 / ADR-144 §3.6: метроном-тик для eightbit-темы —
+  // ретро-«пиксельный» клик квадратной волной.
+  'clock-tick': (ctx) => {
+    const t = ctx.currentTime;
+    playTone(ctx, 600, 0.025, t, 'square', 0.12);
   },
 };
 

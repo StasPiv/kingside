@@ -88,6 +88,14 @@ export interface LocalBotGameState {
   retryEngine: () => void;
   /** KS-4153: партия без часов — UI должен скрыть таймер или показать прочерк. */
   noClock: boolean;
+  /**
+   * KS-4654 / ADR-144 §3.2. Начальное время контроля в секундах —
+   * UI потребляет, чтобы посчитать `computeClockUrgency(remainingMs,
+   * initialMs)` для метронома тиканья. При `noClock=true` значение
+   * не имеет смысла, но всё равно есть (исходный fallback из
+   * `useLocalBotGame`).
+   */
+  initialSec: number;
   /** Применить ход игрока. Возвращает true, если ход легален. */
   onMove: (from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') => boolean;
   /** Сдаться: засчитать поражение, статус → finished. */
@@ -387,6 +395,14 @@ export function useLocalBotGame(
     engineError,
     retryEngine,
     noClock,
+    /**
+     * KS-4654 / ADR-144 §3.2. Начальное время контроля в секундах —
+     * нужно потребителю (`LocalBotGamePage`), чтобы посчитать
+     * `computeClockUrgency(remainingMs, initialMs)` для метронома
+     * тиканья при низком времени. Раньше хук это значение наружу не
+     * отдавал.
+     */
+    initialSec,
     onMove,
     onResign,
     onNewGame,

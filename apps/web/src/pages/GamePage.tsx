@@ -34,6 +34,10 @@ import { useSounds } from '../hooks/useSounds';
 // KS-4652 / ADR-144 §3.4 — миллисекундный snapshot часов +
 // экстраполяция через `performance.now()` вместо setInterval(1000).
 import { useGameClockDisplay } from '../hooks/useGameClockDisplay';
+// KS-4654 / ADR-144 §3.6 — метроном-тик при низком времени на
+// собственных часах. Хук не тикает, если `isSelfActive=false` или
+// `urgency='normal'` (на наблюдателе/сопернике/в нормальном режиме).
+import { useClockTickScheduler } from '../hooks/useClockTickScheduler';
 import { socket, messagesSocket } from '../socket';
 import { sendClientLog } from '../utils/clientLogger';
 import { openAnalysis } from '../utils/openAnalysis';
@@ -488,6 +492,18 @@ export function GamePage() {
     initialMs,
     isFinished: status === 'finished',
   });
+
+  // KS-4654 / ADR-144 §3.6. Метроном-тик собственных часов в режимах
+  // low/critical. `isSelfActive` — это моя сторона **и** сейчас мой
+  // ход; для соперника и наблюдателя — `false`, хук не тикает.
+  // Urgency берём по своему цвету; на `playerColor='white'` это
+  // `whiteUrgency`, иначе `blackUrgency`.
+  const isSelfActive = activeColor === playerColor;
+  const selfUrgency =
+    playerColor === 'white'
+      ? clockDisplay.whiteUrgency
+      : clockDisplay.blackUrgency;
+  useClockTickScheduler({ urgency: selfUrgency, isSelfActive });
 
   // KS-4652. Claim-timeout. Раньше триггерился по `clocks.white === 0
   // || clocks.black === 0` (секундная модель). Теперь источник —

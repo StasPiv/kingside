@@ -23,6 +23,13 @@ import {
   useLocalBotGame,
   type LocalBotTimeControl,
 } from '../hooks/useLocalBotGame';
+// KS-4654 / ADR-144 §3.6 — метроном-тик на собственных часах при
+// низком времени. Расчёт `urgency` идёт по секундной модели часов
+// local-bot (полный переезд `useLocalBotGame` на мс-snapshot + хук
+// `useGameClockDisplay` — задача №5 серии). До тех пор используем
+// чистую `computeClockUrgency` напрямую.
+import { computeClockUrgency } from '../utils/formatGameClock';
+import { useClockTickScheduler } from '../hooks/useClockTickScheduler';
 
 /**
  * KS-4148: на `/play/local-bot` по умолчанию используем стандартный
@@ -73,6 +80,24 @@ export function LocalBotGamePage() {
   // KS-4148: если пользователь явно не выбрал pieceSet — форсим
   // стандартный (react-chessboard default). Если выбрал — уважаем.
   const forceStandardPieces = useMemo(() => !readHasExplicitPieceSet(), []);
+
+  // KS-4654 / ADR-144 §3.6. Метроном-тик на своих часах. В local-bot
+  // активная сторона определяется по `chess.turn()`; если ход мой —
+  // считаем `urgency` по моему остатку и initial-времени, передаём
+  // в планировщик. Хук сам молчит при `noClock`/нет initial/normal.
+  const activeColor: 'white' | 'black' | null =
+    game.status === 'active'
+      ? game.chess.turn() === 'w'
+        ? 'white'
+        : 'black'
+      : null;
+  const isSelfActive = activeColor === game.playerColor;
+  const selfRemainingMs =
+    (game.playerColor === 'white' ? game.clocks.white : game.clocks.black) *
+    1000;
+  const initialMs = game.noClock ? null : game.initialSec * 1000;
+  const selfUrgency = computeClockUrgency(selfRemainingMs, initialMs);
+  useClockTickScheduler({ urgency: selfUrgency, isSelfActive });
 
   return (
     <>
