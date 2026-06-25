@@ -5025,7 +5025,8 @@
     "lecturesPromo": {
       "title": "Chess lectures by titled coaches",
       "subtitle": "Live and recorded lectures: openings, middlegame, endgame.",
-      "allLink": "All lectures →"
+      "allLink": "All lectures →",
+      "empty": "Browse the full lecture catalog."
     },
     "coachesPromo": {
       "title": "Meet our coaches",
