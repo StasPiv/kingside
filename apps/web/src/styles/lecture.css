@@ -2248,3 +2248,398 @@
   margin-top: 8px;
 }
 
+/* ============================================================
+ * KS-4642 / ADR-143 §7.3, §7.7, §11 эпик C — стили выбора момента
+ * упоминания хода в записи лекции.
+ *
+ * Компонент: `components/lecture/MoveTimestampsPopover.tsx`.
+ * Открывается из Moves panel'и replay-режима когда у узла больше
+ * одного `MoveVisit`. JSX — только className, без inline-style.
+ *
+ * Раскладка:
+ *   - Desktop (≥900px) — центрированный popover-карточка над
+ *     полупрозрачной подложкой.
+ *   - Mobile (≤899px) — sliding sheet снизу (конвенция ADR-119
+ *     §6.6, повторяет паттерн `.game-result-sheet`): подложка с
+ *     fade, sheet с slide-up, drag-handle сверху, padding-bottom
+ *     с учётом safe-area.
+ *
+ * Темы — через семантические токены (--bg-elevated, --text-primary,
+ * --border-mid и т. д.). Светлая тема перекрывает токены сама;
+ * жёстко закодированных hex-значений нет.
+ *
+ * Тач-цели: `__item` min-height 48 px, `__close` 44×44 px,
+ * `__no-seek` min-height 44 px — соответствуют Apple HIG / Material.
+ * ============================================================ */
+
+/* ---------- Overlay (общий контейнер) ---------- */
+.move-timestamps-popover__overlay {
+  position: fixed;
+  inset: 0;
+  /* Полупрозрачная подложка — затемняет фон, фокусирует внимание
+     на диалоге. На светлой теме `--ov-black-40` даёт мягкое
+     затемнение без «чёрной плёнки». */
+  background: var(--ov-black-40, rgba(0, 0, 0, 0.4));
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  /* Fade-in подложки. Reduced-motion отключает в @media ниже. */
+  animation: move-timestamps-popover-fade 160ms ease-out;
+}
+
+/* ---------- Dialog (карточка popover'а на desktop) ---------- */
+.move-timestamps-popover {
+  background: var(--bg-elevated, #2a2a4e);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-mid, #444);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.4));
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* Лёгкая scale-in анимация card'а. */
+  animation: move-timestamps-popover-pop 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ---------- Header (заголовок + close) ---------- */
+.move-timestamps-popover__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border-subtle, var(--ov-white-08));
+}
+
+.move-timestamps-popover__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  line-height: 1.3;
+  flex: 1;
+  min-width: 0;
+}
+
+.move-timestamps-popover__close {
+  /* Тач-цель 44×44 (Apple HIG). На desktop визуально иконка
+     ~20px, область клика крупнее. */
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-muted, #888);
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.move-timestamps-popover__close:hover {
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary, #e0e0e0);
+}
+
+.move-timestamps-popover__close:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: -2px;
+}
+
+/* ---------- List (контейнер строк) ---------- */
+.move-timestamps-popover__list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.move-timestamps-popover__row {
+  margin: 0;
+  padding: 0;
+}
+
+/* ---------- Item (строка-кнопка одного visit'а) ---------- */
+.move-timestamps-popover__item {
+  width: 100%;
+  /* Тач-цель ≥48px (>44 минимум по HIG, удобнее для пальца). */
+  min-height: 48px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.move-timestamps-popover__item:hover {
+  background: var(--accent-soft, var(--ov-accent-15));
+  border-color: var(--ov-accent-30, rgba(124, 131, 255, 0.3));
+}
+
+.move-timestamps-popover__item:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: -2px;
+}
+
+.move-timestamps-popover__item:active {
+  transform: scale(0.99);
+}
+
+/* ---------- Item — модификатор «самое долгое» ---------- */
+/* Выделяем строку с максимальным durationMs: мягкая warning-заливка
+   + тёплая граница. На обеих темах остаётся читаемой за счёт
+   семантических токенов (--warning-soft становится светло-янтарным
+   в светлой и тёмно-янтарным в тёмной). */
+.move-timestamps-popover__item--longest {
+  background: var(--warning-soft, rgba(245, 158, 11, 0.15));
+  border-color: var(--warning, #f59e0b);
+}
+
+.move-timestamps-popover__item--longest:hover {
+  background: var(--warning-soft, rgba(245, 158, 11, 0.22));
+  border-color: var(--warning-strong, #d97706);
+}
+
+/* ---------- Item: время (mm:ss) ---------- */
+.move-timestamps-popover__time {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 56px;
+  color: var(--text-primary, #e0e0e0);
+}
+
+/* ---------- Item: длительность («duration 12s») ---------- */
+.move-timestamps-popover__duration {
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0c0);
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- Item: ярлык «longest» (справа) ---------- */
+.move-timestamps-popover__longest-tag {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--warning, #f59e0b);
+  color: var(--c-1a1a2e, #1a1a2e);
+  flex-shrink: 0;
+}
+
+/* ---------- Footer (кнопка «без перемотки») ---------- */
+.move-timestamps-popover__footer {
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--border-subtle, var(--ov-white-08));
+  display: flex;
+  justify-content: flex-end;
+}
+
+.move-timestamps-popover__no-seek {
+  min-height: 44px;
+  padding: 10px 16px;
+  background: transparent;
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-mid, #444);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.move-timestamps-popover__no-seek:hover {
+  background: var(--ov-white-08, rgba(255, 255, 255, 0.08));
+  border-color: var(--border-strong, #555);
+}
+
+.move-timestamps-popover__no-seek:focus-visible {
+  outline: 2px solid var(--accent-primary, #7c83ff);
+  outline-offset: 2px;
+}
+
+/* ---------- Анимации ---------- */
+@keyframes move-timestamps-popover-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes move-timestamps-popover-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes move-timestamps-popover-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* ============================================================
+ * Mobile (≤899px) — sliding sheet снизу.
+ * Конвенция ADR-119 §6.6 — повторяет паттерн `.game-result-sheet`
+ * (см. `game.css`). Подложка прижимает sheet к нижнему краю,
+ * sheet занимает всю ширину, скругление только сверху, drag-handle
+ * в шапке, padding-bottom учитывает iOS safe-area.
+ * ============================================================ */
+@media (max-width: 899px) {
+  .move-timestamps-popover__overlay {
+    align-items: flex-end;
+    padding: 0;
+    background: var(--ov-black-60, rgba(0, 0, 0, 0.6));
+  }
+
+  .move-timestamps-popover {
+    max-width: none;
+    max-height: 80vh;
+    border-radius: 16px 16px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    box-shadow: 0 -8px 32px var(--ov-black-50, rgba(0, 0, 0, 0.5));
+    /* slide-up снизу вместо scale-in. */
+    animation: move-timestamps-popover-slide-up 220ms
+      cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Drag-handle через ::before — без правки JSX. Чисто визуальный
+     индикатор «потяните вниз». Сам drag-жест не нужен (закрытие
+     по тапу подложки / Esc / кнопке close). */
+  .move-timestamps-popover::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 10px auto 4px;
+    border-radius: 2px;
+    background: var(--text-muted, #888);
+    opacity: 0.5;
+    flex-shrink: 0;
+  }
+
+  .move-timestamps-popover__header {
+    padding-top: 6px;
+  }
+
+  /* Тач-цели крупнее на mobile — палец, не курсор. */
+  .move-timestamps-popover__item {
+    min-height: 52px;
+    padding: 12px 14px;
+    font-size: 15px;
+  }
+
+  .move-timestamps-popover__time {
+    font-size: 16px;
+    min-width: 60px;
+  }
+
+  .move-timestamps-popover__footer {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .move-timestamps-popover__no-seek {
+    min-height: 48px;
+    width: 100%;
+    text-align: center;
+  }
+
+  .move-timestamps-popover__footer {
+    justify-content: stretch;
+  }
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .move-timestamps-popover__overlay,
+  .move-timestamps-popover {
+    animation: none;
+  }
+  .move-timestamps-popover__item:active {
+    transform: none;
+  }
+}
+
+/* ============================================================
+ * KS-4642 / ADR-143 §7.3 — бейдж количества упоминаний хода
+ * тренером (`× N`) в Moves panel'и replay-режима.
+ *
+ * Рендерится `getReplayMoveBadge` внутри `<span class="review-move">`
+ * после метаданных хода. Показывается только когда `visits.length > 1`
+ * — у одиночного упоминания бейджа нет, чтобы не шуметь.
+ *
+ * Цвета — через токены: на тёмной теме лёгкая accent-заливка с
+ * белёсым текстом; на светлой теме токены инвертируются автоматом.
+ * ============================================================ */
+.review-move__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  min-width: 22px;
+  height: 18px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: var(--accent-soft, var(--ov-accent-15));
+  color: var(--accent-primary, #7c83ff);
+  border: 1px solid var(--ov-accent-30, rgba(124, 131, 255, 0.3));
+  vertical-align: middle;
+  white-space: nowrap;
+  /* Не реагирует на hover родительского `.review-move` — статичный
+     индикатор. */
+  pointer-events: none;
+}
+
+/* Когда родительский `.review-move` активен (текущий ход) — bg
+   переключается на accent-фиолетовый, текст становится белым. Бейдж
+   должен оставаться читаемым → инверсия: белая «таблетка» с тёмным
+   текстом. Жёсткие hex'ы (не токены): `--c-1a1a2e` в светлой теме
+   переопределён на canvas-color #f6f7fb → токенный путь дал бы
+   «почти-белый текст на белом» (та же ловушка, что в KS-4623). */
+.review-move.active .review-move__badge {
+  background: #ffffff;
+  color: #1a1a2e;
+  border-color: transparent;
+}
+
+/* Аналогично для longest-tag — bg = warning (жёлтый, не инвертируется),
+   но text был `var(--c-1a1a2e)` → в светлой теме почти-белый текст на
+   жёлтом. Жёстко фиксируем тёмный. */
+.move-timestamps-popover__longest-tag {
+  color: #1a1a2e;
+}
+
