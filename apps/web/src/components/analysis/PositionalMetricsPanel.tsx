@@ -449,6 +449,7 @@ export function MetricGroupCheckboxes({
   selectedIds,
   onChange,
 }: MetricGroupCheckboxesProps) {
+  const { t } = useTranslation();
   const toggleId = (id: string) => {
     const next = new Set(selectedIds);
     if (next.has(id)) next.delete(id);
@@ -498,7 +499,7 @@ export function MetricGroupCheckboxes({
                 }}
                 onChange={() => toggleGroup(g.ids, !groupSelected)}
               />
-              {g.label}
+              {t(g.labelKey, g.labelEn)}
             </label>
             <div
               style={{

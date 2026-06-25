@@ -626,7 +626,7 @@ async function evalTraceViaWorker(
   );
 
   if (typeof sf.ccall !== 'function') {
-    console.warn('[stockfishTrace] ccall не экспортирован');
+    console.warn('[stockfishTrace] ccall is not exported');
     throw new StockfishTraceEngineError(
       'factory-error',
       new Error('ccall export missing'),

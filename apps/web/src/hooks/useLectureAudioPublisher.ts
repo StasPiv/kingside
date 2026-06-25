@@ -90,7 +90,10 @@ const LOCK_HEARTBEAT_MS = 10_000;
  * «Запись уже идёт с другого устройства» вместо generic-сообщения.
  */
 export class AudioPublisherLockError extends Error {
-  constructor(message = 'Запись уже идёт с другого устройства') {
+  // KS-4633: default-message — английский. Локализованный текст приходит
+  // на UI-стороне через i18n (`lecturePublisher.error.lockTitle/Body`);
+  // здесь же — только техническое сообщение для логов.
+  constructor(message = 'Recording is already running on another device') {
     super(message);
     this.name = 'AudioPublisherLockError';
   }
@@ -473,7 +476,7 @@ export function useLectureAudioPublisher({
         // ошибка инварианта — Web Locks так не делает. Логируем,
         // teardown отыграется через stop().
         console.warn(
-          '[useLectureAudioPublisher] lock stolen by another tab — recorder будет остановлен',
+          '[useLectureAudioPublisher] lock stolen by another tab — recorder will be stopped',
         );
       },
     });

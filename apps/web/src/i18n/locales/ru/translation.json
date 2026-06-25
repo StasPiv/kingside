@@ -1049,6 +1049,7 @@
     "handleAria": "Изменить размер чата",
     "openAria": "Открыть чат лекции",
     "shortLabel": "Чат",
+    "deletedPlaceholder": "[удалено]",
     "openLabel": "Чат",
     "collapseAria": "Свернуть чат",
     "errors": {
@@ -1639,6 +1640,16 @@
         "threats": "Угрозы",
         "passed": "Проходные",
         "space": "Пространство"
+      },
+      "groupLabel": {
+        "pawns": "Пешки",
+        "kingSafety": "Защита короля",
+        "minorPieces": "Лёгкие фигуры",
+        "majorPieces": "Тяжёлые фигуры",
+        "threats": "Угрозы",
+        "passed": "Проходные",
+        "spaceOutposts": "Пространство и аутпосты",
+        "material": "Материал и баланс"
       }
     },
     "aiTab": {

@@ -1034,6 +1034,7 @@
     "openLabel": "Chat",
     "shortLabel": "Chat",
     "collapseAria": "Collapse chat",
+    "deletedPlaceholder": "[deleted]",
     "errors": {
       "rate_limited": "Too fast. Please wait a few seconds.",
       "too_long": "Message is too long.",
@@ -1460,6 +1461,16 @@
         "threats": "Threats",
         "passed": "Passed pawns",
         "space": "Space"
+      },
+      "groupLabel": {
+        "pawns": "Pawns",
+        "kingSafety": "King safety",
+        "minorPieces": "Minor pieces",
+        "majorPieces": "Major pieces",
+        "threats": "Threats",
+        "passed": "Passed pawns",
+        "spaceOutposts": "Space and outposts",
+        "material": "Material and balance"
       }
     },
     "aiTab": {

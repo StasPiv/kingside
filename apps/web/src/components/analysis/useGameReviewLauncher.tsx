@@ -171,7 +171,7 @@ export function useGameReviewLauncher(
           });
         } catch (tagErr) {
           console.warn(
-            '[useGameReviewLauncher] не удалось проставить метку analysed:',
+            '[useGameReviewLauncher] failed to set "analysed" tag:',
             tagErr,
           );
         }

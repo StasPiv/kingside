@@ -36,15 +36,25 @@ export type MetricGroupKey =
 
 export interface MetricGroupDescriptor {
   key: MetricGroupKey;
-  label: string;
+  /** KS-4633: i18n-ключ для подписи группы. */
+  labelKey: string;
+  /** KS-4633: английский fallback на случай отсутствующего ключа. */
+  labelEn: string;
   /** Подкомпоненты, входящие в группу. */
   ids: ReadonlyArray<PositionalSubtermId>;
 }
 
+/**
+ * KS-4633: `label` заменён на `labelKey` (ключ i18n). Источник перевода —
+ * `analysis.metrics.groupLabel.<key>` в `i18n/locales/{en,ru}/translation.json`.
+ * UI вытягивает строку через `t(group.labelKey, group.labelEn)` —
+ * fallback английский.
+ */
 export const METRIC_GROUPS: ReadonlyArray<MetricGroupDescriptor> = [
   {
     key: 'pawns',
-    label: 'Пешки',
+    labelKey: 'analysis.metrics.groupLabel.pawns',
+    labelEn: 'Pawns',
     ids: [
       'pawn_doubled_early',
       'pawn_connected',
@@ -57,7 +67,8 @@ export const METRIC_GROUPS: ReadonlyArray<MetricGroupDescriptor> = [
   },
   {
     key: 'king-safety',
-    label: 'Защита короля',
+    labelKey: 'analysis.metrics.groupLabel.kingSafety',
+    labelEn: 'King safety',
     ids: [
       'king_shelter_strength',
       'king_blocked_storm',
@@ -77,7 +88,8 @@ export const METRIC_GROUPS: ReadonlyArray<MetricGroupDescriptor> = [
   },
   {
     key: 'minor-pieces',
-    label: 'Лёгкие фигуры',
+    labelKey: 'analysis.metrics.groupLabel.minorPieces',
+    labelEn: 'Minor pieces',
     ids: [
       'knight_uncontested_outpost',
       'knight_reachable_outpost',
@@ -95,7 +107,8 @@ export const METRIC_GROUPS: ReadonlyArray<MetricGroupDescriptor> = [
   },
   {
     key: 'major-pieces',
-    label: 'Тяжёлые фигуры',
+    labelKey: 'analysis.metrics.groupLabel.majorPieces',
+    labelEn: 'Major pieces',
     ids: [
       'rook_on_king_ring',
       'rook_on_open_file',
@@ -108,7 +121,8 @@ export const METRIC_GROUPS: ReadonlyArray<MetricGroupDescriptor> = [
   },
   {
     key: 'threats',
-    label: 'Угрозы',
+    labelKey: 'analysis.metrics.groupLabel.threats',
+    labelEn: 'Threats',
     ids: [
       'threat_by_minor',
       'threat_by_rook',
@@ -124,7 +138,8 @@ export const METRIC_GROUPS: ReadonlyArray<MetricGroupDescriptor> = [
   },
   {
     key: 'passed',
-    label: 'Проходные',
+    labelKey: 'analysis.metrics.groupLabel.passed',
+    labelEn: 'Passed pawns',
     ids: [
       'passed_rank',
       'passed_king_proximity',
@@ -134,12 +149,14 @@ export const METRIC_GROUPS: ReadonlyArray<MetricGroupDescriptor> = [
   },
   {
     key: 'space-outposts',
-    label: 'Пространство и аутпосты',
+    labelKey: 'analysis.metrics.groupLabel.spaceOutposts',
+    labelEn: 'Space and outposts',
     ids: ['space', 'outpost_knight', 'outpost_bishop'],
   },
   {
     key: 'material',
-    label: 'Материал и баланс',
+    labelKey: 'analysis.metrics.groupLabel.material',
+    labelEn: 'Material and balance',
     ids: ['material', 'imbalance'],
   },
 ];

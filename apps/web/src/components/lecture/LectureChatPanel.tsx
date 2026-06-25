@@ -409,7 +409,13 @@ export function LectureChatPanel({
                   data-testid={`${testIdPrefix}-text`}
                   style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
                 >
-                  {m.text}
+                  {/* KS-4633: sentinel-значение '[deleted]' (см.
+                      useLectureChatSocket.handleDelete) подменяем на
+                      локализованную надпись. Невидимый текст других
+                      сообщений выводится как есть. */}
+                  {isDeleted
+                    ? t('lectureChat.deletedPlaceholder', '[deleted]')
+                    : m.text}
                 </div>
               </div>
             );

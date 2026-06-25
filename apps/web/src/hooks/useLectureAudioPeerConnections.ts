@@ -216,7 +216,7 @@ export function useLectureAudioPeerConnections({
         // Серверный capacity 15 (см. ADR-116 §2.2) уже отсёк
         // зрителя; этот лимит — страховка на случай рассинхрона.
         console.warn(
-          '[useLectureAudioPeerConnections] локальный лимит 15 peer-connection пройден, peer-joined игнорируется',
+          '[useLectureAudioPeerConnections] local limit of 15 peer-connections exceeded, peer-joined ignored',
           { peerSocketId, lectureId: lectureIdRef.current },
         );
         return;

@@ -106,7 +106,7 @@ if (typeof window !== 'undefined') {
     if (!target) {
       return Promise.reject(
         new Error(
-          'window.__sfTraceFen не выставлен (открой страницу анализа) или передай fen явно: window.__sfTrace("<fen>")',
+          'window.__sfTraceFen is not set (open the analysis page) or pass fen explicitly: window.__sfTrace("<fen>")',
         ),
       );
     }
@@ -121,7 +121,7 @@ if (typeof window !== 'undefined') {
     const target = fen ?? window.__sfTraceFen;
     if (!target) {
       throw new Error(
-        'window.__sfTraceFen не выставлен (открой страницу анализа) или передай fen явно: window.__sfReviewProbe("<fen>")',
+        'window.__sfTraceFen is not set (open the analysis page) or pass fen explicitly: window.__sfReviewProbe("<fen>")',
       );
     }
     const userElo = opts?.userElo ?? 1500;
@@ -166,6 +166,6 @@ if (typeof window !== 'undefined') {
 
   // eslint-disable-next-line no-console
   console.info(
-    '[sfTraceConsole] готово: window.__sfTrace(fen?) и window.__sfReviewProbe(fen?, ids?, { userElo?, userLanguage? }). ids — массив имён подкомпонент для фильтра.',
+    '[sfTraceConsole] ready: window.__sfTrace(fen?) and window.__sfReviewProbe(fen?, ids?, { userElo?, userLanguage? }). ids — array of subterm names for filtering.',
   );
 }

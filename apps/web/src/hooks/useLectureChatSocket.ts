@@ -136,7 +136,9 @@ export function useLectureChatSocket({
       setMessages((prev) =>
         prev.map((m) =>
           m.id === payload.messageId
-            ? { ...m, text: '[удалено]', deletedAt: nowIso }
+            // KS-4633: sentinel `[deleted]` — фронт подменяет на
+            // локализованную строку через `t('lectureChat.deletedPlaceholder')`.
+            ? { ...m, text: '[deleted]', deletedAt: nowIso }
             : m,
         ),
       );
@@ -176,9 +178,11 @@ export function useLectureChatSocket({
       // подтвердит, но UX лучше когда ошибка не уходит в сеть.
       const codepoints = Array.from(trimmed);
       if (codepoints.length > LECTURE_CHAT_LIMITS.MAX_TEXT_LENGTH) {
+        // KS-4633: `message` — fallback для UI, англ. Локализация
+        // делается в `LectureChatPanel` через `t('lectureChat.errors.too_long')`.
         setLastError({
           code: 'too_long',
-          message: 'Слишком длинное сообщение',
+          message: 'Message is too long',
         });
         return;
       }
