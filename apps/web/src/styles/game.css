@@ -334,17 +334,23 @@ body:has(.game-page),
   user-select: none;
   will-change: transform;
   position: relative;
-  /* KS-2695 / KS-4256 / KS-4257 / KS-4275: расчёт max-height
-     синхронизирован с useResponsiveBoardSize. Колонка с доской содержит:
-       opponent-bar (≈44) + gap (6) + board + gap (6) + self-bar (≈44)
-       + page padding-top/bottom (6+6) + header (48) = ~160px.
-     KS-4275: на 1280×800 нижний ряд клеток обрезался на ~5% даже после
-     учёта bot-banner и MobileBottomBar. Подняли страховку 160 → 180px:
-     явный запас на фокус-кольцо, bookmark-bar браузера, округление
-     aspect-ratio доски и фактическую высоту player-bar (с border'ами
-     может быть на 2-4px больше расчётных 44). */
+  /* KS-2695 / KS-4256 / KS-4257 / KS-4275 / KS-4659: расчёт max-height
+     синхронизирован с useResponsiveBoardSize (единый источник истины —
+     JS-хук, CSS — страховка). Колонка с доской на desktop содержит:
+       opponent-bar (≈32) + gap (6) + board + gap (6) + self-bar (≈32)
+       + page padding-top/bottom (6+6) + header (48) = ≈136px.
+     Хук сверху добавляет SAFETY_RESERVE = 28 → итого 164px. До KS-4659
+     CSS вычитал 180px (на 16px строже, чем хук): inline-стили
+     `width = height = vh-164` оставались, а `max-height: vh-180`
+     клампал высоту → контейнер становился (vh-164) × (vh-180), доска
+     1:1 рендерилась 916×916 поверх 916×900, нижние ~16px клиппались
+     через `overflow: hidden` (на 1280×800: rect 636×620, inline 636;
+     на 1920×1080: 916×900; на 1366×768: 604×588). Выравниваем CSS
+     с хуком (164px) — `max-height` уже не строже inline, нижний ряд
+     не обрезается. Если хук поменяет SAFETY_RESERVE — синхронизировать
+     с этим значением. */
   max-width: 100%;
-  max-height: calc(100dvh - 180px);
+  max-height: calc(100dvh - 164px);
   flex-shrink: 1;
 }
 
