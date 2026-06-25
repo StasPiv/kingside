@@ -27,6 +27,21 @@
   overflow: hidden;
 }
 
+/* KS-4624: spacer-flex справа от sidebar — забирает остаток ширины,
+   чтобы связка «доска + sidebar» прижалась к левому краю (к sidebar
+   навигации), а пустое пространство уходило вправо. До KS-4624
+   `.game-board-area` имела `flex: 1 1 auto` и растягивалась на всё
+   свободное пространство, отодвигая sidebar к правому краю экрана
+   — пользователю приходилось «крутить шеей» к часам.
+
+   На mobile/landscape `.game-page` переключается на column/grid —
+   spacer там отключаем (см. @media-блоки ниже). */
+.game-page::after {
+  content: '';
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 /* KS-2695: запрещаем скролл у всех outer-контейнеров, чтобы
    chatEndRef.scrollIntoView не сдвигал доску и opponent-info
    за viewport. Скроллится только chat-messages внутри sidebar. */
@@ -65,7 +80,12 @@ body:has(.game-page),
      для самой доски. */
   gap: 6px;
   contain: layout style;
-  flex: 1 1 auto;
+  /* KS-4624: было `flex: 1 1 auto` — board-area растягивалась на всю
+     свободную ширину, sidebar улетал к правому краю экрана. Теперь
+     `0 1 auto` — board-area занимает только реальную ширину доски
+     (boardWidth из useResponsiveBoardSize), sidebar встаёт сразу
+     за ней, а остаток забирает `.game-page::after` spacer. */
+  flex: 0 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -1447,6 +1467,12 @@ body:has(.game-page),
     right: 12px;
   }
 
+  /* KS-4624: на mobile `.game-page` — column, spacer избыточен и
+     добавляет паразитный пустой блок снизу. Скрываем. */
+  .game-page::after {
+    display: none;
+  }
+
   /* KS-4259: mobile-override `.back-nav-link` удалён вместе с
      рендером (см. блок выше). */
 
@@ -1787,6 +1813,12 @@ body:has(.game-page),
      пустую ячейку — явно прячем. */
   .game-sidebar {
     display: none !important;
+  }
+
+  /* KS-4624: spacer-flex из desktop-блока в grid создал бы лишнюю
+     grid-cell и сломал named areas. Скрываем. */
+  .game-page::after {
+    display: none;
   }
 
   /* KS-4621: landscape — экстремально низкий экран (≤500px высоты).
