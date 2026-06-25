@@ -103,6 +103,20 @@ export interface UseLiveAnalysisBroadcastState {
   /** Причина закрытия трансляции (`null` если трансляция ещё активна). */
   closed: LiveAnalysisCloseReason | null;
   /**
+   * KS-4628 / ADR-142 §2.4. UUID активного `Analysis` (после switch'а
+   * или из исходного `LiveAnalysis.analysisId`). Берётся из
+   * `LiveAnalysisSyncSnapshot.activeAnalysisId`. `null` пока не пришёл
+   * sync ИЛИ если backend не передал это поле (трансляция без
+   * привязки к Analysis, тренер ещё не делал switch).
+   */
+  activeAnalysisId: string | null;
+  /**
+   * KS-4628 / ADR-142 §2.4. Заголовок активного окна — для UI
+   * («Сейчас в эфире: <title>»). Берётся из `LiveAnalysisSyncSnapshot.activeTitle`.
+   * `null` если backend не передал.
+   */
+  activeTitle: string | null;
+  /**
    * Эмит `state-patch` с дебаунсом 500 мс (trailing-edge). Внутри
    * запоминается последний `tree`/`currentGlobalIndex`/`orientation`,
    * и таймер сбрасывается. По истечению дебаунса уходит ровно один
@@ -145,6 +159,9 @@ export function useLiveAnalysisBroadcast({
   const [viewerCount, setViewerCount] = useState(0);
   const [error, setError] = useState<LiveAnalysisErrorEvent | null>(null);
   const [closed, setClosed] = useState<LiveAnalysisCloseReason | null>(null);
+  // KS-4628 / ADR-142 §2.4: активное окно анализа (после switch'а).
+  const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
+  const [activeTitle, setActiveTitle] = useState<string | null>(null);
 
   // ─── Подписка на сокет ────────────────────────────────────────────
   const {
@@ -179,6 +196,18 @@ export function useLiveAnalysisBroadcast({
           : null,
       );
       setOrientation(payload.orientation);
+      // KS-4628 / ADR-142 §2.4: активное окно. Backend пишет в sync
+      // snapshot, как только в Redis state hash появилось поле
+      // `activeAnalysisId`. Если поле опущено — значит трансляция без
+      // привязки к Analysis (тренер ещё не делал switch); оставляем
+      // прежнее значение (snapshot не должен сбрасывать активное окно
+      // только потому, что backend не прислал поле).
+      if (typeof payload.activeAnalysisId !== 'undefined') {
+        setActiveAnalysisId(payload.activeAnalysisId ?? null);
+      }
+      if (typeof payload.activeTitle === 'string') {
+        setActiveTitle(payload.activeTitle);
+      }
       // На приход sync сбрасываем последнюю ошибку — текущее состояние
       // снова консистентно с сервером.
       setError(null);
@@ -302,6 +331,8 @@ export function useLiveAnalysisBroadcast({
       connected,
       error,
       closed,
+      activeAnalysisId,
+      activeTitle,
       emitStatePatch,
       emitMove,
       emitReset,
@@ -315,6 +346,8 @@ export function useLiveAnalysisBroadcast({
       connected,
       error,
       closed,
+      activeAnalysisId,
+      activeTitle,
       emitStatePatch,
       emitMove,
       emitReset,

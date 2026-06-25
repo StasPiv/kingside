@@ -87,6 +87,7 @@ import { useAnalysisLiveBroadcast } from '../hooks/useAnalysisLiveBroadcast';
 // анализа — здесь используются компактные «значки в шапке».
 import { liveAnalysisSocket } from '../socket';
 import { LecturePublisherStatusBadge } from '../components/lecture/LecturePublisherStatusBadge';
+import { LectureAnalysisSwitcher } from '../components/lecture/LectureAnalysisSwitcher';
 import { LectureAudioListenerCompact } from '../components/lecture/LectureAudioListenerCompact';
 import { LectureRecordingBadge } from '../components/lecture/LectureRecordingBadge';
 // KS-4009 / ADR-121 Phase 1: чат лекции.
@@ -202,6 +203,8 @@ function LectureBadgesBlock({
   isViewer,
   embedded,
   currentUserId,
+  activeAnalysisId,
+  activeTitle,
 }: {
   slug: string | null;
   /**
@@ -218,6 +221,13 @@ function LectureBadgesBlock({
   embedded?: boolean;
   /** KS-4009: id текущего пользователя для чата лекции; null для анонима. */
   currentUserId?: string | null;
+  /**
+   * KS-4628 / ADR-142 §2.4. Активное окно анализа из текущего sync
+   * snapshot'а. Прокидывается в `LectureAnalysisSwitcher` для подсветки
+   * ✓ текущего пункта и заголовка «Сейчас в эфире: …».
+   */
+  activeAnalysisId?: string | null;
+  activeTitle?: string | null;
 }) {
   // Хук всегда вызываем (правила React), но slug передаём только когда
   // прямой lectureId не дан — иначе useLectureLookupBySlug «спит».
@@ -260,6 +270,16 @@ function LectureBadgesBlock({
           recordingStartedAtClient={startedAt}
           active={isLive}
         />
+        {/* KS-4628 / ADR-142 §2.9. Popover «Переключить окно анализа»
+            доступен только тренеру (`!isViewer`) и только когда есть
+            slug активной трансляции. На зрителя/анонима не влияет. */}
+        {slug && (
+          <LectureAnalysisSwitcher
+            slug={slug}
+            activeAnalysisId={activeAnalysisId ?? null}
+            activeTitle={activeTitle ?? null}
+          />
+        )}
         {chatNode}
       </span>
     );
@@ -4141,6 +4161,8 @@ function AnalysisPageInner({
           isViewer={isViewerLive}
           embedded={embedded}
           currentUserId={user?.id ?? null}
+          activeAnalysisId={liveFull.activeAnalysisId}
+          activeTitle={liveFull.activeTitle}
         />
         {/* KS-3750: badge «получено обновление от автора». Виден
             только в зрительском live-режиме и только когда зритель

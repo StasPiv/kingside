@@ -983,6 +983,32 @@
       "bindHint": "The chosen lecture will go live with this analysis. Title, description, tools and access stay as configured."
     }
   },
+  "lectureSwitcher": {
+    "toggle": "Switch analysis window",
+    "dialogAria": "Switch analysis window",
+    "activeHint": "Now live: {{title}}",
+    "searchPlaceholder": "Search my analyses…",
+    "searchAria": "Search my analyses",
+    "loading": "Loading…",
+    "loadError": "Failed to load analyses list.",
+    "emptySearch": "No analyses match your search.",
+    "emptyAll": "You have no saved analyses yet.",
+    "switching": "Switching…",
+    "toastSwitched": "Switched: {{title}}",
+    "error": {
+      "forbidden_analysis": "You can only switch to your own analyses.",
+      "forbidden_slug": "You are not the owner of this broadcast.",
+      "forbidden": "Not enough permissions.",
+      "tree_too_large": "The analysis is too large to switch.",
+      "not_found": "Broadcast not found or already closed.",
+      "bad_request": "Invalid request — try again.",
+      "unauthorized": "Session expired — please log in again.",
+      "network_error": "Network error — check your connection.",
+      "server_error": "Server error — please try again.",
+      "invalid_response": "Unexpected server response.",
+      "unknown": "Failed to switch the analysis window."
+    }
+  },
   "lectureChat": {
     "title": "Lecture chat",
     "moderator": "moderator",

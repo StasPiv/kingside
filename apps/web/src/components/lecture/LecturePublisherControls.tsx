@@ -7,6 +7,7 @@ import {
 } from '../../hooks/useLectureAudioPublisher';
 import { useLectureAudioPeerConnections } from '../../hooks/useLectureAudioPeerConnections';
 import { LectureSettingsModal } from './LectureSettingsModal';
+import { LectureAnalysisSwitcher } from './LectureAnalysisSwitcher';
 
 /**
  * KS-3843 / ADR-116 §7.3. UI live-комнаты тренера: кнопка «Включить
@@ -67,6 +68,23 @@ export interface LecturePublisherControlsProps {
   onClosed?: () => void;
   /** Доп. класс. */
   className?: string;
+  /**
+   * KS-4628 / ADR-142 §2.9. Slug активной трансляции лекции — нужен
+   * для popover'а «Переключить окно анализа» (REST `POST
+   * /live-analyses/:slug/switch-analysis`). Если не передан, switcher
+   * не рендерится — у компонента остаётся прежнее аудио/доступ-поведение.
+   */
+  liveSlug?: string | null;
+  /**
+   * KS-4628 / ADR-142 §2.4. UUID активного `Analysis` для подсветки
+   * текущего пункта в picker'е. Источник — `LiveAnalysisSyncSnapshot.activeAnalysisId`.
+   */
+  activeAnalysisId?: string | null;
+  /**
+   * KS-4628 / ADR-142 §2.4. Заголовок активного окна — для текста
+   * «Сейчас в эфире: <title>» в шапке popover'а.
+   */
+  activeAnalysisTitle?: string | null;
 }
 
 function describeError(err: Error): {
@@ -107,6 +125,9 @@ export function LecturePublisherControls({
   recordingStartedAtClient = null,
   onClosed,
   className,
+  liveSlug = null,
+  activeAnalysisId = null,
+  activeAnalysisTitle = null,
 }: LecturePublisherControlsProps) {
   const { t } = useTranslation();
 
@@ -381,6 +402,18 @@ export function LecturePublisherControls({
           <span aria-hidden="true">🔒</span>
           {t('lecturePublisher.access', 'Доступ')}
         </button>
+
+        {/* KS-4628 / ADR-142 §2.9. Popover «Переключить окно анализа».
+            Рендерится только когда есть `liveSlug` (т.е. трансляция
+            активна). На lectures без `slug` блок отсутствует — старое
+            UI без switcher'а сохраняется как fallback. */}
+        {liveSlug && (
+          <LectureAnalysisSwitcher
+            slug={liveSlug}
+            activeAnalysisId={activeAnalysisId}
+            activeTitle={activeAnalysisTitle}
+          />
+        )}
       </div>
 
       {publisher.isRecording && (
