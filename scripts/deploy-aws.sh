@@ -1387,6 +1387,31 @@ if $DEPLOY_FRONTEND; then
         --paths "/*" --query 'Invalidation.Id' --output text
     echo "  CloudFront invalidation created."
     _perf_stamp "frontend_cf_invalidation_done"
+
+    # KS-4648: post-deploy prerender reindex.
+    # При изменении ШАБЛОНА страницы (новые компоненты, разметка) данные сущностей
+    # не меняются — mutation-хуки в API не срабатывают, prerender-snapshot остаётся
+    # устаревшим. Дёргаем оба админ-эндпоинта, чтобы поставить в SQS-очередь
+    # переиндексацию /lectures/<uuid>, /coach/<handle>, /broadcasts и list-страниц.
+    # Сбой не валит деплой (non-fatal): обходной ручной запуск остаётся.
+    echo "[frontend] Triggering prerender reindex (lectures/coaches/broadcasts/lists)..."
+    REINDEX_TOKEN=$(aws ecs describe-task-definition --task-definition kingside-api \
+        --region "$REGION" \
+        --query 'taskDefinition.containerDefinitions[0].environment[?name==`BROADCAST_ADMIN_TOKEN`].value' \
+        --output text 2>/dev/null)
+    if [ -n "$REINDEX_TOKEN" ] && [ "$REINDEX_TOKEN" != "None" ]; then
+        curl -fsS -X POST -H "X-Admin-Token: $REINDEX_TOKEN" --max-time 60 \
+            "$PROD_VITE_API_URL/admin/prerender/reindex/all" \
+            || echo "[frontend] WARN: reindex/all failed (non-fatal)"
+        curl -fsS -X POST -H "X-Admin-Token: $REINDEX_TOKEN" --max-time 180 \
+            "$PROD_VITE_API_URL/admin/prerender/reindex/broadcasts" \
+            || echo "[frontend] WARN: reindex/broadcasts failed (non-fatal)"
+        echo "  Prerender reindex queued."
+    else
+        echo "[frontend] WARN: BROADCAST_ADMIN_TOKEN not found in kingside-api task-def — skipping prerender reindex"
+    fi
+    unset REINDEX_TOKEN
+    _perf_stamp "frontend_prerender_reindex_done"
 fi
 
 # --- API: docker build → ECR push под :<sha> → migrate → update-service →
