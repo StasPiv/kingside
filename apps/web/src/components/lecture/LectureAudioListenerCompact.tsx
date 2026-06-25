@@ -192,12 +192,12 @@ export function LectureAudioListenerCompact({
   const title = isCapacityExceeded
     ? t(
         'lectureAudio.capacityExceededShort',
-        'Лекция заполнена, голос недоступен',
+        'Lecture is full, voice is unavailable',
       )
     : isFailed
     ? t(
         'lectureAudio.iceFailedShort',
-        'Не удалось установить голосовое соединение',
+        'Failed to establish a voice connection',
       )
     : !unlocked
     ? t('lectureAudio.unlock', "Unlock trainer's voice")

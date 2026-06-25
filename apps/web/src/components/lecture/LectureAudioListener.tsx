@@ -177,7 +177,7 @@ export function LectureAudioListener({
         >
           {t(
             'lectureAudio.capacityExceeded',
-            'Лекция заполнена, голос недоступен. Подключитесь позже.',
+            'Lecture is full, voice is unavailable. Please try again later.',
           )}
         </div>
       )}
@@ -197,7 +197,7 @@ export function LectureAudioListener({
         >
           {t(
             'lectureAudio.iceFailed',
-            'Не удалось установить голосовое соединение. Проверьте сеть или попробуйте другое устройство. Доска работает без звука.',
+            'Failed to establish a voice connection. Check your network or try a different device. The board works without sound.',
           )}
         </div>
       )}

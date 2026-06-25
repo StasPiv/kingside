@@ -14,6 +14,7 @@
  * в `hooks/useBotEngine.ts` и `hooks/useLocalBotGame.ts`.
  */
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import {
   getBotEngineDebugEvents,
@@ -23,6 +24,7 @@ import {
 } from '../lib/botEngineDebug';
 
 export function BotEngineDebugPanel() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [events, setEvents] = useState<readonly BotEngineDebugEvent[]>(() =>
     getBotEngineDebugEvents(),
@@ -79,12 +81,16 @@ export function BotEngineDebugPanel() {
           onClick={onCopy}
           data-testid="bot-engine-debug-copy"
         >
-          {copied ? 'Скопировано' : 'Скопировать всё'}
+          {copied
+            ? t('botEngineDebug.copied', 'Copied')
+            : t('botEngineDebug.copyAll', 'Copy all')}
         </button>
       </div>
       <ol className="bot-engine-debug-panel__list">
         {events.length === 0 ? (
-          <li className="bot-engine-debug-panel__empty">(пусто)</li>
+          <li className="bot-engine-debug-panel__empty">
+            {t('botEngineDebug.empty', '(empty)')}
+          </li>
         ) : (
           events.map((e, i) => (
             <li

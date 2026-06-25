@@ -314,7 +314,7 @@ export function CoachProfilePage() {
           showToast(
             t(
               'lectureLive.serverError',
-              'Не удалось выполнить, попробуйте позже',
+              'Action failed, please try again later',
             ),
           );
           return;
@@ -325,11 +325,11 @@ export function CoachProfilePage() {
         action === 'force-end'
           ? t(
               'lectureLive.endFailed',
-              'Не удалось завершить лекцию. Попробуйте ещё раз.',
+              'Failed to end the lecture. Please try again.',
             )
           : t(
               'lectureLive.deleteFailed',
-              'Не удалось удалить лекцию. Попробуйте ещё раз.',
+              'Failed to delete the lecture. Please try again.',
             ),
       );
     },
@@ -348,7 +348,7 @@ export function CoachProfilePage() {
         !window.confirm(
           t(
             'lectureLive.endConfirm',
-            'Завершить лекцию «{{title}}»?',
+            'End the lecture "{{title}}"?',
             { title: lecture.title },
           ),
         )
@@ -375,7 +375,7 @@ export function CoachProfilePage() {
         showToast(
           t(
             'lectureLive.endSuccessToast',
-            'Лекция «{{title}}» завершена',
+            'Lecture "{{title}}" ended',
             { title: lecture.title },
           ),
         );
@@ -402,7 +402,7 @@ export function CoachProfilePage() {
         !window.confirm(
           t(
             'lectureDelete.confirm',
-            'Удалить лекцию «{{title}}»? Действие необратимо.',
+            'Delete the lecture "{{title}}"? This cannot be undone.',
             { title: lecture.title },
           ),
         )
@@ -423,7 +423,7 @@ export function CoachProfilePage() {
         showToast(
           t(
             'lectureDelete.successToast',
-            'Лекция «{{title}}» удалена',
+            'Lecture "{{title}}" deleted',
             { title: lecture.title },
           ),
         );

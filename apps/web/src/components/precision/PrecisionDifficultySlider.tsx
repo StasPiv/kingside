@@ -159,7 +159,7 @@ export function PrecisionDifficultySlider({
           value={value.min}
           aria-label={t(
             'precision.difficulty.minAriaLabel',
-            'Минимальная сложность пазлов',
+            'Minimum puzzle difficulty',
           )}
           data-testid="precision-difficulty-filter-min"
           className="precision-difficulty-filter__range precision-difficulty-filter__range--min"
@@ -173,7 +173,7 @@ export function PrecisionDifficultySlider({
           value={value.max}
           aria-label={t(
             'precision.difficulty.maxAriaLabel',
-            'Максимальная сложность пазлов',
+            'Maximum puzzle difficulty',
           )}
           data-testid="precision-difficulty-filter-max"
           className="precision-difficulty-filter__range precision-difficulty-filter__range--max"

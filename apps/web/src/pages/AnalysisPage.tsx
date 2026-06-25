@@ -2924,7 +2924,10 @@ function AnalysisPageInner({
           headerLink={
             analysisId
               ? {
-                  label: '↗ Открыть полную аналитику партии',
+                  label: t(
+                    'analysis.metrics.openFullPage',
+                    '↗ Open full game analytics',
+                  ),
                   href: `/analyses/${analysisId}/metrics`,
                 }
               : undefined

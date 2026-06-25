@@ -580,7 +580,7 @@ export function FindAllChecksRunner({
         <DrillInstructions tone="error">
           {t(
             'drills.findAllChecks.missingData',
-            'Нет данных для проверки. Попробуйте позже.',
+            'No data to validate against. Please try again later.',
           )}
         </DrillInstructions>
       </div>

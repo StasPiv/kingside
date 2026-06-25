@@ -7,20 +7,24 @@
  * следующего шага эпика A.
  */
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 export function LectureLivePage() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   return (
     <div
       className="lecture-live-page"
       data-testid="lecture-live-page"
       style={{ padding: 16 }}
     >
-      <h1>Лекция: эфир</h1>
+      <h1>{t('lectureLive.pageTitle', 'Lecture: live')}</h1>
       <p data-testid="lecture-live-id">{id ?? ''}</p>
       <p style={{ opacity: 0.7, fontSize: 13 }}>
-        Маршрут готов; переход на публичный slug трансляции будет добавлен
-        отдельным шагом.
+        {t(
+          'lectureLive.pageStub',
+          'Route is ready; redirect to the public broadcast slug will be added in a follow-up step.',
+        )}
       </p>
     </div>
   );

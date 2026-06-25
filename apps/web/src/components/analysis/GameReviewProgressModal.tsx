@@ -84,36 +84,36 @@ export function GameReviewProgressModal({
           {isCreating
             ? t(
                 'analysis.review.progress.creating',
-                'Создаю копию анализа…',
+                'Creating analysis copy…',
               )
             : isStabilizing
               ? t(
                   'analysis.review.progress.stabilizing',
-                  'Стабилизация вариантов…',
+                  'Stabilizing variations…',
                 ) +
                 (total > 0 ? ` · ${done} / ${total}` : '')
               : isFinalEval
                 ? t(
                     'analysis.review.progress.finalEval',
-                    'Оценка финальных позиций…',
+                    'Evaluating final positions…',
                   ) +
                   (total > 0 ? ` · ${done} / ${total}` : '')
               : isPositional
                 ? t(
                     'analysis.review.progress.positional',
-                    'Расчёт позиционных факторов…',
+                    'Computing positional factors…',
                   ) +
                   (total > 0 ? ` · ${done} / ${total}` : '')
                 : isComments
                   ? t(
                       'analysis.review.progress.comments',
-                      'Готовлю комментарии…',
+                      'Preparing comments…',
                     ) +
                     (total > 0 ? ` · ${done} / ${total}` : '')
                   : isFinalizing
                     ? t(
                         'analysis.review.progress.finalizing',
-                        'Завершаю анализ…',
+                        'Finalizing analysis…',
                       )
                     : t(
                         'analysis.review.progress.engine',
@@ -147,7 +147,7 @@ export function GameReviewProgressModal({
             error === 'positional_engine_unavailable'
               ? t(
                   'analysis.review.error.engineUnavailable',
-                  'Не удалось запустить позиционный анализ. Попробуйте ещё раз.',
+                  'Failed to start positional analysis. Please try again.',
                 )
               : error ||
                 t('analysis.review.error', 'Failed to analyze')}

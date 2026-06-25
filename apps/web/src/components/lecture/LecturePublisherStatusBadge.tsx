@@ -143,7 +143,7 @@ export function LecturePublisherStatusBadge({
           >
             {t(
               'lecturePublisher.compactRecording',
-              'Запись · {{count}} слушают',
+              'Recording · {{count}} listening',
               { count: peerCount },
             )}
           </span>
@@ -153,7 +153,7 @@ export function LecturePublisherStatusBadge({
               style={{ color: '#b26a00' }}
               title={t(
                 'lecturePublisher.failedHint',
-                'Аудио не загрузилось на сервер',
+                'Audio failed to upload to the server',
               )}
             >
               ⚠
@@ -170,16 +170,16 @@ export function LecturePublisherStatusBadge({
           {isLockError
             ? t(
                 'lecturePublisher.compactLockError',
-                'Лекция уже ведётся в другой вкладке. Закройте эту или продолжите там.',
+                'Lecture is already running in another tab. Close this one or continue there.',
               )
             : isPermissionError
             ? t(
                 'lecturePublisher.compactPermissionError',
-                'Нет доступа к микрофону',
+                'No microphone access',
               )
             : t(
                 'lecturePublisher.compactGenericError',
-                'Запись не запущена',
+                'Recording is not running',
               )}
         </span>
       )}

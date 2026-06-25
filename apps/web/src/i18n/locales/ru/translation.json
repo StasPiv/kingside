@@ -1281,11 +1281,20 @@
     "noPermission": "Нет прав на это действие",
     "invalidStatus": "Действие недоступно для текущего статуса лекции",
     "endButton": "Завершить лекцию",
-    "ending": "Завершение…"
+    "ending": "Завершение…",
+    "endConfirm": "Завершить лекцию «{{title}}»?",
+    "endFailed": "Не удалось завершить лекцию. Попробуйте ещё раз.",
+    "endSuccessToast": "Лекция «{{title}}» завершена",
+    "deleteFailed": "Не удалось удалить лекцию. Попробуйте ещё раз.",
+    "serverError": "Не удалось выполнить, попробуйте позже",
+    "pageTitle": "Лекция: эфир",
+    "pageStub": "Маршрут готов; переход на публичный slug трансляции будет добавлен отдельным шагом."
   },
   "lectureDelete": {
     "button": "Удалить",
-    "deleting": "Удаление…"
+    "deleting": "Удаление…",
+    "confirm": "Удалить лекцию «{{title}}»? Действие необратимо.",
+    "successToast": "Лекция «{{title}}» удалена"
   },
   "lectureAudio": {
     "unlock": "Включить голос тренера",
@@ -1295,7 +1304,8 @@
     "statusLive": "Голос в эфире",
     "statusWaiting": "Ожидание тренера…",
     "publisherNotJoined": "Тренер ещё не подключился к голосу.",
-    "iceFailedShort": "Не удалось установить голосовое соединение"
+    "iceFailedShort": "Не удалось установить голосовое соединение",
+    "capacityExceededShort": "Лекция заполнена, голос недоступен"
   },
   "lectureRecording": {
     "badge": "Запись"
@@ -1306,6 +1316,27 @@
     "openInAnalysis": "Открыть в Мастерской",
     "movesTitle": "Ходы",
     "noMovesYet": "Партия ещё не началась"
+  },
+  "botEngineDebug": {
+    "copied": "Скопировано",
+    "copyAll": "Скопировать всё",
+    "empty": "(пусто)"
+  },
+  "analysisMetrics": {
+    "defaultTitle": "Анализ",
+    "loading": "Загрузка…",
+    "missingId": "Не указан идентификатор анализа.",
+    "notFound": "Анализ не найден или недоступен.",
+    "backToAnalysis": "Назад к анализу",
+    "startingPosition": "Начальная позиция",
+    "afterMove": "После {{n}}{{sep}}{{san}}",
+    "pliesCount": "{{count}} полуходов",
+    "nav": {
+      "start": "Начало",
+      "back": "Назад",
+      "forward": "Вперёд",
+      "end": "Конец"
+    }
   },
   "liveAnalysisViewer": {
     "defaultTitle": "Живой разбор",
@@ -1561,6 +1592,7 @@
   "analysis": {
     "metrics": {
       "title": "Метрики",
+      "openFullPage": "↗ Открыть полную аналитику партии",
       "modeDiff": "Разница",
       "modeParallel": "Параллельно",
       "hideTiny": "Скрыть малозначимые",

@@ -16,6 +16,7 @@
  * один ход» внутри панели.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
@@ -128,7 +129,9 @@ function useAnalysisMainline(analysisId: string | undefined): MainlineState {
         uciMoves: parsed.uci,
         sanMoves: parsed.san,
         fens: parsed.fens,
-        title: dto.title || 'Анализ',
+        // KS-4633: пустой title оставляем — локализованный fallback
+        // подставит вызывающая сторона через `t('analysisMetrics.defaultTitle')`.
+        title: dto.title || '',
         loading: false,
         notFound: false,
       });
@@ -141,6 +144,7 @@ function useAnalysisMainline(analysisId: string | undefined): MainlineState {
 }
 
 export function AnalysisMetricsPage() {
+  const { t } = useTranslation();
   const { analysisId } = useParams<{ analysisId: string }>();
   const mainline = useAnalysisMainline(analysisId);
   const trace = usePositionalTrace({ analysisId: analysisId ?? null });
@@ -162,17 +166,23 @@ export function AnalysisMetricsPage() {
     return mainline.fens[idx];
   }, [mainline.fens, currentPly]);
   const boardCaption = useMemo(() => {
-    if (currentPly === 0) return 'Начальная позиция';
+    if (currentPly === 0) {
+      return t('analysisMetrics.startingPosition', 'Starting position');
+    }
     const moveNo = Math.ceil(currentPly / 2);
     const san = mainline.sanMoves[currentPly - 1] ?? '';
-    return `После ${moveNo}${currentPly % 2 === 1 ? '.' : '…'}${san}`;
-  }, [currentPly, mainline.sanMoves]);
+    return t('analysisMetrics.afterMove', 'After {{n}}{{sep}}{{san}}', {
+      n: moveNo,
+      sep: currentPly % 2 === 1 ? '.' : '…',
+      san,
+    });
+  }, [currentPly, mainline.sanMoves, t]);
 
   if (!analysisId) {
     return (
       <div style={{ padding: 24 }}>
-        <p>Не указан идентификатор анализа.</p>
-        <Link to="/lessons">← На главную</Link>
+        <p>{t('analysisMetrics.missingId', 'Analysis identifier is not specified.')}</p>
+        <Link to="/lessons">← {t('common.backToHome', 'Back to home')}</Link>
       </div>
     );
   }
@@ -209,18 +219,22 @@ export function AnalysisMetricsPage() {
             textDecoration: 'none',
           }}
         >
-          ← Назад к анализу
+          ← {t('analysisMetrics.backToAnalysis', 'Back to analysis')}
         </Link>
         <h1 style={{ margin: 0, fontSize: 22 }}>
-          {mainline.loading ? 'Загрузка…' : mainline.title || 'Анализ'}
+          {mainline.loading
+            ? t('analysisMetrics.loading', 'Loading…')
+            : mainline.title || t('analysisMetrics.defaultTitle', 'Analysis')}
         </h1>
         <span style={{ color: '#999', fontSize: 12 }}>
-          · {mainline.uciMoves.length} полуходов
+          · {t('analysisMetrics.pliesCount', '{{count}} plies', {
+            count: mainline.uciMoves.length,
+          })}
         </span>
       </div>
       {mainline.notFound ? (
         <div style={{ color: '#8a1f1f', fontSize: 13, padding: '0 16px' }}>
-          Анализ не найден или недоступен.
+          {t('analysisMetrics.notFound', 'Analysis not found or not available.')}
         </div>
       ) : (
         <div style={{ background: '#fff', padding: 0 }}>
@@ -267,7 +281,7 @@ export function AnalysisMetricsPage() {
                   onClick={() => setCurrentPly(0)}
                   style={navButtonStyle}
                   disabled={currentPly === 0}
-                  aria-label="Начало"
+                  aria-label={t('analysisMetrics.nav.start', 'Start')}
                 >
                   ⏮
                 </button>
@@ -276,7 +290,7 @@ export function AnalysisMetricsPage() {
                   onClick={() => setCurrentPly((p) => Math.max(0, p - 1))}
                   style={navButtonStyle}
                   disabled={currentPly === 0}
-                  aria-label="Назад"
+                  aria-label={t('analysisMetrics.nav.back', 'Back')}
                 >
                   ◀
                 </button>
@@ -287,7 +301,7 @@ export function AnalysisMetricsPage() {
                   }
                   style={navButtonStyle}
                   disabled={currentPly >= mainline.fens.length - 1}
-                  aria-label="Вперёд"
+                  aria-label={t('analysisMetrics.nav.forward', 'Forward')}
                 >
                   ▶
                 </button>
@@ -296,7 +310,7 @@ export function AnalysisMetricsPage() {
                   onClick={() => setCurrentPly(mainline.fens.length - 1)}
                   style={navButtonStyle}
                   disabled={currentPly >= mainline.fens.length - 1}
-                  aria-label="Конец"
+                  aria-label={t('analysisMetrics.nav.end', 'End')}
                 >
                   ⏭
                 </button>

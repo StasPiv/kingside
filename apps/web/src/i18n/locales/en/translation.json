@@ -1077,11 +1077,20 @@
     "noPermission": "No permission for this action",
     "invalidStatus": "Action is not available for the current lecture status",
     "endButton": "End lecture",
-    "ending": "Ending…"
+    "ending": "Ending…",
+    "endConfirm": "End the lecture \"{{title}}\"?",
+    "endFailed": "Failed to end the lecture. Please try again.",
+    "endSuccessToast": "Lecture \"{{title}}\" ended",
+    "deleteFailed": "Failed to delete the lecture. Please try again.",
+    "serverError": "Action failed, please try again later",
+    "pageTitle": "Lecture: live",
+    "pageStub": "Route is ready; redirect to the public broadcast slug will be added in a follow-up step."
   },
   "lectureDelete": {
     "button": "Delete",
-    "deleting": "Deleting…"
+    "deleting": "Deleting…",
+    "confirm": "Delete the lecture \"{{title}}\"? This cannot be undone.",
+    "successToast": "Lecture \"{{title}}\" deleted"
   },
   "lectureAudio": {
     "unlock": "Unlock trainer's voice",
@@ -1091,7 +1100,8 @@
     "statusLive": "Voice is live",
     "statusWaiting": "Waiting for the trainer…",
     "publisherNotJoined": "The trainer has not joined the voice channel yet.",
-    "iceFailedShort": "Failed to establish a voice connection"
+    "iceFailedShort": "Failed to establish a voice connection",
+    "capacityExceededShort": "Lecture is full, voice is unavailable"
   },
   "lectureRecording": {
     "badge": "Recording"
@@ -1102,6 +1112,27 @@
     "openInAnalysis": "Open in workshop",
     "movesTitle": "Moves",
     "noMovesYet": "The game has not started yet"
+  },
+  "botEngineDebug": {
+    "copied": "Copied",
+    "copyAll": "Copy all",
+    "empty": "(empty)"
+  },
+  "analysisMetrics": {
+    "defaultTitle": "Analysis",
+    "loading": "Loading…",
+    "missingId": "Analysis identifier is not specified.",
+    "notFound": "Analysis not found or not available.",
+    "backToAnalysis": "Back to analysis",
+    "startingPosition": "Starting position",
+    "afterMove": "After {{n}}{{sep}}{{san}}",
+    "pliesCount": "{{count}} plies",
+    "nav": {
+      "start": "Start",
+      "back": "Back",
+      "forward": "Forward",
+      "end": "End"
+    }
   },
   "studentVisibility": {
     "sectionLabel": "What students see",
@@ -1382,6 +1413,7 @@
   "analysis": {
     "metrics": {
       "title": "Metrics",
+      "openFullPage": "↗ Open full game analytics",
       "modeDiff": "Difference",
       "modeParallel": "Parallel",
       "hideTiny": "Hide insignificant",
