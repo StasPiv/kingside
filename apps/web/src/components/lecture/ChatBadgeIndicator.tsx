@@ -60,7 +60,7 @@ export function ChatBadgeIndicator({
       data-pulse={pulse ? 'true' : 'false'}
       onClick={onOpen}
       className={['chat-badge-indicator', className].filter(Boolean).join(' ')}
-      aria-label={t('lectureChat.openAria', 'Открыть чат лекции')}
+      aria-label={t('lectureChat.openAria', 'Open lecture chat')}
       aria-live={isLive ? 'polite' : 'off'}
       style={{
         display: 'inline-flex',
@@ -82,7 +82,7 @@ export function ChatBadgeIndicator({
       <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>
         💬
       </span>
-      <span>{t('lectureChat.shortLabel', 'Чат')}</span>
+      <span>{t('lectureChat.shortLabel', 'Chat')}</span>
       {display !== null && (
         <span
           data-testid="chat-badge-count"

@@ -246,7 +246,7 @@ export function CoursePage() {
           >
             {altLang === 'en'
               ? t('lessons.courseUnavailableInLang.switchEn', 'Switch to English')
-              : t('lessons.courseUnavailableInLang.switchRu', 'Переключиться на русский')}
+              : t('lessons.courseUnavailableInLang.switchRu', 'Switch to Russian')}
           </button>
           <Link
             to="/lessons"

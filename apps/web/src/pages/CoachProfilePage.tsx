@@ -298,14 +298,14 @@ export function CoachProfilePage() {
         // тост показывать не нужно — будет редирект.
         if (e.status === 401) return;
         if (e.status === 403) {
-          showToast(t('lectureLive.noPermission', 'Нет прав на это действие'));
+          showToast(t('lectureLive.noPermission', 'No permission for this action'));
           return;
         }
         if (e.status === 409) {
           showToast(
             t(
               'lectureLive.invalidStatus',
-              'Действие недоступно для текущего статуса лекции',
+              'Action is not available for the current lecture status',
             ),
           );
           return;
@@ -900,8 +900,8 @@ export function CoachProfilePage() {
                         }}
                       >
                         {deletingLectureId === l.id
-                          ? t('lectureDelete.deleting', 'Удаление…')
-                          : t('lectureDelete.button', 'Удалить')}
+                          ? t('lectureDelete.deleting', 'Deleting…')
+                          : t('lectureDelete.button', 'Delete')}
                       </button>
                     </div>
                   )}
@@ -1035,8 +1035,8 @@ export function CoachProfilePage() {
                         }}
                       >
                         {endingLectureId === l.id
-                          ? t('lectureLive.ending', 'Завершение…')
-                          : t('lectureLive.endButton', 'Завершить лекцию')}
+                          ? t('lectureLive.ending', 'Ending…')
+                          : t('lectureLive.endButton', 'End lecture')}
                       </button>
                     </div>
                   )}
@@ -1159,8 +1159,8 @@ export function CoachProfilePage() {
                         }}
                       >
                         {deletingLectureId === l.id
-                          ? t('lectureDelete.deleting', 'Удаление…')
-                          : t('lectureDelete.button', 'Удалить')}
+                          ? t('lectureDelete.deleting', 'Deleting…')
+                          : t('lectureDelete.button', 'Delete')}
                       </button>
                     </div>
                   )}
@@ -1273,8 +1273,8 @@ export function CoachProfilePage() {
                         }}
                       >
                         {deletingLectureId === l.id
-                          ? t('lectureDelete.deleting', 'Удаление…')
-                          : t('lectureDelete.button', 'Удалить')}
+                          ? t('lectureDelete.deleting', 'Deleting…')
+                          : t('lectureDelete.button', 'Delete')}
                       </button>
                     </div>
                   )}

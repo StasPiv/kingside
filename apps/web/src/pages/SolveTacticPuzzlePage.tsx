@@ -414,7 +414,7 @@ export function SolveTacticPuzzlePage() {
               data-testid="tactic-puzzle-difficulty"
               data-percent={Math.round(puzzle.difficulty * 100)}
             >
-              {t('puzzle.difficulty', 'Сложность')}{' '}
+              {t('puzzle.difficulty', 'Difficulty')}{' '}
               <span
                 className="puzzle-difficulty__value"
                 data-testid="tactic-puzzle-difficulty-value"

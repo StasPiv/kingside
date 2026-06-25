@@ -87,20 +87,27 @@ export interface LecturePublisherControlsProps {
   activeAnalysisTitle?: string | null;
 }
 
-function describeError(err: Error): {
-  title: string;
-  body: string;
+/**
+ * KS-4633: Возвращает i18n-ключи (а не локализованные строки) — собственно
+ * перевод делается на месте через `t()`. Раньше функция возвращала
+ * хардкод-русский, из-за чего EN-юзеры видели русский даже при
+ * en-локали.
+ */
+function describeErrorKeys(err: Error): {
+  titleKey: string;
+  bodyKey: string;
+  bodyFallback?: string;
 } {
   if (err instanceof AudioPublisherLockError) {
     return {
-      title: 'Запись уже идёт с другого устройства',
-      body: 'Откройте лекцию там, где запись активна, либо остановите её, чтобы публиковать с этой вкладки.',
+      titleKey: 'lecturePublisher.error.lockTitle',
+      bodyKey: 'lecturePublisher.error.lockBody',
     };
   }
   if (err.name === 'NotAllowedError' || /permission/i.test(err.message)) {
     return {
-      title: 'Микрофон запрещён',
-      body: 'Откройте настройки сайта в браузере и разрешите доступ к микрофону, затем повторите попытку.',
+      titleKey: 'lecturePublisher.error.permissionTitle',
+      bodyKey: 'lecturePublisher.error.permissionBody',
     };
   }
   if (
@@ -108,13 +115,16 @@ function describeError(err: Error): {
     /no.*device|device.*not.*found|unplugged/i.test(err.message)
   ) {
     return {
-      title: 'Микрофон не найден',
-      body: 'Подключите микрофон или выберите его в настройках операционной системы и повторите попытку.',
+      titleKey: 'lecturePublisher.error.notFoundTitle',
+      bodyKey: 'lecturePublisher.error.notFoundBody',
     };
   }
   return {
-    title: 'Не удалось включить запись',
-    body: err.message || 'Неизвестная ошибка. Перезагрузите страницу и попробуйте снова.',
+    titleKey: 'lecturePublisher.error.genericTitle',
+    bodyKey: 'lecturePublisher.error.genericBody',
+    // err.message — техническая строка, остаётся как есть (используется
+    // как override, если есть).
+    bodyFallback: err.message || undefined,
   };
 }
 
@@ -180,10 +190,14 @@ export function LecturePublisherControls({
 
   // Объединяем ошибки публикатора и локальные UI-ошибки.
   const visibleError = localError ?? publisher.error;
-  const errorInfo = useMemo(
-    () => (visibleError ? describeError(visibleError) : null),
-    [visibleError],
-  );
+  const errorInfo = useMemo(() => {
+    if (!visibleError) return null;
+    const keys = describeErrorKeys(visibleError);
+    return {
+      title: t(keys.titleKey),
+      body: t(keys.bodyKey, keys.bodyFallback ?? ''),
+    };
+  }, [visibleError, t]);
 
   // На размонтирование/смену лекции — закрываем модал ошибки, чтобы
   // он не висел на следующем экране.
@@ -257,7 +271,7 @@ export function LecturePublisherControls({
               !recordingSupported
                 ? t(
                     'lecturePublisher.recorderUnsupportedHint',
-                    'Ваш браузер не поддерживает запись звука',
+                    'Your browser does not support audio recording',
                   )
                 : undefined
             }
@@ -277,10 +291,10 @@ export function LecturePublisherControls({
           >
             <span aria-hidden="true">🎙</span>
             {pendingAction === 'starting'
-              ? t('lecturePublisher.starting', 'Включение…')
+              ? t('lecturePublisher.starting', 'Starting…')
               : t(
                   'lecturePublisher.start',
-                  'Включить микрофон и запись',
+                  'Start microphone and recording',
                 )}
           </button>
         ) : (
@@ -304,8 +318,8 @@ export function LecturePublisherControls({
           >
             <span aria-hidden="true">■</span>
             {pendingAction === 'stopping'
-              ? t('lecturePublisher.stopping', 'Остановка…')
-              : t('lecturePublisher.stop', 'Остановить запись')}
+              ? t('lecturePublisher.stopping', 'Stopping…')
+              : t('lecturePublisher.stop', 'Stop recording')}
           </button>
         )}
 
@@ -340,7 +354,7 @@ export function LecturePublisherControls({
             <span data-testid="lecture-publisher-chunks-count">
               {t(
                 'lecturePublisher.recording',
-                'Запись идёт, чанков отправлено: {{count}}',
+                'Recording, chunks sent: {{count}}',
                 { count: publisher.chunksSent },
               )}
             </span>
@@ -351,7 +365,7 @@ export function LecturePublisherControls({
               >
                 {t(
                   'lecturePublisher.failed',
-                  'не загружено: {{count}}',
+                  'failed: {{count}}',
                   { count: publisher.chunksFailed },
                 )}
               </span>
@@ -373,7 +387,7 @@ export function LecturePublisherControls({
           <span aria-hidden="true">👂</span>
           {t(
             'lecturePublisher.peerCount',
-            'Слушают по голосу: {{count}} / 15',
+            'Listeners on voice: {{count}} / 15',
             { count: peerCount },
           )}
         </div>
@@ -400,7 +414,7 @@ export function LecturePublisherControls({
           }}
         >
           <span aria-hidden="true">🔒</span>
-          {t('lecturePublisher.access', 'Доступ')}
+          {t('lecturePublisher.access', 'Access')}
         </button>
 
         {/* KS-4628 / ADR-142 §2.9. Popover «Переключить окно анализа».
@@ -434,8 +448,8 @@ export function LecturePublisherControls({
           }}
         >
           {pendingAction === 'closing'
-            ? t('lecturePublisher.closing', 'Финализация…')
-            : t('lecturePublisher.close', 'Закрыть лекцию')}
+            ? t('lecturePublisher.closing', 'Finalizing…')
+            : t('lecturePublisher.close', 'Close lecture')}
         </button>
       )}
 
@@ -474,13 +488,13 @@ export function LecturePublisherControls({
             >
               {t(
                 'lecturePublisher.unsupportedTitle',
-                'Запись звука недоступна в этом браузере',
+                'Audio recording is not available in this browser',
               )}
             </h3>
             <p style={{ margin: '0 0 16px 0', color: '#444', fontSize: 14 }}>
               {t(
                 'lecturePublisher.unsupportedBody',
-                'Ваш браузер не поддерживает запись звука. Обновите Chrome, Firefox или Safari до актуальной версии, иначе лекция пойдёт без записи.',
+                'Your browser does not support audio recording. Update Chrome, Firefox or Safari to the latest version, otherwise the lecture will run without recording.',
               )}
             </p>
             <button
@@ -498,7 +512,7 @@ export function LecturePublisherControls({
             >
               {t(
                 'lecturePublisher.unsupportedContinue',
-                'Продолжить без записи',
+                'Continue without recording',
               )}
             </button>
           </div>
@@ -564,7 +578,7 @@ export function LecturePublisherControls({
                 cursor: 'pointer',
               }}
             >
-              {t('common.ok', 'Понятно')}
+              {t('common.ok', 'OK')}
             </button>
           </div>
         </div>

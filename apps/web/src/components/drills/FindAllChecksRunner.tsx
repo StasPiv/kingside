@@ -496,17 +496,17 @@ export function FindAllChecksRunner({
 
   const instructionText = useMemo(() => {
     if (state === 'feedback-correct') {
-      return t('drills.findAllChecks.correct', 'Шах! +1');
+      return t('drills.findAllChecks.correct', 'Check! +1');
     }
     if (state === 'feedback-already') {
-      return t('drills.findAllChecks.already', 'Этот шах уже найден');
+      return t('drills.findAllChecks.already', 'This check is already found');
     }
     if (state === 'feedback-wrong') {
-      return t('drills.findAllChecks.wrong', 'Это не шах');
+      return t('drills.findAllChecks.wrong', 'Not a check');
     }
     return t(
       'drills.instructions.findAllChecks',
-      'Сделайте все ходы с шахом',
+      'Find all checking moves',
     );
   }, [state, t]);
 
@@ -703,7 +703,7 @@ export function FindAllChecksRunner({
           data-testid="facr-finish"
           onClick={() => void finalSubmit()}
         >
-          {t('drills.findAllChecks.finish', 'Готово')}
+          {t('drills.findAllChecks.finish', 'Done')}
         </button>
       )}
     </div>

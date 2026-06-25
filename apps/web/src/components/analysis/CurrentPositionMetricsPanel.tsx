@@ -575,7 +575,7 @@ export function CurrentPositionMetricsPanel({
             onClick={() => setMode('diff')}
             data-testid="current-metrics-mode-diff"
           >
-            Разница
+            {t('analysis.metrics.modeDiff', 'Difference')}
           </button>
           <button
             type="button"
@@ -589,7 +589,7 @@ export function CurrentPositionMetricsPanel({
             onClick={() => setMode('parallel')}
             data-testid="current-metrics-mode-parallel"
           >
-            Параллельно
+            {t('analysis.metrics.modeParallel', 'Parallel')}
           </button>
         </div>
         <label className="current-metrics-panel__filter">
@@ -599,7 +599,7 @@ export function CurrentPositionMetricsPanel({
             onChange={(e) => setHideTiny(e.target.checked)}
             data-testid="current-metrics-hide-tiny"
           />
-          <span>Скрыть малозначимые</span>
+          <span>{t('analysis.metrics.hideTiny', 'Hide insignificant')}</span>
         </label>
         {headerLink && (
           <a
@@ -617,7 +617,7 @@ export function CurrentPositionMetricsPanel({
           className="current-metrics-panel__status current-metrics-panel__status--loading"
           data-testid="current-metrics-loading"
         >
-          Считаю позицию через Stockfish…
+          {t('analysis.metrics.loading', 'Evaluating position with Stockfish…')}
         </div>
       )}
 
@@ -626,7 +626,7 @@ export function CurrentPositionMetricsPanel({
           className="current-metrics-panel__status current-metrics-panel__status--error"
           data-testid="current-metrics-error"
         >
-          Не удалось получить метрики: {metrics.error}
+          {t('analysis.metrics.errorPrefix', 'Failed to fetch metrics:')} {metrics.error}
         </div>
       )}
 
@@ -635,7 +635,7 @@ export function CurrentPositionMetricsPanel({
           className="current-metrics-panel__status"
           data-testid="current-metrics-empty"
         >
-          Для этой позиции Stockfish не вернул подкомпонент.
+          {t('analysis.metrics.empty', 'Stockfish returned no subcomponents for this position.')}
         </div>
       )}
 

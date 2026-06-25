@@ -131,7 +131,7 @@ export function PrecisionDifficultySlider({
       data-max={value.max.toFixed(2)}
     >
       <span className="precision-difficulty-filter__label">
-        {t('precision.difficulty.label', 'Сложность')}
+        {t('precision.difficulty.label', 'Difficulty')}
       </span>
       <span
         className="precision-difficulty-filter__value"

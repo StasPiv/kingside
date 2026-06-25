@@ -43,7 +43,7 @@ export function PrecisionPuzzleDifficulty({
       data-testid="precision-puzzle-difficulty"
       data-percent={percent}
     >
-      {t('puzzle.difficulty', 'Сложность')}{' '}
+      {t('puzzle.difficulty', 'Difficulty')}{' '}
       <span
         className="puzzle-difficulty__value"
         data-testid="precision-puzzle-difficulty-value"

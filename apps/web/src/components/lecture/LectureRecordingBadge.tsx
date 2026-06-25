@@ -101,7 +101,7 @@ export function LectureRecordingBadge({
           50% { opacity: 0.35; }
         }
       `}</style>
-      {t('lectureRecording.badge', 'Запись')}
+      {t('lectureRecording.badge', 'Recording')}
     </div>
   );
 }

@@ -22,9 +22,9 @@ export function ThemeToggle() {
 
   const isDark = theme === 'dark';
   const nextThemeLabel = isDark
-    ? t('theme.light', 'Светлая тема')
-    : t('theme.dark', 'Тёмная тема');
-  const ariaLabel = t('theme.toggle', 'Переключить тему');
+    ? t('theme.light', 'Light theme')
+    : t('theme.dark', 'Dark theme');
+  const ariaLabel = t('theme.toggle', 'Toggle theme');
 
   return (
     <button

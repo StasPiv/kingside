@@ -221,7 +221,7 @@ export function LectureAudioListener({
           }}
         >
           <span aria-hidden="true">🔊</span>
-          {t('lectureAudio.unlock', 'Включить голос тренера')}
+          {t('lectureAudio.unlock', "Unlock trainer's voice")}
         </button>
       )}
 
@@ -242,8 +242,8 @@ export function LectureAudioListener({
             aria-pressed={muted}
             title={
               muted
-                ? t('lectureAudio.unmuteTitle', 'Включить звук')
-                : t('lectureAudio.muteTitle', 'Выключить звук')
+                ? t('lectureAudio.unmuteTitle', 'Unmute')
+                : t('lectureAudio.muteTitle', 'Mute')
             }
             style={{
               padding: '6px 10px',
@@ -263,7 +263,7 @@ export function LectureAudioListener({
             value={volume}
             onChange={(e) => setVolume(Number(e.target.value))}
             data-testid="lecture-audio-listener-volume"
-            aria-label={t('lectureAudio.volumeLabel', 'Громкость')}
+            aria-label={t('lectureAudio.volumeLabel', 'Volume')}
             /* KS-3882: явная горизонтальная ориентация. Без этого
                Safari iOS может перейти на vertical-slider. */
             style={{
@@ -278,8 +278,8 @@ export function LectureAudioListener({
             style={{ fontSize: 13, color: '#555' }}
           >
             {isConnected
-              ? t('lectureAudio.statusLive', 'Голос в эфире')
-              : t('lectureAudio.statusWaiting', 'Ожидание тренера…')}
+              ? t('lectureAudio.statusLive', 'Voice is live')
+              : t('lectureAudio.statusWaiting', 'Waiting for the trainer…')}
           </span>
         </div>
       )}
@@ -291,7 +291,7 @@ export function LectureAudioListener({
         >
           {t(
             'lectureAudio.publisherNotJoined',
-            'Тренер ещё не подключился к голосу.',
+            'The trainer has not joined the voice channel yet.',
           )}
         </div>
       )}

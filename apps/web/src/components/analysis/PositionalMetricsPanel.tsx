@@ -15,6 +15,7 @@
  * нужна интерактивность и зум.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { PositionalSubterm } from '@kingside/shared';
 import {
   METRIC_GROUPS,
@@ -116,6 +117,7 @@ export function MetricsChart({
   noDataMessage,
   sanMoves,
 }: MetricsChartProps) {
+  const { t } = useTranslation();
   const padding = { top: 12, right: 8, bottom: 28, left: 36 };
   const plotW = Math.max(40, width - padding.left - padding.right);
   const plotH = Math.max(40, height - padding.top - padding.bottom);
@@ -171,7 +173,7 @@ export function MetricsChart({
           padding: 12,
         }}
       >
-        {noDataMessage ?? 'Выберите хотя бы одну метрику в списке справа.'}
+        {noDataMessage ?? t('analysis.metrics.chartEmpty', 'Select at least one metric in the list on the right.')}
       </div>
     );
   }
@@ -234,7 +236,7 @@ export function MetricsChart({
         const stepPx = plotW / Math.max(1, plyCount - 1);
         const step = Math.max(1, Math.ceil(16 / stepPx));
         const labels: Array<{ ply: number; text: string }> = [
-          { ply: 0, text: 'нач.' },
+          { ply: 0, text: t('analysis.metrics.plyStartShort', 'start') },
         ];
         for (let ply = step; ply <= plyCount - 1; ply += step) {
           labels.push({ ply, text: moveLabelFor(ply) });
@@ -342,8 +344,12 @@ export function MetricsChart({
             const headerSan = sanMoves && hoverPly >= 1 ? sanMoves[hoverPly - 1] : null;
             const headerText =
               hoverPly === 0
-                ? 'нач. позиция'
-                : `ход ${Math.ceil(hoverPly / 2)}${hoverPly % 2 === 1 ? '.' : '…'}${headerSan ?? ''}`;
+                ? t('analysis.metrics.startPos', 'start position')
+                : t('analysis.metrics.movePrefix', 'move {{n}}{{sep}}{{san}}', {
+                    n: Math.ceil(hoverPly / 2),
+                    sep: hoverPly % 2 === 1 ? '.' : '…',
+                    san: headerSan ?? '',
+                  });
             const lineH = 14;
             const padX = 6;
             const padY = 6;
@@ -537,6 +543,7 @@ export function MetricToolbar({
   onModeChange,
   onPhaseChange,
 }: MetricToolbarProps) {
+  const { t } = useTranslation();
   return (
     <div
       data-testid="metric-toolbar"
@@ -552,28 +559,28 @@ export function MetricToolbar({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <span>Режим:</span>
+        <span>{t('analysis.metrics.toolbar.modeLabel', 'Mode:')}</span>
         <select
           data-testid="metric-toolbar-mode"
           value={mode}
           onChange={(e) => onModeChange(e.target.value as MetricMode)}
           style={{ fontSize: 12, padding: '2px 4px' }}
         >
-          <option value="by-side">По стороне</option>
-          <option value="diff">Разница Б−Ч</option>
+          <option value="by-side">{t('analysis.metrics.toolbar.modeBySide', 'By side')}</option>
+          <option value="diff">{t('analysis.metrics.toolbar.modeDiff', 'Difference W−B')}</option>
         </select>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <span>Фаза:</span>
+        <span>{t('analysis.metrics.toolbar.phaseLabel', 'Phase:')}</span>
         <select
           data-testid="metric-toolbar-phase"
           value={phase}
           onChange={(e) => onPhaseChange(e.target.value as MetricPhase)}
           style={{ fontSize: 12, padding: '2px 4px' }}
         >
-          <option value="mg">Миттельшпиль (mg)</option>
-          <option value="eg">Эндшпиль (eg)</option>
-          <option value="mix">Смесь (mix)</option>
+          <option value="mg">{t('analysis.metrics.toolbar.phaseMg', 'Middlegame (mg)')}</option>
+          <option value="eg">{t('analysis.metrics.toolbar.phaseEg', 'Endgame (eg)')}</option>
+          <option value="mix">{t('analysis.metrics.toolbar.phaseMix', 'Mix')}</option>
         </select>
       </div>
     </div>
@@ -586,6 +593,7 @@ interface MetricRunnerProps {
 }
 
 export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
+  const { t } = useTranslation();
   const { status, computedPlies, totalPlies, error, start, cancel } = trace;
   const pct =
     totalPlies > 0 ? Math.min(100, Math.round((computedPlies / totalPlies) * 100)) : 0;
@@ -603,7 +611,7 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
           borderRadius: 6,
         }}
       >
-        Сохраните анализ, чтобы аналитика метрик стала доступна.
+        {t('analysis.metrics.runner.idleNoId', 'Save the analysis to unlock metrics.')}
       </div>
     );
   }
@@ -619,7 +627,7 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
           borderRadius: 6,
         }}
       >
-        Сделайте хотя бы один ход, чтобы увидеть динамику метрик.
+        {t('analysis.metrics.runner.noMoves', 'Make at least one move to see the metrics trend.')}
       </div>
     );
   }
@@ -629,7 +637,13 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
         data-testid="metric-runner-done"
         style={{ padding: '6px 8px', fontSize: 12, color: '#2e7d32' }}
       >
-        Готово · {computedPlies} ply · {status === 'synced' ? 'синхронизировано' : 'локально'}
+        {t('analysis.metrics.runner.doneLine', 'Done · {{plies}} ply · {{where}}', {
+          plies: computedPlies,
+          where:
+            status === 'synced'
+              ? t('analysis.metrics.runner.synced', 'synced')
+              : t('analysis.metrics.runner.local', 'local'),
+        })}
       </div>
     );
   }
@@ -648,7 +662,13 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
         }}
       >
         <span>
-          {status === 'syncing' ? 'Отправка на сервер…' : `Расчёт: ${pct}% (${computedPlies}/${totalPlies})`}
+          {status === 'syncing'
+            ? t('analysis.metrics.runner.syncing', 'Uploading to server…')
+            : t('analysis.metrics.runner.progress', 'Computing: {{pct}}% ({{done}}/{{total}})', {
+                pct,
+                done: computedPlies,
+                total: totalPlies,
+              })}
         </span>
         {status === 'computing' && (
           <button
@@ -664,7 +684,7 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
               cursor: 'pointer',
             }}
           >
-            Отменить
+            {t('analysis.metrics.runner.cancel', 'Cancel')}
           </button>
         )}
       </div>
@@ -682,7 +702,7 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
           borderRadius: 6,
         }}
       >
-        Ошибка: {error}
+        {t('analysis.metrics.runner.errorPrefix', 'Error:')} {error}
       </div>
     );
   }
@@ -699,7 +719,9 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
       }}
     >
       <span>
-        {status === 'loading-server' ? 'Загрузка с сервера…' : 'Метрики не посчитаны.'}
+        {status === 'loading-server'
+          ? t('analysis.metrics.runner.loadingServer', 'Loading from server…')
+          : t('analysis.metrics.runner.notComputed', 'Metrics not computed.')}
       </span>
       {status === 'idle' && (
         <button
@@ -718,7 +740,7 @@ export function MetricRunner({ trace, uciMoves }: MetricRunnerProps) {
             opacity: uciMoves.length === 0 ? 0.6 : 1,
           }}
         >
-          Запустить расчёт
+          {t('analysis.metrics.runner.start', 'Start computation')}
         </button>
       )}
     </div>
@@ -775,6 +797,7 @@ export function PositionalMetricsPanel({
   layout = 'sidebar',
   sanMoves,
 }: PositionalMetricsPanelProps) {
+  const { t } = useTranslation();
   // KS-4027: на отдельной странице меню флажков по умолчанию свёрнуто
   // (график сразу занимает всю высоту), на боковой вкладке флажки
   // всегда видны рядом справа (selectorOpen не используется).
@@ -883,8 +906,12 @@ export function PositionalMetricsPanel({
             }}
           >
             {selectorOpen
-              ? `Скрыть настройки метрик (выбрано: ${selectedIds.size})`
-              : `Настройки метрик (выбрано: ${selectedIds.size})`}
+              ? t('analysis.metrics.hideSettings', 'Hide metrics settings (selected: {{count}})', {
+                  count: selectedIds.size,
+                })
+              : t('analysis.metrics.showSettings', 'Metrics settings (selected: {{count}})', {
+                  count: selectedIds.size,
+                })}
           </button>
           {selectorOpen && (
             <div
@@ -935,9 +962,15 @@ export function PositionalMetricsPanel({
                   sanMoves={sanMoves}
                   noDataMessage={
                     selectedIds.size === 0
-                      ? 'Выберите хотя бы одну метрику в настройках метрик.'
+                      ? t(
+                          'analysis.metrics.noSelected',
+                          'Select at least one metric in the metrics settings.',
+                        )
                       : !trace.data || trace.data.plies.length === 0
-                      ? 'Расчёт ещё не запускался. Нажмите «Запустить расчёт» выше.'
+                      ? t(
+                          'analysis.metrics.notStarted',
+                          'Computation has not been started. Click "Start computation" above.',
+                        )
                       : undefined
                   }
                 />

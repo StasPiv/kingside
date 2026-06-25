@@ -520,10 +520,10 @@ export function BroadcastLiveGamePage() {
             >
               <span className="broadcast-live-game__live-dot" />
               {connected
-                ? t('broadcastLive.live', 'LIVE — ходы приходят автоматически')
+                ? t('broadcastLive.live', 'LIVE — moves stream in automatically')
                 : t(
                     'broadcastLive.reconnecting',
-                    'Переподключение… ходы догрузим через 30 секунд',
+                    'Reconnecting… moves will catch up within 30 seconds',
                   )}
             </div>
           )}
@@ -536,11 +536,11 @@ export function BroadcastLiveGamePage() {
             onClick={handleOpenInAnalysis}
             disabled={!game.pgn}
           >
-            {t('broadcastLive.openInAnalysis', 'Открыть в Мастерской')}
+            {t('broadcastLive.openInAnalysis', 'Open in workshop')}
           </button>
 
           <div className="broadcast-live-game__moves-block">
-            <h3>{t('broadcastLive.movesTitle', 'Ходы')}</h3>
+            <h3>{t('broadcastLive.movesTitle', 'Moves')}</h3>
             {parsed.history.length === 0 ? (
               // KS-3258: при `[Termination "Unplayed"]` или `[Result]`
               // != '*' с пустыми ходами — это техническое поражение
@@ -555,7 +555,7 @@ export function BroadcastLiveGamePage() {
                 />
               ) : (
                 <p className="broadcast-live-game__moves-empty">
-                  {t('broadcastLive.noMovesYet', 'Партия ещё не началась')}
+                  {t('broadcastLive.noMovesYet', 'The game has not started yet')}
                 </p>
               )
             ) : (

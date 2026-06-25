@@ -200,10 +200,10 @@ export function LectureAudioListenerCompact({
         'Не удалось установить голосовое соединение',
       )
     : !unlocked
-    ? t('lectureAudio.unlock', 'Включить голос тренера')
+    ? t('lectureAudio.unlock', "Unlock trainer's voice")
     : muted
-    ? t('lectureAudio.unmuteTitle', 'Включить звук')
-    : t('lectureAudio.muteTitle', 'Выключить звук');
+    ? t('lectureAudio.unmuteTitle', 'Unmute')
+    : t('lectureAudio.muteTitle', 'Mute');
 
   return (
     <div
@@ -311,8 +311,8 @@ export function LectureAudioListenerCompact({
               aria-pressed={muted}
               title={
                 muted
-                  ? t('lectureAudio.unmuteTitle', 'Включить звук')
-                  : t('lectureAudio.muteTitle', 'Выключить звук')
+                  ? t('lectureAudio.unmuteTitle', 'Unmute')
+                  : t('lectureAudio.muteTitle', 'Mute')
               }
               style={{
                 padding: '4px 8px',
@@ -332,7 +332,7 @@ export function LectureAudioListenerCompact({
               value={volume}
               onChange={(e) => setVolume(Number(e.target.value))}
               data-testid="lecture-audio-listener-compact-volume"
-              aria-label={t('lectureAudio.volumeLabel', 'Громкость')}
+              aria-label={t('lectureAudio.volumeLabel', 'Volume')}
               /* KS-3882: фиксируем размер ползунка. Без явной ширины
                  в некоторых браузерах (Safari iOS) `<input type=range>`
                  переходит в `-webkit-appearance: slider-vertical` и
@@ -347,8 +347,8 @@ export function LectureAudioListenerCompact({
           </div>
           <div style={{ fontSize: 12, color: '#555' }}>
             {isConnected
-              ? t('lectureAudio.statusLive', 'Голос в эфире')
-              : t('lectureAudio.statusWaiting', 'Ожидание тренера…')}
+              ? t('lectureAudio.statusLive', 'Voice is live')
+              : t('lectureAudio.statusWaiting', 'Waiting for the trainer…')}
           </div>
         </div>
       )}

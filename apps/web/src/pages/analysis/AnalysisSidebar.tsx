@@ -767,7 +767,7 @@ export function AnalysisSidebar({
             <span className="analysis-panel-header-left">
               <span className="analysis-panel-icon">📊</span>
               <span className="analysis-panel-title">
-                {t('analysis.metrics.title', 'Метрики')}
+                {t('analysis.metrics.title', 'Metrics')}
               </span>
             </span>
             <span className="analysis-panel-header-right">
@@ -909,7 +909,7 @@ export function AnalysisSidebar({
               data-testid="analysis-mobile-tab-metrics"
               onClick={() => handleTabTap('metrics')}
             >
-              {t('analysis.metrics.title', 'Метрики')}
+              {t('analysis.metrics.title', 'Metrics')}
             </button>
           )}
         </div>

@@ -1032,6 +1032,7 @@
     "handleAria": "Resize chat",
     "openAria": "Open lecture chat",
     "openLabel": "Chat",
+    "shortLabel": "Chat",
     "collapseAria": "Collapse chat",
     "errors": {
       "rate_limited": "Too fast. Please wait a few seconds.",
@@ -1045,6 +1046,62 @@
       "not_found": "Recipient not found.",
       "control_char": "Message contains forbidden characters."
     }
+  },
+  "lecturePublisher": {
+    "start": "Start microphone and recording",
+    "starting": "Starting…",
+    "stop": "Stop recording",
+    "stopping": "Stopping…",
+    "close": "Close lecture",
+    "closing": "Finalizing…",
+    "access": "Access",
+    "recording": "Recording, chunks sent: {{count}}",
+    "failed": "failed: {{count}}",
+    "peerCount": "Listeners on voice: {{count}} / 15",
+    "recorderUnsupportedHint": "Your browser does not support audio recording",
+    "unsupportedTitle": "Audio recording is not available in this browser",
+    "unsupportedBody": "Your browser does not support audio recording. Update Chrome, Firefox or Safari to the latest version, otherwise the lecture will run without recording.",
+    "unsupportedContinue": "Continue without recording",
+    "error": {
+      "lockTitle": "Recording is already running on another device",
+      "lockBody": "Open the lecture where the recording is active, or stop it there to publish from this tab.",
+      "permissionTitle": "Microphone access denied",
+      "permissionBody": "Open the site settings in your browser, allow microphone access, then try again.",
+      "notFoundTitle": "Microphone not found",
+      "notFoundBody": "Connect a microphone or select it in your OS settings, then try again.",
+      "genericTitle": "Failed to start recording",
+      "genericBody": "Unknown error. Reload the page and try again."
+    }
+  },
+  "lectureLive": {
+    "noPermission": "No permission for this action",
+    "invalidStatus": "Action is not available for the current lecture status",
+    "endButton": "End lecture",
+    "ending": "Ending…"
+  },
+  "lectureDelete": {
+    "button": "Delete",
+    "deleting": "Deleting…"
+  },
+  "lectureAudio": {
+    "unlock": "Unlock trainer's voice",
+    "muteTitle": "Mute",
+    "unmuteTitle": "Unmute",
+    "volumeLabel": "Volume",
+    "statusLive": "Voice is live",
+    "statusWaiting": "Waiting for the trainer…",
+    "publisherNotJoined": "The trainer has not joined the voice channel yet.",
+    "iceFailedShort": "Failed to establish a voice connection"
+  },
+  "lectureRecording": {
+    "badge": "Recording"
+  },
+  "broadcastLive": {
+    "live": "LIVE — moves stream in automatically",
+    "reconnecting": "Reconnecting… moves will catch up within 30 seconds",
+    "openInAnalysis": "Open in workshop",
+    "movesTitle": "Moves",
+    "noMovesYet": "The game has not started yet"
   },
   "studentVisibility": {
     "sectionLabel": "What students see",
@@ -1325,6 +1382,43 @@
   "analysis": {
     "metrics": {
       "title": "Metrics",
+      "modeDiff": "Difference",
+      "modeParallel": "Parallel",
+      "hideTiny": "Hide insignificant",
+      "loading": "Evaluating position with Stockfish…",
+      "errorPrefix": "Failed to fetch metrics:",
+      "empty": "Stockfish returned no subcomponents for this position.",
+      "chartEmpty": "Select at least one metric in the list on the right.",
+      "plyStartShort": "start",
+      "startPos": "start position",
+      "movePrefix": "move {{n}}{{sep}}{{san}}",
+      "noSelected": "Select at least one metric in the metrics settings.",
+      "notStarted": "Computation has not been started. Click \"Start computation\" above.",
+      "hideSettings": "Hide metrics settings (selected: {{count}})",
+      "showSettings": "Metrics settings (selected: {{count}})",
+      "toolbar": {
+        "modeLabel": "Mode:",
+        "modeBySide": "By side",
+        "modeDiff": "Difference W−B",
+        "phaseLabel": "Phase:",
+        "phaseMg": "Middlegame (mg)",
+        "phaseEg": "Endgame (eg)",
+        "phaseMix": "Mix"
+      },
+      "runner": {
+        "idleNoId": "Save the analysis to unlock metrics.",
+        "noMoves": "Make at least one move to see the metrics trend.",
+        "doneLine": "Done · {{plies}} ply · {{where}}",
+        "synced": "synced",
+        "local": "local",
+        "syncing": "Uploading to server…",
+        "progress": "Computing: {{pct}}% ({{done}}/{{total}})",
+        "cancel": "Cancel",
+        "errorPrefix": "Error:",
+        "loadingServer": "Loading from server…",
+        "notComputed": "Metrics not computed.",
+        "start": "Start computation"
+      },
       "block": {
         "material": "Material",
         "pawnStructure": "Pawn structure",
