@@ -995,7 +995,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           }
           if (beforeSubterms.length === 0) {
             console.warn(
-              `[useGameReview] ply=${input.ply}: empty subterms on fenBefore — отправляем запрос без позиционных подкомпонент`,
+              `[useGameReview] ply=${input.ply}: empty subterms on fenBefore — sending request without positional subterms`,
             );
           }
           if (cancelRef.current) break;
@@ -1015,7 +1015,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
           }
           if (afterSubterms.length === 0) {
             console.warn(
-              `[useGameReview] ply=${input.ply}: empty subterms on fenAfter — отправляем запрос без позиционных подкомпонент`,
+              `[useGameReview] ply=${input.ply}: empty subterms on fenAfter — sending request without positional subterms`,
             );
           }
           if (cancelRef.current) break;
@@ -1031,7 +1031,7 @@ export function useGameReview(options: UseGameReviewOptions = {}) {
             sfAfter = await engines.analyzeSf(fenAfter, 1, depth);
           } catch (err) {
             console.warn(
-              `[useGameReview] analyzeSf(after) failed for ply=${input.ply}, отправляем без after-engine факторов:`,
+              `[useGameReview] analyzeSf(after) failed for ply=${input.ply}, sending without after-engine factors:`,
               err,
             );
             sfAfter = null;

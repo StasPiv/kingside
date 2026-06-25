@@ -221,7 +221,7 @@ export function useArchiveTree(
               aborted: false,
               status: null,
               reason: 'timeout',
-              message: `archive: таймаут ${REQUEST_TIMEOUT_MS}мс`,
+              message: `archive: timeout ${REQUEST_TIMEOUT_MS}ms`,
             };
           }
           // Сетевые ошибки (DNS/CORS/connection refused/offline)
@@ -237,7 +237,7 @@ export function useArchiveTree(
             aborted: false,
             status: null,
             reason: 'network',
-            message: `archive: сеть (${message})`,
+            message: `archive: network (${message})`,
           };
         }
       };

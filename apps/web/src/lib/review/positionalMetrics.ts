@@ -248,23 +248,27 @@ export function buildMetricSeries(
   for (const id of idsArr) {
     const typedId = id as PositionalSubtermId | 'unknown';
     if (mode === 'by-side') {
+      // KS-4633: «(Б)»/«(Ч)»/«(Б−Ч)» заменены на нейтральные
+      // одно-двухсимвольные маркеры (W)/(B)/(W−B) — короткие
+      // обозначения цветов, не требуют локализации (в шахматном UI
+      // повсеместно white/black даже в ru-интерфейсе).
       series.push({
         id: typedId,
         variant: 'w',
-        label: `${id} (Б)`,
+        label: `${id} (W)`,
         data: snapshots.map((s) => s.white.get(typedId) ?? null),
       });
       series.push({
         id: typedId,
         variant: 'b',
-        label: `${id} (Ч)`,
+        label: `${id} (B)`,
         data: snapshots.map((s) => s.black.get(typedId) ?? null),
       });
     } else {
       series.push({
         id: typedId,
         variant: 'diff',
-        label: `${id} (Б−Ч)`,
+        label: `${id} (W−B)`,
         data: snapshots.map((s) => s.diff.get(typedId) ?? null),
       });
     }

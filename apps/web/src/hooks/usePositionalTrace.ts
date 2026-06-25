@@ -236,9 +236,12 @@ export function usePositionalTrace({
       } catch (err) {
         // 5xx/сеть — отметим, но попробуем IDB.
         if (cancelled) return;
+        // KS-4633: техническое сообщение для логов/UI fallback — англ.
+        // Локализованный текст показывает родитель (MetricRunner) через
+        // `t('analysis.metrics.runner.errorPrefix')`.
         setError(
           err instanceof ApiError
-            ? `Сервер вернул ошибку: ${err.status}`
+            ? `Server returned error: ${err.status}`
             : String(err),
         );
       }
