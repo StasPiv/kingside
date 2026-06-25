@@ -30,6 +30,15 @@ export * from './types/positional-trace.js';
 export * from './review/metrics-comment.js';
 // KS-4194 (ADR-128 §7.3 + §10 KS-9): контракт задачи prerender-воркера.
 export * from './types/prerender-task.js';
+// KS-4639 / ADR-143: shared-контракт индекса упоминаний хода в записи
+// лекции (типы + serializeMoveKey/parseMoveKey) — формальная точка
+// истины для builder'а индекса (`utils/lecture-replay/...`) и его
+// потребителей (Moves panel, popover).
+export * from './types/lecture-replay.js';
+// KS-4639 / ADR-143 §5: чистая функция-builder индекса упоминаний.
+// Используется `LectureReplayPage` один раз через useMemo по
+// `recording.events` + `recording.durationMs`.
+export * from './utils/lecture-replay/buildMoveTimestampIndex.js';
 export * from './synthetic-chat-phrases.js';
 export * from './constants.js';
 export * from './constants/archive.js';
