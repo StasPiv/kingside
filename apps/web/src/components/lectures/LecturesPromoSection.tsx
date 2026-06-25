@@ -3,9 +3,13 @@
  * Подтягивает 3–4 публичные лекции через `GET /lectures/public` и
  * рендерит как сетку карточек со ссылками на `/lectures/<uuid>`.
  *
- * Если API упал / лекций нет — секция не рендерится (на SEO это
- * влияет минимально: блок ниже всё равно ведёт на `/lectures` через
- * меню; полное отсутствие данных лучше, чем «пустая полоска»).
+ * KS-4646 follow-up: на build-time prerender (`apps/web/scripts/
+ * prerender.mjs`) `/lectures/public` мокается пустым ответом — без
+ * fallback'а на снапшоте `/` отсутствовали SEO-ссылки на лекции.
+ * Теперь секция РЕНДЕРИТСЯ ВСЕГДА: при отсутствии данных показывает
+ * заголовок, подпись и ссылку «All lectures →» (+ блок с известными
+ * тренерами уже ниже через `CoachesPromo`). Googlebot всегда видит
+ * минимум один путь в каталог.
  */
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -20,9 +24,9 @@ export function LecturesPromoSection({ limit = 4 }: LecturesPromoSectionProps) {
   const { t } = useTranslation();
   const state = usePublicLectures({ limit });
 
-  if (state.loading || state.error) return null;
-  const items = state.items.slice(0, limit);
-  if (items.length === 0) return null;
+  const items = state.loading || state.error
+    ? []
+    : state.items.slice(0, limit);
 
   return (
     <section
@@ -54,6 +58,18 @@ export function LecturesPromoSection({ limit = 4 }: LecturesPromoSectionProps) {
           'Live and recorded lectures: openings, middlegame, endgame.',
         )}
       </p>
+      {items.length === 0 && (
+        <p
+          className="lectures-promo-section__empty"
+          data-testid="lectures-promo-empty"
+          style={{ textAlign: 'center', opacity: 0.85, margin: '0 0 16px' }}
+        >
+          {t(
+            'home.lecturesPromo.empty',
+            'Browse the full lecture catalog.',
+          )}
+        </p>
+      )}
       <ul
         className="lectures-promo-section__grid"
         style={{

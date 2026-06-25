@@ -278,19 +278,65 @@ async function setupApiMocks(page) {
     route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
   );
 
-  // KS-4192: гостевой каталог `/lectures` зовёт `GET /lectures/public`
-  // через `usePublicLectures`. Универсальный `**/api/**`-мок ниже
-  // отдаёт `{}` — это не валидный `PublicLecturesResponse`, и хук
-  // дёрнется на `res.items.map(...)`. Подсовываем явный пустой
-  // ответ — каталог пуст, рендерится empty-state, prerender не
-  // падает.
-  await page.route('**/lectures/public*', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ items: [], total: 0, hasMore: false }),
-    }),
-  );
+  // KS-4192 / KS-4646. Гостевой каталог `/lectures` и промо-секция
+  // лекций на главной зовут `GET /lectures/public`. До KS-4646 мок
+  // отдавал пустой `{items: []}`, и `LecturesPromoSection` на главной
+  // отрисовывал только заголовок без карточек — Googlebot не видел
+  // ссылок на конкретные `/lectures/<uuid>` в snapshot'е главной.
+  //
+  // Решение по аналогии с blog API (KS-4443): проксируем запрос на
+  // боевой API через Node fetch, который не подчиняется CORS, и
+  // возвращаем тело Playwright'у. При сбое (нет VITE_API_URL,
+  // тайм-аут, сеть) — fallback на пустой массив, чтобы prerender не
+  // падал, и страница рендерилась хотя бы с заголовком + ссылкой
+  // «All lectures →» (фолбэк теперь умеет это сделать).
+  await page.route('**/lectures/public*', async (route) => {
+    const requestUrl = route.request().url();
+    // Прокси работает только когда `VITE_API_URL` указывает на прод
+    // API (`https://api.kingside.site`); локальная сборка без env
+    // получит пустой ответ — это ок, build-time prerender тогда
+    // отрабатывает с фолбэком без сети.
+    if (!process.env.VITE_API_URL) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+      });
+      return;
+    }
+    try {
+      // KS-4646: подменяем host локального preview-server'а на VITE_API_URL.
+      // Playwright перехватывает request'ы по wildcard, и `requestUrl`
+      // имеет вид `http://127.0.0.1:4173/lectures/public?limit=4`, что
+      // не отвечает 200 без backend'а. Берём только path+query и шлём
+      // их на боевой API.
+      const u = new URL(requestUrl);
+      const apiBase = process.env.VITE_API_URL.replace(/\/+$/, '');
+      const upstreamUrl = `${apiBase}${u.pathname}${u.search}`;
+      const upstream = await fetch(upstreamUrl, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(5_000),
+      });
+      const body = await upstream.text();
+      await route.fulfill({
+        status: upstream.status,
+        contentType:
+          upstream.headers.get('content-type') ?? 'application/json',
+        body,
+      });
+    } catch (e) {
+      process.stderr.write(
+        `  [prerender] lectures API proxy ${requestUrl} failed: ${
+          e instanceof Error ? e.message : String(e)
+        }\n`,
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], total: 0, hasMore: false }),
+      });
+    }
+  });
 
   // KS-4271 / ADR-129 §5.4, §10.1. Гостевой лендинг показывает блок
   // «Proof» (5 цифр) по ответу `GET /landing/stats`. Если в момент
