@@ -82,7 +82,10 @@ body:has(.game-page),
   background: var(--bg-elevated, var(--c-16213e));
   border: 1px solid var(--border-mid);
   /* KS-4256: компактный player-bar — 10/16 → 6/12 даёт высоту ≈40px
-     (соответствует lichess), при этом часы и имя читаются. */
+     (соответствует lichess), при этом часы и имя читаются.
+     KS-4620: оставили padding 6/12; высота bar'а растёт за счёт
+     самого `.clock` (font-size: 36px, line-height: 1) — добирается
+     до ~52 px, что соответствует пропорциям lichess. */
   padding: 6px 12px;
   border-radius: 8px;
   width: 100%;
@@ -118,9 +121,14 @@ body:has(.game-page),
 }
 
 .clock {
-  /* KS-4256: 24 → 20 — компактнее под уменьшенный player-bar,
-     остаётся читаемым. */
-  font-size: 20px;
+  /* KS-4256: 24 → 20 — компактнее под уменьшенный player-bar.
+     KS-4620: 20 → 36 — пользователь жаловался, что часы слишком
+     мелкие, истечение времени не цепляет периферийным зрением.
+     Образец — lichess.org (≈36-40px на десктопе). Высота
+     player-bar выросла с ~40 до ~56 px (учтено в расчёте
+     useResponsiveBoardSize — он берёт фактический rect). */
+  font-size: 36px;
+  line-height: 1;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   /* KS-4151: фиксированная ширина под пять моноширинных символов
@@ -1713,7 +1721,12 @@ body:has(.game-page),
   }
 
   .player-info .clock {
-    font-size: 15px;
+    /* KS-4620: landscape с max-height: 500px — экстремально низкий
+       экран; нельзя ставить 36px, иначе доска ужмётся. Поднимаем
+       15 → 22 — заметно крупнее прежнего, остаётся в пределах
+       компактного player-bar (padding 2/8 + line-height: 1). */
+    font-size: 22px;
+    line-height: 1;
   }
 
   .player-info.opponent-info {
