@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 
 const HEADER_HEIGHT = 48;
 // KS-4256: компактнее player-bar (padding 6px+gap → 40-44px высоты).
-const CLOCKS_HEIGHT = 2 * 44;
+// KS-4621: часы вынесены из `.player-info` — теперь bar содержит только
+// аватар+имя, его высота ≈32px (padding 6+6 + name 15 + border 2).
+// На desktop часы переехали в `.game-sidebar` и не влияют на высоту
+// `.game-board-area`. На mobile появился отдельный `.game-clock-bar`
+// над/под player-info (~38px = font 28 + padding 4+4 + border 2);
+// его высота учитывается через MOBILE_CLOCK_BAR_HEIGHT ниже.
+const CLOCKS_HEIGHT = 2 * 32;
+const MOBILE_CLOCK_BAR_HEIGHT = 38;
 // KS-4256 / KS-4299: горизонтальный отступ `.game-page` (left + right
 // в сумме). На desktop оставляем по 8px с каждой стороны. На mobile
 // после KS-4299 доска edge-to-edge — горизонтальных отступов нет.
@@ -26,7 +33,10 @@ const MOBILE_BREAKPOINT = 900;
 // KS-4256: back-link теперь `position: fixed` (см. game.css) — не занимает
 // высоту в потоке колонки с доской.
 const BACK_LINK_HEIGHT = 0;
-const BOARD_AREA_GAP = 12; // 2 × 6px gaps between player-info and board
+// KS-4621: 2 × 6px gaps между player-info и доской (desktop). На mobile
+// добавляются ещё 2 × 6px (`.player-info` ↔ `.game-clock-bar` ↔ board),
+// поэтому ниже в mobile-ветке `BOARD_AREA_GAP * 2`.
+const BOARD_AREA_GAP = 12;
 // KS-4299: gap между детьми `.game-page` flex-column на mobile. После
 // KS-4299 `.game-sidebar` `display: none` на ≤899px, поэтому в потоке
 // между `.game-board-area` и `.game-action-bar` ровно один gap. Сейчас
@@ -185,9 +195,20 @@ function calculateBoardSize(options: ResponsiveBoardSizeOptions = {}): number {
   const lastMoveLine =
     options.hasLastMoveLine && isMobile ? GAME_LAST_MOVE_LINE_HEIGHT : 0;
 
+  // KS-4621: на mobile к высоте `.game-board-area` добавляются 2 ×
+  // `.game-clock-bar` (~38px) — отдельные блоки часов над/под доской.
+  // Дополнительно 2 × BOARD_AREA_GAP (6px каждый) появляются между
+  // clock-bar ↔ player-info, итого +12 к вертикали поверх двух
+  // существующих gap'ов board ↔ clock-bar. На desktop часы переехали
+  // в `.game-sidebar` — colon-bar в `.game-board-area` отсутствует.
+  const mobileClockBars = isMobile ? 2 * MOBILE_CLOCK_BAR_HEIGHT : 0;
+  const extraGaps = isMobile ? BOARD_AREA_GAP : 0;
+
   const extraVertical = isMobile
     ? BACK_LINK_HEIGHT +
       BOARD_AREA_GAP +
+      extraGaps +
+      mobileClockBars +
       GAME_PAGE_GAP_MOBILE +
       SIDEBAR_MIN_HEIGHT_MOBILE +
       botBanner +

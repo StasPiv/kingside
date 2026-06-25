@@ -83,9 +83,12 @@ body:has(.game-page),
   border: 1px solid var(--border-mid);
   /* KS-4256: компактный player-bar — 10/16 → 6/12 даёт высоту ≈40px
      (соответствует lichess), при этом часы и имя читаются.
-     KS-4620: оставили padding 6/12; высота bar'а растёт за счёт
-     самого `.clock` (font-size: 36px, line-height: 1) — добирается
-     до ~52 px, что соответствует пропорциям lichess. */
+     KS-4620: оставили padding 6/12; высота bar'а росла за счёт
+     самого `.clock` (font-size: 36px, line-height: 1) — добирался
+     до ~52 px.
+     KS-4621: часы вынесены из `.player-info` (см. `.game-clock-bar`,
+     `.game-sidebar-clock`). В строке остались только аватар и имя,
+     поэтому bar теперь компактный ≈32 px. */
   padding: 6px 12px;
   border-radius: 8px;
   width: 100%;
@@ -121,22 +124,72 @@ body:has(.game-page),
 }
 
 .clock {
-  /* KS-4256: 24 → 20 — компактнее под уменьшенный player-bar.
-     KS-4620: 20 → 36 — пользователь жаловался, что часы слишком
-     мелкие, истечение времени не цепляет периферийным зрением.
-     Образец — lichess.org (≈36-40px на десктопе). Высота
-     player-bar выросла с ~40 до ~56 px (учтено в расчёте
-     useResponsiveBoardSize — он берёт фактический rect). */
-  font-size: 36px;
+  /* KS-4621: базовый стиль часов — только типографика. Конкретный
+     размер шрифта и фон задают обёртки `.game-clock-bar` (mobile)
+     или `.game-sidebar-clock` (desktop). Раньше `.clock` лежал
+     внутри `.player-info` и переопределялся через `.player-info .clock`;
+     после KS-4621 часы вынесены из `.player-info` (см.
+     `GameShell.tsx`). */
   line-height: 1;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   /* KS-4151: фиксированная ширина под пять моноширинных символов
      ("10:00" / "9:59" / "0:00"). Без неё переход 10:00 → 9:59
-     уменьшал ширину текста и сдвигал блок `.player-info` —
-     отсюда «дрожание» доски на каждой секунде. */
+     уменьшал ширину текста — отсюда «дрожание» родительского
+     контейнера на каждой секунде. */
   min-width: 5ch;
-  text-align: right;
+  text-align: center;
+}
+
+/* KS-4621: часы соперника / игрока как отдельный блок над/под доской
+   на mobile (на desktop виден `.game-sidebar-clock`, см. ниже).
+   Контрастный светлый фон отделяет цифры от серой полоски
+   `.player-info` — пользовательская жалоба «часы сливаются с серым
+   фоном» решается именно тут.
+
+   По умолчанию `display: none` — на desktop ≥900px блоки скрыты
+   (часы рендерятся в `.game-sidebar-clock`). В @media `max-width: 899px`
+   ниже включаем `display: flex`.
+*/
+.game-clock-bar {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: var(--board-area-height, 560px);
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--c-fff);
+  color: var(--c-1a1a2e);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 26px;
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  /* На светлом фоне сама `.clock` уже центрирована — обнуляем
+     наследуемое `text-align`, чтобы не было артефактов. */
+}
+
+/* KS-4621: часы в правой sidebar — основное расположение (lichess-стиль).
+   Светлая «пилюля» на фоне тёмной страницы, крупный шрифт. */
+.game-sidebar-clock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--c-fff);
+  color: var(--c-1a1a2e);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
 }
 
 .board-container {
@@ -1420,6 +1473,17 @@ body:has(.game-page),
     max-width: 100%;
   }
 
+  /* KS-4621: на mobile часы — отдельный контрастный блок над/под
+     player-info (а не внутри серой полоски). Базовое правило
+     `.game-clock-bar { display: none }` переопределяется здесь
+     на `display: flex`. */
+  .game-clock-bar {
+    display: flex;
+    max-width: 100%;
+    font-size: 28px;
+    padding: 4px 12px;
+  }
+
   /* KS-4288 / ADR-134 §1: на mobile единственный UI результата — это
      bottom-sheet. Прячем модальное окно и встроенный блок результата
      в боковой панели; wrapper sheet'а переключаем с `display: none` на
@@ -1707,33 +1771,29 @@ body:has(.game-page),
     display: none !important;
   }
 
-  /* Player-bars компактнее: padding/font меньше, чтобы opp + self
-     суммарно занимали ≤60px вертикали (на 400dvh оставляем 340px
-     под доску). */
+  /* KS-4621: landscape — экстремально низкий экран (≤500px высоты).
+     Чтобы не разрывать grid доп. строкой под clock-bar, прячем
+     `.player-info` (имя+аватар), а часы (`.game-clock-bar`) ставим
+     в grid-area opp/self. Имя соперника на короткой landscape-сессии
+     неинформативно — критичны только часы и доска. */
   .player-info {
+    display: none;
+  }
+
+  .game-clock-bar {
+    display: flex;
     padding: 2px 8px;
+    font-size: 22px;
+    border-radius: 4px;
     max-width: 100%;
     width: 100%;
   }
 
-  .player-info .player-name {
-    font-size: 13px;
-  }
-
-  .player-info .clock {
-    /* KS-4620: landscape с max-height: 500px — экстремально низкий
-       экран; нельзя ставить 36px, иначе доска ужмётся. Поднимаем
-       15 → 22 — заметно крупнее прежнего, остаётся в пределах
-       компактного player-bar (padding 2/8 + line-height: 1). */
-    font-size: 22px;
-    line-height: 1;
-  }
-
-  .player-info.opponent-info {
+  .game-clock-bar--opponent {
     grid-area: opp;
   }
 
-  .player-info.player-info-self {
+  .game-clock-bar--self {
     grid-area: self;
   }
 

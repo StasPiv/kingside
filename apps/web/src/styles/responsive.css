@@ -20,14 +20,12 @@
     gap: 8px;
   }
 
-  /* KS-4620: было 20px — пользователь жаловался, что часы слишком
-     мелкие, истечение времени не заметно. Подняли до 30, чтобы на
-     стандартном мобильном экране (414px) цифры читались с расстояния
-     обычного просмотра. min-width пересчитан под более широкие
-     цифры (tabular-nums, ~18px/символ при 30px-шрифте). */
-  .clock {
-    font-size: 30px;
-    min-width: 90px;
+  /* KS-4621: часы вынесены из `.player-info` в отдельный блок
+     `.game-clock-bar` (см. game.css). Старые правила `.clock`
+     внутри player-info больше не применяются — здесь подкручиваем
+     шрифт самого clock-bar для 414px. */
+  .game-clock-bar {
+    font-size: 28px;
   }
 
   .player-name {
@@ -41,10 +39,9 @@
     padding: 5px 10px;
   }
 
-  /* KS-4620: 18 → 26. */
-  .clock {
-    font-size: 26px;
-    min-width: 78px;
+  .game-clock-bar {
+    font-size: 24px;
+    padding: 3px 10px;
   }
 }
 
@@ -55,12 +52,9 @@
     gap: 6px;
   }
 
-  /* KS-4620: 16 → 22. На 320px-экране ещё уже, чем iPhone SE,
-     поэтому шрифт чуть скромнее — но всё равно заметно крупнее
-     прежнего. */
-  .clock {
-    font-size: 22px;
-    min-width: 66px;
+  .game-clock-bar {
+    font-size: 20px;
+    padding: 2px 8px;
   }
 
   .color-indicator {
@@ -443,12 +437,11 @@
     gap: 10px;
   }
 
-  /* Clock: large enough to read on mobile.
-     KS-4620: 22 → 32 — пользовательская жалоба «часы мелковаты,
-     просрочил время незаметно». 480px viewport достаточно широкий
-     для крупного шрифта без переноса bar'а. */
-  .clock {
-    font-size: 32px;
+  /* KS-4621: часы вынесены в `.game-clock-bar` (см. game.css).
+     Здесь дублируется font-size для 480px landscape, чтобы не
+     ломать прежний размер. */
+  .game-clock-bar {
+    font-size: 28px;
   }
 
   /* KS-4301: правила `.game-board-area { width: 100% }`,

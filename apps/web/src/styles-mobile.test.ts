@@ -89,10 +89,17 @@ describe('KS-388: мобильная вёрстка страниц', () => {
     expect(mobileSection).toContain('min-height: 44px');
   });
 
-  it('.clock имеет font-size >= 20px на мобильных', () => {
-    const clockIdx = mobileSection.indexOf('.clock');
-    const clockBlock = mobileSection.slice(clockIdx, clockIdx + 100);
-    expect(clockBlock).toContain('font-size: 22px');
+  it('.game-clock-bar имеет font-size >= 20px на мобильных', () => {
+    // KS-4621: часы вынесены из `.player-info` в `.game-clock-bar`
+    // (см. game.css / responsive.css). Ищем сам селектор (не упоминания
+    // в комментариях) — он начинается с `.game-clock-bar` и за ним
+    // открывается фигурная скобка.
+    const m = mobileSection.match(/\.game-clock-bar\s*\{[^}]*\}/);
+    expect(m).not.toBeNull();
+    expect(m![0]).toMatch(/font-size:\s*\d+px/);
+    const sizeMatch = m![0].match(/font-size:\s*(\d+)px/);
+    expect(sizeMatch).not.toBeNull();
+    expect(parseInt(sizeMatch![1], 10)).toBeGreaterThanOrEqual(20);
   });
 
   // KS-4301 / KS-4314: правила `.board-container { max-width: calc(100vw -

@@ -101,10 +101,14 @@ export default function GameLayoutPreviewPage() {
           </div>
         )}
 
+        {/* KS-4621: mobile-only clock-bar над player-info (на desktop
+            скрыт через `.game-clock-bar { display: none }`). */}
+        <div className="game-clock-bar game-clock-bar--opponent">
+          <span className="clock">4:39</span>
+        </div>
         <div className="player-info opponent-info">
           <span className="color-indicator black" />
           <span className="player-name">Stockfish Bot (Lv. 3)</span>
-          <span className="clock">4:39</span>
         </div>
 
         <div
@@ -126,15 +130,17 @@ export default function GameLayoutPreviewPage() {
         <div className="player-info self-info">
           <span className="color-indicator white" />
           <span className="player-name">Stanislav</span>
+        </div>
+        <div className="game-clock-bar game-clock-bar--self">
           <span className="clock">4:52</span>
         </div>
       </div>
 
       <div className="game-sidebar">
-        <div className="game-actions-top">
-          <button type="button" className="mute-toggle" aria-label="mute">
-            🔊
-          </button>
+        {/* KS-4621: часы соперника как контрастная «пилюля» в правой
+            sidebar (lichess-стиль). */}
+        <div className="game-sidebar-clock game-sidebar-clock--opponent">
+          4:39
         </div>
         <div className="move-list">
           <h3>Ходы</h3>
@@ -152,6 +158,15 @@ export default function GameLayoutPreviewPage() {
             <span className="game-move-item">d4</span>{' '}
             <span className="game-move-item current">c6</span>
           </div>
+        </div>
+        {/* KS-4621: часы игрока под move-list. */}
+        <div className="game-sidebar-clock game-sidebar-clock--self">
+          4:52
+        </div>
+        <div className="game-actions-top">
+          <button type="button" className="mute-toggle" aria-label="mute">
+            🔊
+          </button>
         </div>
         <div className="game-actions">
           <button type="button">Сдаться</button>

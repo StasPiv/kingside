@@ -782,6 +782,16 @@ export function GameShell(props: GameShellProps) {
             До первого хода лента не отрисована — пустую высоту не
             резервирует. */}
         {moves.length > 0 && <GameMoveStrip moves={moves} />}
+        {/* KS-4621: часы соперника как отдельный контрастный блок над
+            player-info. Видим только на mobile (`.game-clock-bar`
+            `display: none` по умолчанию, `display: flex` в @media
+            `max-width: 899px`). На desktop часы переехали в
+            `.game-sidebar` — см. `.game-sidebar-clock` ниже. */}
+        <div className="game-clock-bar game-clock-bar--opponent" data-clock-color={opponentColor}>
+          <span className="clock">
+            {hideClocks ? '—' : formatTime(clocks[opponentColor])}
+          </span>
+        </div>
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
           <span className="player-name">
@@ -790,9 +800,6 @@ export function GameShell(props: GameShellProps) {
             {isBot && botLevel != null && (
               <span className="bot-level"> (Lv. {botLevel})</span>
             )}
-          </span>
-          <span className="clock">
-            {hideClocks ? '—' : formatTime(clocks[opponentColor])}
           </span>
           {/* KS-4293 / ADR-134 §4: уведомление о новом сообщении
               соперника у верхнего края соперника-bar. Появляется
@@ -838,6 +845,11 @@ export function GameShell(props: GameShellProps) {
             {selfBerserk && <span title="Berserk">⚡</span>}
             {players[playerColor] || playerColor}
           </span>
+        </div>
+        {/* KS-4621: часы игрока как отдельный контрастный блок под
+            player-info. Видим только на mobile. На desktop — в
+            `.game-sidebar` (`.game-sidebar-clock`). */}
+        <div className="game-clock-bar game-clock-bar--self" data-clock-color={playerColor}>
           <span className="clock">
             {hideClocks ? '—' : formatTime(clocks[playerColor])}
           </span>
@@ -854,6 +866,16 @@ export function GameShell(props: GameShellProps) {
       <div className="game-h-resizer" onMouseDown={handleResizerMouseDown} />
 
       <div className="game-sidebar" style={{ width: sidebarWidth }}>
+        {/* KS-4621: часы соперника в правой sidebar (как lichess.org).
+            Контрастный белый фон отделяет цифры от тёмного фона страницы,
+            крупный шрифт читается периферийным зрением. На mobile блок
+            скрыт через `.game-sidebar { display: none }`. */}
+        <div
+          className="game-sidebar-clock game-sidebar-clock--opponent"
+          data-clock-color={opponentColor}
+        >
+          {hideClocks ? '—' : formatTime(clocks[opponentColor])}
+        </div>
         <div className="move-list">
           <h3>{t('game.moves')}</h3>
           <div className="moves game-moves-inline" ref={movesRef}>
@@ -873,6 +895,14 @@ export function GameShell(props: GameShellProps) {
               ];
             })}
           </div>
+        </div>
+
+        {/* KS-4621: часы игрока (внизу под move-list — как у lichess). */}
+        <div
+          className="game-sidebar-clock game-sidebar-clock--self"
+          data-clock-color={playerColor}
+        >
+          {hideClocks ? '—' : formatTime(clocks[playerColor])}
         </div>
 
         <div className="game-actions-top">
