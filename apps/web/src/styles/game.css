@@ -159,8 +159,14 @@ body:has(.game-page),
   max-width: var(--board-area-height, 560px);
   min-width: 0;
   box-sizing: border-box;
-  background: var(--c-fff);
-  color: var(--c-1a1a2e);
+  /* KS-4621 / KS-4623: пилюля контрастна окружению. В тёмной теме —
+     белый фон + тёмный текст (lichess-style на тёмной странице);
+     светлая тема переопределяется ниже в [data-theme="light"]. Раньше
+     было `var(--c-fff)`/`var(--c-1a1a2e)` — токен `--c-1a1a2e` в
+     светлой теме становится `#f6f7fb` (canvas color), и получалось
+     «почти-белый текст на белом фоне» — часы не читались. */
+  background: #ffffff;
+  color: #1a1a2e;
   border: 1px solid var(--border-mid);
   border-radius: 8px;
   padding: 4px 12px;
@@ -173,15 +179,17 @@ body:has(.game-page),
 }
 
 /* KS-4621: часы в правой sidebar — основное расположение (lichess-стиль).
-   Светлая «пилюля» на фоне тёмной страницы, крупный шрифт. */
+   Светлая «пилюля» на фоне тёмной страницы, крупный шрифт.
+   KS-4623: явные цвета (не через токены, которые инвертируются),
+   переопределение для светлой темы — ниже. */
 .game-sidebar-clock {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   box-sizing: border-box;
-  background: var(--c-fff);
-  color: var(--c-1a1a2e);
+  background: #ffffff;
+  color: #1a1a2e;
   border-radius: 8px;
   padding: 12px 16px;
   font-size: 40px;
@@ -190,6 +198,16 @@ body:has(.game-page),
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.5px;
   flex-shrink: 0;
+}
+
+/* KS-4623: светлая тема — инвертированная пилюля (тёмный фон + белый
+   текст), как у lichess в light-теме. Раньше пилюля рендерилась
+   белой на почти-белой странице → часы не читались. */
+[data-theme="light"] .game-clock-bar,
+[data-theme="light"] .game-sidebar-clock {
+  background: #1a1a2e;
+  color: #ffffff;
+  border-color: transparent;
 }
 
 .board-container {
