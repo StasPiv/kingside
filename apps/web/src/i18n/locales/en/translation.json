@@ -356,8 +356,7 @@
     "badgeUpcoming": "UPCOMING",
     "badgeFinished": "FINISHED",
     "expandFinished": "Show finished",
-    "collapseFinished": "Hide finished",
-    "lecturesLink": "Watch lectures by coaches →"
+    "collapseFinished": "Hide finished"
   },
   "broadcast": {
     "tabLive": "Live",

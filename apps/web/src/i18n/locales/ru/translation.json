@@ -356,8 +356,7 @@
     "badgeUpcoming": "UPCOMING",
     "badgeFinished": "FINISHED",
     "expandFinished": "Показать завершённые",
-    "collapseFinished": "Скрыть завершённые",
-    "lecturesLink": "Лекции от наших тренеров →"
+    "collapseFinished": "Скрыть завершённые"
   },
   "broadcast": {
     "tabLive": "Live",
