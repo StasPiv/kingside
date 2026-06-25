@@ -12,12 +12,15 @@
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: stretch;
-  /* KS-4256: было `justify-content: center` + большой gap → доска
-     отъезжала к центру с заметным пустым пространством слева
-     (между sidebar навигацией и колонкой доски). Прижимаем
-     контент к левому краю; центрирование доски в своей колонке
-     обеспечивает `.game-board-area { justify-content: center }`. */
-  justify-content: flex-start;
+  /* KS-4256 / KS-4625: исторически `justify-content: center` уже был и
+     дал «доска отъезжает к центру с пустотой слева» — но это была
+     проблема КОГДА `.game-board-area { flex: 1 1 auto }` тянула area
+     на всю ширину. После KS-4624 area = `flex: 0 1 auto`, её ширина
+     = ширина доски; sidebar встаёт сразу за ней (gap 16px). Теперь
+     `justify-content: center` корректно центрирует связку «доска +
+     sidebar» между левым nav-rail'ом и правым краем окна — как
+     просил пользователь. */
+  justify-content: center;
   gap: 16px;
   height: 100%;
   /* KS-4256: вертикальный padding 16 → 6 — раньше съедал ~30px
@@ -25,21 +28,6 @@
   padding: 6px 16px;
   position: relative;
   overflow: hidden;
-}
-
-/* KS-4624: spacer-flex справа от sidebar — забирает остаток ширины,
-   чтобы связка «доска + sidebar» прижалась к левому краю (к sidebar
-   навигации), а пустое пространство уходило вправо. До KS-4624
-   `.game-board-area` имела `flex: 1 1 auto` и растягивалась на всё
-   свободное пространство, отодвигая sidebar к правому краю экрана
-   — пользователю приходилось «крутить шеей» к часам.
-
-   На mobile/landscape `.game-page` переключается на column/grid —
-   spacer там отключаем (см. @media-блоки ниже). */
-.game-page::after {
-  content: '';
-  flex: 1 1 0;
-  min-width: 0;
 }
 
 /* KS-2695: запрещаем скролл у всех outer-контейнеров, чтобы
@@ -1467,12 +1455,6 @@ body:has(.game-page),
     right: 12px;
   }
 
-  /* KS-4624: на mobile `.game-page` — column, spacer избыточен и
-     добавляет паразитный пустой блок снизу. Скрываем. */
-  .game-page::after {
-    display: none;
-  }
-
   /* KS-4259: mobile-override `.back-nav-link` удалён вместе с
      рендером (см. блок выше). */
 
@@ -1815,11 +1797,6 @@ body:has(.game-page),
     display: none !important;
   }
 
-  /* KS-4624: spacer-flex из desktop-блока в grid создал бы лишнюю
-     grid-cell и сломал named areas. Скрываем. */
-  .game-page::after {
-    display: none;
-  }
 
   /* KS-4621: landscape — экстремально низкий экран (≤500px высоты).
      Чтобы не разрывать grid доп. строкой под clock-bar, прячем
