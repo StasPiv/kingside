@@ -57,15 +57,15 @@ export interface GameClockOutput {
 }
 
 /**
- * Для неактивной стороны режим всегда `normal` — даже если её
- * `urgency` уже `low`. Иначе десятые/сотые бегут у обоих игроков и
- * отвлекают (см. ADR §3.3, lichess делает так же).
+ * KS-4666 / ADR-144 §3.3 (правка). Mode выбирается по `urgency`
+ * каждой стороны независимо от того, активна она сейчас или нет.
+ * Прежнее ограничение «у неактивной всегда normal» снято: в цейтноте
+ * соперника наблюдатель тоже хочет видеть, как тикают сотые.
+ *
+ * Звуковое тиканье остаётся «только на своих часах» (KS-4654) —
+ * этот хук формат не оглушает, звук решает `useClockTickScheduler`.
  */
-function urgencyToMode(
-  urgency: ClockUrgency,
-  isActiveAndRunning: boolean,
-): ClockMode {
-  if (!isActiveAndRunning) return 'normal';
+function urgencyToMode(urgency: ClockUrgency): ClockMode {
   if (urgency === 'critical') return 'hundredths';
   if (urgency === 'low') return 'tenths';
   return 'normal';
@@ -114,18 +114,17 @@ export function computeClockDisplay(
 
   // KS-4658. Mode для активной стороны выбирается по urgency даже при
   // `isFinished=true` — иначе после просрочки часы прыгают с
-  // `hundredths`/`tenths` обратно на `normal` и теряют визуальную
-  // целостность. Для НЕактивной mode всегда `normal` (ADR §3.3).
-  const whiteIsActive = running && input.activeColor === 'white';
-  const blackIsActive = running && input.activeColor === 'black';
-
+  // `hundredths`/`tenths` обратно на `normal`.
+  // KS-4666. Для неактивной стороны mode тоже определяется по её
+  // собственному urgency — пользователь хочет видеть доли секунды и
+  // у соперника в цейтноте.
   return {
     whiteDisplayMs,
     blackDisplayMs,
     whiteUrgency,
     blackUrgency,
-    whiteMode: urgencyToMode(whiteUrgency, whiteIsActive),
-    blackMode: urgencyToMode(blackUrgency, blackIsActive),
+    whiteMode: urgencyToMode(whiteUrgency),
+    blackMode: urgencyToMode(blackUrgency),
   };
 }
 

@@ -83,11 +83,13 @@ const NEUTRAL: BroadcastClockState = {
   blackMode: 'normal',
 };
 
-function urgencyToMode(
-  urgency: ClockUrgency,
-  isActiveAndRunning: boolean,
-): ClockMode {
-  if (!isActiveAndRunning) return 'normal';
+/**
+ * KS-4666 / ADR-144 §3.3 (правка). Mode выбирается по `urgency`
+ * каждой стороны независимо от активности. Прежнее ограничение
+ * «у неактивной всегда normal» снято: в цейтноте партии наблюдатель
+ * хочет видеть доли секунды и у соперника.
+ */
+function urgencyToMode(urgency: ClockUrgency): ClockMode {
   if (urgency === 'critical') return 'hundredths';
   if (urgency === 'low') return 'tenths';
   return 'normal';
@@ -132,17 +134,17 @@ export function computeBroadcastClock(
   const whiteUrgency = computeClockUrgency(whiteRemainingMs, effectiveInitial);
   const blackUrgency = computeClockUrgency(blackRemainingMs, effectiveInitial);
 
-  const isWhiteRunning = !isFinished && !isBlackTurn;
-  const isBlackRunning = !isFinished && isBlackTurn;
-
+  // KS-4666. Mode для каждой стороны — по её собственному urgency,
+  // без гейта по «активной». Это даёт десятые/сотые и у соперника
+  // в цейтноте.
   return {
     whiteRemainingMs,
     blackRemainingMs,
     hasClocks: true,
     whiteUrgency,
     blackUrgency,
-    whiteMode: urgencyToMode(whiteUrgency, isWhiteRunning),
-    blackMode: urgencyToMode(blackUrgency, isBlackRunning),
+    whiteMode: urgencyToMode(whiteUrgency),
+    blackMode: urgencyToMode(blackUrgency),
   };
 }
 

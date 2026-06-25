@@ -165,28 +165,33 @@ describe('formatBroadcastClock KS-2700', () => {
 });
 
 describe('computeBroadcastClock — urgency/mode KS-4656', () => {
-  it('активная сторона при низком времени → low/tenths; неактивная — нормальный mode', () => {
-    // Прошло 30 секунд — белым 5000-30000<0, clamp 0; чёрные неактивны.
-    // Возьмём другой расклад: белые активны, осталось 7000 мс.
+  it('mode по urgency для обеих сторон, активная/неактивная не влияет (KS-4666)', () => {
+    // До KS-4666 неактивной стороне форсился mode='normal'. Теперь
+    // mode выбирается по её собственному urgency, чтобы наблюдатель
+    // видел доли секунды и у соперника в цейтноте.
     const r = computeBroadcastClock(
       {
         whiteClockMs: 7_000,
-        blackClockMs: 60_000,
+        blackClockMs: 6_000,
         clockUpdatedAt: new Date(NOW).toISOString(),
         isBlackTurn: false,
       },
       NOW,
     );
     expect(r.whiteRemainingMs).toBe(7_000);
-    // С fallback initialMs=null: emergency1=30_000, emergency2=8_000.
-    // 7_000 <= 8_000 → critical.
+    expect(r.blackRemainingMs).toBe(6_000);
+    // fallback initialMs=null → emergency1=30_000, emergency2=8_000.
+    // Оба <8_000 → critical.
     expect(r.whiteUrgency).toBe('critical');
+    expect(r.blackUrgency).toBe('critical');
     expect(r.whiteMode).toBe('hundredths');
-    // Чёрные неактивны — mode='normal' независимо от urgency.
-    expect(r.blackMode).toBe('normal');
+    expect(r.blackMode).toBe('hundredths');
   });
 
-  it('isFinished=true → mode у обоих normal, даже при низком времени', () => {
+  it('isFinished=true → mode по urgency (фриз снимка с долями)', () => {
+    // KS-4666: mode у обеих сторон следует urgency даже при finished
+    // — финальный снимок остаётся в hundredths/tenths, если время
+    // было низким.
     const r = computeBroadcastClock(
       {
         whiteClockMs: 500,
@@ -197,11 +202,10 @@ describe('computeBroadcastClock — urgency/mode KS-4656', () => {
       },
       NOW,
     );
-    // Урgency считается по числу — оба critical (≤8000 при fallback),
-    // но mode normal — часы остановлены.
     expect(r.whiteUrgency).toBe('critical');
-    expect(r.whiteMode).toBe('normal');
-    expect(r.blackMode).toBe('normal');
+    expect(r.blackUrgency).toBe('critical');
+    expect(r.whiteMode).toBe('hundredths');
+    expect(r.blackMode).toBe('hundredths');
   });
 
   it('initialMs учитывается при расчёте порогов', () => {

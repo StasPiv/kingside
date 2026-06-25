@@ -96,7 +96,9 @@ describe('computeClockDisplay — чистая функция', () => {
     expect(out.whiteDisplayMs).toBe(60_000);
   });
 
-  it('mode неактивной стороны — всегда normal, даже при low', () => {
+  it('mode неактивной стороны теперь следует её urgency (KS-4666)', () => {
+    // До KS-4666 неактивной стороне форсился mode='normal' — теперь
+    // если у неё low/critical, формат тоже tenths/hundredths.
     const out = computeClockDisplay(
       makeInput({
         whiteMs: 7_000, // <8_000 → low
@@ -108,8 +110,8 @@ describe('computeClockDisplay — чистая функция', () => {
     );
     expect(out.whiteUrgency).toBe('low');
     expect(out.blackUrgency).toBe('low');
-    expect(out.whiteMode).toBe('tenths'); // активная сторона видит десятые
-    expect(out.blackMode).toBe('normal'); // неактивная — без долей
+    expect(out.whiteMode).toBe('tenths');
+    expect(out.blackMode).toBe('tenths');
   });
 
   it('mode активной white critical → hundredths', () => {
@@ -129,10 +131,11 @@ describe('computeClockDisplay — чистая функция', () => {
     expect(out.blackMode).toBe('normal');
   });
 
-  it('isFinished + критическая активная сторона → mode hundredths (KS-4658)', () => {
-    // После KS-4658 mode сохраняется как у активной стороны и при
-    // finished — чтобы цифра не «прыгала» с 0.00 на 0:00 в момент
-    // окончания партии.
+  it('isFinished + critical → mode hundredths у обеих сторон (KS-4658 + KS-4666)', () => {
+    // KS-4658: mode сохраняется у активной стороны и при finished,
+    // чтобы цифра не «прыгала» с 0.00 на 0:00.
+    // KS-4666: mode у неактивной стороны теперь тоже определяется
+    // по её urgency (а не форсится в normal).
     const out = computeClockDisplay(
       makeInput({
         whiteMs: 500,
@@ -144,9 +147,9 @@ describe('computeClockDisplay — чистая функция', () => {
       0,
     );
     expect(out.whiteUrgency).toBe('critical');
+    expect(out.blackUrgency).toBe('critical');
     expect(out.whiteMode).toBe('hundredths');
-    // Неактивная всегда normal.
-    expect(out.blackMode).toBe('normal');
+    expect(out.blackMode).toBe('hundredths');
   });
 
   it('пороги вычисляются по initialMs (rapid 15+10)', () => {
