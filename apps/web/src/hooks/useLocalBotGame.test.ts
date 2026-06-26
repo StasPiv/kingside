@@ -198,8 +198,48 @@ describe('useLocalBotGame', () => {
     act(() => {
       vi.advanceTimersByTime(60_000);
     });
-    // Даже через минуту таймер не сработал.
     expect(result.current.status).toBe('active');
     expect(result.current.result).toBeNull();
+  });
+
+  it('предход применяется после ответного хода бота (KS-4669)', async () => {
+    // Эмулируем последовательность: ход игрока e4 → ход бота e5 →
+    // повторный ход игрока g1f3. Сам GameShell применяет
+    // `pendingPremove` через `useEffect`, вызывая `game.onMove(from, to)`
+    // — этот тест проверяет, что хук готов принять такой вызов сразу
+    // после хода бота, т.е. что предход технически срабатывает.
+    let resolveBot: ((uci: string) => void) | null = null;
+    getBotMoveMock.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveBot = resolve;
+        }),
+    );
+    const { result } = renderHook(() =>
+      useLocalBotGame({ color: 'white', level: 3 }),
+    );
+    // 1. Ход игрока.
+    act(() => {
+      result.current.onMove('e2' as never, 'e4' as never);
+    });
+    expect(result.current.moves).toEqual(['e4']);
+    expect(result.current.chess.turn()).toBe('b');
+
+    // 2. Бот отвечает.
+    await act(async () => {
+      resolveBot?.('e7e5');
+      await Promise.resolve();
+    });
+    expect(result.current.moves).toEqual(['e4', 'e5']);
+    expect(result.current.chess.turn()).toBe('w');
+
+    // 3. Имитируем применение pendingPremove: тот же game.onMove,
+    //    который вызвал бы GameShell.useEffect.
+    let accepted = false;
+    act(() => {
+      accepted = result.current.onMove('g1' as never, 'f3' as never);
+    });
+    expect(accepted).toBe(true);
+    expect(result.current.moves).toEqual(['e4', 'e5', 'Nf3']);
   });
 });

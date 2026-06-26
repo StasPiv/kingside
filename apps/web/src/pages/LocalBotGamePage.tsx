@@ -146,7 +146,16 @@ export function LocalBotGamePage() {
       playerColor={game.playerColor}
       players={game.players}
       onMove={game.onMove}
-      enablePremove={false}
+      /* KS-4669. Включаем предход в партиях с ботом: и перетаскивание,
+         и тап-тап (KS-4668). Сама логика применения предхода после
+         хода бота живёт в `GameShell` (useEffect, отслеживающий смену
+         `fen` и `chess.turn()` — общий для live и local-bot). Бот
+         делает ход → `useLocalBotGame` обновляет fen → useEffect в
+         GameShell видит, что снова наш ход, и применяет
+         `pendingPremove` через `onMove(from, to, promotion)`. Если
+         premove на новой позиции нелегален — `useLocalBotGame.onMove`
+         вернёт `false`, premove просто отбросится. */
+      enablePremove={true}
       lastMove={game.lastMove}
       isBot
       botLevel={game.botLevel}
