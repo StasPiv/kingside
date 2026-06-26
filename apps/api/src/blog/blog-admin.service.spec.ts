@@ -462,4 +462,92 @@ describe('BlogAdminService — KS-4616: prerender hooks', () => {
       expect(where).toEqual({ status: 'published' });
     });
   });
+
+  describe('recomputeHtmlForAllPosts (KS-4672)', () => {
+    it('пересобирает bodyHtml/readingTimeMin и делает UPDATE для каждого изменённого', async () => {
+      // renderMarkdownToHtml в jest.mock возвращает `<rendered>${md}</rendered>`,
+      // estimateReadingTimeMin → 1. Старые html в БД заведомо иные, поэтому все
+      // три поста должны попасть в `updated`.
+      prisma.blogPost.findMany.mockResolvedValueOnce([
+        {
+          id: 'p1',
+          slug: 'a',
+          locale: 'ru',
+          status: 'published',
+          bodyMd: '# old-1',
+          bodyHtml: '<old/>',
+          readingTimeMin: 5,
+        },
+        {
+          id: 'p2',
+          slug: 'b',
+          locale: 'en',
+          status: 'published',
+          bodyMd: '# old-2',
+          bodyHtml: '<old/>',
+          readingTimeMin: 5,
+        },
+        {
+          id: 'p3',
+          slug: 'c',
+          locale: 'ru',
+          status: 'draft',
+          bodyMd: '# old-3',
+          bodyHtml: '<old/>',
+          readingTimeMin: 5,
+        },
+      ]);
+      const r = await svc.recomputeHtmlForAllPosts();
+      expect(r).toEqual({ total: 3, updated: 3, unchanged: 0 });
+      expect(prisma.blogPost.update).toHaveBeenCalledTimes(3);
+      // Только опубликованные → prerender enqueue. Draft пропускается.
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledTimes(2);
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'blog-post',
+        locale: 'ru',
+        slug: 'a',
+      });
+      expect(prerender.enqueueFireAndForget).toHaveBeenCalledWith({
+        kind: 'blog-post',
+        locale: 'en',
+        slug: 'b',
+      });
+    });
+
+    it('не делает UPDATE и не ставит prerender, если HTML и readingTime уже совпадают', async () => {
+      // Подменяем результаты mock-функций под уже-актуальные значения.
+      prisma.blogPost.findMany.mockResolvedValueOnce([
+        {
+          id: 'p1',
+          slug: 'a',
+          locale: 'ru',
+          status: 'published',
+          bodyMd: 'same',
+          bodyHtml: '<rendered>same</rendered>',
+          readingTimeMin: 1,
+        },
+      ]);
+      const r = await svc.recomputeHtmlForAllPosts();
+      expect(r).toEqual({ total: 1, updated: 0, unchanged: 1 });
+      expect(prisma.blogPost.update).not.toHaveBeenCalled();
+      expect(prerender.enqueueFireAndForget).not.toHaveBeenCalled();
+    });
+
+    it('игнорирует enqueue для локалей вне ru/en (даже если status=published)', async () => {
+      prisma.blogPost.findMany.mockResolvedValueOnce([
+        {
+          id: 'p1',
+          slug: 'a',
+          locale: 'de',
+          status: 'published',
+          bodyMd: 'x',
+          bodyHtml: '<old/>',
+          readingTimeMin: 5,
+        },
+      ]);
+      const r = await svc.recomputeHtmlForAllPosts();
+      expect(r.updated).toBe(1);
+      expect(prerender.enqueueFireAndForget).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -360,4 +360,26 @@ export class BlogAdminController {
   }> {
     return this.admin.reindexPrerenderForPublished();
   }
+
+  /**
+   * KS-4672. Разовая пересборка `bodyHtml` всех постов из их актуального
+   * `bodyMd`. Используется после правок `markdown.ts` (новые HAST-
+   * свойства / sanitize-схема), чтобы кэшированный HTML в БД получил
+   * изменения без ручного `PATCH` на каждый пост. Для опубликованных
+   * постов поднимает prerender-задачу — snapshot в S3 обновится.
+   *
+   * Идемпотентна: посты с уже актуальным HTML не апдейтятся (см.
+   * сравнение в `recomputeHtmlForAllPosts`).
+   *
+   * Защищена `blog:write` scope.
+   */
+  @Post('posts/recompute-html')
+  @RequiredScope('blog:write')
+  recomputeHtml(): Promise<{
+    total: number;
+    updated: number;
+    unchanged: number;
+  }> {
+    return this.admin.recomputeHtmlForAllPosts();
+  }
 }

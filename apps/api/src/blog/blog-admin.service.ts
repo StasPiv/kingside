@@ -418,6 +418,74 @@ export class BlogAdminService {
     };
   }
 
+  /**
+   * KS-4672. Разовая операция: пересобрать `bodyHtml` и
+   * `readingTimeMin` всех постов из их актуального `bodyMd`. Нужна
+   * после правок `markdown.ts` (новые HAST-свойства / sanitize-схема)
+   * — кэшированный HTML в БД иначе не получит изменений до следующего
+   * `PATCH` на пост.
+   *
+   * Идемпотентна: если HTML не изменился — UPDATE пропускается
+   * (Prisma даже без сравнения сделает UPDATE, поэтому сравниваем
+   * сами; это режет лишние invalidation'ы и audit-логи).
+   *
+   * Защищена `blog:write` scope на контроллере. Mutation-хуки
+   * (prerender-reindex) триггерим только для опубликованных постов,
+   * у которых HTML действительно изменился — иначе SQS-spam.
+   */
+  async recomputeHtmlForAllPosts(): Promise<{
+    total: number;
+    updated: number;
+    unchanged: number;
+  }> {
+    const rows = await this.prisma.blogPost.findMany({
+      select: {
+        id: true,
+        slug: true,
+        locale: true,
+        status: true,
+        bodyMd: true,
+        bodyHtml: true,
+        readingTimeMin: true,
+      },
+    });
+    let updated = 0;
+    let unchanged = 0;
+    for (const row of rows) {
+      const nextHtml = await renderMarkdownToHtml(row.bodyMd);
+      const nextReading = estimateReadingTimeMin(row.bodyMd);
+      if (
+        nextHtml === row.bodyHtml &&
+        nextReading === row.readingTimeMin
+      ) {
+        unchanged += 1;
+        continue;
+      }
+      await this.prisma.blogPost.update({
+        where: { id: row.id },
+        data: {
+          bodyHtml: nextHtml,
+          readingTimeMin: nextReading,
+        },
+      });
+      updated += 1;
+      // KS-4616. Для опубликованных постов поставим prerender-задачу —
+      // иначе snapshot в S3 останется со старым HTML до следующего
+      // `PATCH` или sitemap-цикла.
+      if (
+        row.status === 'published' &&
+        (row.locale === 'ru' || row.locale === 'en')
+      ) {
+        this.prerender.enqueueFireAndForget({
+          kind: 'blog-post',
+          locale: row.locale,
+          slug: row.slug,
+        });
+      }
+    }
+    return { total: rows.length, updated, unchanged };
+  }
+
   // ─── helpers ───────────────────────────────────────────────────────
 
   private async ensureAuthorExists(id: string): Promise<void> {

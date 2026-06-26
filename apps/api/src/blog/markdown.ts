@@ -141,6 +141,13 @@ export function buildYoutubeIframeProperties(videoId: string): Record<string, un
     allowFullScreen: true,
     loading: 'lazy',
     referrerPolicy: 'strict-origin-when-cross-origin',
+    // KS-4672. Атрибут `credentialless` нужен для встроек на страницах
+    // с COEP=credentialless (после KS-4671 главная отдаёт его, и
+    // SPA-навигация в блог наследует заголовок). Без атрибута Chrome
+    // 110+ отказывается грузить ресурс из cross-origin без CORP=cross-
+    // origin (которого YouTube не отдаёт). HAST: boolean=true → пустой
+    // HTML5 boolean-атрибут `credentialless` в выходе rehype-stringify.
+    credentialless: true,
   };
 }
 
@@ -286,6 +293,10 @@ async function getProcessor(): Promise<UnifiedProcessor> {
           ['allowFullScreen', true],
           ['loading', 'lazy'],
           ['referrerPolicy', 'strict-origin-when-cross-origin'],
+          // KS-4672. Допускаем boolean=true (HTML5 boolean-атрибут).
+          // Любая строка/false вырежется — это исключает попытки
+          // протолкнуть `credentialless="evil"` или другое.
+          ['credentialless', true],
         ],
         div: [
           ...((defaultSchema.attributes?.div as unknown[]) ?? []),

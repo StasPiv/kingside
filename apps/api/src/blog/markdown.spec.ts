@@ -124,6 +124,9 @@ describe('KS-4637: buildYoutubeIframeProperties', () => {
     expect(props.allow).toBe(
       'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share',
     );
+    // KS-4672. credentialless = HAST boolean=true → пустой HTML5
+    // boolean-атрибут в выходе rehype-stringify.
+    expect(props.credentialless).toBe(true);
   });
 
   it('бракует невалидный videoId (защита от прямых вызовов с мусором)', () => {
