@@ -10,6 +10,10 @@ import { BlogService } from './blog.service';
 // service-account `ks_sa_*` со scope `blog:write` на mutating-эндпоинты).
 import { BlogAdminController } from './blog-admin.controller';
 import { BlogAdminService } from './blog-admin.service';
+// KS-4672: разовая operator-операция пересборки bodyHtml всех постов.
+// Защищён `X-Admin-Token` == `BROADCAST_ADMIN_TOKEN` (как
+// reindex/sitemap-admin), не `AdminOrServiceGuard`.
+import { BlogAdminRecomputeController } from './blog-admin-recompute.controller';
 // KS-4444 / ADR-138 §5: загрузка обложек статей в S3.
 import { BlogMediaService } from './blog-media.service';
 // KS-4469 / ADR-140 T3: подсчёт просмотров с Redis-дедупом и антибот-фильтром.
@@ -32,7 +36,12 @@ import { PrerenderModule } from '../prerender/prerender.module';
 
 @Module({
   imports: [AuthModule, PrerenderModule],
-  controllers: [BlogController, BlogAdminController, BlogCommentController],
+  controllers: [
+    BlogController,
+    BlogAdminController,
+    BlogAdminRecomputeController,
+    BlogCommentController,
+  ],
   providers: [
     BlogService,
     BlogAdminService,
