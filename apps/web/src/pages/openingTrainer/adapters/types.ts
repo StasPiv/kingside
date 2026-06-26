@@ -143,6 +143,23 @@ export interface OpeningTrainerAdapterCapabilities {
   showFinishButton: boolean;
 }
 
+/**
+ * KS-4670. Результат принудительного перехода после `line-complete`-
+ * outcome'а. Backend в обычном flow (KS-3277) выдаёт `line-restart`
+ * или `tree-complete`, но в краевых случаях возвращает `line-complete`
+ * (см. `OpeningTrainerMoveResult` в shared/types/opening-trainer.ts).
+ * До KS-4670 фронт в этом случае зависал на финальной позиции —
+ * пользователь не мог ни сходить, ни сдаться (`giveup` падает с
+ * «Nothing to giveup»).
+ *
+ *   - `kind: 'next-line'` — backend подвинул сессию к следующей
+ *     линии, фронт продолжает с новым `currentFen`.
+ *   - `kind: 'finished'` — сессия закрыта, переходим на result.
+ */
+export type AdvanceAfterLineCompleteOutcome =
+  | { kind: 'next-line'; state: OpeningTrainerInitialState }
+  | { kind: 'finished'; resultRoute: string };
+
 export interface OpeningTrainerAdapter {
   readonly capabilities: OpeningTrainerAdapterCapabilities;
   loadInitial(): Promise<OpeningTrainerInitialState>;
@@ -153,4 +170,12 @@ export interface OpeningTrainerAdapter {
   undoLastMove?(): Promise<OpeningTrainerInitialState>;
   giveup?(): Promise<OpeningTrainerOutcome>;
   finishSession?(): Promise<{ resultRoute: string }>;
+  /**
+   * KS-4670. Backend выдал `line-complete` — линия закончилась, но
+   * сессия ещё не закрыта. Фронт зовёт этот метод чтобы получить
+   * либо новую стартовую позицию следующей линии, либо сигнал
+   * «сессия завершена, идём на result». Опционален: Demo-адаптер
+   * не реализует.
+   */
+  advanceAfterLineComplete?(): Promise<AdvanceAfterLineCompleteOutcome>;
 }

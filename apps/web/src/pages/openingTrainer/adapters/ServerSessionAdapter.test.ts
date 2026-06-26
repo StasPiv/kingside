@@ -245,4 +245,48 @@ describe('ServerSessionAdapter', () => {
       '/opening-trainer/r1/session/s1/result',
     );
   });
+
+  // KS-4670: автопереход после `line-complete`.
+  it('advanceAfterLineComplete: backend подвинул сессию → next-line', async () => {
+    const adapter = new ServerSessionAdapter('r1', 's1', {
+      initialSession: makeSession(),
+    });
+    await adapter.loadInitial();
+    // Backend на GET /sessions/:sid отдаёт уже новую стартовую
+    // позицию следующей линии.
+    mockedApi.getSession.mockResolvedValueOnce({
+      session: makeSession({
+        currentFen: E4_FEN,
+        currentPath: ['e2e4'],
+        status: 'active',
+      }),
+    });
+    const out = await adapter.advanceAfterLineComplete();
+    expect(mockedApi.getSession).toHaveBeenCalledWith('s1');
+    expect(out.kind).toBe('next-line');
+    if (out.kind === 'next-line') {
+      expect(out.state.currentFen).toBe(E4_FEN);
+      expect(out.state.lastMoveUci).toBe('e2e4');
+    }
+  });
+
+  it('advanceAfterLineComplete: сессия закрыта → finished + resultRoute', async () => {
+    const adapter = new ServerSessionAdapter('r1', 's1', {
+      initialSession: makeSession(),
+    });
+    await adapter.loadInitial();
+    mockedApi.getSession.mockResolvedValueOnce({
+      session: makeSession({
+        status: 'finished',
+        finishedAt: '2026-05-23T00:00:30Z',
+      }),
+    });
+    const out = await adapter.advanceAfterLineComplete();
+    expect(out.kind).toBe('finished');
+    if (out.kind === 'finished') {
+      expect(out.resultRoute).toBe(
+        '/opening-trainer/r1/session/s1/result',
+      );
+    }
+  });
 });

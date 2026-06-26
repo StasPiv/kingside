@@ -22,6 +22,7 @@ import type {
   OpeningTrainerSessionDto,
 } from '@kingside/shared';
 import type {
+  AdvanceAfterLineCompleteOutcome,
   OpeningTrainerAdapter,
   OpeningTrainerAdapterCapabilities,
   OpeningTrainerCounters,
@@ -146,6 +147,42 @@ export class ServerSessionAdapter implements OpeningTrainerAdapter {
       counters: this.makeCounters(),
       lastMoveUci: res.botMove ? res.botMove.moveUci : null,
       botMove: res.botMove ?? null,
+    };
+  }
+
+  /**
+   * KS-4670. После `line-complete`-outcome фронт зовёт этот метод,
+   * чтобы перейти на следующую линию (если backend уже подвинул
+   * `currentFen`) или завершить сессию (если `status='finished'`).
+   *
+   * Полагается на `GET /sessions/:sid` — самый дешёвый способ
+   * узнать актуальное состояние без побочных эффектов. Не дёргает
+   * `move`/`giveup`/`undo`, чтобы случайно не повлиять на streak
+   * или wrong-counter.
+   */
+  async advanceAfterLineComplete(): Promise<AdvanceAfterLineCompleteOutcome> {
+    if (!this.session) {
+      throw new Error(
+        'ServerSessionAdapter: advanceAfterLineComplete before loadInitial',
+      );
+    }
+    const res = await openingTrainerApi.getSession(this.sessionId);
+    this.session = res.session;
+    this.recomputeStreak();
+    if (this.session.status === 'finished') {
+      return { kind: 'finished', resultRoute: this.getResultRoute() };
+    }
+    const lastInPath = this.session.currentPath[
+      this.session.currentPath.length - 1
+    ];
+    return {
+      kind: 'next-line',
+      state: {
+        side: this.session.side,
+        currentFen: this.session.currentFen,
+        lastMoveUci: lastInPath ?? null,
+        counters: this.makeCounters(),
+      },
     };
   }
 

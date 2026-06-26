@@ -37,6 +37,10 @@ import { LocalDemoNotFoundError } from './adapters/LocalDemoAdapter';
 const BOT_DELAY_MS = 420;
 const HINT_ARROW_COLOR = 'rgba(56, 189, 248, 0.75)';
 const TREE_COMPLETE_FINISH_DELAY_MS = 1500;
+// KS-4670. Пауза между показом финальной позиции линии и переходом
+// на следующую — чтобы пользователь успел увидеть «вот линия
+// завершилась». Совпадает по тайму с `TREE_COMPLETE_FINISH_DELAY_MS`.
+const LINE_COMPLETE_ADVANCE_DELAY_MS = 1500;
 
 type Feedback =
   | { kind: 'correct'; scoreDelta?: number }
@@ -243,6 +247,45 @@ export function OpeningTrainerPlayer({
           }
           setLastMoveUci(outcome.lastMoveUci ?? null);
           positionShownAtRef.current = Date.now();
+          // KS-4670. До этого правки UI после `line-complete` зависал
+          // на финальной позиции: `expectedMoves` пустой → попытка
+          // `giveup` падала с «Nothing to giveup — current position
+          // has no expected moves». Backend `line-complete` приходит
+          // в редких краевых случаях (см. ADR/typedef); основной
+          // flow — `line-restart`/`tree-complete`. Чтобы пользователь
+          // не оставался один на один с тупиком, через паузу
+          // дёргаем `advanceAfterLineComplete()` — адаптер обновит
+          // снимок сессии и решит, перейти на следующую линию или
+          // выйти на result.
+          if (adapter.advanceAfterLineComplete) {
+            window.setTimeout(() => {
+              void adapter
+                .advanceAfterLineComplete!()
+                .then((advance) => {
+                  if (advance.kind === 'finished') {
+                    if (onSessionFinished) {
+                      onSessionFinished(advance.resultRoute);
+                    }
+                    return;
+                  }
+                  const next = advance.state;
+                  setInitial(next);
+                  try {
+                    setChess(new Chess(next.currentFen));
+                  } catch {
+                    /* ignore */
+                  }
+                  setLastMoveUci(next.lastMoveUci);
+                  setCounters(next.counters);
+                  setFeedback(null);
+                  positionShownAtRef.current = Date.now();
+                })
+                .catch(() => {
+                  /* silent — оставляем пользователя в текущем
+                     состоянии, кнопки «Откатить»/«Завершить» рабочие */
+                });
+            }, LINE_COMPLETE_ADVANCE_DELAY_MS);
+          }
           break;
         }
         case 'line-restart': {
