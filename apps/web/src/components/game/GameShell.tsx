@@ -438,6 +438,10 @@ export function GameShell(props: GameShellProps) {
     playerColor,
     enabled: status === 'active',
     onMove: onMoveForTouch,
+    // KS-4668. Тап-клик во время хода соперника создаёт premove (как
+    // перетаскивание). Включаем только когда родитель явно
+    // разрешил premove (`enablePremove=true`).
+    enablePremoveClicks: enablePremove,
   });
 
   // Подсветка последнего хода и звук — из lastMove источника данных.

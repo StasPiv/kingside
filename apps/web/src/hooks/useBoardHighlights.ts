@@ -39,6 +39,23 @@ interface UseBoardHighlightsOptions {
    * Intended for touch/mobile devices as an alternative to drag-and-drop.
    */
   onMove?: (from: Square, to: Square) => boolean;
+  /**
+   * KS-4668. Разрешить ввод премува тап-кликом во время хода соперника.
+   * Когда `true` и `enabled=true`:
+   *   1) тап по своей фигуре в чужой ход — выделяет её как «источник
+   *      премува» (то же `selectedSquare`);
+   *   2) тап по полю назначения — вызывает `onMove(from, to)`, который
+   *      в GameShell ставит `pendingPremove` (см. `handleAttemptMove`).
+   *
+   * Не делаем pseudo-legal-фильтрацию, чтобы поведение симметрично
+   * перетаскиванию (`handlePieceDrop` тоже принимает любую пару (from,
+   * to) и решение о легальности откладывает до момента ответного хода
+   * соперника).
+   *
+   * `false` — старое поведение: тапы во время хода соперника не
+   * создают премув, только перетаскивание.
+   */
+  enablePremoveClicks?: boolean;
 }
 
 interface UseBoardHighlightsResult {
@@ -73,6 +90,7 @@ export function useBoardHighlights({
   playerColor,
   enabled = true,
   onMove,
+  enablePremoveClicks = false,
 }: UseBoardHighlightsOptions): UseBoardHighlightsResult {
   const [selectedSquare, setSelectedSquareState] = useState<Square | null>(null);
   const [lastMove, setLastMoveState] = useState<{ from: Square; to: Square } | null>(null);
@@ -136,6 +154,34 @@ export function useBoardHighlights({
           }
           // Move was rejected — fall through to normal click handling
         }
+
+        // KS-4668. Премув тап-кликом во время хода соперника.
+        // Если выбранный квадрат — наша фигура и сейчас НЕ наш ход,
+        // делегируем onMove(from, to). Внутри GameShell это попадёт
+        // в handleAttemptMove → setPendingPremove (см. ветку
+        // `turnColor !== playerColor`). Без pseudo-legal-фильтра —
+        // как у drag (handlePieceDrop), чтобы поведение трёх способов
+        // ввода (drag / mouse-click / tap) совпадало.
+        if (enablePremoveClicks && playerColor) {
+          const piece = game.get(currentSelected);
+          const pieceColor = piece
+            ? piece.color === 'w'
+              ? 'white'
+              : 'black'
+            : null;
+          const turnColor = game.turn() === 'w' ? 'white' : 'black';
+          if (
+            piece &&
+            pieceColor === playerColor &&
+            turnColor !== playerColor
+          ) {
+            setSelectedSquare(null);
+            const accepted = onMove(currentSelected, square);
+            if (accepted) {
+              return;
+            }
+          }
+        }
       }
 
       const piece = game.get(square);
@@ -152,7 +198,7 @@ export function useBoardHighlights({
       // If clicking elsewhere — deselect
       setSelectedSquare(null);
     },
-    [enabled, game, playerColor, onMove, setSelectedSquare],
+    [enabled, game, playerColor, onMove, setSelectedSquare, enablePremoveClicks],
   );
 
   const squareStyles = useMemo(() => {
