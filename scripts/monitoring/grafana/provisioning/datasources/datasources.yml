@@ -47,4 +47,7 @@ datasources:
     access: proxy
     jsonData:
       authType: default
-      defaultRegion: ${AWS_REGION:-eu-central-1}
+      # Захардкожено: ${ENV} default-value синтаксис Grafana provisioning не
+      # понимает (рендерится как литерал, health-check падает с "missing
+      # default region"). Регион AWS у нас один на всю инфру.
+      defaultRegion: eu-central-1
