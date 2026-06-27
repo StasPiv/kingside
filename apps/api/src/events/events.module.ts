@@ -52,6 +52,10 @@ import { EventsWriterService } from './events-writer.service';
     // AuthService.
     AnalyticsDataService,
   ],
-  exports: [EventsService, EventsMetricsService, AnalyticsDataService],
+  // KS-4701: EventsPrismaService экспортируется для HintsModule
+  // (HintsService и HintsAdminService напрямую читают/пишут schema
+  // events через owner-PrismaClient). Без этого DI в HintsModule
+  // падает UnknownDependenciesException на старте Nest.
+  exports: [EventsService, EventsMetricsService, AnalyticsDataService, EventsPrismaService],
 })
 export class EventsModule {}
