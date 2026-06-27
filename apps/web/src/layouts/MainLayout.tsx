@@ -25,6 +25,7 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { PatreonLogo } from '../components/PatreonLogo';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 import { ChatWidget } from '../components/ChatWidget';
+import { CookieBanner } from '../components/cookie-banner/CookieBanner';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -446,6 +447,11 @@ export function MainLayout() {
           закрылось, плюс плашка ломала Playwright-скриншоты на
           чистом localStorage. */}
       {!hideAssistantFab && <ChatWidget />}
+      {/* KS-4698 / ADR-147 §6.2. Cookie-banner с чекбоксом аналитики.
+          Сам компонент решает, показывать ли (для авторизованного — пока
+          consent не выставлен; для гостя — пока пользователь не закрыл
+          его на 30 дней). */}
+      <CookieBanner />
     </div>
   );
 }

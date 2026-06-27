@@ -463,6 +463,15 @@
   "broadcastGame": {
     "backToRound": "Back to round"
   },
+  "cookieBanner": {
+    "region": "Privacy & analytics consent",
+    "intro": "We use a small amount of analytics to personalise hints and improve the site. No personal moves or messages are tracked — only high-level actions.",
+    "accept": "Enable analytics",
+    "decline": "Decline",
+    "error": "Could not save your choice — try again.",
+    "guestHint": "Sign in to choose your analytics preferences. As a guest, no events are recorded.",
+    "guestDismiss": "Got it"
+  },
   "settings": {
     "title": "Settings",
     "profile": "Profile",
@@ -540,7 +549,29 @@
       "account": "Account",
       "board": "Board",
       "game": "Game & analysis",
-      "interface": "Interface"
+      "interface": "Interface",
+      "privacy": "Privacy"
+    },
+    "privacy": {
+      "title": "Privacy & data",
+      "notLoggedIn": "Sign in to manage your analytics consent and personal data.",
+      "consentLabel": "Analytics for personalised hints",
+      "consentHint": "When enabled, the site records high-level actions (page views, idle time, game/puzzle starts) to suggest contextual hints. No move data or messages are tracked.",
+      "consentError": "Could not update your choice. Try again.",
+      "exportButton": "Download my data",
+      "exportLoading": "Preparing download…",
+      "exportHint": "Get a JSON file with the last 90 days of your analytics events. Limited to one download per 24 hours.",
+      "exportRateLimited": "You already downloaded your data today. Try again in 24 hours.",
+      "exportError": "Download failed: {{message}}",
+      "deleteButton": "Delete my data",
+      "deleteHint": "Permanently removes all analytics events and hint history we have stored for your account. Your account and games stay intact.",
+      "deleteConfirmTitle": "Delete analytics data?",
+      "deleteConfirmBody": "This action cannot be undone. Your analytics history will be removed immediately.",
+      "deleteConfirmYes": "Yes, delete",
+      "deleteConfirmNo": "Cancel",
+      "deleteLoading": "Deleting…",
+      "deleteDone": "Deleted {{count}} events. Done.",
+      "deleteError": "Delete failed: {{message}}"
     },
     "board": {
       "title": "Board",

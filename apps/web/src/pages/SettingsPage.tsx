@@ -27,6 +27,7 @@ import {
 } from '../hooks/useGameReviewMovetime';
 import { HelpButton } from '../components/HelpButton';
 import { resetDrillOnboarding } from '../utils/drillOnboarding';
+import { PrivacyTab } from './settings/privacy/PrivacyTab';
 // KS-2423: drill-only mute для звуков тренажёров.
 import { useDrillSounds } from '../hooks/useDrillSounds';
 
@@ -44,7 +45,7 @@ import { useDrillSounds } from '../hooks/useDrillSounds';
  * `account`. См. ADR §2.2.
  */
 
-const TAB_ORDER = ['account', 'board', 'game', 'interface'] as const;
+const TAB_ORDER = ['account', 'board', 'game', 'interface', 'privacy'] as const;
 type SettingsTab = (typeof TAB_ORDER)[number];
 
 const LAST_TAB_STORAGE_KEY = 'settings.lastTab';
@@ -328,6 +329,7 @@ export function SettingsPage() {
           drillsOnboardingMsg={drillsOnboardingMsg}
         />
       )}
+      {activeTab === 'privacy' && <PrivacyTab />}
     </div>
   );
 }
