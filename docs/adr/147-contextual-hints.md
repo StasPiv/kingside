@@ -10,7 +10,7 @@
 
 ## 0. TL;DR
 
-Заводим модуль `hints` в `apps/api` + новую инфру событий. Pipeline сразу под целевую нагрузку 600K событий/день: источники (frontend `POST /events`, backend self-emit) → **Redis Streams** (`user_events:stream`, durable, AOF, consumer groups) → **Events Writer Worker** → **отдельная events-RDS** (PostgreSQL + `pg_partman` weekly partitions, retention 90 дней) + параллельно **Redis hot counters** для коротких окон. HintsEngine читает **materialized views** (длинные окна) + Redis counters (короткие окна), никогда не сканирует raw `user_events`. Правила — декларативный JSON-DSL в таблице `hints` (редактируется через seed, потом через админ-UI). Доставка на UI — push через существующий `MessageGateway` (room `user:<id>`, событие `hint:show`), placement — anchor по `data-hint-anchor="<id>"` в DOM. Lifecycle (`viewed | dismissed | acted | ignored`) трекается обратно тем же gateway-ом. Глобальные лимиты — ≤1 подсказки в 10 минут на пользователя, ≤5 за сессию. Согласие на трекинг включено в существующий cookie-banner отдельной галочкой; пользователь без согласия — события не пишутся, подсказки не показываются. Масштабирование при росте — только в рамках PG-стека (uplift instance class, read replicas, compression, pg_partman subpartitioning), без смены технологии (§7A).
+Заводим модуль `hints` в `apps/api` + новую инфру событий. Pipeline сразу под целевую нагрузку 600K событий/день: источники (frontend `POST /events`, backend self-emit) → **Redis Streams** (`user_events:stream`, durable, AOF, consumer groups) → **Events Writer Worker** → **отдельная events-RDS** (PostgreSQL + `pg_partman` weekly partitions, retention 90 дней) + параллельно **Redis hot counters** для коротких окон. HintsEngine читает **materialized views** (длинные окна) + Redis counters (короткие окна), никогда не сканирует raw `user_events`. Правила — декларативный JSON-DSL в таблице `hints` с полями i18n + acceptedBy; редактирование через **полный админ-UI с самого MVP** (seed — только bootstrap чистой БД). Доставка на UI — push через существующий `MessageGateway` (room `user:<id>`, событие `hint:show`), placement — anchor по `data-hint-anchor="<id>"` в DOM, рендер **desktop popover + mobile bottom-sheet в одном тикете**. Lifecycle (`viewed | dismissed | acted | ignored`) трекается обратно тем же gateway-ом. Глобальные лимиты **конфигурируемы через feature-flags** (default ≤1 показ/10 мин, ≤5/сессия). Согласие на трекинг включено в существующий cookie-banner отдельной галочкой; **GDPR-endpoint'ы delete/export — часть этого ADR, не отложены**. Observability (Prometheus метрики events- и hints-pipeline) — встроена в Этап 1, не отдельный этап. Масштабирование при росте — только в рамках PG-стека (uplift instance class, read replicas, compression, pg_partman subpartitioning), без смены технологии (§7A).
 
 ---
 
@@ -176,7 +176,7 @@ CREATE UNIQUE INDEX ON user_event_counts_7d (user_id, type);
 
 Инкрементируется **events-writer worker** одновременно с `INSERT` в PG (атомарность не нужна — eventual consistency для UI-подсказки приемлема; при ребуте writer'а краткое отставание восстановится со следующим refresh). HintsEngine читает Redis для коротких окон, materialized views — для длинных, **никогда** не запрашивает raw `user_events` на hot-path. Прямой `SELECT FROM user_events` оставлен только для ad-hoc отладки и для пересчёта при добавлении нового типа события.
 
-**Что измеряет правильность выбора:** метрика `hints_aggregate_query_duration_seconds{layer}` (T13). p95 для layer=`matview` цель <50 мс, для layer=`redis` цель <5 мс. Если matview просядет — переходим на pre-computed incremental aggregates (см. §7A.1, ступень B).
+**Что измеряет правильность выбора:** метрика `hints_aggregate_query_duration_seconds{layer}` (входит в Этап 1, не в отдельный T13 — см. §8). p95 для layer=`matview` цель <50 мс, для layer=`redis` цель <5 мс. Если matview просядет — это сигнал на ступень §7A.1 (vertical uplift / read-replica), не на переписывание pipeline.
 
 ---
 
@@ -195,16 +195,22 @@ CREATE UNIQUE INDEX ON user_event_counts_7d (user_id, type);
 model Hint {
   id           String   @id @default(uuid()) @db.Uuid
   key          String   @unique @db.VarChar(64)  // стабильный id для аналитики, напр. "analyze-your-game"
-  title        String   @db.VarChar(200)         // i18n: ключ перевода или прямой текст
-  body         String   @db.Text
-  ctaLabel     String?  @map("cta_label")
+  // i18n: JSON-объект { ru: {title, body, ctaLabel}, en: {...} }.
+  // Решение принято с самого начала, не «определимся на T11»: проект уже двуязычный
+  // (ru/en), отдельная таблица hint_translations усложняет CRUD и админ-UI без выгоды.
+  // Валидатор требует наличия всех включённых в проект локалей.
+  i18n         Json     @db.JsonB
   ctaHref      String?  @map("cta_href")          // относительный URL внутри SPA
   ctaEvent     String?  @map("cta_event")         // или клиентский event для in-page action
   anchor       String   @db.VarChar(64)           // значение data-hint-anchor на UI
-  placement    String   @db.VarChar(16)           // 'top'|'bottom'|'left'|'right'|'overlay'
+  placement    String   @db.VarChar(16)           // 'top'|'bottom'|'left'|'right'|'overlay'|'bottom-sheet' (mobile)
   priority     Int      @default(0)               // выше = важнее при конфликте
   enabled      Boolean  @default(true)
-  rule         Json     @db.JsonB                  // см. ниже
+  rule         Json     @db.JsonB                  // см. §3.2
+  // acceptedBy — список event_type, наступление которых считается «smart-dismiss»
+  // (см. §5.1). Если в течение 24 ч после показа произошло одно из них — acted_at = now()
+  // без явного клика по CTA.
+  acceptedBy   String[] @map("accepted_by") @db.VarChar(64)
   cooldownSec  Int      @default(86400) @map("cooldown_sec") // после dismiss/show
   ttlSec       Int      @default(0) @map("ttl_sec")           // автозакрытие на UI, 0 = ручное
   maxShows     Int      @default(3) @map("max_shows")          // лимит за всё время
@@ -252,12 +258,15 @@ model UserHintState {
 
 ### 3.3. Кто редактирует подсказки
 
-Первая версия — **коммит в репозиторий**: seed-файл `apps/api/prisma/seeds/hints.ts`, `prisma db seed` идемпотентен по `hint.key`. Это позволит:
-- Завести 10–15 базовых подсказок без админ-UI.
-- Версионировать тексты в git.
-- Делать ревью через PR.
+**Полноценный админ-UI с самого MVP, не отложенный.** Маркетинг/контент редактирует подсказки самостоятельно через `/admin/hints` (список, форма создания/редактирования, превью текста с подстановкой `i18n`, превью DSL «как бы триггернулось», soft-delete с возможностью восстановления). Backend — стандартный CRUD на таблице `hints` с DSL-валидацией и admin-role guard.
 
-Админ-UI (CRUD по таблице `hints`) — **отдельный тикет** (`KS-XXXX: admin UI для редактирования контекстных подсказок`). До тех пор маркетинг/контент готовит тексты в Google Doc, разработчик переносит в seed.
+Обоснование «полный UI сразу» vs «seed → UI потом» (расчёт в комментарии к KS-4678 от 2026-06-27):
+- Дельта на MVP: ~5 дн backend+frontend vs ~0.5 дн на seed.
+- Точка безразличия — 80–112 правок (≈5–7 мес при типичных 15 правок/мес).
+- Качественные выгоды (скорость реакции маркетинга — секунды vs часы-дни, отсутствие bottleneck на разработчика, единый источник правды без рассинхронизации seed ↔ таблица) проявляются с первого дня.
+- Принцип ADR: расширения архитектуры в будущем = техдолг, точку «пора» оценить нельзя, делаем полный вариант сразу.
+
+Seed-файл `apps/api/prisma/seeds/hints.ts` остаётся **только как механизм первичной заливки** 10–15 базовых подсказок в чистую БД (см. §9). После запуска маркетинг работает через UI; seed не trying синхронизироваться с прод-данными и не выполняется на штатных миграциях прода (запускается одноразово при первичной инициализации events-RDS).
 
 ### 3.4. Разрешение конфликтов
 
@@ -280,14 +289,28 @@ model UserHintState {
 1. **Реактивно** — после ключевых событий (`game_end`, `puzzle_failed`, `session_idle`, `page_view`). `HintsEngine.checkFor(userId, context)` запускается из соответствующих сервисов через event-bus (`@nestjs/event-emitter`).
 2. **Тиковая проверка** — `@Cron('*/30 * * * * *')` для правил, привязанных к «время с момента X» (например, «не заходил неделю» — проверять незачем, пока пользователь не зашёл; «играет 10+ минут без перерыва» — раз в полминуты ок).
 
-### 4.2. Anchor на UI
+### 4.2. Anchor на UI и адаптивность
 
 `data-hint-anchor="<anchor-key>"` на DOM-узлах, к которым может «прилипнуть» подсказка. Список anchor-ов — закрытый enum в `packages/shared/types/hint-anchors.ts`, чтобы фронт и сервер не разъезжались.
 
 Frontend-компонент `<HintHost>` монтируется в `App.tsx` один раз, слушает `hint:show` через socket. На получении:
 1. Ищет `document.querySelector('[data-hint-anchor="' + anchor + '"]')`.
 2. Если узла нет (страница без anchor) — отвечает на сервер `hint:no-anchor`, сервер пишет в `user_events` как `hint_dismissed { reason: 'no_anchor' }` и больше эту подсказку в текущем page-view не предлагает.
-3. Если узел есть — рендерит popover через portal, позиционирует по `placement` относительно anchor через `@floating-ui/react` (уже в зависимостях? проверить; если нет — добавить, это лёгкая либа, ~10 KB). Координаты НЕ передаём с сервера: только anchor-key, чтобы responsive-верстка не ломала позиционирование.
+3. Если узел есть — выбор паттерна рендера зависит от viewport:
+   - **Desktop (≥768px)**: popover через portal, позиционирование `@floating-ui/react` (библиотека ~10 KB добавляется в `apps/web` зависимости в T9, проверено в `package.json` — отсутствует на 2026-06).
+   - **Mobile (<768px)**: bottom-sheet вместо popover (anchor подсвечивается контрастной обводкой, сам текст — в выезжающей панели снизу с safe-area-inset-bottom). Делается **с самого MVP в составе T9**, не отдельным «отложенным» тикетом — без mobile-варианта подсказки невозможно показать мобильным пользователям, которых на платформе значительная доля.
+
+Координаты НЕ передаём с сервера: только anchor-key и `placement`. Адаптация под mobile/desktop — на клиенте.
+
+### 4.2.1. «Тихие» страницы (без подсказок)
+
+Список зашит в `packages/shared/types/hint-anchors.ts` рядом с anchor-enum:
+- `/live/*`, `/broadcast/*` — иммерсивный режим просмотра трансляций (отвлекать недопустимо).
+- `/play/:gameId` во время `clock_low_time_focus` (ADR-144) — низкое время, любая подсказка убивает партию.
+- `/lecture/:id` — режим лекции (ADR-118), внимание занято.
+- `/admin/*` — административные страницы.
+
+`HintsEngine.checkFor` проверяет `context.page` против этого списка **до** оценки правил — фиксированный фильтр, не настраиваемый в админ-UI. Расширение списка — миграция кода (изменение списка тихих страниц = архитектурное решение, не контентное).
 
 ### 4.3. Обратная связь
 
@@ -313,12 +336,18 @@ Frontend-компонент `<HintHost>` монтируется в `App.tsx` о�
 
 ### 5.2. Глобальные лимиты
 
-Хардкод в `HintsEngine`:
-- **≤1 показ за 10 минут на пользователя** — Redis-ключ `hints:throttle:<user_id>` с TTL 600.
-- **≤5 показов за сессию** — счётчик в Redis с TTL до конца суток (сессия определяется грубо как «активность в пределах 30 минут», но для лимита достаточно дневного окна).
-- **Глобальный «kill switch»** — feature-flag `hints_enabled` (уже есть `feature-flags`-модуль). При выключении `HintsEngine.checkFor` сразу возвращает пусто.
+**Конфигурируемы через существующий `feature-flags`-модуль** (не хардкод в `HintsEngine`). Принцип ADR: значения лимитов будут перетюнятся продакт-командой по факту работы — это типичный «потом сделаем конфигурируемым», и сразу строим правильно. `FeatureFlagsService` уже умеет хранить произвольные JSON-конфиги (см. `feature-flags.service.ts` в `apps/api`), правки идут без деплоя:
 
-Per-hint лимиты — `maxShows` (общий), `cooldownSec` (после dismiss), `ttlSec` (автозакрытие).
+| Ключ конфига | Default | Назначение |
+|--------------|---------|------------|
+| `hints.enabled` | `false` | Kill-switch. При `false` → `HintsEngine.checkFor` возвращает пусто. Включается после прохода QA (T14). |
+| `hints.global_throttle_seconds` | `600` (10 мин) | Минимальный интервал между двумя показами одному пользователю. Redis-ключ `hints:throttle:<user_id>` TTL = это значение. |
+| `hints.session_max_shows` | `5` | Максимум показов в сутки на пользователя. Redis counter `hints:session:<user_id>:<date>` TTL до конца суток. |
+| `hints.smart_dismiss_window_hours` | `24` | Окно, в течение которого `acceptedBy`-событие после показа считается «smart-dismiss» → `acted_at = now()`. |
+
+Per-hint лимиты — `maxShows` (общий), `cooldownSec` (после dismiss), `ttlSec` (автозакрытие) — в самой таблице `hints`, правятся через тот же админ-UI.
+
+`HintsService` читает конфиг через `featureFlagsService.getConfig('hints')` с локальным cache 60 сек (как уже сделано для других конфигов в проекте) — изменение применяется в течение минуты без рестарта.
 
 ### 5.3. Состояния
 
@@ -350,9 +379,25 @@ stateDiagram-v2
 
 `EventsService.track()` первым делом читает `user.analyticsConsent`. Если `false` — событие отбрасывается на входе, не доходит до Redis Streams. `HintsEngine.checkFor` для такого пользователя возвращает пусто.
 
-Кнопка «Удалить мои данные» (уже планируется в profile-настройках по GDPR — отдельный сквозной тикет) дополнительно стирает `user_events` и `user_hint_states` по userId.
+### 6.3. GDPR — права субъекта данных (с самого MVP)
 
-### 6.3. Retention
+Endpoint'ы прав субъекта по hints/events-данным **входят в этот ADR**, не «потом отдельным тикетом». Реализуются в составе T4 (см. §8):
+
+- **Art. 17 «Право на удаление»** — `DELETE /me/analytics-data`:
+  - Удаляет все записи `user_events` по `user_id` (в events-RDS, с учётом партиций — `DELETE FROM user_events WHERE user_id = $1` отрабатывает быстро благодаря композитному индексу).
+  - Удаляет `user_hint_states` по `user_id`.
+  - Чистит Redis hot counters `agg:<user_id>:*` через `SCAN` + `DEL`.
+  - Чистит pending entries в Streams (`XPENDING` + `XACK` по `user_id`) — best-effort, по факту обработки writer'ом.
+  - Идемпотентен.
+- **Art. 20 «Право на портативность»** — `GET /me/analytics-export`:
+  - Возвращает JSON с `user_events` (последние 90 дней, согласно retention) и `user_hint_states` по `user_id`.
+  - Stream-response (Postgres COPY ... TO STDOUT WITH CSV → конвертация в JSON батчами), чтобы не упереться в память при крупном пользователе.
+  - Rate-limit 1 запрос/24ч на пользователя (защита от abuse).
+- **Art. 7(3) «Право отозвать согласие»** — уже покрыт `PATCH /me/consent { analytics: false }` (см. §8 T4). При отзыве — события перестают писаться сразу; для удаления уже накопленных нужен явный вызов `DELETE /me/analytics-data`.
+
+Endpoint'ы аутентифицированные (`JwtAuthGuard`), audit-log пишет факт вызова в общий `client-logs`-канал. Сквозной GDPR-тикет проекта (если такой когда-то появится) сможет на эти endpoint'ы опереться, а не дублировать логику.
+
+### 6.4. Retention
 
 90 дней (см. §2.3). Этого достаточно для всех правил, заявленных в §2.1.
 
@@ -478,116 +523,119 @@ stateDiagram-v2
 
 ## 8. План внедрения (декомпозиция на тикеты)
 
-Порядок — последовательный, каждый следующий зависит от предыдущего по схеме данных. Backend и frontend для каждого этапа разносим на отдельные тикеты — координатор заведёт по итогам ADR.
+Принцип декомпозиции — **никаких «отложенных доработок»**: каждый MVP-компонент идёт сразу в полном виде (см. аудит в комментарии к KS-4678 от 2026-06-27). Observability, mobile-вариант UI, GDPR-endpoint'ы, админ-UI — части соответствующих этапов, не «отдельные следующие тикеты».
 
-### Этап 1. Сбор событий (фундамент)
+### Этап 1. Инфраструктура событий + observability
 
-1a. **devops: events-RDS + pg_partman**
-   - Поднять отдельный RDS instance `events-rds` (на старте `db.t3.medium` Multi-AZ, eu-central-1), включить extension `pg_partman` (доступен в RDS Postgres из коробки).
-   - Параметры pg_partman: weekly partitions, retention 90 дней, автоматический `run_maintenance` через `pg_cron` (тоже native в RDS).
+1a. **devops: events-RDS + pg_partman + Grafana dashboard**
+   - Поднять отдельный RDS instance `events-rds` (на старте `db.t3.medium` Multi-AZ, eu-central-1), extension `pg_partman` + `pg_cron`.
+   - Параметры pg_partman: weekly partitions, retention 90 дней, автоматический `run_maintenance`.
    - Резервирование: те же policies, что для основной RDS (ADR-027/045).
+   - Grafana dashboard «Hints & Events» с панелями под §7A.2 (все триггеры ступеней — графики и алерты).
 
-1b. **backend: пакет `packages/events-db` + миграция `user_events`**
+1b. **backend: пакет `packages/events-db` + миграция + matviews**
    - Новый Prisma-пакет `packages/events-db` (по образцу `packages/archive-db`, `packages/broadcasts-db`).
    - Модель `UserEvent` из §2.3 (partition-aware composite PK).
    - SQL post-migration: `SELECT partman.create_parent('public.user_events', 'created_at', 'native', 'weekly')`.
-   - Materialized views `user_event_counts_24h | _7d | _30d` из §2.4.
+   - Materialized views `user_event_counts_24h | _7d | _30d` из §2.4 + unique-индексы.
    - Тесты: insert, partition rotation, matview refresh.
 
-1c. **backend: EventsModule + Redis Streams + Writer Worker**
-   - `EventsModule` с `EventsService.track(userId, type, payload)` — внутри `XADD user_events:stream * field=value …` с проверкой `analyticsConsent`.
-   - `EventsWriterService` — consumer group `events-writer`, `XREADGROUP COUNT 1000 BLOCK 1000`, batch INSERT в events-RDS через `events-db`-клиент, параллельно инкремент Redis hot counters (§2.4), `XACK` после успеха.
-   - `MatViewRefreshService` — cron `*/30s` для `user_event_counts_24h`, `*/60s` для `_7d` и `_30d` (`REFRESH MATERIALIZED VIEW CONCURRENTLY`).
-   - `POST /events` controller с DTO-валидацией, IP-rate-limit (по образцу `client-logs`).
-   - Тесты: путь end-to-end (POST → Stream → worker → таблица + matview).
+1c. **backend: EventsModule + Redis Streams + Writer + matview refresher + Prometheus метрики**
+   - `EventsModule`, `EventsService.track(userId, type, payload)` — `XADD user_events:stream` с проверкой `analyticsConsent`.
+   - `EventsWriterService` — consumer group, `XREADGROUP COUNT 1000 BLOCK 1000`, batch INSERT + INCR Redis hot counters + `XACK`.
+   - `MatViewRefreshService` — cron `*/30s` для `_24h`, `*/60s` для `_7d`/`_30d`.
+   - `POST /events` controller (DTO-валидация, IP-rate-limit).
+   - **Prometheus метрики сразу** (часть этого тикета, не отдельный T13): `user_events_ingested_total{type}`, `user_events_inserted_total{type}`, `user_events_buffer_lag_seconds`, `redis_stream_pending_entries{stream}`, `matview_refresh_duration_seconds{view}`.
+   - Тесты: E2E (POST → Stream → worker → таблица + matview).
 
 2. **frontend: events-клиент**
-   - `apps/web/src/lib/events.ts` — функция `track(type, payload)`, batch до 50 событий или раз в 5 сек, `navigator.sendBeacon` на unload.
-   - Хук `usePageViewTracking` в App.tsx (на изменение route).
-   - Хук `useIdleTracking` (60s простоя → `session_idle`).
-   - Заглушка: если `analyticsConsent === false` — функция no-op.
+   - `apps/web/src/lib/events.ts` — `track(type, payload)`, batch до 50/раз в 5 сек, `navigator.sendBeacon` на unload.
+   - Хуки `usePageViewTracking`, `useIdleTracking`.
+   - Гейт на `analyticsConsent === false` → no-op.
 
 3. **backend: self-emit из существующих сервисов**
-   - `game.service.ts` / `game.gateway.ts`: `game_start`, `game_end`, `pre_move_used`.
-   - `puzzle.service.ts`: `puzzle_start`, `puzzle_solved`, `puzzle_failed`.
-   - `puzzle-rush.service.ts`: `rush_start`, `rush_end`.
-   - `lesson.service.ts`: `lesson_start`, `lesson_complete`.
-   - `tactic-drill.service.ts`: `drill_start`, `drill_complete`.
-   - Все через `eventsService.track()` (fire-and-forget, не блокирует основной flow — `XADD` <1 мс).
+   - `game`, `puzzle`, `puzzle-rush`, `lesson`, `tactic-drill` — события из §2.1 через `eventsService.track()`.
 
-### Этап 2. Согласие и privacy
+### Этап 2. Согласие, privacy и GDPR-endpoint'ы (полный набор)
 
-4. **backend: поле `analyticsConsent` на User + endpoint**
-   - Миграция: `users.analytics_consent boolean default false`.
+4. **backend: `analyticsConsent` + GDPR endpoint'ы**
+   - Миграция `users.analytics_consent boolean default false`.
    - `PATCH /me/consent { analytics: boolean }`.
-   - Проверка `analyticsConsent` в `EventsService.track`.
+   - **`DELETE /me/analytics-data`** — удаление user_events + user_hint_states + Redis counters + Streams pending (§6.3).
+   - **`GET /me/analytics-export`** — JSON-export данных пользователя, stream-response, rate-limit 1/24ч (§6.3).
+   - Тесты: каждый endpoint + idempotency delete.
 
-5. **frontend: обновление cookie-banner + чекбокс в настройках**
-   - Чекбокс «Аналитика для персональных подсказок» в баннере и в `Settings → Privacy`.
-   - i18n (ru/en) для текстов.
+5. **frontend: cookie-banner + Settings → Privacy**
+   - Чекбокс «Аналитика для персональных подсказок» в баннере и в настройках.
+   - Кнопки «Удалить мои аналитические данные» и «Скачать мои данные» в Settings → Privacy → Hints.
+   - i18n (ru/en).
 
-### Этап 3. Hints engine
+### Этап 3. Hints engine + конфигурируемые лимиты
 
-6. **backend: миграция `hints`, `user_hint_states` + HintsEngine (без UI)**
-   - Prisma модели из §3.1.
-   - `HintsService`: `checkFor(userId, context)` — выполнение DSL §3.2, выбор одного hint, запись в `UserHintState`.
-   - Парсер DSL: операторы `page`, `count`, `exists`, `timeSince`, `all`, `any`, `not`. Unit-тесты на каждый оператор.
-   - Глобальные лимиты Redis (§5.2).
-   - Feature-flag `hints_enabled` (default `false` — включим после прохода QA).
-   - Hook на event-bus: после `game_end`, `puzzle_failed`, `session_idle`, `page_view` — вызывать `HintsEngine.checkFor`.
-   - Seed `apps/api/prisma/seeds/hints.ts` с 5 базовыми подсказками (см. §9).
+6. **backend: миграция `hints`/`user_hint_states` + HintsEngine + Prometheus метрики hints**
+   - Prisma модели из §3.1 (с полями `i18n`, `acceptedBy`).
+   - `HintsService.checkFor(userId, context)` — выполнение DSL §3.2, выбор одного hint, запись в `UserHintState`.
+   - Парсер DSL: `page`, `count`, `exists`, `timeSince`, `all`, `any`, `not`. Unit-тесты на каждый оператор.
+   - **Лимиты через `feature-flags`-конфиг** (§5.2): `hints.enabled`, `hints.global_throttle_seconds`, `hints.session_max_shows`, `hints.smart_dismiss_window_hours`. Local-cache 60s.
+   - Hook на event-bus: `game_end`, `puzzle_failed`, `session_idle`, `page_view` → `HintsEngine.checkFor`.
+   - Список «тихих» страниц (§4.2.1) — константа в `packages/shared`.
+   - **Prometheus метрики сразу**: `hints_aggregate_query_duration_seconds{layer}`, `hints_check_duration_seconds`, `hints_shown_total{key}`, `hints_acted_total{key}`, `hints_dismissed_total{key}`, `hints_ignored_total{key}`.
+   - Smart-dismiss observer: подписка на `eventsService` для типов из `hint.acceptedBy` — при попадании обновляет `actedAt` на активных UserHintState.
 
-7. **shared: типы anchor-enum и hint-payload**
+7. **shared: anchor-enum, hint-payload, quiet-pages**
    - `packages/shared/types/hint-anchors.ts` — enum значений `data-hint-anchor`.
-   - `packages/shared/types/api-contracts.ts` — `HintShowPayload`, `HintLifecyclePayload`.
+   - `packages/shared/types/hint-payload.ts` — `HintShowPayload`, `HintLifecyclePayload`.
+   - `packages/shared/constants/hint-quiet-pages.ts` — список тихих страниц (§4.2.1).
 
-8. **backend: WS-emit hint:show + REST для lifecycle**
-   - Добавить событие `hint:show` в `MessageGateway` (room `user:<id>`).
-   - `POST /hints/:id/dismissed` / `/acted` / `/ignored` / `/shown` — обновление `UserHintState` + запись в `user_events`.
+8. **backend: WS-emit hint:show + REST lifecycle**
+   - Событие `hint:show` в `MessageGateway` (room `user:<id>`).
+   - `POST /hints/:id/{shown|dismissed|acted|ignored}` — обновление `UserHintState` + запись в `user_events`.
 
-### Этап 4. Frontend подсказки
+### Этап 4. Frontend подсказки (desktop + mobile в одном тикете)
 
-9. **frontend: компонент `<HintHost>` + позиционирование**
-   - Глобальный mount в `App.tsx`.
-   - Подписка на `hint:show` через существующий socket.
-   - Поиск anchor в DOM, рендер через portal, позиционирование `@floating-ui/react`.
-   - Кнопки «×» / CTA.
-   - Авто-закрытие по `ttlSec`.
-   - Отправка lifecycle-событий назад на API.
-   - Тесты: render, dismiss, cta-click, no-anchor fallback.
+9. **frontend: компонент `<HintHost>` + desktop popover + mobile bottom-sheet**
+   - Глобальный mount в `App.tsx`, подписка на `hint:show`.
+   - Поиск anchor в DOM, рендер через portal.
+   - **Desktop ≥768px**: popover с `@floating-ui/react` (добавление либы в `apps/web/package.json`).
+   - **Mobile <768px**: bottom-sheet с подсветкой anchor (часть этого же тикета, не отложенная задача).
+   - Авто-закрытие по `ttlSec`, отправка lifecycle.
+   - Тесты: render desktop+mobile, dismiss, cta-click, no-anchor fallback.
 
-10. **frontend: расстановка `data-hint-anchor` на ключевых элементах**
-    - Список из 10–15 anchor-ов: кнопка «Анализ» на странице игры, плитка «Пазлы» на главной, переключатель темы доски в настройках, кнопка «Pre-move» в настройках доски, и т. д.
-    - Без визуальных изменений, только атрибуты.
+10. **frontend: расстановка `data-hint-anchor`**
+    - 10–15 anchor-ов из enum T7 на ключевых элементах. Без визуальных изменений.
 
-### Этап 5. Контент и админ-UI (следующая итерация)
+### Этап 5. Контент и админ-UI (полный, не урезанный)
 
-11. **content: первые 10–15 подсказок** (текст + правила) — задача для marketing/content.
-12. **admin: CRUD UI для `hints` таблицы** — отдельный ADR/тикет, не блокирующий MVP.
-13. **observability: метрики Prometheus** — `user_events_ingested_total{type}`, `user_events_inserted_total{type}`, `user_events_buffer_lag_seconds`, `redis_stream_pending_entries{stream}`, `hints_aggregate_query_duration_seconds{layer}`, `hints_check_duration_seconds`, `hints_shown_total{key}`, `hints_acted_total{key}`. Дашборд в Grafana с панелями под §7A.2 (триггеры ступеней).
-14. **QA: ручной test-plan на каждое из 10 правил**.
+11. **content: первые 10–15 подсказок** — задача для marketing/content (тексты i18n ru+en, правила, anchors). Заливаются в БД через seed `apps/api/prisma/seeds/hints.ts` (одноразовый bootstrap чистой events-RDS, см. §3.3).
+
+12. **backend + frontend: полный админ-UI `/admin/hints` (CRUD + DSL preview)**
+    - Backend: REST `GET/POST/PATCH/DELETE /admin/hints[/:id]` с DSL-валидацией, admin-role guard, soft-delete (поле `deleted_at`).
+    - Frontend: страница `/admin/hints` со списком (фильтр по enabled/anchor), формой создания/редактирования (вкладки i18n ru/en), inline-валидацией DSL, превью текста подсказки, превью триггера («сколько пользователей сейчас попали бы под это правило» — отдельный endpoint поверх matviews).
+    - Тесты: CRUD, DSL-валидация, role-guard, soft-delete restore.
+
+13. **QA: ручной test-plan** — на каждое из 10 правил, desktop + mobile, consent on/off, GDPR delete+export.
 
 ### Зависимости (граф)
 
 ```mermaid
 graph LR
-  T1A[1a. events-RDS + pg_partman] --> T1B[1b. events-db package + migration]
-  T1B --> T1C[1c. EventsModule + Streams + Writer]
+  T1A[1a. events-RDS + Grafana] --> T1B[1b. events-db + migration + matviews]
+  T1B --> T1C[1c. EventsModule + Streams + Writer + metrics]
   T1C --> T3[3. self-emit]
-  T1C --> T6[6. HintsEngine]
+  T1C --> T6[6. HintsEngine + metrics]
   T2[2. events frontend] --> T6
   T3 --> T6
-  T4[4. consent backend] --> T6
-  T4 --> T5[5. consent frontend]
+  T4[4. consent + GDPR endpoints] --> T6
+  T4 --> T5[5. consent + GDPR frontend]
   T6 --> T8[8. WS emit + REST]
-  T7[7. shared types] --> T8
-  T7 --> T9[9. HintHost frontend]
+  T7[7. shared types + quiet pages] --> T8
+  T7 --> T9[9. HintHost desktop+mobile]
   T8 --> T9
   T9 --> T10[10. anchor placement]
   T10 --> T11[11. content seed]
-  T10 --> T14[14. QA]
-  T6 --> T12[12. admin UI - отдельный ADR]
-  T1C --> T13[13. observability]
+  T6 --> T12[12. full admin UI]
+  T11 --> T13[13. QA]
+  T12 --> T13
   T9 --> T13
 ```
 
@@ -605,13 +653,19 @@ graph LR
 
 ---
 
-## 10. Открытые вопросы (вне scope ADR)
+## 10. Открытые вопросы (вне scope ADR — требуют отдельного решения, не «отложенная доработка»)
 
-1. **Гостевые подсказки.** Пока запрещены (нет userId для state). Если маркетинг попросит — отдельный ADR с client-only state в localStorage.
-2. **A/B-тесты текстов подсказок.** Не входит в первую версию. Можно прикрутить позже через существующий `feature-flags` (флаг определяет вариант текста).
-3. **Подсказки на мобильной верстке.** В §4.2 предполагается desktop-popover. Для мобайла нужен отдельный паттерн — bottom-sheet вместо popover. Решается на этапе T9, не блокирует архитектуру.
-4. **Подсказки в иммерсивных режимах (live-партия, lecture).** По умолчанию `HintsEngine` блокируется на этих страницах через правило `page.matches`. Конкретный список «тихих» страниц фиксируется на этапе T11.
-5. **Internationalization текстов.** Тексты в `hints.title/body` — на русском, для en вариант кладём отдельной таблицей `hint_translations(hint_id, lang, title, body, cta_label)` или в JSON-поле `i18n` на самой `Hint`. Решение принимается на T11 (зависит от того, как контент-команда хочет редактировать).
+Здесь — только вопросы, для которых отдельный ADR оправдан как самостоятельная задача с другим scope. Всё, что относится к scope этого ADR, переведено в основной текст:
+- ~~Mobile bottom-sheet~~ → §4.2 (часть T9).
+- ~~Quiet pages~~ → §4.2.1 (часть T7/T6).
+- ~~i18n hints~~ → §3.1, поле `Hint.i18n` JSON (часть T6).
+- ~~GDPR delete/export~~ → §6.3 (часть T4).
+- ~~Admin UI~~ → §3.3, T12 (полный с MVP).
+
+Оставшиеся вопросы:
+
+1. **Гостевые подсказки.** Сценарий «гость на странице регистрации застрял 60 секунд» теоретически полезен, но требует client-only state (localStorage) и отдельной аналитической ветки без backend-персистенции. Сейчас вне scope: ценность гипотетическая (нет данных, что гости массово застревают), реализация существенно меняет архитектуру pipeline (отдельный «гостевой» events-buffer без user_id). Если маркетинг придёт с обоснованной задачей — отдельный ADR.
+2. **A/B-тесты текстов подсказок.** Это новая функциональность поверх существующей (вариант показывается одной из двух групп пользователей, результаты сравниваются). Требует расширения схемы `hints` полем `variant_group`, отдельной таблицы экспериментов, методологии измерения значимости. Это масштаб, сопоставимый с самим ADR-147, делать «заодно» нельзя. Если потребуется — отдельный ADR; механика выбора варианта по пользователю встроится через тот же `feature-flags`-модуль.
 
 ---
 
@@ -619,9 +673,10 @@ graph LR
 
 - **Своё решение, не SaaS.** Стоимость, server-side триггеры, privacy.
 - **Отдельная events-RDS (PostgreSQL + pg_partman) + Redis Streams + materialized views**, без отдельного аналитического стека. Архитектура выбрана под верхнюю границу целевого сценария (600K событий/день, §2.3). Масштабирование при росте — только uplift инстанса / replicas / compression / шарды pg_partman в рамках PG-стека (§7A), без смены технологии.
-- **Декларативный JSON-DSL** для правил, редактируется через seed (MVP) и админ-UI (позже).
-- **Push через существующий MessageGateway.** Anchor по `data-hint-anchor`, позиционирование на клиенте.
-- **Lifecycle 4 состояния**, suppression на год после действия, hard-лимиты 1/10мин и 5/сессия.
-- **Privacy by default**: согласие выкл, гости не трекаются, retention 90 дней.
+- **Декларативный JSON-DSL** для правил, редактируется через полный админ-UI с MVP (seed — только bootstrap).
+- **Push через существующий MessageGateway.** Anchor по `data-hint-anchor`, desktop popover + mobile bottom-sheet в одном фронтовом тикете.
+- **Lifecycle 4 состояния** + smart-dismiss по `acceptedBy`, suppression на год после действия. Лимиты конфигурируемы через feature-flags (default 1/10мин и 5/сессия).
+- **Privacy by default**: согласие выкл, гости не трекаются, retention 90 дней. **GDPR-права субъекта (delete + export + withdraw consent) — endpoint'ы реализуются как часть этого ADR**, не отложены в отдельный сквозной тикет.
+- **Observability** (Prometheus metrics events- и hints-pipeline + Grafana dashboard) — встроена в Этап 1, не «следующая итерация».
 
-Декомпозиция в §8 — 14 тикетов, минимально жизнеспособный продукт после прохода T1–T10. Контент (T11) и админка (T12) не блокируют запуск с seed-набором подсказок.
+Декомпозиция §8 — 13 тикетов в 5 этапах, каждый этап даёт самостоятельно завершённый функционал. Принцип: ни одного «MVP-X → потом доработаем Y» — каждый компонент идёт в полном виде сразу (см. аудит в комментарии к KS-4678 от 2026-06-27).
