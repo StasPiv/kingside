@@ -10,7 +10,7 @@
 
 ## 0. TL;DR
 
-Заводим модуль `hints` в `apps/api` + новую инфру событий. Pipeline сразу под целевую нагрузку 600K событий/день: источники (frontend `POST /events`, backend self-emit) → **Redis Streams** (`user_events:stream`, durable, AOF, consumer groups) → **Events Writer Worker** → **отдельная events-RDS** (PostgreSQL + `pg_partman` weekly partitions, retention 90 дней) + параллельно **Redis hot counters** для коротких окон. HintsEngine читает **materialized views** (длинные окна) + Redis counters (короткие окна), никогда не сканирует raw `user_events`. Правила — декларативный JSON-DSL в таблице `hints` с полями i18n + acceptedBy; редактирование через **полный админ-UI с самого MVP** (seed — только bootstrap чистой БД). Доставка на UI — push через существующий `MessageGateway` (room `user:<id>`, событие `hint:show`), placement — anchor по `data-hint-anchor="<id>"` в DOM, рендер **desktop popover + mobile bottom-sheet в одном тикете**. Lifecycle (`viewed | dismissed | acted | ignored`) трекается обратно тем же gateway-ом. Глобальные лимиты **конфигурируемы через feature-flags** (default ≤1 показ/10 мин, ≤5/сессия). Согласие на трекинг включено в существующий cookie-banner отдельной галочкой; **GDPR-endpoint'ы delete/export — часть этого ADR, не отложены**. Observability (Prometheus метрики events- и hints-pipeline) — встроена в Этап 1, не отдельный этап. Масштабирование при росте — только в рамках PG-стека (uplift instance class, read replicas, compression, pg_partman subpartitioning), без смены технологии (§7A).
+Заводим модуль `hints` в `apps/api` + новую инфру событий. **Обслуживаются и авторизованные, и гости** (см. §1.1) — единая модель actor (`actor_type` ∈ {user, guest}, `actor_id`), guest идентифицируется подписанным cookie `guest_id`, при регистрации происходит merge гостевых данных под новый `user_id`. Pipeline сразу под целевую нагрузку 600K событий/день: источники (frontend `POST /events`, backend self-emit) → **Redis Streams** (`actor_events:stream`, durable, AOF, consumer groups) → **Events Writer Worker** → **отдельная events-RDS** (PostgreSQL + `pg_partman` weekly partitions, retention 90 дней) + параллельно **Redis hot counters** для коротких окон. HintsEngine читает **materialized views** (длинные окна) + Redis counters (короткие окна), никогда не сканирует raw `actor_events`. Правила — декларативный JSON-DSL в таблице `hints` с полями `i18n`, `acceptedBy`, `targetActorTypes`; редактирование через **полный админ-UI с самого MVP** (seed — только bootstrap чистой БД). Доставка: **push через WebSocket для авторизованных** + **pull `GET /hints/pending` раз в 15 сек для гостей** (новый WS-namespace для гостей не оправдан). Placement — anchor по `data-hint-anchor="<id>"` в DOM, рендер **desktop popover + mobile bottom-sheet в одном тикете**. Lifecycle (`viewed | dismissed | acted | ignored`) трекается обратно. Глобальные лимиты **конфигурируемы через feature-flags** (default ≤1 показ/10 мин, ≤5/сессия), namespace ключей единый — `actor_id`. Согласие на трекинг — через cookie-banner (единый для user и guest), без согласия гость не получает `guest_id` и не трекается. **GDPR endpoint'ы delete/export для обоих actor-типов — часть этого ADR**. Observability встроена в Этап 1. Масштабирование при росте — только в рамках PG-стека (§7A).
 
 ---
 
@@ -23,6 +23,20 @@
 - Существующий WS-канал и `Notification`-таблица **не подходят как есть**: notifications — это transactional inbox с историей; подсказки же эфемерные и не должны засорять колокольчик. Нужен отдельный канал, но через ту же gateway-сокетную инфраструктуру.
 - Между источниками событий и storage должна быть durable очередь **с самого MVP** (см. §2.2). Перевод sync-write → async позже = переделка надёжности под нагрузкой, риск потерь — недопустимо.
 - GDPR: пользователь должен иметь возможность отключить трекинг событий, и сами события должны храниться ограниченное время.
+- **Гости и авторизованные пользователи обслуживаются в одном MVP** (см. §1.1). Сайт публичен (ADR-128, public routes), гости — значимая аудитория, и для них самые ценные подсказки — про регистрацию и базовые возможности. Заводить «функционал только для зарегистрированных» — означает лишать модуль самого ценного класса применения.
+
+### 1.1. Аудитория и режимы
+
+ADR покрывает **двух actor-типов** одинаково:
+
+| Actor-тип | Идентификатор | Аутентификация | Жизнь идентификатора | Канал доставки подсказок | События |
+|-----------|---------------|----------------|----------------------|--------------------------|---------|
+| `user` | `user_id` (UUID) | JWT | до удаления аккаунта | WebSocket `MessageGateway` room `user:<user_id>` | пишутся при `analytics_consent = true` |
+| `guest` | `guest_id` (UUID) | подписанный cookie | 365 дней (или до явного «забыть меня») | pull `GET /hints/pending` раз в 15 сек (см. §4.1) | пишутся при выборе галочки «Аналитика» в cookie-banner |
+
+Где в ADR используется обобщённое понятие — пишется **actor** (`actor_id`, `actor_type`, `ActorHintState`). Где имеет значение специфика (например, доставка) — отдельно user / guest.
+
+**Жизненный цикл guest → user (merge).** При успешной регистрации (`AuthService.register`) гостевые данные мигрируются под новый `user_id` в одной транзакции: `UPDATE actor_events SET actor_id=$newUserId, actor_type='user' WHERE actor_id=$guestId`, `UPDATE actor_hint_states SET actor_id=$newUserId, actor_type='user' WHERE actor_id=$guestId`, переключение Redis-ключей `agg:<guestId>:*` → `agg:<newUserId>:*` (SCAN+COPY+DEL). После merge cookie `guest_id` обнуляется. Если человек на другом устройстве — там guest_id остаётся отдельным, merge не происходит (это два независимых посетителя для системы).
 
 ---
 
@@ -50,8 +64,14 @@
 | Действие | `feature_used` | frontend, generic | `feature_key` (например, `board_settings_opened`) |
 | Подсказка | `hint_shown` / `hint_dismissed` / `hint_acted` / `hint_ignored` | backend сам пишет при доставке/реакции | `hint_id`, `rule_id` |
 | Ошибка | `error_seen` | frontend, через ErrorBoundary | `kind` (network/render/api), `path` |
+| **Гость** | `guest_signup_form_opened` | frontend, при открытии модала регистрации | — |
+| **Гость** | `guest_play_attempted` | frontend, клик «Играть» без auth | `mode` (vs_bot/vs_human) |
+| **Гость** | `guest_puzzle_attempted` | frontend, клик «Решить» без auth | — |
+| **Гость** | `guest_landing_viewed` | frontend, время на лендинге | `seconds` |
 
 Принцип: **не собираем мышь, клики и input-keystrokes**. Только высокоуровневые domain-события. Это держит и объём, и privacy-риски управляемыми.
+
+Гостевые события (`guest_*`) и обычные (`page_view`, `session_idle`, `session_start`) пишутся одинаково от гостя и от пользователя — различает по `actor_type` (см. §2.3). Игровые/пазловые события (`game_*`, `puzzle_*`) пишутся только для авторизованных — у гостя нет состояния партии/пазла на бекенде до регистрации.
 
 ### 2.2. Где собираем
 
@@ -59,12 +79,12 @@
 flowchart LR
   FE[Frontend\nReact 19] -- batch POST /events --> API[(apps/api\nEventsController)]
   GW[WebSocket gateways\n(game, message)] -- emit() --> EV[EventsService]
-  API -- XADD --> RS[(Redis Streams\nuser_events:stream)]
+  API -- XADD --> RS[(Redis Streams\nactor_events:stream)]
   EV -- XADD --> RS
   RS -- consumer group\nevents-writer --> W[Events Writer Worker]
   W -- batch INSERT 1000/sec --> EDB[(events-RDS\nPostgres + pg_partman\nweekly partitions)]
   W -- INCR по counters --> RC[(Redis hot counters\nagg:user:type:window)]
-  REFR[MatView Refresher\nevery 60s] -- REFRESH CONCURRENTLY --> MV[(materialized views\nuser_event_counts_*)]
+  REFR[MatView Refresher\nevery 60s] -- REFRESH CONCURRENTLY --> MV[(materialized views\nactor_event_counts_*)]
   EDB --> MV
   RULES[HintsEngine] -- read --> MV
   RULES -- read --> RC
@@ -73,9 +93,9 @@ flowchart LR
 
 Компоненты с самого MVP — все, без поэтапного включения:
 
-- **Frontend → API**: новый endpoint `POST /events` (rate-limited по IP, batch до 50 событий, schema-валидация class-validator). По образцу существующего `/logs`, но с персистенцией.
-- **Backend self-emit**: существующие сервисы (`game`, `puzzle`, `puzzle-rush`, `lesson`, `tactic-drill`) дёргают `EventsService.track(userId, type, payload)` в local-bus стиле. Это надёжнее, чем доверять фронту в момент конца партии.
-- **Durable очередь — Redis Streams** (`XADD user_events:stream`), а не Redis LIST. Streams нужен с самого начала по трём причинам:
+- **Frontend → API**: новый endpoint `POST /events` (rate-limited по IP, batch до 50 событий, schema-валидация class-validator). По образцу существующего `/logs`, но с персистенцией. Authn определяется на входе: JWT → `actor_type='user', actor_id=userId`; нет JWT, есть подписанный cookie `guest_id` → `actor_type='guest', actor_id=guestId`; нет ни того ни другого → 401. Guest-cookie ставится отдельным middleware (`GuestIdMiddleware`) при первом запросе любого endpoint'а, если пользователь не авторизован и согласие cookie-banner дано (см. §6.2).
+- **Backend self-emit**: существующие сервисы (`game`, `puzzle`, `puzzle-rush`, `lesson`, `tactic-drill`) дёргают `EventsService.track(actor, type, payload)` в local-bus стиле, где `actor = { type: 'user', id: userId }`. Для гостей backend-self-emit не нужен (у гостя нет состояния партии/пазла на сервере).
+- **Durable очередь — Redis Streams** (`XADD actor_events:stream`), а не Redis LIST. Streams нужен с самого начала по трём причинам:
   1. **Consumer groups + ACK**: можно запустить несколько writer-воркеров (sharding/HA) без дубликатов; необработанные сообщения PEL переживают рестарт воркера.
   2. **Persistence**: при включённом AOF (уже включён в нашей Redis-конфигурации) события переживают рестарт самой Redis-ноды.
   3. **MAXLEN ~ N**: автоограничение размера стрима, защита от bloat при downtime PG.
@@ -83,7 +103,7 @@ flowchart LR
   Kafka/Redpanda/SQS отвергнуты для MVP: те же гарантии для нашего объёма даёт уже работающий Redis, новые операционные расходы не оправданы. Если в будущем понадобится cross-region durability или event sourcing с горизонтом >7 дней — заменим Streams на Kafka **без изменения контракта `EventsService.track()`** (см. §7A.3).
 - **Events Writer Worker** — отдельный consumer group в `apps/api`. `XREADGROUP COUNT 1000 BLOCK 1000` → batch `INSERT ... SELECT FROM jsonb_to_recordset(...)` → `XACK`. Параллельно инкрементирует Redis hot counters для горячих агрегатов (см. §2.4).
 - **events-RDS — отдельная PostgreSQL-инстанция**, не основной RDS приложения. Обоснование: write-нагрузка событий (даже на верхней границе 600K/день ≈ 7 INSERT/sec в среднем, пик 50/sec на турнире) не должна конкурировать с OLTP-нагрузкой игровых операций; разные характеристики vacuum, разные SLA. По образцу `archive-RDS` (ADR-018) и `broadcasts-RDS` (ADR-021). Конфигурация на старте — `db.t3.medium` Multi-AZ ($60/мес reserved 1y eu-central-1, по AWS pricelist 2026-06), на верхней границе целевого сценария — `db.r5.large` ($130/мес reserved). Это одна и та же RDS-семья, scale-out вертикальный, без миграции схемы.
-- **`pg_partman` extension** — нативно доступен в AWS RDS Postgres (см. AWS docs, `Appendix.PostgreSQL.CommonDBATasks.html#…pg_partman`). Автоматическое создание/дроп еженедельных партиций таблицы `user_events`. Партиционирование с самого MVP: на 600K событий/день за 90 дней retention это ~54M строк, что **уже бенефит** от партиционирования (быстрый drop старых партиций, узкие индексы на горячих).
+- **`pg_partman` extension** — нативно доступен в AWS RDS Postgres (см. AWS docs, `Appendix.PostgreSQL.CommonDBATasks.html#…pg_partman`). Автоматическое создание/дроп еженедельных партиций таблицы `actor_events`. Партиционирование с самого MVP: на 600K событий/день за 90 дней retention это ~54M строк, что **уже бенефит** от партиционирования (быстрый drop старых партиций, узкие индексы на горячих).
 
 Альтернативу «писать напрямую в PG из каждого сервиса без очереди» отвергаем: пик в момент окончания турнира = десятки `INSERT` на один игровой gateway-тик; sync-write по connection pool разваливается при первом всплеске.
 
@@ -117,33 +137,37 @@ flowchart LR
 
 **Целевая верхняя граница для архитектурного выбора — 600K событий/день** (правый край сценария «достижение цели»). Архитектура §2.2 (отдельная events-RDS + pg_partman + materialized views + Redis Streams) проектируется на эту границу с запасом ~3× и **не требует смены технологии** при достижении любого из заявленных сценариев — только масштабирования ресурсов (см. §7A).
 
-**Что нужно сделать в момент запуска, чтобы заменить оценку измерением:** на этапе T13 (observability, см. §8) добавить Prometheus-метрики `user_events_ingested_total{type}` (XADD-counter), `user_events_inserted_total{type}` (counter ACK-ов от writer'а), `user_events_buffer_lag_seconds` (gauge `time.now - ts(oldest pending entry)`) — далее доверять им, а не оценкам.
+**Что нужно сделать в момент запуска, чтобы заменить оценку измерением:** Prometheus-метрики `actor_events_ingested_total{type, actor_type}` (XADD-counter), `actor_events_inserted_total{type, actor_type}` (counter ACK-ов от writer'а), `actor_events_buffer_lag_seconds` (gauge `time.now - ts(oldest pending entry)`) встроены в T1c (см. §8) — после запуска MVP доверять им, а не оценкам.
 
 Схема (Prisma DSL, для иллюстрации; реальную миграцию делает backend в новом пакете `packages/events-db` по образцу `packages/archive-db`):
 
 ```prisma
 // Логическая модель. На уровне Postgres таблица создаётся как
 // PARTITION BY RANGE (created_at) и управляется pg_partman:
-// SELECT partman.create_parent('public.user_events', 'created_at', 'native', 'weekly');
+// SELECT partman.create_parent('public.actor_events', 'created_at', 'native', 'weekly');
 // pg_partman.run_maintenance() в cron'е добавляет/дропает партиции.
-model UserEvent {
+model ActorEvent {
   id        BigInt   @default(autoincrement())
-  userId    String   @map("user_id") @db.Uuid
+  actorId   String   @map("actor_id") @db.Uuid       // user_id для type='user', guest_id для type='guest'
+  actorType String   @map("actor_type") @db.VarChar(8)  // 'user' | 'guest'
   type      String   @db.VarChar(64)
   payload   Json     @db.JsonB
   createdAt DateTime @default(now()) @map("created_at")
 
   @@id([id, createdAt])  // pg_partman требует partition-key в PK
-  @@index([userId, type, createdAt(sort: Desc)])
+  @@index([actorId, type, createdAt(sort: Desc)])
   @@index([createdAt])
-  @@map("user_events")
+  @@map("actor_events")
 }
 ```
 
+- **Единая таблица `actor_events` для гостей и пользователей**, а не две раздельные. Обоснование: (1) DSL §3.2 одинаков для обоих типов и ходит по одному индексу, не двум; (2) materialized views агрегатов §2.4 — один набор, не задвоен; (3) при guest→user merge (см. §1.1) достаточно `UPDATE … SET actor_id=$new, actor_type='user'`, не cross-table миграция; (4) retention и партиционирование — одно правило. Cost: лишних 8 байт на строку (`actor_type varchar(8)`) — на 54M строк ≈ 400 МБ, пренебрежимо.
 - `id BigInt`, а не UUID: 8 байт против 16, и для append-only логов UUID лишний.
-- Композитный индекс `(user_id, type, created_at desc)` — главный «рабочий» индекс правил («сколько раз пользователь сделал X за окно N»). Он автоматически создаётся на каждой новой партиции через `pg_partman.template_table`.
+- Композитный индекс `(actor_id, type, created_at desc)` — главный «рабочий» индекс правил. Он автоматически создаётся на каждой новой партиции через `pg_partman.template_table`. `actor_type` в индекс **не входит** намеренно: при guest→user merge `actor_id` меняется, тип меняется одновременно — фильтрация по `actor_type` всегда в комбинации с `actor_id`, селективность даёт сам `actor_id`.
 - `payload` как `jsonb` — для редких ad-hoc запросов; GIN-индекс пока не вешаем (нет правил, которые фильтруют по полю payload).
 - **Retention 90 дней** — управляется `pg_partman.retention_keep_table = false`, старые партиции **дропаются целиком** (мгновенная операция против многочасового `DELETE`-vacuum-цикла).
+
+**Альтернатива «отдельная таблица `guest_events`» отвергнута:** дублирует схему, требует одинаковых матвью на двух таблицах, усложняет DSL (либо ходить в две таблицы и UNION, либо вводить flag в каждый запрос), при merge — сложная миграция строк между таблицами в транзакции. Единая таблица с `actor_type` решает всё нативно.
 
 ### 2.4. Агрегаты для триггеров
 
@@ -154,27 +178,27 @@ model UserEvent {
 **Слой 1 — materialized views на event-RDS** для «длинных» окон (24h, 7d, 30d):
 
 ```sql
-CREATE MATERIALIZED VIEW user_event_counts_7d AS
-SELECT user_id, type, count(*) AS cnt, max(created_at) AS last_at
-FROM user_events
+CREATE MATERIALIZED VIEW actor_event_counts_7d AS
+SELECT actor_id, actor_type, type, count(*) AS cnt, max(created_at) AS last_at
+FROM actor_events
 WHERE created_at > now() - interval '7 days'
-GROUP BY user_id, type;
+GROUP BY actor_id, actor_type, type;
 
-CREATE UNIQUE INDEX ON user_event_counts_7d (user_id, type);
+CREATE UNIQUE INDEX ON actor_event_counts_7d (actor_id, type);
 ```
 
-Аналогично для окон 24h и 30d. Refresh — `REFRESH MATERIALIZED VIEW CONCURRENTLY user_event_counts_7d` через worker раз в 60 секунд (для 7d/30d) и раз в 30 секунд (для 24h). `CONCURRENTLY` не блокирует чтение, требует unique-индекс (см. выше).
+Аналогично для окон 24h и 30d. Refresh — `REFRESH MATERIALIZED VIEW CONCURRENTLY actor_event_counts_7d` через worker раз в 60 секунд (для 7d/30d) и раз в 30 секунд (для 24h). `CONCURRENTLY` не блокирует чтение, требует unique-индекс (см. выше).
 
-Стоимость refresh на верхней границе (54M строк за 90 дней): `count(*) … GROUP BY user_id, type` с index-only scan по партициям последних N дней — оценочно <2 секунды на db.r5.large (это **оценка**, измеряется на T13; bench по аналогичной операции на `archive-RDS` ADR-027 даёт <1 сек на 30M строк).
+Стоимость refresh на верхней границе (54M строк за 90 дней): `count(*) … GROUP BY actor_id, actor_type, type` с index-only scan по партициям последних N дней — оценочно <2 секунды на db.r5.large (это **оценка**, измеряется через метрики T1c; bench по аналогичной операции на `archive-RDS` ADR-027 даёт <1 сек на 30M строк).
 
 **Слой 2 — Redis hot counters** для «коротких» окон (1m, 10m, 1h) и для real-time правил вроде «3 рейтинговые партии подряд за 30 мин»:
 
 ```
-ключ:     agg:<user_id>:<type>:<window_id>
+ключ:     agg:<actor_id>:<type>:<window_id>
 команда:  INCR <key>; EXPIRE <key> <window_seconds>
 ```
 
-Инкрементируется **events-writer worker** одновременно с `INSERT` в PG (атомарность не нужна — eventual consistency для UI-подсказки приемлема; при ребуте writer'а краткое отставание восстановится со следующим refresh). HintsEngine читает Redis для коротких окон, materialized views — для длинных, **никогда** не запрашивает raw `user_events` на hot-path. Прямой `SELECT FROM user_events` оставлен только для ad-hoc отладки и для пересчёта при добавлении нового типа события.
+`actor_id` — это `user_id` либо `guest_id`, namespaces единый. При guest→user merge (см. §1.1) ключи `agg:<guest_id>:*` сканируются (`SCAN MATCH agg:<guest_id>:*`) и копируются под новый `actor_id` через `COPY`/`RENAME`, после чего старые удаляются. Инкрементируется **events-writer worker** одновременно с `INSERT` в PG (атомарность не нужна — eventual consistency для UI-подсказки приемлема; при ребуте writer'а краткое отставание восстановится со следующим refresh). HintsEngine читает Redis для коротких окон, materialized views — для длинных, **никогда** не запрашивает raw `actor_events` на hot-path. Прямой `SELECT FROM actor_events` оставлен только для ad-hoc отладки и для пересчёта при добавлении нового типа события.
 
 **Что измеряет правильность выбора:** метрика `hints_aggregate_query_duration_seconds{layer}` (входит в Этап 1, не в отдельный T13 — см. §8). p95 для layer=`matview` цель <50 мс, для layer=`redis` цель <5 мс. Если matview просядет — это сигнал на ступень §7A.1 (vertical uplift / read-replica), не на переписывание pipeline.
 
@@ -211,6 +235,10 @@ model Hint {
   // (см. §5.1). Если в течение 24 ч после показа произошло одно из них — acted_at = now()
   // без явного клика по CTA.
   acceptedBy   String[] @map("accepted_by") @db.VarChar(64)
+  // targetActorTypes — для какого actor-типа подсказка валидна.
+  // Значения: ['user'], ['guest'], ['user','guest']. Default — оба.
+  // Для гостевой «сделай регистрацию» — ['guest']. Для «открой анализ» — ['user'].
+  targetActorTypes String[] @map("target_actor_types") @default(["user","guest"]) @db.VarChar(8)
   cooldownSec  Int      @default(86400) @map("cooldown_sec") // после dismiss/show
   ttlSec       Int      @default(0) @map("ttl_sec")           // автозакрытие на UI, 0 = ручное
   maxShows     Int      @default(3) @map("max_shows")          // лимит за всё время
@@ -220,18 +248,23 @@ model Hint {
   @@map("hints")
 }
 
-model UserHintState {
-  userId       String   @map("user_id") @db.Uuid
-  hintId       String   @map("hint_id") @db.Uuid
-  shownCount   Int      @default(0) @map("shown_count")
-  lastShownAt  DateTime? @map("last_shown_at")
-  dismissedAt  DateTime? @map("dismissed_at")
-  actedAt      DateTime? @map("acted_at")
+// Ранее называлась UserHintState. Переименована в ActorHintState под единую модель
+// гостей и пользователей (§1.1). actor_id содержит либо user_id, либо guest_id;
+// actor_type различает. При guest→user merge actor_id+actor_type обновляются
+// одним UPDATE без переноса строк между таблицами.
+model ActorHintState {
+  actorId         String   @map("actor_id") @db.Uuid
+  actorType       String   @map("actor_type") @db.VarChar(8)
+  hintId          String   @map("hint_id") @db.Uuid
+  shownCount      Int      @default(0) @map("shown_count")
+  lastShownAt     DateTime? @map("last_shown_at")
+  dismissedAt     DateTime? @map("dismissed_at")
+  actedAt         DateTime? @map("acted_at")
   suppressedUntil DateTime? @map("suppressed_until")
 
-  @@id([userId, hintId])
-  @@index([userId, suppressedUntil])
-  @@map("user_hint_states")
+  @@id([actorId, hintId])
+  @@index([actorId, suppressedUntil])
+  @@map("actor_hint_states")
 }
 ```
 
@@ -252,7 +285,20 @@ model UserHintState {
 - `count.event` + `windowMin|windowHours|windowDays|sinceDays` + `gte|lte|eq` — счётчик за окно.
 - `exists.event` / `not.exists.event` — был ли в окне.
 - `timeSince.event` + `gtMin|gtHours|gtDays` — давно ли последний раз.
+- `actorType.equals` — `'user'` или `'guest'` (используется для targeting; дополнительно к полю `targetActorTypes` на самой Hint, фильтрация которого выполняется до DSL).
 - `all` / `any` — логические комбинаторы.
+
+Пример гостевого правила «гость 30 секунд на лендинге, не нажал «Зарегистрироваться»»:
+```json
+{
+  "all": [
+    { "actorType": { "equals": "guest" } },
+    { "page": { "matches": "/" } },
+    { "count": { "event": "guest_landing_viewed", "windowMin": 5, "gte": 1 } },
+    { "not": { "exists": { "event": "guest_signup_form_opened", "windowDays": 1 } } }
+  ]
+}
+```
 
 Парсер DSL — небольшая чистая функция на 200–300 строк, без рантайм-зависимостей. Каждый оператор превращается в SQL-фрагмент (или Redis-чтение для горячих счётчиков). Незнакомый оператор → правило игнорируется + лог в `client-logs`-стиле.
 
@@ -273,7 +319,7 @@ Seed-файл `apps/api/prisma/seeds/hints.ts` остаётся **только �
 Триггер: периодический check (см. §4.1) возвращает **массив** подходящих hint-ов. Выбираем один:
 
 1. Сортируем по `priority desc, created_at asc`.
-2. Фильтруем по `UserHintState`: исключаем `suppressedUntil > now()`, `shownCount >= maxShows`, `dismissed_at within cooldown`.
+2. Фильтруем по `ActorHintState`: исключаем `suppressedUntil > now()`, `shownCount >= maxShows`, `dismissed_at within cooldown`.
 3. Фильтруем по глобальным лимитам (§5.2): «≤1 показ за 10 минут», «≤5 за сессию».
 4. Берём верхний. Остальные **не запоминаем как «скипнутые»** — просто появятся при следующем check, если их триггер всё ещё активен.
 
@@ -281,13 +327,19 @@ Seed-файл `apps/api/prisma/seeds/hints.ts` остаётся **только �
 
 ## 4. Доставка на UI
 
-### 4.1. Push vs pull
+### 4.1. Push для пользователей, pull для гостей
 
-**Push через существующий `MessageGateway`**. У нас уже есть WebSocket-соединение для уведомлений (`message`-namespace, room `user:<userId>`). Добавляем туда событие `hint:show` с payload `{ hintId, key, title, body, ctaLabel, ctaHref?, ctaEvent?, anchor, placement, ttlSec }`. Pull-вариант (poll каждые N сек) отвергаем: лишний трафик и задержка реакции на «закончил партию → покажи подсказку про анализ».
+Два канала доставки — гибрид по `actor_type`:
+
+**Для авторизованных (`user`) — push через `MessageGateway`.** WebSocket уже есть (`message`-namespace, room `user:<userId>`). Добавляем событие `hint:show` с payload `{ hintId, key, title, body, ctaLabel, ctaHref?, ctaEvent?, anchor, placement, ttlSec }`. Реактивная задержка — миллисекунды.
+
+**Для гостей (`guest`) — pull через `GET /hints/pending`.** У гостя нет JWT, заводить отдельный гостевой WS-namespace для функции, где задержка 15 сек приемлема, — overkill (это новая infra: guest-room, signed token для WS-handshake, отдельный rate-limit на гостевые сокеты, цена ~3 дня backend и постоянная operational нагрузка). Pull проще: `GuestIdMiddleware` валидирует cookie, controller вызывает `HintsEngine.checkFor({type:'guest', id:guestId}, context)`, возвращает массив `[]` или `[hintPayload]`. Frontend `<HintHost>` для гостя крутит pull раз в 15 сек поверх `setInterval`, или при ключевых событиях (page_view, idle 30s) делает один внеочередной запрос.
+
+Обоснование 15 сек: гостевые правила оперируют окнами «30 сек на лендинге», «попытался кликнуть Play 2 раза» — задержка показа подсказки в пределах 15 сек незаметна. Cost trafiku: один пустой `GET /hints/pending` ~200 байт response, 4 запроса/мин/гость = 800 байт/мин/гость; на гипотетических 500 одновременных гостях = 400 КБ/мин egress, пренебрежимо.
 
 Бэкенд считает подсказки в двух точках:
-1. **Реактивно** — после ключевых событий (`game_end`, `puzzle_failed`, `session_idle`, `page_view`). `HintsEngine.checkFor(userId, context)` запускается из соответствующих сервисов через event-bus (`@nestjs/event-emitter`).
-2. **Тиковая проверка** — `@Cron('*/30 * * * * *')` для правил, привязанных к «время с момента X» (например, «не заходил неделю» — проверять незачем, пока пользователь не зашёл; «играет 10+ минут без перерыва» — раз в полминуты ок).
+1. **Реактивно** — после ключевых событий (`game_end`, `puzzle_failed`, `session_idle`, `page_view`, `guest_landing_viewed`, `guest_play_attempted`). `HintsEngine.checkFor(actor, context)` запускается из соответствующих сервисов через event-bus (`@nestjs/event-emitter`). Для user-actor результат тут же эмитится в WS; для guest-actor — кладётся в очередь `pending:<guest_id>` (Redis LIST, TTL 60 сек), которую забирает следующий pull-запрос гостя.
+2. **Тиковая проверка** — `@Cron('*/30 * * * * *')` для правил, привязанных к «время с момента X» (например, «не заходил неделю»). Для гостей это менее актуально (гость = короткая сессия), но работает одинаково.
 
 ### 4.2. Anchor на UI и адаптивность
 
@@ -295,7 +347,7 @@ Seed-файл `apps/api/prisma/seeds/hints.ts` остаётся **только �
 
 Frontend-компонент `<HintHost>` монтируется в `App.tsx` один раз, слушает `hint:show` через socket. На получении:
 1. Ищет `document.querySelector('[data-hint-anchor="' + anchor + '"]')`.
-2. Если узла нет (страница без anchor) — отвечает на сервер `hint:no-anchor`, сервер пишет в `user_events` как `hint_dismissed { reason: 'no_anchor' }` и больше эту подсказку в текущем page-view не предлагает.
+2. Если узла нет (страница без anchor) — отвечает на сервер `hint:no-anchor`, сервер пишет в `actor_events` как `hint_dismissed { reason: 'no_anchor' }` и больше эту подсказку в текущем page-view не предлагает.
 3. Если узел есть — выбор паттерна рендера зависит от viewport:
    - **Desktop (≥768px)**: popover через portal, позиционирование `@floating-ui/react` (библиотека ~10 KB добавляется в `apps/web` зависимости в T9, проверено в `package.json` — отсутствует на 2026-06).
    - **Mobile (<768px)**: bottom-sheet вместо popover (anchor подсвечивается контрастной обводкой, сам текст — в выезжающей панели снизу с safe-area-inset-bottom). Делается **с самого MVP в составе T9**, не отдельным «отложенным» тикетом — без mobile-варианта подсказки невозможно показать мобильным пользователям, которых на платформе значительная доля.
@@ -320,7 +372,7 @@ Frontend-компонент `<HintHost>` монтируется в `App.tsx` о�
 - `hint_acted` — клик по CTA (или произошёл `ctaEvent`).
 - `hint_ignored` — закрылась по `ttlSec` без действия.
 
-События пишутся в `user_events` и параллельно обновляют `UserHintState` (поля `shownCount`, `lastShownAt`, `dismissedAt`, `actedAt`).
+События пишутся в `actor_events` и параллельно обновляют `ActorHintState` (поля `shownCount`, `lastShownAt`, `dismissedAt`, `actedAt`).
 
 ---
 
@@ -328,7 +380,7 @@ Frontend-компонент `<HintHost>` монтируется в `App.tsx` о�
 
 ### 5.1. Когда «выполнена»
 
-Подсказка считается выполненной, когда у `UserHintState.actedAt` появилось значение. После этого:
+Подсказка считается выполненной, когда у `ActorHintState.actedAt` появилось значение. После этого:
 - Если `actedAt` через CTA-клик — `suppressedUntil = now() + 365 days` (показывать не надо, человек узнал).
 - Если правило снова сработает через год — покажем (например, новый интерфейс настроек, повторное напоминание уместно).
 
@@ -341,8 +393,8 @@ Frontend-компонент `<HintHost>` монтируется в `App.tsx` о�
 | Ключ конфига | Default | Назначение |
 |--------------|---------|------------|
 | `hints.enabled` | `false` | Kill-switch. При `false` → `HintsEngine.checkFor` возвращает пусто. Включается после прохода QA (T14). |
-| `hints.global_throttle_seconds` | `600` (10 мин) | Минимальный интервал между двумя показами одному пользователю. Redis-ключ `hints:throttle:<user_id>` TTL = это значение. |
-| `hints.session_max_shows` | `5` | Максимум показов в сутки на пользователя. Redis counter `hints:session:<user_id>:<date>` TTL до конца суток. |
+| `hints.global_throttle_seconds` | `600` (10 мин) | Минимальный интервал между двумя показами одному actor (user или guest). Redis-ключ `hints:throttle:<actor_id>` TTL = это значение. |
+| `hints.session_max_shows` | `5` | Максимум показов в сутки на actor. Redis counter `hints:session:<actor_id>:<date>` TTL до конца суток. При guest→user merge ключи копируются под новый actor_id (см. §1.1, §2.4 namespace). |
 | `hints.smart_dismiss_window_hours` | `24` | Окно, в течение которого `acceptedBy`-событие после показа считается «smart-dismiss» → `acted_at = now()`. |
 
 Per-hint лимиты — `maxShows` (общий), `cooldownSec` (после dismiss), `ttlSec` (автозакрытие) — в самой таблице `hints`, правятся через тот же админ-UI.
@@ -369,33 +421,40 @@ stateDiagram-v2
 
 ### 6.1. Что хранится
 
-- `user_events` — userId + type + payload + timestamp. Payload намеренно ограничен полями из таблицы §2.1, никаких персональных данных (имена, тексты сообщений, FEN-ы партий) туда **не пишем**.
-- `user_hint_states` — userId + hintId + статусы.
-- Гости (без аккаунта) — события **не пишем вообще**. Аналитика только для авторизованных. Подсказки гостям не показываем (одно правило исключения, обсуждается отдельно: «гость на странице регистрации застрял 60 секунд» — пока вне scope).
+- `actor_events` — actor_id + actor_type + type + payload + timestamp. Payload намеренно ограничен полями из таблицы §2.1, никаких персональных данных (имена, тексты сообщений, FEN-ы партий) туда **не пишем**.
+- `actor_hint_states` — actor_id + actor_type + hintId + статусы.
+- Для гостей хранится тот же набор полей. Личных данных у гостя нет (нет email/имени), `guest_id` — синтетический UUID без привязки к личности.
 
 ### 6.2. Согласие
 
-Добавляем в существующий cookie-banner отдельный чекбокс «Аналитика для персональных подсказок» (по умолчанию **выключен** — это ужесточение от того, что есть сейчас в Notification flow, но необходимо для GDPR). Состояние сохраняется в БД на User (новое поле `analyticsConsent boolean`).
+Cookie-banner — единый механизм для гостей и пользователей. Чекбокс «Аналитика для персональных подсказок» (по умолчанию **выключен**, ужесточение относительно текущего Notification flow, необходимо для GDPR).
 
-`EventsService.track()` первым делом читает `user.analyticsConsent`. Если `false` — событие отбрасывается на входе, не доходит до Redis Streams. `HintsEngine.checkFor` для такого пользователя возвращает пусто.
+**Для авторизованных:** состояние сохраняется в БД на User (поле `analytics_consent boolean default false`). `EventsService.track({type:'user', id})` первым делом читает это поле; `false` → событие отбрасывается на входе.
+
+**Для гостей:** согласие записывается в подписанный cookie `analytics_consent=1` (HMAC-подпись с серверным секретом, чтобы клиент не мог подделать; HttpOnly не нужен — клиенту тоже надо читать для UI-state). `GuestIdMiddleware` выставляет cookie `guest_id` **только** если есть `analytics_consent=1`. Без согласия — `guest_id` не создаётся, события не пишутся, подсказки не показываются. Backend для гостя проверяет наличие+подпись cookie на каждом `POST /events` и `GET /hints/pending`.
+
+Отзыв согласия (банер → снять галочку): для user — `PATCH /me/consent {analytics:false}`; для гостя — фронт удаляет cookie `analytics_consent` и `guest_id`, опционально вызывает `DELETE /guest/analytics-data` (см. §6.3) для стирания уже накопленных данных.
 
 ### 6.3. GDPR — права субъекта данных (с самого MVP)
 
-Endpoint'ы прав субъекта по hints/events-данным **входят в этот ADR**, не «потом отдельным тикетом». Реализуются в составе T4 (см. §8):
+Endpoint'ы прав субъекта **входят в этот ADR** для обоих actor-типов:
 
-- **Art. 17 «Право на удаление»** — `DELETE /me/analytics-data`:
-  - Удаляет все записи `user_events` по `user_id` (в events-RDS, с учётом партиций — `DELETE FROM user_events WHERE user_id = $1` отрабатывает быстро благодаря композитному индексу).
-  - Удаляет `user_hint_states` по `user_id`.
-  - Чистит Redis hot counters `agg:<user_id>:*` через `SCAN` + `DEL`.
-  - Чистит pending entries в Streams (`XPENDING` + `XACK` по `user_id`) — best-effort, по факту обработки writer'ом.
+**Для авторизованных (`JwtAuthGuard`):**
+- **Art. 17 — `DELETE /me/analytics-data`**:
+  - `DELETE FROM actor_events WHERE actor_id = $userId AND actor_type='user'` (быстро через композитный индекс).
+  - `DELETE FROM actor_hint_states WHERE actor_id = $userId AND actor_type='user'`.
+  - `SCAN agg:<userId>:* + DEL`.
+  - `XPENDING` + `XACK` по pending entries — best-effort, по факту обработки writer'ом.
   - Идемпотентен.
-- **Art. 20 «Право на портативность»** — `GET /me/analytics-export`:
-  - Возвращает JSON с `user_events` (последние 90 дней, согласно retention) и `user_hint_states` по `user_id`.
-  - Stream-response (Postgres COPY ... TO STDOUT WITH CSV → конвертация в JSON батчами), чтобы не упереться в память при крупном пользователе.
-  - Rate-limit 1 запрос/24ч на пользователя (защита от abuse).
-- **Art. 7(3) «Право отозвать согласие»** — уже покрыт `PATCH /me/consent { analytics: false }` (см. §8 T4). При отзыве — события перестают писаться сразу; для удаления уже накопленных нужен явный вызов `DELETE /me/analytics-data`.
+- **Art. 20 — `GET /me/analytics-export`**: JSON с `actor_events` (90 дней) и `actor_hint_states` по `actor_id=userId`. Stream-response, rate-limit 1/24ч.
+- **Art. 7(3) — `PATCH /me/consent {analytics:false}`** (см. §6.2). Для удаления накопленных — отдельный вызов delete.
 
-Endpoint'ы аутентифицированные (`JwtAuthGuard`), audit-log пишет факт вызова в общий `client-logs`-канал. Сквозной GDPR-тикет проекта (если такой когда-то появится) сможет на эти endpoint'ы опереться, а не дублировать логику.
+**Для гостей (`GuestIdGuard` — валидация подписи cookie `guest_id`):**
+- **Art. 17 — `DELETE /guest/analytics-data`**: те же операции, что для user, по `actor_id = guestId AND actor_type='guest'`. После успеха backend клирит cookie `guest_id` через `Set-Cookie: guest_id=; Max-Age=0`.
+- **Art. 20 — `GET /guest/analytics-export`**: аналогично, по guest_id.
+- **Art. 7(3) — отзыв согласия** — клиентский (см. §6.2).
+
+Endpoint'ы для гостей **не аутентифицированы JWT**, а защищены подписанным cookie. Дополнительный rate-limit по IP (5 запросов/мин) защищает от перебора чужих guest_id (хотя при HMAC-подписи угадать невозможно — лишний слой). Audit-log в `client-logs`-канал. Сквозной GDPR-тикет проекта (если такой когда-то появится) сможет на эти endpoint'ы опереться, а не дублировать логику.
 
 ### 6.4. Retention
 
@@ -429,7 +488,7 @@ Endpoint'ы аутентифицированные (`JwtAuthGuard`), audit-log �
 | Events Writer Worker | внутри `apps/api`, доп. контейнера нет | — | 0 |
 | **Итого инкрементально** | | | **~137** |
 
-Постоянные эксплуатационные часы: ~1 ч/мес (мониторинг partition rotation, refresh-latency matviews — pg_partman сам делет ротацию, нужно только следить за counter ошибок). Стек PostgreSQL — тот же, что уже эксплуатируется на основном RDS (ADR-027, ADR-045), новых технологий нет. p95 запросов к materialized view цель <50 мс — оценка по аналогии с `archive-RDS` ADR-033 при ≤50M строк (доверие: **среднее**; измеряется на T13).
+Постоянные эксплуатационные часы: ~1 ч/мес (мониторинг partition rotation, refresh-latency matviews — pg_partman сам делет ротацию, нужно только следить за counter ошибок). Стек PostgreSQL — тот же, что уже эксплуатируется на основном RDS (ADR-027, ADR-045), новых технологий нет. p95 запросов к materialized view цель <50 мс — оценка по аналогии с `archive-RDS` ADR-033 при ≤50M строк (доверие: **среднее**; измеряется через метрики T1c).
 
 **Вариант B — PostHog self-hosted на тот же объём.**
 
@@ -465,7 +524,7 @@ Endpoint'ы аутентифицированные (`JwtAuthGuard`), audit-log �
 - Конфигурации PostHog self-hosted — их же docs (`posthog.com/docs/self-host`), доверие: **среднее** (рекомендации могут отличаться от реальных требований при росте).
 - Cloud Scale tier pricing — публичный pricelist (доверие: **высокое**, но условия pricing у SaaS меняются — на момент использования перепроверить).
 - Часы поддержки PostHog 2–10 ч/мес — **экспертная оценка** на базе релизного цикла PostHog (`github.com/PostHog/posthog/releases` — minor раз в 1–2 недели, major раз в 1–2 месяца с Clickhouse-миграциями), доверие: **низкое-среднее**.
-- p95 50 мс на matview наш — оценка по `archive-RDS` ADR-033 при сопоставимом объёме (доверие: **среднее**, измеряется на T13).
+- p95 50 мс на matview наш — оценка по `archive-RDS` ADR-033 при сопоставимом объёме (доверие: **среднее**, измеряется метриками T1c).
 
 **Вывод.** Вариант A дешевле B в 2× по деньгам и значительно дешевле по эксплуатации (один стек vs три новых компонента). PostHog Cloud — на порядок дороже. Богатые возможности PostHog (funnels, cohorts, A/B) не нужны для задачи «триггер подсказки по простому условию» — DSL §3.2 покрывает кейсы. **Если в будущем появится отдельная задача продуктовой аналитики (funnels по сложным пользовательским путям, retention cohorts, server-side A/B), варианты B и C пересматриваются отдельным ADR — у них другие требования и другая ценность.**
 
@@ -483,13 +542,13 @@ Endpoint'ы аутентифицированные (`JwtAuthGuard`), audit-log �
 | **A. Вертикальный uplift** | 150K – 600K (верх целевого) | 14M – 54M строк | `db.r5.large` (2 vCPU / 16 GB) | Без изменения кода и схемы. Меняется только RDS instance class. Downtime — окно RDS maintenance (~5 мин). |
 | **B. Read-replica для аналитики** | 600K – 1.5M событий/день | до 135M строк | `db.r5.large` + `db.r5.large` read-replica | Heavy ad-hoc запросы (debug, marketing-аналитика) уводятся на replica. HintsEngine продолжает читать matviews с primary (refresh идёт на primary). Cross-AZ replica latency обычно <1 сек, для refresh раз в минуту неважно. |
 | **C. Compression на старых партициях** | 1.5M – 3M событий/день | до 270M строк | `db.r5.large` + replica | Партиции старше 14 дней — `ALTER TABLE … SET (toast_tuple_target = 128)` + `VACUUM FULL` или extension `pg_compress` (~3–5× экономии storage на сжатых партициях). Снижает storage cost и улучшает cache-hit. Pure-PG, без новой технологии. |
-| **D. Шардинг по `user_id`** | >3M событий/день | >270M строк | 2× `db.r5.xlarge` (or larger) | pg_partman поддерживает subpartitioning. Шардинг по hash(user_id) — каждый writer-shard пишет в свой набор партиций. HintsEngine знает routing-функцию `shard_of(user_id)`. Это всё ещё PostgreSQL, без смены технологии, только горизонтальный scale. |
+| **D. Шардинг по `actor_id`** | >3M событий/день | >270M строк | 2× `db.r5.xlarge` (or larger) | pg_partman поддерживает subpartitioning. Шардинг по hash(actor_id) — каждый writer-shard пишет в свой набор партиций. HintsEngine знает routing-функцию `shard_of(actor_id)`. Это всё ещё PostgreSQL, без смены технологии, только горизонтальный scale. |
 
 **Стартовая → A** — это **тот же ADR**, та же архитектура, та же конфигурация. Меняется только RDS instance class. **A → B → C → D** — расширения внутри PG-стека, требующие правок миграций/конфига, но не переписывания продуктового кода. Контракты §7A.3 сохраняются на всех ступенях.
 
 «D» рассчитан на 5–10× от верхней границы целевого сценария — заведомый запас, чтобы ADR оставался актуальным даже при многократном превышении прогноза. Если фактический объём пересечёт даже «D» — это означает кратное превышение цели ADR-128, что само по себе повод для отдельного архитектурного обзора всей платформы, не только аналитики.
 
-### 7A.2. Триггеры перехода между ступенями (наблюдаемые KPI на T13)
+### 7A.2. Триггеры перехода между ступенями (наблюдаемые KPI)
 
 Не «когда DAU вырастет», а **конкретные сигналы из Prometheus / pg_stat**:
 
@@ -498,18 +557,18 @@ Endpoint'ы аутентифицированные (`JwtAuthGuard`), audit-log �
 | `histogram_quantile(0.95, hints_aggregate_query_duration_seconds{layer="matview"})` | > 50 мс | A — uplift RDS до r5.large |
 | `pg_database_size('events')` | > 60 GB | A или C — uplift / compression |
 | `pg_stat_replication.replay_lag` (если уже есть replica) | > 5 sec | A — uplift, replica не вытягивает |
-| `rate(user_events_ingested_total[5m])` | > 50 events/sec | B — заводим read-replica под ad-hoc нагрузку |
+| `rate(actor_events_ingested_total[5m])` | > 50 events/sec | B — заводим read-replica под ad-hoc нагрузку |
 | `pg_partman.show_partitions` count активных партиций | > 26 (полгода weekly) | C — compression старых |
-| `rate(user_events_ingested_total[5m])` | > 200 events/sec | D — sharding по user_id |
-| `redis_stream_pending_entries{stream="user_events:stream"}` | > 10K sustained 5 мин | Сразу: увеличить число writer-воркеров (consumer group горизонтально масштабируема) |
+| `rate(actor_events_ingested_total[5m])` | > 200 events/sec | D — sharding по actor_id |
+| `redis_stream_pending_entries{stream="actor_events:stream"}` | > 10K sustained 5 мин | Сразу: увеличить число writer-воркеров (consumer group горизонтально масштабируема) |
 
 ### 7A.3. Стабильные контракты (не меняются на всех ступенях)
 
 - **`EventsService.track(userId, type, payload)`** — продуктовый код (`game`, `puzzle`, `lesson`, ...) индифферентен к ступени scale. Меняется реализация (`XADD` всё тот же), не сигнатура.
-- **Redis Streams ключ `user_events:stream`** — на ступени D возможен sharding (`user_events:stream:<shard>`), routing-функция спрятана в `EventsService.track`.
-- **DSL правил §3.2** — оперирует «count события за окно». На всех ступенях читает matviews + Redis hot counters, не raw `user_events`.
+- **Redis Streams ключ `actor_events:stream`** — на ступени D возможен sharding (`actor_events:stream:<shard>`), routing-функция спрятана в `EventsService.track`.
+- **DSL правил §3.2** — оперирует «count события за окно». На всех ступенях читает matviews + Redis hot counters, не raw `actor_events`.
 - **WS-канал `hint:show`** и frontend — полностью индифферентны.
-- **Схема таблицы `user_events`** — стабильна. На ступени C добавляется compression на партициях, на ступени D — subpartitioning, но колонки и индексы те же.
+- **Схема таблицы `actor_events`** — стабильна. На ступени C добавляется compression на партициях, на ступени D — subpartitioning, но колонки и индексы те же.
 
 ### 7A.4. Когда пересматривать сам ADR
 
@@ -535,85 +594,96 @@ Endpoint'ы аутентифицированные (`JwtAuthGuard`), audit-log �
 
 1b. **backend: пакет `packages/events-db` + миграция + matviews**
    - Новый Prisma-пакет `packages/events-db` (по образцу `packages/archive-db`, `packages/broadcasts-db`).
-   - Модель `UserEvent` из §2.3 (partition-aware composite PK).
-   - SQL post-migration: `SELECT partman.create_parent('public.user_events', 'created_at', 'native', 'weekly')`.
-   - Materialized views `user_event_counts_24h | _7d | _30d` из §2.4 + unique-индексы.
+   - Модель `ActorEvent` из §2.3 (partition-aware composite PK, поля `actor_id`+`actor_type`).
+   - SQL post-migration: `SELECT partman.create_parent('public.actor_events', 'created_at', 'native', 'weekly')`.
+   - Materialized views `actor_event_counts_24h | _7d | _30d` из §2.4 + unique-индексы.
    - Тесты: insert, partition rotation, matview refresh.
 
-1c. **backend: EventsModule + Redis Streams + Writer + matview refresher + Prometheus метрики**
-   - `EventsModule`, `EventsService.track(userId, type, payload)` — `XADD user_events:stream` с проверкой `analyticsConsent`.
+1c. **backend: EventsModule + Redis Streams + Writer + matview refresher + Prometheus + GuestIdMiddleware**
+   - `EventsModule`, `EventsService.track(actor, type, payload)` где `actor = {type:'user'|'guest', id}` — `XADD actor_events:stream` с проверкой согласия (user.analytics_consent или подпись cookie `analytics_consent`).
    - `EventsWriterService` — consumer group, `XREADGROUP COUNT 1000 BLOCK 1000`, batch INSERT + INCR Redis hot counters + `XACK`.
    - `MatViewRefreshService` — cron `*/30s` для `_24h`, `*/60s` для `_7d`/`_30d`.
-   - `POST /events` controller (DTO-валидация, IP-rate-limit).
-   - **Prometheus метрики сразу** (часть этого тикета, не отдельный T13): `user_events_ingested_total{type}`, `user_events_inserted_total{type}`, `user_events_buffer_lag_seconds`, `redis_stream_pending_entries{stream}`, `matview_refresh_duration_seconds{view}`.
-   - Тесты: E2E (POST → Stream → worker → таблица + matview).
+   - `POST /events` controller (DTO-валидация, IP-rate-limit). Authn определяет `actor` по JWT или cookie `guest_id`.
+   - **`GuestIdMiddleware`** (в `apps/api/src/common/`): на любом запросе без JWT, при наличии подписанного `analytics_consent=1` cookie — генерирует UUID и ставит подписанный (HMAC) cookie `guest_id` с Max-Age=365d, SameSite=Lax, Secure. Без согласия — middleware no-op.
+   - **Prometheus метрики**: `actor_events_ingested_total{type, actor_type}`, `actor_events_inserted_total{type, actor_type}`, `actor_events_buffer_lag_seconds`, `redis_stream_pending_entries{stream}`, `matview_refresh_duration_seconds{view}`, `guest_id_issued_total`.
+   - Тесты: E2E (POST → Stream → worker → таблица + matview) для user и guest.
 
-2. **frontend: events-клиент**
-   - `apps/web/src/lib/events.ts` — `track(type, payload)`, batch до 50/раз в 5 сек, `navigator.sendBeacon` на unload.
-   - Хуки `usePageViewTracking`, `useIdleTracking`.
-   - Гейт на `analyticsConsent === false` → no-op.
+2. **frontend: events-клиент (user + guest)**
+   - `apps/web/src/lib/events.ts` — `track(type, payload)`, batch до 50/раз в 5 сек, `navigator.sendBeacon` на unload. Работает одинаково для user и guest — backend различает по JWT/cookie.
+   - Хуки `usePageViewTracking`, `useIdleTracking`, `useGuestLandingTracking` (для гостевого `guest_landing_viewed`).
+   - Гейт: если ни `user.analytics_consent`, ни cookie `analytics_consent` не выставлены → no-op.
 
 3. **backend: self-emit из существующих сервисов**
-   - `game`, `puzzle`, `puzzle-rush`, `lesson`, `tactic-drill` — события из §2.1 через `eventsService.track()`.
+   - `game`, `puzzle`, `puzzle-rush`, `lesson`, `tactic-drill` — события из §2.1 через `eventsService.track({type:'user', id:userId}, ...)`. Для гостей backend-self-emit не нужен.
 
-### Этап 2. Согласие, privacy и GDPR-endpoint'ы (полный набор)
+### Этап 2. Согласие, privacy и GDPR-endpoint'ы (user + guest)
 
-4. **backend: `analyticsConsent` + GDPR endpoint'ы**
+4. **backend: consent + GDPR endpoint'ы (user + guest)**
    - Миграция `users.analytics_consent boolean default false`.
    - `PATCH /me/consent { analytics: boolean }`.
-   - **`DELETE /me/analytics-data`** — удаление user_events + user_hint_states + Redis counters + Streams pending (§6.3).
-   - **`GET /me/analytics-export`** — JSON-export данных пользователя, stream-response, rate-limit 1/24ч (§6.3).
-   - Тесты: каждый endpoint + idempotency delete.
+   - **`DELETE /me/analytics-data`** — actor_events + actor_hint_states + Redis counters + Streams pending по `actor_id=userId, actor_type='user'`.
+   - **`GET /me/analytics-export`** — stream JSON по тому же фильтру, rate-limit 1/24ч.
+   - **`DELETE /guest/analytics-data`** — то же по `actor_id=guestId, actor_type='guest'` + `Set-Cookie: guest_id=; Max-Age=0`. Защита: `GuestIdGuard` (валидация HMAC cookie), IP rate-limit 5/мин.
+   - **`GET /guest/analytics-export`** — аналогично для гостя.
+   - **`AuthService.register` hook — guest→user merge** (§1.1): в одной транзакции `UPDATE actor_events`, `UPDATE actor_hint_states`, SCAN+COPY+DEL Redis-ключей `agg:<guestId>:*` → `agg:<newUserId>:*`, очистка cookie `guest_id`.
+   - Тесты: каждый endpoint + idempotency delete + merge consistency.
 
-5. **frontend: cookie-banner + Settings → Privacy**
-   - Чекбокс «Аналитика для персональных подсказок» в баннере и в настройках.
-   - Кнопки «Удалить мои аналитические данные» и «Скачать мои данные» в Settings → Privacy → Hints.
+5. **frontend: cookie-banner + Settings → Privacy (user + guest)**
+   - Чекбокс «Аналитика для персональных подсказок» в баннере (доступен и неавторизованному гостю).
+   - Для гостя без согласия: события не шлются, подсказки не приходят.
+   - В Settings → Privacy для авторизованных — кнопки «Удалить мои данные» (POST→`DELETE /me/analytics-data`) и «Скачать мои данные» (`GET /me/analytics-export`).
+   - Для гостя в cookie-banner — ссылка «Удалить мои данные» (POST→`DELETE /guest/analytics-data`).
    - i18n (ru/en).
 
 ### Этап 3. Hints engine + конфигурируемые лимиты
 
-6. **backend: миграция `hints`/`user_hint_states` + HintsEngine + Prometheus метрики hints**
-   - Prisma модели из §3.1 (с полями `i18n`, `acceptedBy`).
-   - `HintsService.checkFor(userId, context)` — выполнение DSL §3.2, выбор одного hint, запись в `UserHintState`.
-   - Парсер DSL: `page`, `count`, `exists`, `timeSince`, `all`, `any`, `not`. Unit-тесты на каждый оператор.
-   - **Лимиты через `feature-flags`-конфиг** (§5.2): `hints.enabled`, `hints.global_throttle_seconds`, `hints.session_max_shows`, `hints.smart_dismiss_window_hours`. Local-cache 60s.
-   - Hook на event-bus: `game_end`, `puzzle_failed`, `session_idle`, `page_view` → `HintsEngine.checkFor`.
+6. **backend: миграция `hints`/`actor_hint_states` + HintsEngine + Prometheus + guest support**
+   - Prisma модели из §3.1 (с полями `i18n`, `acceptedBy`, `targetActorTypes`). `ActorHintState` с композитным PK `(actor_id, hint_id)`.
+   - `HintsService.checkFor(actor, context)` где `actor = {type, id}` — фильтр `targetActorTypes`, выполнение DSL §3.2 (включая оператор `actorType`), выбор одного hint, запись в `ActorHintState`.
+   - Парсер DSL: `page`, `count`, `exists`, `timeSince`, `actorType`, `all`, `any`, `not`. Unit-тесты на каждый оператор + тесты гостевых правил.
+   - **Лимиты через `feature-flags`-конфиг** (§5.2): `hints.enabled`, `hints.global_throttle_seconds`, `hints.session_max_shows`, `hints.smart_dismiss_window_hours`. Redis-ключи по `actor_id` (единый namespace для user/guest). Local-cache 60s.
+   - Hook на event-bus: `game_end`, `puzzle_failed`, `session_idle`, `page_view`, `guest_landing_viewed`, `guest_play_attempted` → `HintsEngine.checkFor`. Для guest-actor результат кладётся в `pending:<guest_id>` (Redis LIST, TTL 60s).
    - Список «тихих» страниц (§4.2.1) — константа в `packages/shared`.
-   - **Prometheus метрики сразу**: `hints_aggregate_query_duration_seconds{layer}`, `hints_check_duration_seconds`, `hints_shown_total{key}`, `hints_acted_total{key}`, `hints_dismissed_total{key}`, `hints_ignored_total{key}`.
-   - Smart-dismiss observer: подписка на `eventsService` для типов из `hint.acceptedBy` — при попадании обновляет `actedAt` на активных UserHintState.
+   - **Prometheus метрики**: `hints_aggregate_query_duration_seconds{layer}`, `hints_check_duration_seconds{actor_type}`, `hints_shown_total{key, actor_type}`, `hints_acted_total{key, actor_type}`, `hints_dismissed_total{key, actor_type}`, `hints_ignored_total{key, actor_type}`.
+   - Smart-dismiss observer: подписка на `eventsService` для типов из `hint.acceptedBy` — при попадании обновляет `actedAt` на активных ActorHintState (для user и guest одинаково).
 
 7. **shared: anchor-enum, hint-payload, quiet-pages**
    - `packages/shared/types/hint-anchors.ts` — enum значений `data-hint-anchor`.
    - `packages/shared/types/hint-payload.ts` — `HintShowPayload`, `HintLifecyclePayload`.
    - `packages/shared/constants/hint-quiet-pages.ts` — список тихих страниц (§4.2.1).
 
-8. **backend: WS-emit hint:show + REST lifecycle**
-   - Событие `hint:show` в `MessageGateway` (room `user:<id>`).
-   - `POST /hints/:id/{shown|dismissed|acted|ignored}` — обновление `UserHintState` + запись в `user_events`.
+8. **backend: WS-emit hint:show (user) + pull endpoint (guest) + REST lifecycle**
+   - Событие `hint:show` в `MessageGateway` (room `user:<id>`) — для авторизованных.
+   - **`GET /hints/pending`** для гостей: `GuestIdGuard` валидирует cookie `guest_id`, возвращает массив (0 или 1 элемент) из Redis `pending:<guest_id>` (атомарный `LPOP`). При пустом — пустой массив. Rate-limit по cookie 6 запросов/мин.
+   - `POST /hints/:id/{shown|dismissed|acted|ignored}` — обновление `ActorHintState` + запись в `actor_events`. Endpoint работает и под JWT (actor=user), и под подписанным cookie `guest_id` (actor=guest).
 
 ### Этап 4. Frontend подсказки (desktop + mobile в одном тикете)
 
-9. **frontend: компонент `<HintHost>` + desktop popover + mobile bottom-sheet**
-   - Глобальный mount в `App.tsx`, подписка на `hint:show`.
+9. **frontend: компонент `<HintHost>` + desktop popover + mobile bottom-sheet + guest pull**
+   - Глобальный mount в `App.tsx`.
+   - **Для авторизованных**: подписка на WS-событие `hint:show`.
+   - **Для гостей**: pull-loop через `setInterval(15s)` на `GET /hints/pending`; внеочередной запрос при page_view и idle 30s. Только если есть согласие (cookie `analytics_consent`).
    - Поиск anchor в DOM, рендер через portal.
    - **Desktop ≥768px**: popover с `@floating-ui/react` (добавление либы в `apps/web/package.json`).
    - **Mobile <768px**: bottom-sheet с подсветкой anchor (часть этого же тикета, не отложенная задача).
    - Авто-закрытие по `ttlSec`, отправка lifecycle.
-   - Тесты: render desktop+mobile, dismiss, cta-click, no-anchor fallback.
+   - Тесты: render desktop+mobile, dismiss, cta-click, no-anchor fallback, guest pull-loop, переход guest→user (остановка pull, переключение на WS).
 
-10. **frontend: расстановка `data-hint-anchor`**
-    - 10–15 anchor-ов из enum T7 на ключевых элементах. Без визуальных изменений.
+10. **frontend: расстановка `data-hint-anchor` (user + guest)**
+    - 10–15 anchor-ов из enum T7 на ключевых элементах для авторизованных (см. примеры §9).
+    - **Гостевые anchors** (часть этого же тикета): `landing-signup-button`, `landing-puzzles-tile`, `landing-play-button`, `landing-features-block` — на публичных страницах из ADR-128.
+    - Без визуальных изменений, только атрибуты.
 
 ### Этап 5. Контент и админ-UI (полный, не урезанный)
 
-11. **content: первые 10–15 подсказок** — задача для marketing/content (тексты i18n ru+en, правила, anchors). Заливаются в БД через seed `apps/api/prisma/seeds/hints.ts` (одноразовый bootstrap чистой events-RDS, см. §3.3).
+11. **content: первые 10–15 подсказок** — задача для marketing/content (тексты i18n ru+en, правила, anchors). Включает **минимум 3 гостевых** (примеры в §9). Заливаются в БД через seed `apps/api/prisma/seeds/hints.ts` (одноразовый bootstrap чистой events-RDS, см. §3.3).
 
 12. **backend + frontend: полный админ-UI `/admin/hints` (CRUD + DSL preview)**
     - Backend: REST `GET/POST/PATCH/DELETE /admin/hints[/:id]` с DSL-валидацией, admin-role guard, soft-delete (поле `deleted_at`).
     - Frontend: страница `/admin/hints` со списком (фильтр по enabled/anchor), формой создания/редактирования (вкладки i18n ru/en), inline-валидацией DSL, превью текста подсказки, превью триггера («сколько пользователей сейчас попали бы под это правило» — отдельный endpoint поверх matviews).
     - Тесты: CRUD, DSL-валидация, role-guard, soft-delete restore.
 
-13. **QA: ручной test-plan** — на каждое из 10 правил, desktop + mobile, consent on/off, GDPR delete+export.
+13. **QA: ручной test-plan** — на каждое правило (user + guest), desktop + mobile, consent on/off, GDPR delete+export для обоих actor-типов, guest→user merge (зарегистрироваться после показа гостевой подсказки, проверить что ActorHintState переехал на новый user_id и подсказка не показывается заново).
 
 ### Зависимости (граф)
 
@@ -650,22 +720,26 @@ graph LR
 | `puzzles-comeback` | Если `timeSince puzzle_start > 7 days` и текущая страница — главная | «Не решал пазлы неделю — рейтинг тактики просел. 5 минут на разминку?» | `home-puzzles-tile` | «К пазлам» → `/puzzles` |
 | `rush-mode-discovery` | После 10-го успешного `puzzle_solved` если ни разу не было `rush_start` | «Понравились пазлы? Попробуй Puzzle Rush — гонка на время.» | `puzzles-rush-tab` | «Запустить Rush» → `/puzzle-rush` |
 | `mistakes-diary` | Если `count puzzle_failed за 7 days >= 5` и ни одного `feature_used { feature_key: 'mistakes_diary_opened' }` | «Накопились ошибки в пазлах — посмотри их в «Дневнике ошибок».» | `profile-mistakes-link` | «Открыть дневник» → `/profile/mistakes` |
+| `guest-register-prompt` (targetActorTypes=['guest']) | Гость, на лендинге `/`, ≥30 сек просмотра, нет `guest_signup_form_opened` за день | «Зарегистрируйся — сохрани рейтинг, статистику и историю партий.» | `landing-signup-button` | «Создать аккаунт» → `/register` |
+| `guest-try-puzzles` (targetActorTypes=['guest']) | Гость, был хотя бы один `page_view` на главной, ≥2 минуты на сайте, нет `guest_puzzle_attempted` | «Попробуй наши пазлы — без регистрации, прямо сейчас.» | `landing-puzzles-tile` | «Решить» → `/puzzles` |
+| `guest-play-friction` (targetActorTypes=['guest']) | Гость, ≥2 `guest_play_attempted` за сессию (тыкал «Играть», но без регистрации не пускают) | «Чтобы играть с соперниками — нужна регистрация в 30 секунд.» | `landing-signup-button` | «Создать аккаунт» → `/register` |
 
 ---
 
-## 10. Открытые вопросы (вне scope ADR — требуют отдельного решения, не «отложенная доработка»)
+## 10. Открытые вопросы (вне scope этого ADR — не «отложено», а другая задача)
 
-Здесь — только вопросы, для которых отдельный ADR оправдан как самостоятельная задача с другим scope. Всё, что относится к scope этого ADR, переведено в основной текст:
+Здесь только вопросы, **не относящиеся к зоне этого ADR**, а не «упрощения сейчас». Всё в зоне ADR переведено в основной текст:
 - ~~Mobile bottom-sheet~~ → §4.2 (часть T9).
 - ~~Quiet pages~~ → §4.2.1 (часть T7/T6).
-- ~~i18n hints~~ → §3.1, поле `Hint.i18n` JSON (часть T6).
-- ~~GDPR delete/export~~ → §6.3 (часть T4).
+- ~~i18n hints~~ → §3.1, поле `Hint.i18n` (часть T6).
+- ~~GDPR delete/export~~ → §6.3 (часть T4/T5, для user и guest).
 - ~~Admin UI~~ → §3.3, T12 (полный с MVP).
+- ~~Гостевые подсказки~~ → §1.1, сквозь весь ADR (часть T1c/T4/T5/T6/T8/T9/T10/T11).
 
-Оставшиеся вопросы:
+Реально оставшиеся вопросы:
 
-1. **Гостевые подсказки.** Сценарий «гость на странице регистрации застрял 60 секунд» теоретически полезен, но требует client-only state (localStorage) и отдельной аналитической ветки без backend-персистенции. Сейчас вне scope: ценность гипотетическая (нет данных, что гости массово застревают), реализация существенно меняет архитектуру pipeline (отдельный «гостевой» events-buffer без user_id). Если маркетинг придёт с обоснованной задачей — отдельный ADR.
-2. **A/B-тесты текстов подсказок.** Это новая функциональность поверх существующей (вариант показывается одной из двух групп пользователей, результаты сравниваются). Требует расширения схемы `hints` полем `variant_group`, отдельной таблицы экспериментов, методологии измерения значимости. Это масштаб, сопоставимый с самим ADR-147, делать «заодно» нельзя. Если потребуется — отдельный ADR; механика выбора варианта по пользователю встроится через тот же `feature-flags`-модуль.
+1. **A/B-тесты текстов подсказок как продуктовый эксперимент.** Не «упрощение в этом ADR», а другая функциональность с другим scope: гипотеза эксперимента, методология (sample size, продолжительность, метрики значимости), статистический анализ результатов, отдельная таблица экспериментов с привязкой `hint_id ↔ variant_group`. Объём сопоставим с самим ADR-147, делать «заодно» — размытие фокуса. Когда такая задача появится, она встроится через существующий механизм: поле `targetActorTypes` уже разделяет правила по сегментам, добавление `variantGroup` в `Hint` + правила по `feature_flags`-модулю для распределения users по группам — это маленькое расширение. Базовая инфраструктура (events, lifecycle, metrics) уже всё поддерживает.
+2. **Продуктовая аналитика как самостоятельная задача** (funnels по сложным пользовательским путям, retention cohorts, привязка к выручке/конверсии). У неё другие требования к storage и инструментам анализа, чем у движка подсказок (см. §7 «Цифры по PostHog» — оговорка о пересмотре). Это отдельный ADR со своим выбором стека.
 
 ---
 
@@ -673,10 +747,11 @@ graph LR
 
 - **Своё решение, не SaaS.** Стоимость, server-side триггеры, privacy.
 - **Отдельная events-RDS (PostgreSQL + pg_partman) + Redis Streams + materialized views**, без отдельного аналитического стека. Архитектура выбрана под верхнюю границу целевого сценария (600K событий/день, §2.3). Масштабирование при росте — только uplift инстанса / replicas / compression / шарды pg_partman в рамках PG-стека (§7A), без смены технологии.
-- **Декларативный JSON-DSL** для правил, редактируется через полный админ-UI с MVP (seed — только bootstrap).
-- **Push через существующий MessageGateway.** Anchor по `data-hint-anchor`, desktop popover + mobile bottom-sheet в одном фронтовом тикете.
-- **Lifecycle 4 состояния** + smart-dismiss по `acceptedBy`, suppression на год после действия. Лимиты конфигурируемы через feature-flags (default 1/10мин и 5/сессия).
-- **Privacy by default**: согласие выкл, гости не трекаются, retention 90 дней. **GDPR-права субъекта (delete + export + withdraw consent) — endpoint'ы реализуются как часть этого ADR**, не отложены в отдельный сквозной тикет.
+- **Гости и авторизованные — в одном MVP** через единую модель `actor` (`actor_type`+`actor_id`), guest_id в подписанном cookie, merge при регистрации. Доставка: WS push для user, pull раз в 15 сек для guest.
+- **Декларативный JSON-DSL** для правил (с `targetActorTypes` для разделения гостевых/пользовательских правил), редактируется через полный админ-UI с MVP (seed — только bootstrap).
+- **Push (WS) + pull (REST для гостей).** Anchor по `data-hint-anchor`, desktop popover + mobile bottom-sheet в одном фронтовом тикете.
+- **Lifecycle 4 состояния** + smart-dismiss по `acceptedBy`, suppression на год после действия. Лимиты конфигурируемы через feature-flags (default 1/10мин и 5/сессия), namespace по `actor_id`.
+- **Privacy by default**: согласие выкл, без согласия гость не получает cookie `guest_id` и не трекается, retention 90 дней. **GDPR-права субъекта (delete + export + withdraw consent) для user и guest — endpoint'ы реализуются как часть этого ADR**, не отложены в отдельный сквозной тикет.
 - **Observability** (Prometheus metrics events- и hints-pipeline + Grafana dashboard) — встроена в Этап 1, не «следующая итерация».
 
 Декомпозиция §8 — 13 тикетов в 5 этапах, каждый этап даёт самостоятельно завершённый функционал. Принцип: ни одного «MVP-X → потом доработаем Y» — каждый компонент идёт в полном виде сразу (см. аудит в комментарии к KS-4678 от 2026-06-27).
