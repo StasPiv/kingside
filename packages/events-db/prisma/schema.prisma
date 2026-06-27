@@ -1,0 +1,67 @@
+// KS-4691 / ADR-147 §2.3. Prisma-схема пакета `events-db`. Источник —
+// та же физическая БД `kingside-db`, что для основного приложения, но
+// **отдельная схема `events`** (см. KS-4690 / scripts/sql/events-schema-init.sql).
+// Отдельный PrismaClient нужен по двум причинам:
+//   1. Логическая изоляция: модель append-only лога не должна
+//      «протекать» в основной DataModel `apps/api`. Отдельный клиент
+//      = отдельный набор типов и `package.json` зависимостей.
+//   2. Отдельный пользователь подключения (`events_writer`,
+//      KS-4690 §3) с минимальными правами (`USAGE` на schema events,
+//      `INSERT|SELECT` через default privileges). Тот же URL, но
+//      другие credentials.
+//
+// DATABASE_URL формата `postgresql://events_writer:<pass>@host:5432/
+// kingside?schema=events&sslmode=require`. Локально — то же без SSL,
+// см. README.md этого пакета.
+
+generator client {
+  provider      = "prisma-client"
+  output        = "../src/generated/prisma"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("EVENTS_DATABASE_URL")
+  schemas  = ["events"]
+}
+
+/// KS-4691 / ADR-147 §2.3. Append-only лог действий actor'ов (user или
+/// guest). На уровне Postgres создаётся как:
+///
+///   CREATE TABLE events.actor_events (...) PARTITION BY RANGE (created_at)
+///
+/// и управляется `pg_partman` (weekly partitions, retention 90 дней,
+/// см. миграцию `20260627170000_init`). Композитный PK `(id, createdAt)`
+/// обязателен: pg_partman требует partition-key в PK для native
+/// partitioning. На декларативном уровне это `@@id([id, createdAt])`.
+///
+/// Композитный индекс `(actor_id, type, created_at desc)` —
+/// «рабочий» индекс правил HintsEngine (ADR-147 §2.3); живёт на
+/// template-таблице pg_partman и автоматически наследуется каждой
+/// новой партицией.
+///
+/// `actor_type` намеренно НЕ входит в индекс — селективность даёт сам
+/// `actor_id` (UUID), а при guest→user merge (§1.1) и `actor_id` и
+/// `actor_type` обновляются одной транзакцией.
+///
+/// `payload` хранит небольшой JSON по §2.1 — без GIN-индекса (нет
+/// правил, которые фильтруют по полю payload). Поле объявлено как
+/// `Json` (не `JsonB`-специфический тип Prisma — она маппит `Json` в
+/// `jsonb` для PostgreSQL по умолчанию).
+model ActorEvent {
+  id        BigInt   @default(autoincrement())
+  /// user_id для actor_type='user', guest_id для actor_type='guest'.
+  actorId   String   @map("actor_id") @db.Uuid
+  /// 'user' | 'guest'. varchar(8) — узко, чтобы не съедать индекс.
+  actorType String   @map("actor_type") @db.VarChar(8)
+  type      String   @db.VarChar(64)
+  payload   Json     @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@id([id, createdAt])
+  @@index([actorId, type, createdAt(sort: Desc)])
+  @@index([createdAt])
+  @@map("actor_events")
+  @@schema("events")
+}

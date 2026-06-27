@@ -1,0 +1,29 @@
+{
+  "name": "@kingside/events-db",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "prisma generate && tsc && npm run copy:engine",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "test": "jest --passWithNoTests",
+    "copy:engine": "mkdir -p dist/generated/prisma && cp -f src/generated/prisma/*.so.node dist/generated/prisma/ 2>/dev/null || true"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.13",
+    "@types/node": "^22.10.6",
+    "@types/pg": "^8.11.10",
+    "jest": "^29.7.0",
+    "pg": "^8.13.0",
+    "prisma": "^6.19.2",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.9.3"
+  }
+}
