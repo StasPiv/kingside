@@ -15,6 +15,8 @@ import { AuthModule } from '../auth/auth.module';
 import { GuestModule } from '../guest/guest.module';
 import { MessageModule } from '../message/message.module';
 import { MetricsModule } from '../metrics/metrics.module';
+import { HintsAdminController } from './admin/hints-admin.controller';
+import { HintsAdminService } from './admin/hints-admin.service';
 import { HintsController } from './hints.controller';
 import { HintsLimitsService } from './hints-limits.service';
 import { HintsListener } from './hints.listener';
@@ -25,13 +27,15 @@ import { HintsService } from './hints.service';
   // KS-4701: MessageModule — для WS-emit hint:show через MessageGateway.
   //          GuestModule — для GuestIdGuard в /hints/pending.
   //          AuthModule — для JwtService decode в HintsController.
+  // KS-4702: AuthModule — также для AdminOrServiceGuard цепочки в admin-CRUD.
   imports: [MetricsModule, AuthModule, MessageModule, GuestModule],
-  controllers: [HintsController],
+  controllers: [HintsController, HintsAdminController],
   providers: [
     HintsService,
     HintsLimitsService,
     HintsMetricsService,
     HintsListener,
+    HintsAdminService,
   ],
   exports: [HintsService, HintsLimitsService, HintsMetricsService],
 })

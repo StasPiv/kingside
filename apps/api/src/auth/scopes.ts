@@ -19,6 +19,8 @@ export const SCOPES = {
   BLOG_WRITE: 'blog:write',
   /** KS-4674 / ADR-146. CRUD дебютных репертуаров (демо-набор). */
   REPERTOIRE_WRITE: 'repertoire:write',
+  /** KS-4702 / ADR-147 §3.3. CRUD контекстных подсказок (`Hint` в schema events). */
+  HINTS_WRITE: 'hints:write',
 } as const;
 
 export type ScopeString = (typeof SCOPES)[keyof typeof SCOPES];

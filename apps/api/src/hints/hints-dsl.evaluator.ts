@@ -227,3 +227,99 @@ export function globMatch(pattern: string, value: string): boolean {
 // Узкий type-only импорт, чтобы не тянуть весь @kingside/events-db
 // в runtime evaluator-файла.
 import type { Prisma } from '@kingside/events-db';
+
+/* ─── validateRule (KS-4702) ──────────────────────────────────── */
+
+/**
+ * KS-4702: статическая проверка DSL-правила без обращения к БД. Бросает
+ * `Error` с понятным message на первом проблемном узле. Используется
+ * `HintsAdminService.create/update` для возврата 400.
+ *
+ * Контракт совпадает с `evaluateRule` — те же операторы, те же
+ * обязательные поля. Если evaluator расширили, не забыть обновить
+ * этот валидатор и спецификации.
+ */
+export function validateRule(rule: unknown, path: string = '$'): void {
+  if (rule === null || typeof rule !== 'object' || Array.isArray(rule)) {
+    throw new Error(`${path}: правило должно быть объектом-DSL`);
+  }
+  const r = rule as Record<string, unknown>;
+  const keys = Object.keys(r);
+  if (keys.length === 0) {
+    throw new Error(`${path}: правило не содержит операторов`);
+  }
+  const KNOWN = ['all', 'any', 'not', 'page', 'actorType', 'count', 'exists', 'timeSince'];
+  for (const k of keys) {
+    if (!KNOWN.includes(k)) {
+      throw new Error(
+        `${path}.${k}: неизвестный оператор (известные: ${KNOWN.join(', ')})`,
+      );
+    }
+  }
+
+  if (Array.isArray(r.all)) {
+    r.all.forEach((sub, i) => validateRule(sub, `${path}.all[${i}]`));
+  }
+  if (Array.isArray(r.any)) {
+    r.any.forEach((sub, i) => validateRule(sub, `${path}.any[${i}]`));
+  }
+  if ('not' in r) {
+    validateRule(r.not, `${path}.not`);
+  }
+  if (isObj(r.page)) {
+    if (typeof (r.page as Record<string, unknown>).matches !== 'string') {
+      throw new Error(`${path}.page.matches: ожидается строка-glob`);
+    }
+  }
+  if (isObj(r.actorType)) {
+    const eq = (r.actorType as Record<string, unknown>).equals;
+    if (eq !== 'user' && eq !== 'guest') {
+      throw new Error(`${path}.actorType.equals: ожидается 'user' или 'guest'`);
+    }
+  }
+  if (isObj(r.count)) {
+    validateAggregateOperator(r.count as Record<string, unknown>, `${path}.count`, true);
+  }
+  if (isObj(r.exists)) {
+    validateAggregateOperator(r.exists as Record<string, unknown>, `${path}.exists`, false);
+  }
+  if (isObj(r.timeSince)) {
+    const n = r.timeSince as Record<string, unknown>;
+    if (typeof n.event !== 'string' || n.event.length === 0) {
+      throw new Error(`${path}.timeSince.event: ожидается имя события`);
+    }
+    const hasTime = ['gtMin', 'gtHours', 'gtDays'].some(
+      (k) => typeof n[k] === 'number' && (n[k] as number) > 0,
+    );
+    if (!hasTime) {
+      throw new Error(`${path}.timeSince: укажи gtMin / gtHours / gtDays > 0`);
+    }
+  }
+}
+
+function validateAggregateOperator(
+  n: Record<string, unknown>,
+  path: string,
+  requireComparison: boolean,
+): void {
+  if (typeof n.event !== 'string' || n.event.length === 0) {
+    throw new Error(`${path}.event: ожидается имя события`);
+  }
+  const hasWindow = ['windowMin', 'windowHours', 'windowDays', 'sinceDays'].some(
+    (k) => typeof n[k] === 'number' && (n[k] as number) > 0,
+  );
+  if (!hasWindow) {
+    throw new Error(
+      `${path}: укажи окно (windowMin / windowHours / windowDays / sinceDays) > 0`,
+    );
+  }
+  if (requireComparison) {
+    const hasCmp = ['gte', 'lte', 'eq'].some((k) => typeof n[k] === 'number');
+    if (!hasCmp) {
+      throw new Error(`${path}: укажи сравнение (gte / lte / eq)`);
+    }
+  }
+  if (n.where !== undefined && !isObj(n.where)) {
+    throw new Error(`${path}.where: должно быть object-key:value`);
+  }
+}
