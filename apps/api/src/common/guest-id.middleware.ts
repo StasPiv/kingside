@@ -32,7 +32,7 @@
  */
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { EventsMetricsService } from '../events/events-metrics.service';
 import {
@@ -40,6 +40,9 @@ import {
   ANALYTICS_CONSENT_SIG_COOKIE,
   GUEST_ID_COOKIE,
 } from '../events/events.types';
+// KS-4700: подпись/проверка вынесены в отдельный модуль, чтобы
+// GuestPublicController.consent использовал ту же реализацию.
+import { GuestCookieSigner } from './guest-cookie-signer';
 
 const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
 
@@ -47,6 +50,7 @@ const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
 export class GuestIdMiddleware implements NestMiddleware {
   private readonly logger = new Logger(GuestIdMiddleware.name);
   private readonly secret: string;
+  private readonly signer: GuestCookieSigner;
   private readonly isProduction: boolean;
 
   constructor(
@@ -57,6 +61,7 @@ export class GuestIdMiddleware implements NestMiddleware {
       config.get<string>('GUEST_COOKIE_SECRET')
       ?? config.get<string>('JWT_SECRET')
       ?? '';
+    this.signer = new GuestCookieSigner(this.secret);
     this.isProduction = config.get<string>('NODE_ENV') === 'production';
     if (!this.secret) {
       this.logger.warn(
@@ -109,8 +114,7 @@ export class GuestIdMiddleware implements NestMiddleware {
   }
 
   private signValue(value: string): string {
-    const sig = createHmac('sha256', this.secret).update(value).digest('base64url');
-    return `${value}.${sig}`;
+    return this.signer.signCombined(value);
   }
 
   /**
@@ -118,25 +122,12 @@ export class GuestIdMiddleware implements NestMiddleware {
    * подпись валидна, иначе null.
    */
   private parseSignedValue(combined: string): string | null {
-    const dotIdx = combined.lastIndexOf('.');
-    if (dotIdx <= 0 || dotIdx === combined.length - 1) return null;
-    const value = combined.slice(0, dotIdx);
-    const sig = combined.slice(dotIdx + 1);
-    return this.verifySignature(value, sig) ? value : null;
+    return this.signer.parseSignedCombined(combined);
   }
 
   /** Constant-time HMAC compare. */
   private verifySignature(value: string, sig: string): boolean {
-    if (!this.secret) return false;
-    const expected = createHmac('sha256', this.secret).update(value).digest('base64url');
-    const a = Buffer.from(sig, 'base64url');
-    const b = Buffer.from(expected, 'base64url');
-    if (a.length !== b.length) return false;
-    try {
-      return timingSafeEqual(a, b);
-    } catch {
-      return false;
-    }
+    return this.signer.verify(value, sig);
   }
 
   private setCookie(res: Response, name: string, value: string): void {

@@ -5,10 +5,11 @@
  */
 import { Module } from '@nestjs/common';
 import { GuestController } from './guest.controller';
+import { GuestPublicController } from './guest-public.controller';
 import { GuestIdGuard } from './guest-id.guard';
 
 @Module({
-  controllers: [GuestController],
+  controllers: [GuestController, GuestPublicController],
   providers: [GuestIdGuard],
   exports: [GuestIdGuard],
 })
