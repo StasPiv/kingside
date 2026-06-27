@@ -27,6 +27,7 @@ import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 import { ChatWidget } from '../components/ChatWidget';
 import { CookieBanner } from '../components/cookie-banner/CookieBanner';
 import { EventsBootstrap } from '../lib/eventsBootstrap';
+import { HintHost } from '../components/hints/HintHost';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -456,6 +457,10 @@ export function MainLayout() {
           consent не выставлен; для гостя — пока пользователь не закрыл
           его на 30 дней). */}
       <CookieBanner />
+      {/* KS-4703 / ADR-147 §4. Хост контекстных подсказок — слушает WS
+          для user / поллит pending для гостя; рендерит popover (desktop)
+          либо bottom-sheet (mobile) по data-hint-anchor. */}
+      <HintHost />
     </div>
   );
 }
