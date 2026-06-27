@@ -161,6 +161,9 @@ import { AdminBlogPostsPage } from './pages/admin/AdminBlogPostsPage';
 import { AdminBlogPostEditPage } from './pages/admin/AdminBlogPostEditPage';
 import { AdminBlogAuthorsPage } from './pages/admin/AdminBlogAuthorsPage';
 import { AdminBlogAuthorEditPage } from './pages/admin/AdminBlogAuthorEditPage';
+// KS-4706 / ADR-147 §3.3. Админ-CRUD контекстных подсказок.
+import { AdminHintsListPage } from './pages/admin/AdminHintsListPage';
+import { AdminHintEditPage } from './pages/admin/AdminHintEditPage';
 import {
   consumeAuthReturnUrl,
   setAuthReturnUrl,
@@ -714,6 +717,20 @@ export function App() {
         <Route
           path="/admin/blog/authors/:id"
           element={<AdminRoute><AdminBlogAuthorEditPage /></AdminRoute>}
+        />
+        {/* KS-4706 / ADR-147 §3.3. Админ-CRUD контекстных подсказок —
+            маркетинг создаёт/редактирует через UI, не seed. */}
+        <Route
+          path="/admin/hints"
+          element={<AdminRoute><AdminHintsListPage /></AdminRoute>}
+        />
+        <Route
+          path="/admin/hints/new"
+          element={<AdminRoute><AdminHintEditPage /></AdminRoute>}
+        />
+        <Route
+          path="/admin/hints/:id"
+          element={<AdminRoute><AdminHintEditPage /></AdminRoute>}
         />
         {/* KS-2218: `/puzzle-rush*` — отдельный раздел, ВНЕ `puzzlesEnabled`.
             KS-4157 / ADR-128 §5.13: /puzzle-rush открыт гостю — раунд
