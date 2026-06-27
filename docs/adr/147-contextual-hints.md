@@ -480,15 +480,7 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 **Вариант A — наша архитектура (§2.2): отдельная events-RDS + pg_partman + materialized views + Redis Streams.**
 
-| Компонент | Конфигурация на 600K событий/день | AWS SKU (eu-central-1 Frankfurt, Reserved 1-year, 2026-06) | $/мес |
-|-----------|-----------------------------------|------------------------------------------------------------|-------|
-| events-RDS (PostgreSQL) | `db.r5.large` Multi-AZ (2 vCPU, 16 GB) | RDS `db.r5.large` reserved | ~130 |
-| Storage (54M строк × ~200 байт + индексы + matviews ≈ 30 GB, +50 GB запас) | 80 GB gp3 + автоснапшоты | EBS gp3 0.0928 $/GB/мес | ~7 |
-| Redis Streams + hot counters | расширение существующего Redis (см. ADR-004), доп. ресурсов нет | — | 0 |
-| Events Writer Worker | внутри `apps/api`, доп. контейнера нет | — | 0 |
-| **Итого инкрементально** | | | **~137** |
-
-Постоянные эксплуатационные часы: ~1 ч/мес (мониторинг partition rotation, refresh-latency matviews — pg_partman сам делет ротацию, нужно только следить за counter ошибок). Стек PostgreSQL — тот же, что уже эксплуатируется на основном RDS (ADR-027, ADR-045), новых технологий нет. p95 запросов к materialized view цель <50 мс — оценка по аналогии с `archive-RDS` ADR-033 при ≤50M строк (доверие: **среднее**; измеряется через метрики T1c).
+Краткая сводка на 600K событий/день: **~$165/мес reserved 1y** инкрементально, ~1 ч/мес поддержки. Полная разбивка по компонентам, по ступеням масштабирования и по содержанию операционных часов — в **§7A.5** (детальный бюджет).
 
 **Вариант B — PostHog self-hosted на тот же объём.**
 
@@ -515,7 +507,7 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 | Вариант | $/мес инкр. | Часы/мес | Стек эксплуатации | p95 hot-path |
 |---------|------------|----------|-------------------|--------------|
-| A. events-RDS + pg_partman + matviews (наш) | ~137 | ~1 | существующий PG | <50 мс (оценка) |
+| A. events-RDS + pg_partman + matviews (наш) | ~165 (разбивка §7A.5) | ~1 (§7A.5.4) | существующий PG | <50 мс (оценка) |
 | B. PostHog self-hosted | ~279 | 2–10 | новый: Clickhouse + Kafka + PostHog | <100 мс по docs |
 | C. PostHog Cloud | ~4 200 | 0 | managed | <100 мс по SLA |
 
@@ -578,9 +570,85 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 - Меняется требование к retention (например, регуляторное «хранить 1 год» вместо 90 дней) — это сразу х4 по storage, может уехать в D раньше.
 - Изменился набор правил DSL §3.2 на операторы, которые не выражаются через materialized views (например, sequence-detection — «3 ходов подряд, затем dismiss» — требует event-time-window-join, нативно не поддерживается в PG MV без stored procedures).
 
----
+### 7A.5. Детальный бюджет нашего стека
 
-## 8. План внедрения (декомпозиция на тикеты)
+Цены — AWS pricelist 2026-06, регион eu-central-1 Frankfurt. SKU указаны явно. Multi-AZ для RDS удваивает compute (active+standby) и storage — отражено в цифрах. Доверие к AWS SKU — **высокое** (публичные тарифы Pricing Calculator); к экспертным оценкам (Redis fit, ops hours) — **среднее**, помечено явно.
+
+#### 7A.5.1. Стартовая ступень (MVP, ≤150K событий/день)
+
+| Компонент | Конфигурация / обоснование | SKU | $/мес On-Demand | $/мес Reserved 1y | Доверие |
+|-----------|---------------------------|-----|-----------------|--------------------|---------|
+| events-RDS instance | db.t3.medium Multi-AZ, 2 vCPU / 4 GB. Хватает на ≤150K событий/день: write-load ~2 INSERT/sec в среднем, пик 20/sec; matview refresh раз в 30–60 с по 14M строк — комфортно | RDS `db.t3.medium` Multi-AZ Postgres | ~$105 | ~$73 | высокое |
+| Storage | 80 GB gp3 Multi-AZ (= 160 GB billable). Обоснование размера: 14M строк × 200 байт + индексы + 3 matviews ≈ 5 GB активных через 6 мес + запас на 1 год роста + headroom для VACUUM = 80 GB. IOPS 3000 free, throughput 125 MB/s free — пик нагрузки укладывается. | RDS gp3 0.115 $/GB/мес × 2 (Multi-AZ) | ~$18 | ~$18 (storage не reserved) | высокое |
+| Backup snapshots | Retention 7 дней (default). Free до размера базы — 80 GB free, наша база ~5–10 GB активных. | RDS backup | $0 | $0 | высокое |
+| Redis incremental | Streams MAXLEN ~50K entries × 400 байт = 20 MB + hot counters (1K активных юзеров × 20 типов × 4 окна × 100 байт = 8 MB) + throttle/session/pending (<2 MB) = **~30 MB**. Текущий ElastiCache (cache.t3.small = 1.5 GB) держит этот объём без uplift с большим запасом. | в существующем headroom | $0 | $0 | среднее (зависит от текущей утилизации ElastiCache, проверить на T1c) |
+| apps/api CPU/RAM (EventsWriter + MatViewRefresher) | EventsWriter: batch INSERT раз в сек, ~5% CPU одной vCPU. MatViewRefresher: REFRESH раз в 30–60 с, спайки <1 с. RAM: <50 MB на оба процесса. Текущий ECS api-task должен справиться без uplift (см. ADR-045 sizing). | в существующем headroom | $0 | $0 | среднее (проверить на T1c через `container_cpu_usage` Prometheus) |
+| Egress (guest pull-loop) | 500 одновр. гостей × 4 запроса/мин × ~300 байт round-trip ≈ 600 KB/мин ≈ 26 GB/мес. Free tier AWS — 100 GB/мес egress. | AWS data transfer out | $0 | $0 | высокое |
+| Observability | Prometheus self-scrape (existing apps/api endpoint), Grafana dashboard (existing self-hosted, см. CLAUDE.md) — новый дашборд = 0 cost. | в существующей инфре | $0 | $0 | высокое |
+| **Итого стартовая ступень** | | | **~$123** | **~$91** | |
+
+#### 7A.5.2. Целевая ступень (600K событий/день)
+
+Единственное отличие от стартовой — instance class и backup-storage растёт пропорционально размеру базы.
+
+| Компонент | Конфигурация / обоснование | SKU | $/мес On-Demand | $/мес Reserved 1y | Δ vs стартовая |
+|-----------|---------------------------|-----|-----------------|--------------------|----------------|
+| events-RDS instance | db.r5.large Multi-AZ, 2 vCPU / 16 GB. Обоснование memory bump: matview refresh `count(*) GROUP BY actor_id, type` по 54M строк требует ~4 GB work_mem для hash aggregate без disk spill; ×2 instance — запас на pg buffer pool. | RDS `db.r5.large` Multi-AZ Postgres | ~$210 | ~$147 | +$74 reserved |
+| Storage | 80 GB gp3 Multi-AZ (актуальный объём ~30 GB активных + matviews ~10 GB = 40 GB; ещё ~40 GB headroom). | RDS gp3 × 2 | ~$18 | ~$18 | 0 |
+| Backup snapshots | ~40 GB активных × 7 дней incremental ≈ 60 GB total. Из них первые 80 GB (= размер allocated storage) free. | RDS backup | $0 | $0 | 0 |
+| Redis incremental | Streams ~100K entries × 400 = 40 MB + counters (7.5K активных × 80 = 600 MB) + pending ~0.5 MB ≈ **~650 MB**. Cache.t3.small (1.5 GB) ещё держит. Если потребуется uplift до cache.t3.medium (3 GB) — это **+$25/мес** reserved. На границе. | возможен uplift `cache.t3.medium` | 0 или +$35 | 0 или +$25 | 0…+$25 (доверие: **низкое-среднее** — зависит от текущей утилизации) |
+| apps/api CPU/RAM | EventsWriter batch 1000 раз в сек = ~15% CPU. MatViewRefresher не растёт. Текущий ECS api-task должен справиться; если упрётся в CPU — горизонтальный scale ECS service (+1 task ~$15/мес) или uplift task definition. | в существующем headroom | $0 | $0 (с резервом) | 0 |
+| Egress (guest pull-loop) | Максимум те же 26 GB/мес. Free 100 GB/мес. | — | $0 | $0 | 0 |
+| Observability | — | — | $0 | $0 | 0 |
+| **Итого целевая ступень** | | | **~$228** | **~$165** | **+$74 reserved vs стартовая** |
+
+**Прежняя цифра «$137/мес» из предыдущей итерации ADR была занижена** — учитывала только compute + storage без Multi-AZ удвоения storage и без backup-snapshots. Реалистичный итог — **~$165/мес reserved** (~$228 On-Demand). При уплифте Redis на ступени C/D добавится ~$25/мес.
+
+#### 7A.5.3. Стоимость переходов между ступенями (§7A.1)
+
+Дельты считаются reserved 1y, относительно предыдущей ступени.
+
+| Переход | Что добавляется | Δ $/мес reserved | Operator-часы на переход (один раз) | Доверие |
+|---------|-----------------|-------------------|--------------------------------------|---------|
+| Стартовая (db.t3.medium) | — (MVP) | — | — (входит в T1a) | — |
+| **→ A: uplift до db.r5.large** | Замена instance class через RDS Modify | **+$74** | ~0.5 ч (один клик в Console + AWS maintenance window ~5–10 мин downtime, мониторинг) | высокое |
+| **→ B: read-replica** | +1× db.r5.large Single-AZ ($95 reserved) + cross-AZ replication traffic ~5 GB/день = ~$3 | **+$98** | ~2 ч (создать через CDK/CloudFormation, дождаться initial sync ~30 мин, прописать роутинг heavy-query на replica DSN) | высокое |
+| **→ C: compression старых партиций** | Storage экономия 3–5× на партициях >14 дней. Например на 200 GB → 50 GB = −$30/мес. | **−$30** (экономия) | ~8 ч (включить partman compression policy, тест VACUUM FULL не блокирует hot path, отдельный maintenance window для backfill) | среднее (фактическая экономия зависит от entropy payload-jsonb) |
+| **→ D: subpartitioning по hash(actor_id)** | 2× db.r5.xlarge Multi-AZ ($295 reserved каждый) = $590, минус старый primary $147 = +$443. Плюс работа routing-функции в EventsService. | **+~$443** | ~5–10 дней (routing-функция, миграция данных по hash, тестирование, поэтапный rollout) | среднее |
+
+#### 7A.5.4. Содержание 1 ч/мес поддержки (стартовая и целевая ступени)
+
+Чтобы цифра «1 ч/мес» была воспроизводимой — разбивка по задачам и частоте:
+
+| Задача | Частота | Время за раз | Время в месяц |
+|--------|---------|--------------|---------------|
+| Проверка дашборда «Hints & Events» в Grafana — нет ли отклонений от baseline по метрикам §7A.2 | 1× в неделю | 5 мин | 20 мин |
+| `pg_partman.show_partitions()` — убедиться что новая еженедельная партиция создалась, старая (90+ дней) дропнулась | 1× в месяц | 5 мин | 5 мин |
+| Проверка `matview_refresh_duration_seconds` Prometheus на drift (нет ли роста) | 1× в неделю | 2 мин | 8 мин |
+| AWS RDS auto-minor-version-upgrade (если включён — 0 часов; если ручной — patch раз в квартал) | 1× в квартал | 30 мин | амортизированно ~10 мин |
+| Проверка backup snapshots в Grafana («RDS backup last success») | 1× в месяц | 2 мин | 2 мин |
+| Обновление pg_partman extension (приходит с PG minor upgrade, ~раз в полгода) | 1× в полгода | 30 мин | амортизированно ~5 мин |
+| Контроль pending entries в Redis Streams (`redis_stream_pending_entries`) | 1× в неделю | 2 мин | 8 мин |
+| **Итого** | | | **~58 мин/мес** |
+
+**Не входит в эту оценку:**
+- Реакция на инциденты (отдельный SRE-budget, не amortizable).
+- Переход на следующую ступень масштабирования (см. §7A.5.3 — отдельный one-time cost).
+- Изменения контента подсказок (это маркетинг через админ-UI, не разработка).
+
+Доверие к разбивке: **среднее** — экспертная оценка по аналогии с поддержкой `archive-RDS` (ADR-027/045). Реальные часы будут видны через 2–3 месяца после запуска; если систематически больше 1.5 ч/мес — это сигнал на улучшение автоматизации (новый алерт, новый дашборд).
+
+#### 7A.5.5. Сводная таблица
+
+| Ступень | Trigger перехода (§7A.2) | $/мес reserved (инкрементально) | Δ vs пред. | Часы перехода (one-time) | Часы/мес поддержки |
+|---------|--------------------------|----------------------------------|------------|--------------------------|--------------------|
+| Стартовая (db.t3.medium) | MVP запуск | $91 | — | входит в T1a/T1b/T1c | ~1 |
+| A: uplift db.r5.large | matview p95 > 50 ms или storage > 60 GB | $165 | +$74 | 0.5 | ~1 |
+| B: + read-replica | rate > 50 events/sec | $263 | +$98 | 2 | ~1.5 |
+| C: + compression | партиций > 26 (полгода weekly) | ~$233 | −$30 | 8 | ~1.5 |
+| D: subpartitioning hash(actor_id) | rate > 200 events/sec | ~$680 | +$443 | 40–80 | ~2–3 |
+
+Все цифры — оценки. При уплифте Redis cache.t3.small → cache.t3.medium (вероятно на ступени C/D) добавляется ~$25/мес.
 
 Принцип декомпозиции — **никаких «отложенных доработок»**: каждый MVP-компонент идёт сразу в полном виде (см. аудит в комментарии к KS-4678 от 2026-06-27). Observability, mobile-вариант UI, GDPR-endpoint'ы, админ-UI — части соответствующих этапов, не «отдельные следующие тикеты».
 
