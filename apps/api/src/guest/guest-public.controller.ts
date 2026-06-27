@@ -71,6 +71,7 @@ export class GuestPublicController {
   private readonly logger = new Logger(GuestPublicController.name);
   private readonly signer: GuestCookieSigner;
   private readonly isProduction: boolean;
+  private readonly cookieDomain: string | null;
 
   constructor(
     config: ConfigService,
@@ -82,6 +83,13 @@ export class GuestPublicController {
       ?? '';
     this.signer = new GuestCookieSigner(secret);
     this.isProduction = config.get<string>('NODE_ENV') === 'production';
+    // KS-4716: cookies ставятся `api.kingside.site` (default domain
+    // response'а), фронт на `kingside.site` их не видит → events-client
+    // гостя no-op'ит, cookie-banner не закрывается. Лечим явным
+    // `Domain=.kingside.site` (точка-префикс делает cookie доступным
+    // и на корне, и на поддоменах). Управляется env `COOKIE_DOMAIN`,
+    // чтобы локально (`localhost`) не ломать flow.
+    this.cookieDomain = config.get<string>('COOKIE_DOMAIN') ?? null;
   }
 
   @Post('consent')
@@ -134,6 +142,10 @@ export class GuestPublicController {
       GUEST_ID_COOKIE,
     ]) {
       const parts = [`${name}=`, 'Path=/', 'Max-Age=0', 'SameSite=Lax'];
+      // KS-4716: Domain должен совпадать с domain'ом, под которым cookie
+      // изначально выставили — иначе браузер не считает их «той же
+      // cookie» и старая не очистится.
+      if (this.cookieDomain) parts.push(`Domain=${this.cookieDomain}`);
       if (this.isProduction) parts.push('Secure');
       res.append('Set-Cookie', parts.join('; '));
     }
@@ -151,6 +163,9 @@ export class GuestPublicController {
       `Max-Age=${ONE_YEAR_SECONDS}`,
       'SameSite=Lax',
     ];
+    // KS-4716: Domain=.kingside.site на проде, чтобы cookie была видна
+    // и `kingside.site` (фронт), и `api.kingside.site` (бэк).
+    if (this.cookieDomain) parts.push(`Domain=${this.cookieDomain}`);
     if (this.isProduction) parts.push('Secure');
     if (opts.httpOnly) parts.push('HttpOnly');
     res.append('Set-Cookie', parts.join('; '));

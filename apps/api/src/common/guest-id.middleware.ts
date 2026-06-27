@@ -52,6 +52,10 @@ export class GuestIdMiddleware implements NestMiddleware {
   private readonly secret: string;
   private readonly signer: GuestCookieSigner;
   private readonly isProduction: boolean;
+  // KS-4716: cookies без Domain ставятся `api.kingside.site` (по умолчанию
+  // domain'а ответа), фронт на `kingside.site` их не видит. Env
+  // `COOKIE_DOMAIN=.kingside.site` на проде — общий ancestor.
+  private readonly cookieDomain: string | null;
 
   constructor(
     private readonly config: ConfigService,
@@ -63,6 +67,7 @@ export class GuestIdMiddleware implements NestMiddleware {
       ?? '';
     this.signer = new GuestCookieSigner(this.secret);
     this.isProduction = config.get<string>('NODE_ENV') === 'production';
+    this.cookieDomain = config.get<string>('COOKIE_DOMAIN') ?? null;
     if (!this.secret) {
       this.logger.warn(
         'GUEST_COOKIE_SECRET и JWT_SECRET не заданы — подпись guest_id выключена, '
@@ -137,6 +142,9 @@ export class GuestIdMiddleware implements NestMiddleware {
       `Max-Age=${ONE_YEAR_SECONDS}`,
       'SameSite=Lax',
     ];
+    // KS-4716: общий ancestor для фронта (kingside.site) и бэка
+    // (api.kingside.site).
+    if (this.cookieDomain) parts.push(`Domain=${this.cookieDomain}`);
     if (this.isProduction) parts.push('Secure');
     // Без HttpOnly — см. шапку.
     res.append('Set-Cookie', parts.join('; '));

@@ -9,6 +9,7 @@ import {
   Request,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -27,7 +28,10 @@ import {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Post('register')
   async register(
@@ -42,8 +46,15 @@ export class AuthController {
     // делает merge внутри.
     const result = await this.authService.register(dto, req.guestId ?? null);
     if (req.guestId) {
+      // KS-4716: Domain должен совпадать с domain'ом, под которым cookie
+      // выписана GuestPublicController/GuestIdMiddleware — иначе
+      // Set-Cookie с Max-Age=0 не «попадает» в правильную cookie и
+      // старая остаётся жить.
+      const cookieDomain = this.config.get<string>('COOKIE_DOMAIN') ?? null;
       for (const name of [GUEST_ID_COOKIE, ANALYTICS_CONSENT_COOKIE, ANALYTICS_CONSENT_SIG_COOKIE]) {
-        res.append('Set-Cookie', `${name}=; Path=/; Max-Age=0; SameSite=Lax`);
+        const parts = [`${name}=`, 'Path=/', 'Max-Age=0', 'SameSite=Lax'];
+        if (cookieDomain) parts.push(`Domain=${cookieDomain}`);
+        res.append('Set-Cookie', parts.join('; '));
       }
     }
     return result;
