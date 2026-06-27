@@ -299,6 +299,26 @@ describe('events client (KS-4684)', () => {
       document.cookie = 'analytics_consent=; Max-Age=0; path=/';
       expect(isAnalyticsConsentGiven(null)).toBe(false);
     });
+
+    it('KS-4715: localStorage-флаг работает как fallback (cookie на api-домене недоступна)', () => {
+      // Cookie пустая — на проде так и есть, пока backend не выставит
+      // Domain=.kingside.site.
+      expect(isAnalyticsConsentGiven(null)).toBe(false);
+      localStorage.setItem(
+        'analytics_consent.guestAcceptedAt',
+        String(Date.now()),
+      );
+      expect(isAnalyticsConsentGiven(null)).toBe(true);
+    });
+
+    it('KS-4715: просроченный localStorage-флаг (>365 дней) не учитывается', () => {
+      const tooOld = Date.now() - 366 * 24 * 60 * 60 * 1000;
+      localStorage.setItem(
+        'analytics_consent.guestAcceptedAt',
+        String(tooOld),
+      );
+      expect(isAnalyticsConsentGiven(null)).toBe(false);
+    });
   });
 
   describe('teardown', () => {

@@ -252,6 +252,51 @@ export function readAnalyticsConsentCookie(): boolean {
 }
 
 /**
+ * KS-4715. Локальный fallback-флаг согласия гостя в localStorage.
+ *
+ * Backend ставит cookies на `api.kingside.site` без `Domain=.kingside.site` —
+ * фронт на основном домене их не видит, и `readAnalyticsConsentCookie()`
+ * возвращает false даже после успешного `POST /guest/consent`. До фикса
+ * backend используем локальный флаг как fallback, чтобы:
+ *   - cookie-banner скрывался после accept (и не показывался после reload);
+ *   - `events`-клиент гостя начал отправлять события.
+ *
+ * Когда backend починит `Domain=.kingside.site`, флаг останется страховкой
+ * и поведение не изменится (cookie==true || localStorage==true).
+ */
+export const GUEST_CONSENT_LOCAL_KEY = 'analytics_consent.guestAcceptedAt';
+const GUEST_CONSENT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
+export function readGuestConsentLocal(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = window.localStorage.getItem(GUEST_CONSENT_LOCAL_KEY);
+    if (!raw) return false;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return false;
+    return Date.now() - n < GUEST_CONSENT_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+export function setGuestConsentLocal(value: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (value) {
+      window.localStorage.setItem(
+        GUEST_CONSENT_LOCAL_KEY,
+        String(Date.now()),
+      );
+    } else {
+      window.localStorage.removeItem(GUEST_CONSENT_LOCAL_KEY);
+    }
+  } catch {
+    /* private mode и т.п. */
+  }
+}
+
+/**
  * Универсальный геттер consent: для авторизованного — `user.analyticsConsent`
  * (как реально отдаёт backend KS-4697), для гостя — cookie
  * `analytics_consent=1`. Используется и в `EventsBootstrap`, и в
@@ -269,7 +314,10 @@ export function isAnalyticsConsentGiven(
     if (user.analytics_consent === true) return true;
     return false;
   }
-  return readAnalyticsConsentCookie();
+  // KS-4715: cookie может быть установлена на api.kingside.site и
+  // недоступна основному фронту до фикса Domain=.kingside.site на бэке.
+  // localStorage — fallback, выставляется в CookieBanner при accept.
+  return readAnalyticsConsentCookie() || readGuestConsentLocal();
 }
 
 /* ------------------------------------------------------------------ */

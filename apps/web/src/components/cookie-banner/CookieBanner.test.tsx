@@ -74,6 +74,17 @@ describe('CookieBanner (KS-4698)', () => {
     expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
   });
 
+  it('KS-4715: localStorage-флаг скрывает баннер даже без cookie', () => {
+    // Эмулирует сценарий после accept на проде, где cookie прибита к
+    // api.kingside.site и на фронте недоступна.
+    localStorage.setItem(
+      'analytics_consent.guestAcceptedAt',
+      String(Date.now()),
+    );
+    wrap(<CookieBanner />, { user: null });
+    expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
+  });
+
   it('гость нажимает «Не сейчас» — баннер скрывается на 30 дней', async () => {
     wrap(<CookieBanner />, { user: null });
     fireEvent.click(screen.getByTestId('cookie-banner-guest-dismiss'));
@@ -83,7 +94,7 @@ describe('CookieBanner (KS-4698)', () => {
     expect(localStorage.getItem('cookieBanner.guestDismissedAt')).toBeTruthy();
   });
 
-  it('гость accept → POST /guest/consent {analytics:true}', async () => {
+  it('гость accept → POST /guest/consent {analytics:true} + локальный флаг + баннер скрыт', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ analytics: true, guestIssued: true }), {
         status: 200,
@@ -101,9 +112,17 @@ describe('CookieBanner (KS-4698)', () => {
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       analytics: true,
     });
+    // KS-4715: после accept должен появиться localStorage-флаг,
+    // и баннер должен исчезнуть даже без читаемой cookie.
+    expect(
+      localStorage.getItem('analytics_consent.guestAcceptedAt'),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument(),
+    );
   });
 
-  it('гость decline → POST /guest/consent {analytics:false} + dismissed', async () => {
+  it('гость decline → POST {analytics:false} + dismissed + локальный флаг очищен', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ analytics: false, guestIssued: false }), {
         status: 200,
@@ -115,6 +134,10 @@ describe('CookieBanner (KS-4698)', () => {
       fireEvent.click(screen.getByTestId('cookie-banner-guest-decline'));
     });
     expect(localStorage.getItem('cookieBanner.guestDismissedAt')).toBeTruthy();
+    // KS-4715: decline должен явно убрать локальный consent-флаг.
+    expect(
+      localStorage.getItem('analytics_consent.guestAcceptedAt'),
+    ).toBeNull();
     await waitFor(() =>
       expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument(),
     );

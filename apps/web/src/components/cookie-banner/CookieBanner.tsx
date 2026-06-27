@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
-import { readAnalyticsConsentCookie } from '../../lib/events';
+import {
+  readAnalyticsConsentCookie,
+  readGuestConsentLocal,
+  setGuestConsentLocal,
+} from '../../lib/events';
 import { getUserConsent } from './consentTypes';
 
 const API_BASE =
@@ -48,8 +52,12 @@ export function CookieBanner(): ReactElement | null {
   const [error, setError] = useState<string | null>(null);
   const [guestDelete, setGuestDelete] = useState<GuestDeleteState>({ kind: 'idle' });
 
+  // KS-4715. Backend ставит cookie на api.kingside.site (без
+  // Domain=.kingside.site), фронт на основном домене её не видит.
+  // Поэтому смотрим И на cookie, И на localStorage-флаг —
+  // достаточно одного источника.
   const guestConsentGiven = useMemo(
-    () => readAnalyticsConsentCookie(),
+    () => readAnalyticsConsentCookie() || readGuestConsentLocal(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [bump],
   );
@@ -85,10 +93,15 @@ export function CookieBanner(): ReactElement | null {
         setError(`HTTP ${res.status}`);
         return;
       }
-      // Decline → cookie очищен; ставим dismissed, чтобы баннер не
-      // вылезал снова в эту сессию. Accept → cookie выставлен,
-      // `guestConsentGiven` станет true после bump.
-      if (!analytics) {
+      // KS-4715: явно фиксируем согласие в localStorage. До фикса
+      // backend (Domain=.kingside.site) только этот источник
+      // увидит фронт; после фикса остаётся fallback'ом.
+      // Decline → cookie очищен на бэке + локальный флаг сбрасываем
+      // и ставим dismissed, чтобы баннер не вылезал снова.
+      if (analytics) {
+        setGuestConsentLocal(true);
+      } else {
+        setGuestConsentLocal(false);
         setGuestDismissed();
         setHiddenForGuest(true);
       }
@@ -130,6 +143,9 @@ export function CookieBanner(): ReactElement | null {
       // Backend сам ставит Max-Age=0 на consent-cookies → следующий
       // bump перерасчёт скроет accept-вариант. Доп. ставим dismissed,
       // чтобы баннер не «возродился» сразу после удаления.
+      // KS-4715: чистим и localStorage-флаг — иначе после reload
+      // баннер останется скрытым, хотя данных уже нет.
+      setGuestConsentLocal(false);
       setGuestDismissed();
       setGuestDelete({ kind: 'done' });
       setBump((b) => b + 1);
