@@ -9,11 +9,10 @@
  *   - .hint-bottom-sheet    — mobile bottom-sheet (<768px)
  *   - .hint-anchor-highlight — обводка anchor-элемента
  *
- * Inline-border на .hint-anchor-highlight уже задан в JS
- * (border: 2px solid var(--color-accent, #1f7a8c)) — здесь
- * только дополняем свечением и анимацией fade-in. Цвет
- * border перебивать не пытаемся: токен в JS устаревший,
- * fallback читается, поправит frontend отдельно.
+ * Border, скругление и цвет обводки `.hint-anchor-highlight` —
+ * полностью здесь (через `--accent-primary`). Inline в JS остаются
+ * только runtime-координаты (top/left/width/height) и z-index.
+ * KS-4708.
  * ============================================================ */
 
 /* ── Desktop popover ───────────────────────────────────────── */
@@ -234,10 +233,12 @@
 }
 
 /* ── Anchor highlight ──────────────────────────────────────── */
-/* border, border-radius, position, z-index — заданы inline в JS
- * (HintBottomSheet). Здесь добавляем мягкое свечение и плавный
- * fade-in. box-shadow используем как accent-halo поверх border. */
+/* position, z-index, координаты — заданы inline в JS (зависят
+ * от runtime-rect anchor). Border, скругление и свечение —
+ * здесь, в единой индиго-палитре сайта (KS-4708). */
 .hint-anchor-highlight {
+  border: 2px solid var(--accent-primary);
+  border-radius: 4px;
   box-shadow:
     0 0 0 4px var(--ov-accent-15),
     0 0 12px 2px var(--ov-accent-30);

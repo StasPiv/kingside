@@ -216,7 +216,11 @@ interface PaneProps {
 
 function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElement {
   const floatingPlacement = mapPlacement(hint.placement);
-  const { refs, floatingStyles } = useFloating({
+  // KS-4708: возвращаем computed `placement` из @floating-ui — после flip()
+  // он может отличаться от `floatingPlacement` (например, top → bottom при
+  // нехватке места). Layout (KS-4705/hints.css) рисует стрелку по
+  // `data-placement` атрибуту, нам нужен именно фактический.
+  const { refs, floatingStyles, placement } = useFloating({
     open: true,
     placement: floatingPlacement,
     middleware: [offset(8), flip(), shift({ padding: 8 })],
@@ -227,6 +231,10 @@ function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElem
     refs.setReference(anchorEl);
   }, [anchorEl, refs]);
 
+  // @floating-ui возвращает placement вида `top-start` / `bottom-end`.
+  // Стрелка нужна по основной стороне, поэтому отрезаем модификатор.
+  const sidePlacement = placement.split('-')[0];
+
   return ReactDOM.createPortal(
     <div
       ref={refs.setFloating}
@@ -236,6 +244,7 @@ function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElem
       aria-modal="false"
       aria-labelledby={`hint-${hint.hintId}-title`}
       data-testid="hint-popover"
+      data-placement={sidePlacement}
     >
       <div className="hint-popover__header">
         <h3 id={`hint-${hint.hintId}-title`} className="hint-popover__title">
@@ -293,6 +302,10 @@ function HintBottomSheet({ hint, anchorEl, onDismiss, onCta }: PaneProps): React
         <div
           className="hint-anchor-highlight"
           data-testid="hint-anchor-highlight"
+          /* KS-4708: только позиционирование в inline — оно зависит от
+             runtime-координат anchor. Цвет/толщина/радиус обводки
+             заданы в hints.css (KS-4705) через токен `--accent-primary`,
+             чтобы соответствовать индиго-палитре сайта. */
           style={{
             position: 'fixed',
             top: rect.top - 4,
@@ -300,8 +313,6 @@ function HintBottomSheet({ hint, anchorEl, onDismiss, onCta }: PaneProps): React
             width: rect.width + 8,
             height: rect.height + 8,
             pointerEvents: 'none',
-            border: '2px solid var(--color-accent, #1f7a8c)',
-            borderRadius: 4,
             zIndex: 9998,
           }}
         />
