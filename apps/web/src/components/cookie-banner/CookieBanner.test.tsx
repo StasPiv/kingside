@@ -60,19 +60,106 @@ describe('CookieBanner (KS-4698)', () => {
     vi.restoreAllMocks();
   });
 
-  it('гость без сохранённого выбора видит баннер', () => {
+  it('гость без сохранённого выбора видит accept/decline', () => {
     wrap(<CookieBanner />, { user: null });
     expect(screen.getByTestId('cookie-banner')).toBeInTheDocument();
-    expect(screen.getByTestId('cookie-banner-guest-dismiss')).toBeInTheDocument();
+    expect(screen.getByTestId('cookie-banner-guest-accept')).toBeInTheDocument();
+    expect(screen.getByTestId('cookie-banner-guest-decline')).toBeInTheDocument();
+    expect(screen.getByTestId('cookie-banner-guest-delete')).toBeInTheDocument();
   });
 
-  it('гость нажимает «Понятно» — баннер скрывается', async () => {
+  it('гость с cookie analytics_consent=1 — баннер скрыт', () => {
+    document.cookie = 'analytics_consent=1; path=/';
+    wrap(<CookieBanner />, { user: null });
+    expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
+  });
+
+  it('гость нажимает «Не сейчас» — баннер скрывается на 30 дней', async () => {
     wrap(<CookieBanner />, { user: null });
     fireEvent.click(screen.getByTestId('cookie-banner-guest-dismiss'));
     await waitFor(() =>
       expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument(),
     );
     expect(localStorage.getItem('cookieBanner.guestDismissedAt')).toBeTruthy();
+  });
+
+  it('гость accept → POST /guest/consent {analytics:true}', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ analytics: true, guestIssued: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    wrap(<CookieBanner />, { user: null });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('cookie-banner-guest-accept'));
+    });
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe(`${API_BASE}/guest/consent`);
+    expect((init as RequestInit).method).toBe('POST');
+    expect((init as RequestInit).credentials).toBe('include');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      analytics: true,
+    });
+  });
+
+  it('гость decline → POST /guest/consent {analytics:false} + dismissed', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ analytics: false, guestIssued: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    wrap(<CookieBanner />, { user: null });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('cookie-banner-guest-decline'));
+    });
+    expect(localStorage.getItem('cookieBanner.guestDismissedAt')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('гость delete: confirm → DELETE /guest/analytics-data, баннер скрыт', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ eventsDeleted: 5, aggKeysDeleted: 1 }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    wrap(<CookieBanner />, { user: null });
+    fireEvent.click(screen.getByTestId('cookie-banner-guest-delete'));
+    expect(
+      screen.getByTestId('cookie-banner-guest-delete-confirm'),
+    ).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('cookie-banner-guest-delete-yes'));
+    });
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe(`${API_BASE}/guest/analytics-data`);
+    expect((init as RequestInit).method).toBe('DELETE');
+    await waitFor(() =>
+      expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('гость delete: cancel — DELETE не вызывается', () => {
+    wrap(<CookieBanner />, { user: null });
+    fireEvent.click(screen.getByTestId('cookie-banner-guest-delete'));
+    fireEvent.click(screen.getByTestId('cookie-banner-guest-delete-no'));
+    expect(
+      screen.queryByTestId('cookie-banner-guest-delete-confirm'),
+    ).not.toBeInTheDocument();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it('гость POST ошибка — показывается error', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('boom', { status: 500 }));
+    wrap(<CookieBanner />, { user: null });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('cookie-banner-guest-accept'));
+    });
+    expect(screen.getByTestId('cookie-banner-error')).toBeInTheDocument();
   });
 
   it('user без consent видит чекбокс accept/decline', () => {

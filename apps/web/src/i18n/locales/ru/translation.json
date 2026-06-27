@@ -479,8 +479,14 @@
     "accept": "Включить аналитику",
     "decline": "Отказаться",
     "error": "Не удалось сохранить выбор — попробуйте ещё раз.",
-    "guestHint": "Войдите, чтобы выбрать настройки аналитики. Для гостей события не сохраняются.",
-    "guestDismiss": "Понятно"
+    "guestDismiss": "Не сейчас",
+    "guestDelete": "Удалить мои данные",
+    "guestDeleteConfirmTitle": "Удалить аналитические данные?",
+    "guestDeleteConfirmBody": "Удаляет все аналитические события этой гостевой сессии и сбрасывает consent-cookies.",
+    "guestDeleteConfirmYes": "Да, удалить",
+    "guestDeleteConfirmNo": "Отмена",
+    "guestDeleteLoading": "Удаляем…",
+    "guestDeleteError": "Не удалось удалить: {{message}}"
   },
   "settings": {
     "title": "Настройки",

@@ -469,8 +469,14 @@
     "accept": "Enable analytics",
     "decline": "Decline",
     "error": "Could not save your choice — try again.",
-    "guestHint": "Sign in to choose your analytics preferences. As a guest, no events are recorded.",
-    "guestDismiss": "Got it"
+    "guestDismiss": "Not now",
+    "guestDelete": "Delete my data",
+    "guestDeleteConfirmTitle": "Delete analytics data?",
+    "guestDeleteConfirmBody": "Removes all analytics events stored for this guest session and clears the consent cookies.",
+    "guestDeleteConfirmYes": "Yes, delete",
+    "guestDeleteConfirmNo": "Cancel",
+    "guestDeleteLoading": "Deleting…",
+    "guestDeleteError": "Delete failed: {{message}}"
   },
   "settings": {
     "title": "Settings",

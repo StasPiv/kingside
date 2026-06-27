@@ -5,6 +5,16 @@ import { api } from '../../api';
 import { readAnalyticsConsentCookie } from '../../lib/events';
 import { getUserConsent } from './consentTypes';
 
+const API_BASE =
+  (import.meta.env?.VITE_API_URL as string | undefined) ?? 'http://localhost:3001';
+
+type GuestDeleteState =
+  | { kind: 'idle' }
+  | { kind: 'confirm' }
+  | { kind: 'loading' }
+  | { kind: 'done' }
+  | { kind: 'error'; message: string };
+
 /**
  * KS-4698 / ADR-147 §6.2. Cookie-banner с чекбоксом «Аналитика для
  * персональных подсказок».
@@ -13,30 +23,36 @@ import { getUserConsent } from './consentTypes';
  *  - **Авторизованный** — показываем, пока `user.analyticsConsent`
  *    не выставлен (`null|undefined`). После выбора (true/false) —
  *    скрываем; следующий показ — только при сбросе через Settings.
- *  - **Гость** — guest-консент требует HMAC-подписи cookies со
- *    стороны backend (`POST /guest/consent`). Эндпоинт ещё не
- *    готов (отдельный backend-тикет, см. KS-4698 комментарий).
- *    Поэтому пока для гостя баннер только просматриваемый: показывает
- *    объяснение и кнопку «Войти» (CTA к /login). Чекбокс для гостя
- *    появится автоматически, когда `VITE_GUEST_CONSENT_ENABLED=true`.
+ *  - **Гость** — показываем, пока cookie `analytics_consent` не
+ *    выставлен (`!== '1'`) и пользователь не дисмиссил баннер. После
+ *    accept/decline backend (`POST /guest/consent`) сам ставит/чистит
+ *    подписанные cookies (HMAC-подпись только на сервере, KS-4700).
  *
- * Гейт `events`-клиента из KS-4684 уже учитывает cookie
- * `analytics_consent`, поэтому даже если кто-то выставит куку руками,
- * без backend-подписи `GuestIdMiddleware` не выпишет `guest_id` —
- * события молча уйдут в 401, и клиент дропнет батч (4xx → дроп).
+ * Дополнительно для гостя — кнопка «Удалить мои данные»
+ * (`DELETE /guest/analytics-data`, ADR-147 §6.3) с подтверждением.
+ * Backend сам clear'ит cookies через `Max-Age=0` после успеха.
  */
 export function CookieBanner(): ReactElement | null {
   const { t } = useTranslation();
   const { user, loading, refreshUser } = useAuth();
   const userConsent = useMemo(() => getUserConsent(user), [user]);
+
   const [hiddenForGuest, setHiddenForGuest] = useState<boolean>(() =>
     readGuestDismissed(),
   );
+  // bump инкрементируется после сетевых запросов, которые меняют cookies —
+  // это триггерит пересчёт `guestConsentGiven` (cookie не наблюдается
+  // подпиской, читаем заново).
+  const [bump, setBump] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [guestDelete, setGuestDelete] = useState<GuestDeleteState>({ kind: 'idle' });
 
-  const guestConsentEnabled =
-    (import.meta.env?.VITE_GUEST_CONSENT_ENABLED as string | undefined) === 'true';
+  const guestConsentGiven = useMemo(
+    () => readAnalyticsConsentCookie(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bump],
+  );
 
   const onUserChoice = useCallback(
     async (next: boolean) => {
@@ -55,9 +71,75 @@ export function CookieBanner(): ReactElement | null {
     [user, refreshUser],
   );
 
+  const onGuestChoice = useCallback(async (analytics: boolean) => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/guest/consent`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analytics }),
+      });
+      if (!res.ok) {
+        setError(`HTTP ${res.status}`);
+        return;
+      }
+      // Decline → cookie очищен; ставим dismissed, чтобы баннер не
+      // вылезал снова в эту сессию. Accept → cookie выставлен,
+      // `guestConsentGiven` станет true после bump.
+      if (!analytics) {
+        setGuestDismissed();
+        setHiddenForGuest(true);
+      }
+      setBump((b) => b + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'network');
+    } finally {
+      setSubmitting(false);
+    }
+  }, []);
+
   const onGuestDismiss = useCallback(() => {
     setGuestDismissed();
     setHiddenForGuest(true);
+  }, []);
+
+  const onAskGuestDelete = useCallback(() => {
+    setGuestDelete({ kind: 'confirm' });
+  }, []);
+
+  const onCancelGuestDelete = useCallback(() => {
+    setGuestDelete({ kind: 'idle' });
+  }, []);
+
+  const onConfirmGuestDelete = useCallback(async () => {
+    setGuestDelete({ kind: 'loading' });
+    try {
+      const res = await fetch(`${API_BASE}/guest/analytics-data`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        setGuestDelete({
+          kind: 'error',
+          message: `HTTP ${res.status}`,
+        });
+        return;
+      }
+      // Backend сам ставит Max-Age=0 на consent-cookies → следующий
+      // bump перерасчёт скроет accept-вариант. Доп. ставим dismissed,
+      // чтобы баннер не «возродился» сразу после удаления.
+      setGuestDismissed();
+      setGuestDelete({ kind: 'done' });
+      setBump((b) => b + 1);
+      setHiddenForGuest(true);
+    } catch (err) {
+      setGuestDelete({
+        kind: 'error',
+        message: err instanceof Error ? err.message : 'network',
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -70,6 +152,8 @@ export function CookieBanner(): ReactElement | null {
 
   // Авторизованный с принятым решением (true/false) — баннер скрыт.
   if (user && userConsent !== null) return null;
+  // Гость уже дал согласие через cookie — баннер скрыт.
+  if (!user && guestConsentGiven) return null;
   // Гость, уже отклонивший баннер в этой сессии — скрыт.
   if (!user && hiddenForGuest) return null;
 
@@ -111,33 +195,99 @@ export function CookieBanner(): ReactElement | null {
             </span>
           )}
         </div>
-      ) : guestConsentEnabled ? (
-        // Future-proof: ветка активируется feature-flag'ом, как только
-        // backend завезёт POST /guest/consent.
+      ) : (
         <div className="cookie-banner__controls">
           <button
             type="button"
+            disabled={submitting}
+            onClick={() => void onGuestChoice(true)}
+            data-testid="cookie-banner-guest-accept"
+          >
+            {t('cookieBanner.accept', 'Enable analytics')}
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void onGuestChoice(false)}
+            data-testid="cookie-banner-guest-decline"
+          >
+            {t('cookieBanner.decline', 'Decline')}
+          </button>
+          <button
+            type="button"
+            className="cookie-banner__link"
+            onClick={onAskGuestDelete}
+            data-testid="cookie-banner-guest-delete"
+          >
+            {t('cookieBanner.guestDelete', 'Delete my data')}
+          </button>
+          <button
+            type="button"
+            className="cookie-banner__link"
             onClick={onGuestDismiss}
             data-testid="cookie-banner-guest-dismiss"
           >
             {t('cookieBanner.guestDismiss', 'Not now')}
           </button>
-        </div>
-      ) : (
-        <div className="cookie-banner__controls">
-          <p className="cookie-banner__guest-hint">
-            {t(
-              'cookieBanner.guestHint',
-              'Sign in to choose your analytics preferences. As a guest, no events are recorded.',
-            )}
-          </p>
-          <button
-            type="button"
-            onClick={onGuestDismiss}
-            data-testid="cookie-banner-guest-dismiss"
-          >
-            {t('cookieBanner.guestDismiss', 'Got it')}
-          </button>
+          {error && (
+            <span className="cookie-banner__error" data-testid="cookie-banner-error">
+              {t('cookieBanner.error', 'Could not save your choice — try again.')}
+            </span>
+          )}
+
+          {guestDelete.kind === 'confirm' && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="cookie-banner-guest-delete-title"
+              className="cookie-banner__confirm"
+              data-testid="cookie-banner-guest-delete-confirm"
+            >
+              <h3 id="cookie-banner-guest-delete-title">
+                {t(
+                  'cookieBanner.guestDeleteConfirmTitle',
+                  'Delete analytics data?',
+                )}
+              </h3>
+              <p>
+                {t(
+                  'cookieBanner.guestDeleteConfirmBody',
+                  'Removes all analytics events stored for this guest session and clears the consent cookies.',
+                )}
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => void onConfirmGuestDelete()}
+                  data-testid="cookie-banner-guest-delete-yes"
+                >
+                  {t('cookieBanner.guestDeleteConfirmYes', 'Yes, delete')}
+                </button>
+                <button
+                  type="button"
+                  onClick={onCancelGuestDelete}
+                  data-testid="cookie-banner-guest-delete-no"
+                >
+                  {t('cookieBanner.guestDeleteConfirmNo', 'Cancel')}
+                </button>
+              </div>
+            </div>
+          )}
+          {guestDelete.kind === 'loading' && (
+            <p data-testid="cookie-banner-guest-delete-loading">
+              {t('cookieBanner.guestDeleteLoading', 'Deleting…')}
+            </p>
+          )}
+          {guestDelete.kind === 'error' && (
+            <p
+              className="cookie-banner__error"
+              data-testid="cookie-banner-guest-delete-error"
+            >
+              {t('cookieBanner.guestDeleteError', 'Delete failed: {{message}}', {
+                message: guestDelete.message,
+              })}
+            </p>
+          )}
         </div>
       )}
     </div>

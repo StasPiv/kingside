@@ -252,14 +252,23 @@ export function readAnalyticsConsentCookie(): boolean {
 }
 
 /**
- * Универсальный геттер consent: для авторизованного — `user.analytics_consent`,
- * для гостя — cookie `analytics_consent=1`. Используется и в `EventsBootstrap`,
- * и в `<HintHost>` (T9), чтобы гейт был единый.
+ * Универсальный геттер consent: для авторизованного — `user.analyticsConsent`
+ * (как реально отдаёт backend KS-4697), для гостя — cookie
+ * `analytics_consent=1`. Используется и в `EventsBootstrap`, и в
+ * `<HintHost>` (T9), чтобы гейт был единый. Принимает оба имени поля
+ * (camelCase/snake_case) для совместимости с тестами KS-4684.
  */
 export function isAnalyticsConsentGiven(
-  user: { analytics_consent?: boolean | null } | null | undefined,
+  user:
+    | { analyticsConsent?: boolean | null; analytics_consent?: boolean | null }
+    | null
+    | undefined,
 ): boolean {
-  if (user) return Boolean(user.analytics_consent);
+  if (user) {
+    if (user.analyticsConsent === true) return true;
+    if (user.analytics_consent === true) return true;
+    return false;
+  }
   return readAnalyticsConsentCookie();
 }
 
