@@ -47,6 +47,11 @@ COPY packages/archive-db/package.json packages/archive-db/
 # KS-4543 / KS-4539: broadcasts-db — для seed-скрипта
 # apps/api/src/scripts/seed-broadcast-fixture.ts.
 COPY packages/broadcasts-db/package.json packages/broadcasts-db/
+# KS-4695 / ADR-147 T1c: events-db — PrismaClient под schema events для
+# EventsModule. package.json нужен до `npm ci`, чтобы workspace-symlink
+# `node_modules/@kingside/events-db` создался; иначе старт api падает
+# `Cannot find module '@kingside/events-db'`.
+COPY packages/events-db/package.json packages/events-db/
 # KS-4070: position-comment подключает Maia-3 как forced-line фильтр
 # (apps/api/src/position-comment/maia.service.ts через @kingside/maia-core).
 # Сам пакет резолвится из packages/maia-core (workspace symlink), его
