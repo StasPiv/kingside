@@ -65,3 +65,71 @@ model ActorEvent {
   @@map("actor_events")
   @@schema("events")
 }
+
+/// KS-4699 / ADR-147 §3.1. Декларативное правило показа контекстной
+/// подсказки. Содержит i18n-тексты, anchor/placement, DSL `rule`,
+/// targetActorTypes (user/guest filter), глобальные per-hint лимиты.
+///
+/// Soft-delete через `deletedAt` — админ-CRUD (T12) использует.
+model Hint {
+  id               String   @id @default(uuid()) @db.Uuid
+  /// Стабильный человекочитаемый ключ для аналитики/метрик.
+  /// Например `analyze-your-game`, `guest-register-prompt`.
+  key              String   @unique @db.VarChar(64)
+  /// `{ ru: {title, body, ctaLabel}, en: {...} }`. См. ADR §3.1.
+  i18n             Json     @db.JsonB
+  /// `{href?, event?}` либо null — клиентский CTA. Совпадает с
+  /// `HintShowPayload.ctaHref/ctaEvent` (T7).
+  cta              Json?    @db.JsonB
+  /// Значение `data-hint-anchor` из shared enum HINT_ANCHORS (T7).
+  anchor           String   @db.VarChar(64)
+  /// 'top'|'bottom'|...'bottom-sheet'. См. HintPlacement (T7).
+  placement        String   @db.VarChar(16)
+  /// DSL §3.2 — `{all|any|not|page|count|exists|timeSince|actorType}`.
+  rule             Json     @db.JsonB
+  priority         Int      @default(0)
+  enabled          Boolean  @default(true)
+  /// Список event_type для smart-dismiss (§5.1). При наступлении
+  /// одного из них в `smart_dismiss_window_hours` после показа —
+  /// actedAt автоматом.
+  acceptedBy       String[] @map("accepted_by") @db.VarChar(64)
+  /// `['user']`, `['guest']`, `['user','guest']`. Фильтр до DSL.
+  targetActorTypes String[] @map("target_actor_types") @db.VarChar(8) @default(["user", "guest"])
+  cooldownSec      Int      @default(86400) @map("cooldown_sec")
+  ttlSec           Int      @default(0) @map("ttl_sec")
+  maxShows         Int      @default(3) @map("max_shows")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+  /// KS-4699: soft-delete. `IS NULL` — активная запись, иначе
+  /// исключается из выборки HintsService.
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz()
+
+  states           ActorHintState[]
+
+  @@index([enabled, deletedAt])
+  @@map("hints")
+  @@schema("events")
+}
+
+/// KS-4699 / ADR-147 §3.1. Состояние подсказки для конкретного actor'а
+/// (user или guest). Композитный PK `(actor_id, hint_id)` —
+/// одна запись на пару actor+hint. При guest→user merge `actor_id` и
+/// `actor_type` обновляются `analytics-data.service.mergeGuestToUser`
+/// (см. T4 hook).
+model ActorHintState {
+  actorId         String    @map("actor_id") @db.Uuid
+  actorType       String    @map("actor_type") @db.VarChar(8)
+  hintId          String    @map("hint_id") @db.Uuid
+  shownCount      Int       @default(0) @map("shown_count")
+  lastShownAt     DateTime? @map("last_shown_at") @db.Timestamptz()
+  dismissedAt     DateTime? @map("dismissed_at") @db.Timestamptz()
+  actedAt         DateTime? @map("acted_at") @db.Timestamptz()
+  suppressedUntil DateTime? @map("suppressed_until") @db.Timestamptz()
+
+  hint            Hint      @relation(fields: [hintId], references: [id], onDelete: Cascade)
+
+  @@id([actorId, hintId])
+  @@index([actorId, suppressedUntil])
+  @@map("actor_hint_states")
+  @@schema("events")
+}

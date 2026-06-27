@@ -39,6 +39,21 @@ import {
 
 export type EventPayload = Record<string, unknown> | null | undefined;
 
+/**
+ * KS-4699 / ADR-147 §4.1 п.1: подписчик `track` — для HintsEngine,
+ * чтобы реактивно проверять правила после ключевых событий
+ * (`game_end`, `puzzle_failed`, `page_view`, ...). И параллельно —
+ * smart-dismiss observer (§5.1). Подписка in-memory, без зависимости
+ * от @nestjs/event-emitter — модулю достаточно одного listener.
+ */
+export interface TrackEvent {
+  actor: Actor;
+  type: string;
+  payload: EventPayload;
+  occurredAt: Date;
+}
+export type TrackListener = (e: TrackEvent) => void | Promise<void>;
+
 interface TrackOptions {
   /**
    * Время на клиенте, если есть (`ts` из payload фронта). Если не
@@ -65,11 +80,20 @@ export class EventsService {
   >();
   private readonly CONSENT_CACHE_TTL_MS = 60_000;
 
+  /** KS-4699: подписчики in-memory. Каждый track успешно прошёл XADD
+   *  → вызываем всех listener'ов (fire-and-forget, ошибки логируются). */
+  private readonly trackListeners: TrackListener[] = [];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly metrics: EventsMetricsService,
   ) {}
+
+  /** KS-4699: HintsModule подписывается в onModuleInit. */
+  onTrack(listener: TrackListener): void {
+    this.trackListeners.push(listener);
+  }
 
   /**
    * Главный entry-point.
@@ -123,12 +147,51 @@ export class EventsService {
         occurredAt,
       );
       this.metrics.incIngested(type, actor.type);
+      // KS-4699: notify in-memory listeners (HintsEngine — реактивный
+      // check + smart-dismiss observer). Каждый listener — fire-and-forget,
+      // ошибки не должны ломать ingest.
+      const evt: TrackEvent = {
+        actor,
+        type,
+        payload: payload ?? null,
+        occurredAt: opts.occurredAt ?? new Date(),
+      };
+      for (const l of this.trackListeners) {
+        try {
+          const r = l(evt);
+          if (r && typeof (r as Promise<void>).catch === 'function') {
+            (r as Promise<void>).catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              this.logger.warn(`trackListener failed: ${msg}`);
+            });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`trackListener threw: ${msg}`);
+        }
+      }
       return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`track: XADD failed (type=${type}, actor=${actor.type}): ${msg}`);
       return false;
     }
+  }
+
+  /**
+   * KS-4699: гейт по analytics_consent для actor'а. Использует тот же
+   * TTL-кэш, что `track`. HintsService переиспользует этот метод
+   * вместо дублирования логики (без рефакторинга на отдельный сервис —
+   * `track` и `checkFor` всегда вместе).
+   */
+  async hasConsent(actor: Actor): Promise<boolean> {
+    if (actor.type === 'guest') {
+      // Guest сюда попадает только после прохождения подписанного
+      // analytics_consent cookie (см. GuestIdMiddleware). Дополнительно
+      // проверять нечего.
+      return true;
+    }
+    return this.hasUserConsent(actor.id);
   }
 
   /**

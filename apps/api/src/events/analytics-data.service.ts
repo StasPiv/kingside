@@ -66,6 +66,11 @@ export class AnalyticsDataService {
           where: { actorId: actor.id, actorType: actor.type },
         });
         eventsDeleted = r.count;
+        // KS-4699 / ADR-147 §3.1: actor_hint_states тоже относится к
+        // приватным данным actor'а — удаляем тем же запросом.
+        await owner.actorHintState.deleteMany({
+          where: { actorId: actor.id, actorType: actor.type },
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.warn(`deleteActorData PG failed for ${actor.type}=${actor.id}: ${msg}`);
@@ -138,10 +143,38 @@ export class AnalyticsDataService {
         if (rows.length < PAGE) break;
       }
     }
-    // actor_hint_states: таблица появится в T6 (ADR-147 §3.1).
-    // Сейчас стримим пустой массив — контракт зафиксируется заранее,
-    // менять его потом не придётся.
-    yield '],"actor_hint_states":[]}';
+    // KS-4699: actor_hint_states — состояние подсказок для actor'а.
+    yield '],"actor_hint_states":[';
+    if (owner) {
+      try {
+        const states = await owner.actorHintState.findMany({
+          where: { actorId: actor.id, actorType: actor.type },
+          select: {
+            hintId: true,
+            shownCount: true,
+            lastShownAt: true,
+            dismissedAt: true,
+            actedAt: true,
+            suppressedUntil: true,
+          },
+        });
+        for (let i = 0; i < states.length; i++) {
+          if (i > 0) yield ',';
+          const s = states[i];
+          yield JSON.stringify({
+            hint_id: s.hintId,
+            shown_count: s.shownCount,
+            last_shown_at: s.lastShownAt?.toISOString() ?? null,
+            dismissed_at: s.dismissedAt?.toISOString() ?? null,
+            acted_at: s.actedAt?.toISOString() ?? null,
+            suppressed_until: s.suppressedUntil?.toISOString() ?? null,
+          });
+        }
+      } catch (err) {
+        this.logger.warn(`streamExport actor_hint_states failed: ${(err as Error).message}`);
+      }
+    }
+    yield ']}';
   }
 
   /* ─── MERGE guest → user (§1.1) ────────────────────────────── */
@@ -162,9 +195,15 @@ export class AnalyticsDataService {
             data: { actorId: userId, actorType: 'user' },
           });
           eventsMigrated = r.count;
-          // KS-4697: actor_hint_states-таблица создаётся в T6 — пока
-          // её нет, UPDATE по ней опускаем. После T6 здесь нужно
-          // добавить аналогичный `tx.actorHintState.updateMany(...)`.
+          // KS-4699 / ADR-147 §1.1: перенос ActorHintState под нового
+          // user'а. Композитный PK `(actor_id, hint_id)` — если у нового
+          // user уже есть запись по тому же hint (теоретически
+          // невозможно — он только что создан), updateMany упадёт по
+          // unique constraint. На практике — fresh user, конфликта нет.
+          await tx.actorHintState.updateMany({
+            where: { actorId: guestId, actorType: 'guest' },
+            data: { actorId: userId, actorType: 'user' },
+          });
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

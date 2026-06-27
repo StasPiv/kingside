@@ -82,6 +82,8 @@ import { EventsModule } from './events/events.module';
 // KS-4697 / ADR-147 §6 T4: GDPR-эндпоинты user + guest.
 import { MeModule } from './me/me.module';
 import { GuestModule } from './guest/guest.module';
+// KS-4699 / ADR-147 §3 §4 §5 T6: HintsEngine (DSL, лимиты, listener).
+import { HintsModule } from './hints/hints.module';
 import { HealthController } from './health.controller';
 @Module({
   controllers: [HealthController],
@@ -172,6 +174,8 @@ import { HealthController } from './health.controller';
     // KS-4697 / ADR-147 §8 T4.
     MeModule,
     GuestModule,
+    // KS-4699 / ADR-147 §8 T6.
+    HintsModule,
   ],
 })
 export class AppModule implements NestModule {

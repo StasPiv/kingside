@@ -1,0 +1,141 @@
+/**
+ * KS-4699 / ADR-147 §5.2. Конфигурируемые лимиты HintsEngine.
+ *
+ * **Архитектурное решение по источнику конфига.** ADR-147 §5.2 говорит
+ * «через существующий `feature-flags`-модуль». В реальности
+ * `FeatureFlagsService` (KS-2104) поддерживает только boolean-флаги
+ * фиксированного whitelist'а (см. `KNOWN_FEATURE_FLAGS` в shared).
+ * Hints требуют numeric (throttle_seconds, session_max_shows,
+ * smart_dismiss_window_hours). Расширение FeatureFlags до Json-values
+ * означает: правка shared-типа + миграция БД + правка админ-UI
+ * (apps/web/src/pages/admin/FeatureFlags*) — это отдельная задача.
+ *
+ * До неё используем env через `ConfigService` (значения задаются в
+ * task-def, переменные читаются с дефолтом). Перенастройка lim'ов
+ * требует ECS rolling restart — приемлемо: лимиты не меняются часто,
+ * а каждый деплой и так перезапускает task'и. Local-cache 60с
+ * сохранён (как просит §5.2) — даёт защиту от частых ConfigService
+ * вызовов в hot-path.
+ *
+ * Когда появится Json-flags в FeatureFlagsService — переключим
+ * `read()` на него, контракт `getLimits()` не изменится.
+ *
+ * Redis-лимиты (`hints:throttle:<actor_id>`, `hints:session:<actor_id>:
+ * <date>`) — единый namespace для user/guest, как требует §5.2.
+ */
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../redis/redis.service';
+import {
+  HINTS_DEFAULTS,
+  sessionCounterKey,
+  throttleKey,
+  todayUtc,
+} from './hints.types';
+import type { Actor } from '../events/events.types';
+
+export interface HintsLimits {
+  enabled: boolean;
+  globalThrottleSec: number;
+  sessionMaxShows: number;
+  smartDismissWindowH: number;
+}
+
+const CACHE_TTL_MS = 60_000;
+
+@Injectable()
+export class HintsLimitsService {
+  private readonly logger = new Logger(HintsLimitsService.name);
+  private cache: { value: HintsLimits; expiresAt: number } | null = null;
+
+  constructor(
+    private readonly config: ConfigService,
+    private readonly redis: RedisService,
+  ) {}
+
+  /** Читать актуальные лимиты с 60с кэшем. */
+  getLimits(now: number = Date.now()): HintsLimits {
+    if (this.cache && this.cache.expiresAt > now) return this.cache.value;
+    const v: HintsLimits = {
+      enabled: this.boolEnv('HINTS_ENABLED', HINTS_DEFAULTS.enabled),
+      globalThrottleSec: this.intEnv(
+        'HINTS_GLOBAL_THROTTLE_SEC',
+        HINTS_DEFAULTS.globalThrottleSec,
+      ),
+      sessionMaxShows: this.intEnv(
+        'HINTS_SESSION_MAX_SHOWS',
+        HINTS_DEFAULTS.sessionMaxShows,
+      ),
+      smartDismissWindowH: this.intEnv(
+        'HINTS_SMART_DISMISS_WINDOW_H',
+        HINTS_DEFAULTS.smartDismissWindowH,
+      ),
+    };
+    this.cache = { value: v, expiresAt: now + CACHE_TTL_MS };
+    return v;
+  }
+
+  /**
+   * Можно ли показать ещё одну подсказку этому actor'у прямо сейчас?
+   * Проверяет два Redis-лимита (throttle + session/day).
+   * Если Redis недоступен — fail-closed (false), чтобы не спамить.
+   */
+  async canShow(actor: Actor): Promise<boolean> {
+    const { globalThrottleSec, sessionMaxShows, enabled } = this.getLimits();
+    if (!enabled) return false;
+    try {
+      const tKey = throttleKey(actor.id);
+      const sKey = sessionCounterKey(actor.id, todayUtc());
+      const [throttleExists, sessionCount] = await Promise.all([
+        this.redis.exists(tKey),
+        this.redis.get(sKey),
+      ]);
+      if (throttleExists === 1) return false;
+      const n = sessionCount ? Number.parseInt(sessionCount, 10) : 0;
+      if (Number.isFinite(n) && n >= sessionMaxShows) return false;
+      // Превентивно ставим throttle сразу же — это «pessimistic lock»,
+      // защита от параллельных HintsService.checkFor для одного actor'а
+      // (например, реактивный check + cron-tick одновременно).
+      await this.redis.set(tKey, '1', 'EX', globalThrottleSec, 'NX');
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`canShow: Redis error for ${actor.type}:${actor.id}, fail-closed: ${msg}`);
+      return false;
+    }
+  }
+
+  /** Инкрементировать счётчик сессии за сегодня (вызывается после успешного show). */
+  async markShown(actor: Actor): Promise<void> {
+    try {
+      const key = sessionCounterKey(actor.id, todayUtc());
+      // INCR + EXPIRE до конца суток (макс 24ч; короче — если день уже
+      // прошёл, ничего не успеет накопиться).
+      await this.redis.incr(key);
+      await this.redis.expire(key, 24 * 60 * 60);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`markShown: Redis error for ${actor.type}:${actor.id}: ${msg}`);
+    }
+  }
+
+  /** Сброс throttle (для тестов / manual admin). */
+  async resetThrottle(actor: Actor): Promise<void> {
+    try {
+      await this.redis.del(throttleKey(actor.id));
+    } catch { /* no-op */ }
+  }
+
+  private boolEnv(key: string, def: boolean): boolean {
+    const v = this.config.get<string>(key);
+    if (v === undefined) return def;
+    return /^(1|true|yes|on)$/i.test(v);
+  }
+
+  private intEnv(key: string, def: number): number {
+    const v = this.config.get<string>(key);
+    if (v === undefined) return def;
+    const n = Number.parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? n : def;
+  }
+}
