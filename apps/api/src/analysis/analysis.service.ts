@@ -17,6 +17,7 @@ import { ArchiveService } from '../archive/archive.service';
 // KS-4253 / ADR-128 §10 #11. Mutation hook на share()/update() —
 // постановка prerender для публичного разбора партии.
 import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
+import { EventsService } from '../events/events.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { DuplicateAnnotatedDto } from './dto/duplicate-annotated.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
@@ -40,6 +41,9 @@ export class AnalysisService implements OnModuleInit {
 
   constructor(
     private readonly prisma: PrismaService,
+    // KS-4696 / ADR-147 §2.1: self-emit `analysis_open` при findOne.
+    // `@Optional` — для spec-фикстур.
+    @Optional() private readonly events?: EventsService,
     // KS-4247 / ADR-131. Опциональная in-process замена HTTP-вызова
     // к archive-service. Включается env-флагом ARCHIVE_USE_LOCAL=true.
     // По дефолту undefined → старый HTTP-путь.
@@ -996,6 +1000,17 @@ export class AnalysisService implements OnModuleInit {
           `KS-3261 lastOpenedAt bump failed for ${id}: ${(e as Error).message}`,
         ),
       );
+    // KS-4696 / ADR-147 §2.1: `analysis_open { analysis_id, game_id }`.
+    // `game_id` берём из связки analysis → game (если есть). HintsEngine
+    // использует это для правила «партия закончена → подсказка про анализ».
+    void this.events?.track(
+      { type: 'user', id: userId },
+      'analysis_open',
+      {
+        analysis_id: id,
+        game_id: (analysis as { gameId?: string | null }).gameId ?? null,
+      },
+    );
     return {
       ...analysis,
       tags: analysis.tags ? analysis.tags.split(' ').filter(Boolean) : [],

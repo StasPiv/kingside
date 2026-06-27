@@ -1,10 +1,11 @@
-import { Injectable, Logger, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, ConflictException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { Chess, Square } from 'chess.js';
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
 import { RatingService } from './rating.service';
+import { EventsService } from '../events/events.service';
 import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, DEFAULT_CATEGORY_TC, classifyTimeControl } from '@kingside/shared';
 import { GameResult, Termination } from '@kingside/db';
 
@@ -63,7 +64,41 @@ export class GameService {
     private readonly clockService: GameClockService,
     private readonly ratingService: RatingService,
     private readonly i18n: I18nService,
+    // KS-4696 / ADR-147 §2.1: self-emit `game_start`/`game_end`/`resign`/
+    // `draw_offered`. `events.track` сам fail-soft, поэтому вызываем
+    // через `void` без try/catch. `@Optional` — чтобы unit-spec'и могли
+    // конструировать сервис без EventsService-mock (его ввели T1c).
+    @Optional() private readonly events?: EventsService,
   ) {}
+
+  /**
+   * KS-4696: эмит события «по обоим игрокам» исключая bot'а (`STOCKFISH_BOT_ID`).
+   * Bot — synthetic actor без `user_id` в системе, события для него не пишем
+   * (ADR-147 §2.1 «Для гостей backend-self-emit не нужен» — bot к этой
+   * категории относится по сути).
+   */
+  private trackBoth(
+    whiteId: string,
+    blackId: string,
+    type: string,
+    payload: Record<string, unknown>,
+  ): void {
+    if (!this.events) return;
+    if (whiteId && whiteId !== STOCKFISH_BOT_ID) {
+      void this.events?.track(
+        { type: 'user', id: whiteId },
+        type,
+        { ...payload, color: 'white' },
+      );
+    }
+    if (blackId && blackId !== STOCKFISH_BOT_ID) {
+      void this.events?.track(
+        { type: 'user', id: blackId },
+        type,
+        { ...payload, color: 'black' },
+      );
+    }
+  }
 
   private stateKey(gameId: string): string {
     return `game:${gameId}:state`;
@@ -97,6 +132,18 @@ export class GameService {
     await this.prisma.game.update({
       where: { id: gameId },
       data: { status: 'active', startedAt: new Date() },
+    });
+
+    // KS-4696 / ADR-147 §2.1: `game_start { time_control, rated, opponent_id }`.
+    // `rated` пока всегда true в проекте (нет нерейтинговых партий) — фиксируем
+    // как факт состояния, не как фичу.
+    this.trackBoth(game.whiteId, game.blackId, 'game_start', {
+      game_id: gameId,
+      time_control: classifyTimeControl(game.timeInitialSec, game.timeIncrementSec),
+      rated: !game.isBot,
+      opponent_id_white: game.blackId,
+      opponent_id_black: game.whiteId,
+      is_bot: game.isBot,
     });
 
     return state;
@@ -465,6 +512,16 @@ export class GameService {
 
     const result = userId === game.whiteId ? 'black' : 'white';
     const clocks = await this.clockService.stopClock(gameId);
+
+    // KS-4696 / ADR-147 §2.1: `resign` — отдельно от `game_end`,
+    // эмитится ТОЛЬКО для сдавшего (event про действие, не про факт
+    // окончания партии).
+    void this.events?.track(
+      { type: 'user', id: userId },
+      'resign',
+      { game_id: gameId },
+    );
+
     const ratingChange = await this.endGame(gameId, result, 'resignation');
 
     return { result, termination: 'resignation', clocks, ratingChange };
@@ -482,6 +539,14 @@ export class GameService {
       throw new ForbiddenException(this.i18n.t('messages.game.notAPlayer'));
     }
     await this.redis.set(`game:${gameId}:draw_offer`, userId, 'EX', 120);
+
+    // KS-4696 / ADR-147 §2.1: `draw_offered` — действие пользователя,
+    // эмитим только для предложившего.
+    void this.events?.track(
+      { type: 'user', id: userId },
+      'draw_offered',
+      { game_id: gameId },
+    );
   }
 
   async handleDrawAccept(gameId: string, userId: string): Promise<EndResult> {
@@ -586,6 +651,32 @@ export class GameService {
       this.logger.error(`Rating update failed for game ${gameId}: ${e.message}`);
     }
     this.logger.log(`Game ${gameId} ended: ${result} by ${termination}`);
+
+    // KS-4696 / ADR-147 §2.1: `game_end { result, termination, rating_delta }`.
+    // Эмитим обоим игрокам (кроме бота). rating_delta нормирован на цвет
+    // (для white delta = afterWhite - beforeWhite, и т.п.) — реализуем
+    // в payload как два поля.
+    try {
+      const players = await this.prisma.game.findUnique({
+        where: { id: gameId },
+        select: { whiteId: true, blackId: true },
+      });
+      if (players) {
+        this.trackBoth(players.whiteId, players.blackId, 'game_end', {
+          game_id: gameId,
+          result,
+          termination,
+          rating_delta_white: ratingChange
+            ? ratingChange.whiteRatingAfter - ratingChange.whiteRatingBefore
+            : null,
+          rating_delta_black: ratingChange
+            ? ratingChange.blackRatingAfter - ratingChange.blackRatingBefore
+            : null,
+        });
+      }
+    } catch (e: any) {
+      this.logger.warn(`game_end track failed for ${gameId}: ${e.message}`);
+    }
 
     // Fire post-game hooks in background (arena scoring, etc.) — don't block the hot path
     if (this.postGameHooks.length > 0) {

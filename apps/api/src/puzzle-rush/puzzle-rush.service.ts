@@ -1,7 +1,8 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CacheService } from '../common/cache.service';
+import { EventsService } from '../events/events.service';
 
 interface PuzzleRushSessionPuzzleEntry {
   puzzleId: string;
@@ -37,6 +38,9 @@ export class PuzzleRushService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly cache: CacheService,
+    // KS-4696 / ADR-147 §2.1: self-emit `rush_start` / `rush_finish` /
+    // `rush_streak_broken`. `@Optional` — для spec-фикстур.
+    @Optional() private readonly events?: EventsService,
   ) {}
 
   private sessionKey(userId: string): string {
@@ -142,6 +146,13 @@ export class PuzzleRushService {
     }
 
     this.logger.log(`Session started: userId=${userId}, timeMode=${timeMode}, puzzleId=${puzzle.id}`);
+
+    // KS-4696 / ADR-147 §2.1: `rush_start { mode }`.
+    void this.events?.track(
+      { type: 'user', id: userId },
+      'rush_start',
+      { mode: timeMode },
+    );
 
     return {
       sessionId: userId,
@@ -479,6 +490,23 @@ export class PuzzleRushService {
     this.logger.log(
       `Puzzle Rush ended for ${session.userId}: score=${session.score}, mode=${session.timeMode}, reason=${_reason}`,
     );
+
+    // KS-4696 / ADR-147 §2.1: `rush_finish { score, mode }`. Дополнительно
+    // эмитим `rush_streak_broken` когда сессия закрылась из-за `no_lives`
+    // (т.е. серия прервалась ошибкой пользователя, а не таймаутом/no_puzzles/
+    // ручным выходом). HintsEngine использует это как сигнал «попробуй ещё».
+    void this.events?.track(
+      { type: 'user', id: session.userId },
+      'rush_finish',
+      { score: session.score, mode: session.timeMode, reason: _reason },
+    );
+    if (_reason === 'no_lives') {
+      void this.events?.track(
+        { type: 'user', id: session.userId },
+        'rush_streak_broken',
+        { score: session.score, mode: session.timeMode },
+      );
+    }
 
     return {
       correct: false,

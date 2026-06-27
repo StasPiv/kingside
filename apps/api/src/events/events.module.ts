@@ -21,7 +21,7 @@
  * подключается в AppModule.configure() на `*`-роутах: ему нужны все
  * страницы для rolling-renew cookie, не только `/events/*`.
  */
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { MetricsModule } from '../metrics/metrics.module';
 import { EventsController } from './events.controller';
@@ -31,6 +31,12 @@ import { EventsRefreshService } from './events-refresh.service';
 import { EventsService } from './events.service';
 import { EventsWriterService } from './events-writer.service';
 
+// KS-4696 / ADR-147 §2.2 (T3): @Global чтобы EventsService инжектился в
+// game/puzzle/lessons/tactic-drill/analysis для self-emit без явного
+// `imports: [EventsModule]` в десятке модулей. EventsService — типичный
+// cross-cutting сервис, ровно тот случай, для которого делается Global
+// (как RedisModule / MetricsModule).
+@Global()
 @Module({
   imports: [AuthModule, MetricsModule],
   controllers: [EventsController],

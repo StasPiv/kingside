@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Optional,
   Query,
   Request,
   UseGuards,
@@ -9,6 +10,7 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { MistakesService } from './mistakes.service';
+import { EventsService } from '../events/events.service';
 
 /**
  * REST-эндпоинты дневника ошибок (L-31, KS-1802; relocated KS-1927 /
@@ -29,7 +31,14 @@ import { MistakesService } from './mistakes.service';
 @UseGuards(JwtAuthGuard)
 @Controller('puzzle/mistakes')
 export class MistakesController {
-  constructor(private readonly service: MistakesService) {}
+  constructor(
+    private readonly service: MistakesService,
+    // KS-4696 / ADR-147 §2.1 пример `feature_used { feature_key:
+    // 'mistakes_diary_opened' }` — пишется при GET /puzzle/mistakes/
+    // aggregates (это и есть открытие дневника со стороны фронта,
+    // первый запрос за payload). `@Optional` — для spec-фикстур.
+    @Optional() private readonly events?: EventsService,
+  ) {}
 
   /**
    * GET /api/puzzle/mistakes/aggregates?since=ISO&limit=N
@@ -46,6 +55,11 @@ export class MistakesController {
   ) {
     const sinceDate = parseSince(since);
     const limitNum = parseLimit(limit);
+    void this.events?.track(
+      { type: 'user', id: req.user.id },
+      'feature_used',
+      { feature_key: 'mistakes_diary_opened' },
+    );
     return this.service.getAggregates(req.user.id, {
       since: sinceDate,
       limit: limitNum,

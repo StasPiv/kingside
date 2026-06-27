@@ -18,6 +18,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { normalizeStoredAnswer } from './dto/answer.dto';
 import type {
@@ -42,6 +43,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { TacticDrillValidatorService } from './tactic-drill-validator.service';
 import type { TacticDrillRatingService } from './tactic-drill-rating.service';
+import { EventsService } from '../events/events.service';
 
 const COOLDOWN_DAYS = 30;
 const ALL_DRILL_TYPES: TacticDrillType[] = DRILL_TYPE_ORDER;
@@ -68,6 +70,10 @@ export class TacticDrillService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly validator: TacticDrillValidatorService,
+    // KS-4696 / ADR-147 §2.1: self-emit `drill_complete` для одиночных
+    // drill-attempt'ов (sprint имеет свой start/finish — см.
+    // TacticDrillSprintService). `@Optional` — для spec-фикстур.
+    @Optional() private readonly events?: EventsService,
   ) {}
 
   setRatingService(svc: TacticDrillRatingService): void {
@@ -524,6 +530,16 @@ export class TacticDrillService {
             // (Redis down, конкурентный update), attempt уже сохранён.
           });
       }
+    }
+
+    // KS-4696 / ADR-147 §2.1: `drill_complete { drill_id, mode, solved }`.
+    // Только для авторизованных (гости — без self-emit, §2.2).
+    if (userId) {
+      void this.events?.track(
+        { type: 'user', id: userId },
+        'drill_complete',
+        { drill_id: drillId, mode, solved: result.solved, time_ms: timeMs },
+      );
     }
 
     return {

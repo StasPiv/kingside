@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import type {
   CompleteLessonResponse,
   LessonStepState,
@@ -7,6 +7,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { Sm2Service } from './sm2.service';
 import { ADAPTIVE_STATE_KEY } from './adaptive-difficulty.service';
+import { EventsService } from '../events/events.service';
 
 /**
  * Политика прогресса (ADR-024 §2.3, ADR-025):
@@ -28,6 +29,11 @@ export class ProgressService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sm2: Sm2Service,
+    // KS-4696 / ADR-147 §2.1: self-emit `lesson_open` (первое касание шага)
+    // и `lesson_complete` (порог completedAt). `lesson_abandon` остаётся
+    // фронту — backend не различает «вышел из урока» от «переключил
+    // приложение», это UX-сигнал. `@Optional` — для spec-фикстур.
+    @Optional() private readonly events?: EventsService,
   ) {}
 
   /**
@@ -95,6 +101,16 @@ export class ProgressService {
         stepsState: stepsState as any,
       },
     });
+
+    // KS-4696 / ADR-147 §2.1: `lesson_open` — первое касание любого шага
+    // урока (existing === null). Дальше каждый updateStep — уже не open.
+    if (!existing) {
+      void this.events?.track(
+        { type: 'user', id: userId },
+        'lesson_open',
+        { lesson_id: rootLessonId },
+      );
+    }
 
     await this.touchCourseProgress(userId, lessonId);
 
@@ -172,6 +188,20 @@ export class ProgressService {
       ...record,
       lessonId,
     });
+    // KS-4696 / ADR-147 §2.1: `lesson_complete { lesson_id, course_id, score }`.
+    // Только если урок действительно сдан (порог завершения уже проверен
+    // выше — иначе бросили BadRequestException). Эмитим до SM-2-блока,
+    // чтобы факт прохождения попал даже когда SM-2 запись падает.
+    void this.events?.track(
+      { type: 'user', id: userId },
+      'lesson_complete',
+      {
+        lesson_id: rootLessonId,
+        course_id: lesson.courseId,
+        score: score100,
+      },
+    );
+
     if (score100 >= this.MASTER_THRESHOLD) {
       await this.sm2.markLessonMastered(userId, rootLessonId);
       // L-22 / KS-1809: если клиент передал явный `quality` (UI повторений:

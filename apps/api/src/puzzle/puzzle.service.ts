@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import { Chess } from 'chess.js';
 import type {
@@ -24,6 +24,14 @@ import { PuzzleRatingService } from './puzzle-rating.service';
 import { PrecisionRatingService } from '../precision/precision-rating.service';
 // KS-1927: MistakesService переехал из `lessons/` в `puzzle/` (ADR-032 §4).
 import { MistakesService } from './mistakes.service';
+import { EventsService } from '../events/events.service';
+
+/** KS-4696: первый theme из space-separated списка lichess формата. */
+function parseFirstTheme(themesRaw: string | null | undefined): string | null {
+  if (!themesRaw) return null;
+  const first = themesRaw.split(' ').find(Boolean);
+  return first ?? null;
+}
 
 /**
  * KS-2465 / ADR-044 §5.5. Параметры режима `play-vs-engine` в DTO.
@@ -122,6 +130,10 @@ export class PuzzleService {
     // KS-3343 / ADR-079 §3.6.2: обновление precision-рейтинга после
     // успешной записи PrecisionAttempt (в той же транзакции).
     private readonly precisionRating: PrecisionRatingService,
+    // KS-4696 / ADR-147 §2.1: self-emit `puzzle_start`/`puzzle_solved`/
+    // `puzzle_failed`/`hint_used`. `@Optional` — для spec-фикстур, где
+    // EventsModule не подмонтирован.
+    @Optional() private readonly events?: EventsService,
   ) {}
 
   /**
@@ -355,6 +367,16 @@ export class PuzzleService {
     }
 
     const picked = puzzles[Math.floor(Math.random() * puzzles.length)];
+    // KS-4696 / ADR-147 §2.1: `puzzle_start { puzzle_id, theme }`.
+    // Эмитим только для авторизованных (гостям этот метод тоже
+    // приходит, но self-emit для гостей не нужен — §2.2).
+    if (userId) {
+      void this.events?.track(
+        { type: 'user', id: userId },
+        'puzzle_start',
+        { puzzle_id: picked.id, theme: parseFirstTheme(picked.themes) },
+      );
+    }
     return this.formatRawPuzzle(picked);
   }
 
@@ -728,6 +750,32 @@ export class PuzzleService {
     this.logger.log(
       `Puzzle ${puzzleId} ${solved ? 'solved' : 'failed'} by user ${userId}: rating ${ratingChange.userRatingBefore} -> ${ratingChange.userRatingAfter}${isRetry ? ' (retry)' : ''}`,
     );
+
+    // KS-4696 / ADR-147 §2.1: `puzzle_solved` / `puzzle_failed`. Theme
+    // — берём первый из themes (если есть) для совместимости с
+    // примером в §2.1 (`{ puzzle_id, theme }`). `attempts` = 1 на одно
+    // событие submit; накопительный счётчик — через matview по типу.
+    void this.events?.track(
+      { type: 'user', id: userId },
+      solved ? 'puzzle_solved' : 'puzzle_failed',
+      {
+        puzzle_id: puzzleId,
+        theme: parseFirstTheme(puzzle.themes),
+        attempts: 1,
+        is_retry: isRetry,
+        hints_used: hintsUsed ?? 0,
+        time_ms: timeMs,
+      },
+    );
+    if ((hintsUsed ?? 0) > 0) {
+      // KS-4696 / ADR-147 §2.1: `hint_used` — отдельным событием для
+      // правил вида «давно использовал подсказки» / частоты подсказок.
+      void this.events?.track(
+        { type: 'user', id: userId },
+        'hint_used',
+        { puzzle_id: puzzleId, hints_used: hintsUsed },
+      );
+    }
 
     let nextPuzzle = null;
     try {

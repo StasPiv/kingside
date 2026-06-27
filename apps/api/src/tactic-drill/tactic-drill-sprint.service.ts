@@ -27,12 +27,14 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { TacticDrillService } from './tactic-drill.service';
 import { TacticDrillValidatorService } from './tactic-drill-validator.service';
+import { EventsService } from '../events/events.service';
 import { normalizeStoredAnswer } from './dto/answer.dto';
 import type {
   AnswerData,
@@ -120,6 +122,10 @@ export class TacticDrillSprintService {
     private readonly redis: RedisService,
     private readonly drillService: TacticDrillService,
     private readonly validator: TacticDrillValidatorService,
+    // KS-4696 / ADR-147 §2.1: self-emit `drill_start` (на запуск sprint).
+    // `drill_complete` per attempt уже эмитится из TacticDrillService.
+    // `@Optional` — для spec-фикстур.
+    @Optional() private readonly events?: EventsService,
   ) {}
 
   // ─── start ────────────────────────────────────────────────
@@ -191,6 +197,17 @@ export class TacticDrillSprintService {
     // eslint-disable-next-line no-console
     console.log(
       `[sprint-start] user=${userId} sessionId=${sessionId} types=${types.length}/${ALL_DRILL_TYPES.length} modeLabel=${state.modeLabel} durationMs=${body.durationMs}`,
+    );
+
+    // KS-4696 / ADR-147 §2.1: `drill_start` — старт sprint-сессии.
+    void this.events?.track(
+      { type: 'user', id: userId },
+      'drill_start',
+      {
+        session_id: sessionId,
+        duration_ms: body.durationMs,
+        types_count: types.length,
+      },
     );
 
     return {
