@@ -79,6 +79,9 @@ import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { GuestIdMiddleware } from './common/guest-id.middleware';
 // KS-4695 / ADR-147 §2.2 §8 T1c: events ingest + writer + matview refresher.
 import { EventsModule } from './events/events.module';
+// KS-4697 / ADR-147 §6 T4: GDPR-эндпоинты user + guest.
+import { MeModule } from './me/me.module';
+import { GuestModule } from './guest/guest.module';
 import { HealthController } from './health.controller';
 @Module({
   controllers: [HealthController],
@@ -166,6 +169,9 @@ import { HealthController } from './health.controller';
     // см. import выше.
     // KS-4695 / ADR-147 §8 T1c.
     EventsModule,
+    // KS-4697 / ADR-147 §8 T4.
+    MeModule,
+    GuestModule,
   ],
 })
 export class AppModule implements NestModule {

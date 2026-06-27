@@ -24,6 +24,7 @@
 import { Global, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { MetricsModule } from '../metrics/metrics.module';
+import { AnalyticsDataService } from './analytics-data.service';
 import { EventsController } from './events.controller';
 import { EventsMetricsService } from './events-metrics.service';
 import { EventsPrismaService } from './events-prisma.service';
@@ -46,7 +47,11 @@ import { EventsWriterService } from './events-writer.service';
     EventsPrismaService,
     EventsWriterService,
     EventsRefreshService,
+    // KS-4697 / ADR-147 §6.3 + §1.1: общая логика GDPR-операций
+    // и guest→user merge. Используется MeController/GuestController/
+    // AuthService.
+    AnalyticsDataService,
   ],
-  exports: [EventsService, EventsMetricsService],
+  exports: [EventsService, EventsMetricsService, AnalyticsDataService],
 })
 export class EventsModule {}

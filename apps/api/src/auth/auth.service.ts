@@ -1,6 +1,8 @@
 import {
   Injectable,
   ConflictException,
+  Logger,
+  Optional,
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -15,14 +17,20 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { OAuthProfile } from './google.strategy';
 import { DEV_USER_ID, DEV_USERNAME } from '@kingside/shared';
+import { AnalyticsDataService } from '../events/analytics-data.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly i18n: I18nService,
+    // KS-4697 / ADR-147 §1.1: guest→user merge при /auth/register.
+    // `@Optional` — для spec-фикстур, где EventsModule не подмонтирован.
+    @Optional() private readonly analyticsData?: AnalyticsDataService,
   ) {}
 
   async findOrCreateOAuthUser(profile: OAuthProfile) {
@@ -168,7 +176,7 @@ export class AuthService {
     };
   }
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, guestId: string | null = null) {
     const existing = await this.prisma.user.findFirst({
       where: {
         OR: [{ username: dto.username }, { email: dto.email }],
@@ -186,8 +194,30 @@ export class AuthService {
         username: dto.username,
         email: dto.email,
         passwordHash,
+        // KS-4697 / ADR-147 §1.1 + §6.2: при регистрации через guest-
+        // флоу с уже выписанным `guest_id` пользователь уже выразил
+        // согласие в banner'е (без него middleware guest_id не выпустил
+        // бы). Сразу проставляем `analyticsConsent=true`, чтобы
+        // следующие track-вызовы не отбрасывались.
+        ...(guestId ? { analyticsConsent: true } : {}),
       },
     });
+
+    if (guestId && this.analyticsData) {
+      try {
+        const m = await this.analyticsData.mergeGuestToUser({
+          guestId,
+          userId: user.id,
+        });
+        this.logger.log?.(
+          `guest→user merge: guest=${guestId} user=${user.id} eventsMigrated=${m.eventsMigrated} aggKeysMigrated=${m.aggKeysMigrated}`,
+        );
+      } catch (err) {
+        // Merge не должен ломать регистрацию.
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error?.(`guest→user merge failed (${guestId}→${user.id}): ${msg}`);
+      }
+    }
 
     return this.generateTokens(user.id, user.username);
   }

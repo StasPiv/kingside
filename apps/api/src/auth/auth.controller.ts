@@ -4,9 +4,11 @@ import {
   Post,
   Get,
   Body,
+  Res,
   UseGuards,
   Request,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -16,14 +18,35 @@ import {
   GoogleAuthGuard,
   FacebookAuthGuard,
 } from './oauth-auth.guard';
+import type { RequestWithGuest } from '../common/guest-id.middleware';
+import {
+  ANALYTICS_CONSENT_COOKIE,
+  ANALYTICS_CONSENT_SIG_COOKIE,
+  GUEST_ID_COOKIE,
+} from '../events/events.types';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  async register(
+    @Body() dto: RegisterDto,
+    @Request() req: RequestWithGuest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // KS-4697 / ADR-147 §1.1: после успешной регистрации с активным
+    // guest_id — мигрируем гостевые events/agg-ключи на новый user.id
+    // и сбрасываем guest_id cookie (и связанные consent-cookies),
+    // чтобы дальше клиент работал как authenticated. AuthService
+    // делает merge внутри.
+    const result = await this.authService.register(dto, req.guestId ?? null);
+    if (req.guestId) {
+      for (const name of [GUEST_ID_COOKIE, ANALYTICS_CONSENT_COOKIE, ANALYTICS_CONSENT_SIG_COOKIE]) {
+        res.append('Set-Cookie', `${name}=; Path=/; Max-Age=0; SameSite=Lax`);
+      }
+    }
+    return result;
   }
 
   @Post('login')
