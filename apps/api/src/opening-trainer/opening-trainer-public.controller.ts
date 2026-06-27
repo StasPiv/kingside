@@ -1,23 +1,17 @@
 /**
- * KS-4160 + KS-4162 / ADR-128 §6.8.2 + §10 + §11.13. Публичный
- * sub-контроллер Opening Trainer'а. Основной `OpeningTrainerController`
- * остаётся под class-`JwtAuthGuard` (личные репертуары и SRS-очередь).
- * Этот контроллер обслуживает витринные эндпоинты для гостя:
+ * KS-4160 + KS-4162 + KS-4674 / ADR-128 §6.8.2 + §10 + §11.13 + ADR-146.
+ * Публичный sub-контроллер Opening Trainer'а:
  *
  *  - `GET /opening-trainer/demo` — список demo-репертуаров.
  *  - `GET /opening-trainer/demo/:id` — конкретный demo-репертуар
  *    (`OpeningRepertoireDetailDto`, та же форма, что у личного).
  *  - `POST /opening-trainer/sessions` — 204 no-op (ADR-128 §11.13).
  *
- * По §6.8.2 контроллер без class-guard — `JwtAuthGuard`/`OptionalJwtGuard`
- * не вешаются (это публичные данные, не зависят от user-id, ADR-128 §11.12).
- * Class-level guard оставлен только для rate-limit: 60 req/min на IP
- * (§6.8.4).
- *
- * Источник данных — `DemoRepertoireSeedService` (KS-4162): seed-PGN
- * в `seeds/demo-repertoires/*.pgn`, парсится общим
- * `RepertoireBuilderService.buildTree(pgn)`. С пустой директорией
- * `/demo` отдаёт `[]`, `/demo/:id` — 404.
+ * KS-4674: источник данных переехал с in-memory file-registry
+ * (`DemoRepertoireSeedService`) в БД — `OpeningTrainerDemoService`
+ * читает `opening_repertoires WHERE is_demo=true AND is_published=true`.
+ * Контракт ответа DTO не изменился — URL-`id` это `slug`, ownerId —
+ * sentinel NIL UUID (см. сервис).
  */
 import {
   Body,
@@ -35,33 +29,35 @@ import {
 } from '../common/redis-rate-limit.guard';
 import { type OpeningRepertoireDetailDto } from '@kingside/shared';
 import {
-  DemoRepertoireSeedService,
-  type DemoRepertoireSummary,
-} from './demo-repertoire-seed.service';
+  DemoRepertoireSummary,
+  OpeningTrainerDemoService,
+} from './opening-trainer-demo.service';
 
 @Controller('opening-trainer')
 @UseGuards(RedisRateLimitGuard)
 @RateLimit(60, 60)
 export class OpeningTrainerPublicController {
-  constructor(private readonly demoSeed: DemoRepertoireSeedService) {}
+  constructor(private readonly demo: OpeningTrainerDemoService) {}
 
   /**
    * GET /opening-trainer/demo — список demo-репертуаров.
    * Прямой массив (ADR-128 §6.8.2), не `{ data: [...] }`.
    */
   @Get('demo')
-  listDemoRepertoires(): DemoRepertoireSummary[] {
-    return this.demoSeed.listSummaries();
+  listDemoRepertoires(): Promise<DemoRepertoireSummary[]> {
+    return this.demo.listSummaries();
   }
 
   /**
    * GET /opening-trainer/demo/:id — конкретный demo-репертуар.
-   * Возвращает `OpeningRepertoireDetailDto` (та же форма, что для
-   * личного `GET /opening-trainer/repertoires/:id`). Слаг не найден — 404.
+   * `:id` это slug (URL-семантика, backward-compat с KS-4162). Не найден
+   * или не опубликован → 404.
    */
   @Get('demo/:id')
-  getDemoRepertoire(@Param('id') id: string): OpeningRepertoireDetailDto {
-    const detail = this.demoSeed.getDetail(id);
+  async getDemoRepertoire(
+    @Param('id') id: string,
+  ): Promise<OpeningRepertoireDetailDto> {
+    const detail = await this.demo.getDetail(id);
     if (!detail) {
       throw new NotFoundException(`demo repertoire ${id} not found`);
     }

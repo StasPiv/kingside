@@ -1,11 +1,18 @@
-# Демо-репертуары Opening Trainer (KS-4162 / ADR-128 §10)
+# Демо-репертуары Opening Trainer (KS-4162 + KS-4674 / ADR-128 §10 + ADR-146)
 
 Источник контента для публичных GET-эндпоинтов:
 
 - `GET /opening-trainer/demo`
 - `GET /opening-trainer/demo/:id`
 
-Загрузчик — `DemoRepertoireSeedService` (`../../demo-repertoire-seed.service.ts`).
+После KS-4674 источник истины — таблица `opening_repertoires` (`is_demo=true`).
+CRUD на проде — через админский API `POST/PUT/PATCH/DELETE /admin/opening-trainer/repertoires`
+(см. `apps/api/src/opening-trainer/admin/opening-trainer-admin.controller.ts`).
+
+PGN-файлы в этой директории используются bootstrap-скриптом
+`apps/api/src/scripts/seed-demo-repertoires.ts` — однократный перенос
+исторического набора в БД на проде и заливка демо-данных на чистый
+снапшот локальной разработки. Идемпотентен (upsert по `(is_demo=true, slug)`).
 
 ## Формат
 

@@ -1867,7 +1867,25 @@ model UserNavStat {
  */
 model OpeningRepertoire {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
+  /// KS-4674 / ADR-146 §2.2. Nullable: для админских/демо репертуаров
+  /// (`isDemo=true`) владельца нет — поле NULL. Для пользовательских
+  /// (`isDemo=false`) — UUID владельца. Инвариант enforce'ится
+  /// БД-CHECK (см. миграцию `20260627_ks4674_*`).
+  userId      String?  @map("user_id") @db.Uuid
+  /// KS-4674 / ADR-146 §2.1. Стабильный человекочитаемый идентификатор
+  /// демо-репертуара — фигурирует в URL `/opening-trainer/demo/<slug>`.
+  /// У пользовательских репертуаров — NULL. Partial UNIQUE по миграции
+  /// (`opening_repertoires_demo_slug_uniq WHERE is_demo=true`).
+  slug        String?
+  /// KS-4674 / ADR-146. Флаг «админский/публичный демо-репертуар».
+  /// Двойственная сущность в одной таблице решена через явный флаг —
+  /// см. ADR-146 §2.1 для альтернатив.
+  isDemo      Boolean  @default(false) @map("is_demo")
+  /// KS-4674 / ADR-146. Для админских записей: черновик (false) /
+  /// опубликован (true). Только `is_demo=true AND is_published=true`
+  /// видны в публичном `GET /opening-trainer/demo`. Для
+  /// пользовательских (`is_demo=false`) поле не используется.
+  isPublished Boolean  @default(false) @map("is_published")
   title       String
   /// Описание (опц.) — отображается на карточке репертуара.
   description String?
@@ -1895,7 +1913,11 @@ model OpeningRepertoire {
   /// до hard-delete (отдельным cleanup job'ом, M2).
   deletedAt   DateTime? @map("deleted_at")
 
-  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// KS-4674 / ADR-146. Relation теперь опциональна (см. `userId`).
+  /// FK `ON DELETE CASCADE` оставлен по уточнению ADR-146 §3 п.2:
+  /// удалил пользователя → удалили его репертуары. Для админских
+  /// (`userId=NULL`) FK не сработает — что и нужно.
+  user        User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions    OpeningTrainerSession[]
   // KS-3287 (M2): per-path прогресс линий этого репертуара.
   lineProgress OpeningLineProgress[]
@@ -1906,6 +1928,13 @@ model OpeningRepertoire {
   @@index([userId, createdAt(sort: Desc)])
   /// Cleanup job'у нужен индекс по deleted_at для hard-delete (M2).
   @@index([deletedAt])
+  /// KS-4674: вспомогательный индекс по slug — partial UNIQUE для
+  /// `is_demo=true` создаётся отдельной raw SQL миграцией (Prisma не
+  /// поддерживает partial unique декларативно).
+  @@index([slug])
+  /// KS-4674 / ADR-146 §2.5. Публичная выборка `/opening-trainer/demo`:
+  /// `WHERE is_demo=true AND is_published=true ORDER BY created_at DESC`.
+  @@index([isDemo, isPublished, createdAt(sort: Desc)])
   @@map("opening_repertoires")
 }
 

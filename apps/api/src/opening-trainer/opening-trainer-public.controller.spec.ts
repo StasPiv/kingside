@@ -1,8 +1,17 @@
+/**
+ * KS-4160 + KS-4162 + KS-4674 (ADR-128 §6.8.2 + §11.13 + ADR-146):
+ * Public-контроллер демо-репертуаров. После KS-4674 источник данных —
+ * БД через `OpeningTrainerDemoService`. Тесты file-loader (парсинг
+ * PGN/meta/BOM/slug-фильтр) остались в `demo-repertoire-seed.service.spec.ts`
+ * — теперь это утилита для bootstrap-скрипта, не runtime.
+ *
+ * Здесь покрываем:
+ *   1. Guards/rate-limit инварианты (KS-4160) — не изменились.
+ *   2. Делегирование в `OpeningTrainerDemoService` (KS-4674).
+ *   3. 404 на отсутствующий slug.
+ */
 import { NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import {
@@ -11,46 +20,18 @@ import {
 } from '../common/redis-rate-limit.guard';
 import { OpeningTrainerController } from './opening-trainer.controller';
 import { OpeningTrainerPublicController } from './opening-trainer-public.controller';
-import { DemoRepertoireSeedService } from './demo-repertoire-seed.service';
-import { RepertoireBuilderService } from './repertoire-builder.service';
 
-/**
- * KS-4160 (ADR-128 §6.8.2 + §11.13) — инварианты guard'ов / контракта,
- * KS-4162 — seed-loader: пустая директория, валидный PGN, битый PGN,
- * meta.json, slug-фильтр.
- *
- * Spec работает с реальной файловой системой (tmpdir), чтобы прокатить
- * полный путь `onModuleInit → fs.readdir → builder.buildTree`.
- * Изоляция тестов — отдельная tmp-директория на каждый seed-набор.
- */
-
-/**
- * Подкласс, позволяющий указать произвольную seed-директорию.
- * Spec гоняется без реальных PGN в репозитории.
- */
-class TestableDemoSeedService extends DemoRepertoireSeedService {
-  constructor(builder: RepertoireBuilderService, private readonly dir: string) {
-    super(builder);
-  }
-  protected override getSeedDir(): string {
-    return this.dir;
-  }
+function makeDemoSvcMock(opts: {
+  list?: unknown[];
+  detail?: unknown;
+} = {}) {
+  return {
+    listSummaries: jest.fn().mockResolvedValue(opts.list ?? []),
+    getDetail: jest.fn().mockResolvedValue(opts.detail ?? null),
+  };
 }
 
-function tmpSeedDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'demo-seed-'));
-}
-
-function makeService(dir: string): TestableDemoSeedService {
-  const builder = new RepertoireBuilderService();
-  const svc = new TestableDemoSeedService(builder, dir);
-  svc.onModuleInit();
-  return svc;
-}
-
-const MIN_PGN = '[Event "Italian"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bc4 *';
-
-describe('OpeningTrainerPublicController (KS-4160 / KS-4162)', () => {
+describe('OpeningTrainerPublicController', () => {
   const reflector = new Reflector();
 
   // ── Guards / rate-limit инварианты (KS-4160) ─────────────────────
@@ -84,204 +65,65 @@ describe('OpeningTrainerPublicController (KS-4160 / KS-4162)', () => {
     expect(guards).toContain(JwtAuthGuard);
   });
 
-  // ── Поведение с пустой директорией (KS-4162 §проверка) ───────────
+  // ── Делегирование (KS-4674) ──────────────────────────────────────
 
-  describe('пустая директория seed', () => {
-    let dir: string;
-    let controller: OpeningTrainerPublicController;
-    beforeEach(() => {
-      dir = tmpSeedDir();
-      controller = new OpeningTrainerPublicController(makeService(dir));
-    });
-    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-    it('GET /demo → []', () => {
-      expect(controller.listDemoRepertoires()).toEqual([]);
-    });
-
-    it('GET /demo/:id → 404 на любой id', () => {
-      expect(() => controller.getDemoRepertoire('anything')).toThrow(
-        NotFoundException,
-      );
-    });
+  it('GET /demo делегирует в demo.listSummaries и возвращает массив', async () => {
+    const summary = [
+      {
+        id: 'italian',
+        title: 'Italian',
+        description: 'desc',
+        treeSize: 12,
+        side: 'white' as const,
+        languages: [],
+      },
+    ];
+    const svc = makeDemoSvcMock({ list: summary });
+    const ctrl = new OpeningTrainerPublicController(svc as never);
+    await expect(ctrl.listDemoRepertoires()).resolves.toEqual(summary);
+    expect(svc.listSummaries).toHaveBeenCalledTimes(1);
   });
 
-  // ── Полноценный seed с PGN + meta.json ───────────────────────────
-
-  describe('seed с одним валидным PGN', () => {
-    let dir: string;
-    let controller: OpeningTrainerPublicController;
-    beforeEach(() => {
-      dir = tmpSeedDir();
-      fs.writeFileSync(path.join(dir, 'italian.pgn'), MIN_PGN, 'utf8');
-      fs.writeFileSync(
-        path.join(dir, 'italian.meta.json'),
-        JSON.stringify({
-          side: 'white',
-          description: 'Итальянка за белых',
-          languages: ['ru', 'en'],
-        }),
-        'utf8',
-      );
-      controller = new OpeningTrainerPublicController(makeService(dir));
-    });
-    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-    it('GET /demo возвращает summary-карточку', () => {
-      const list = controller.listDemoRepertoires();
-      expect(list).toHaveLength(1);
-      const card = list[0];
-      expect(card.id).toBe('italian');
-      // title из PGN-тега [Event "Italian"]
-      expect(card.title).toBe('Italian');
-      expect(card.description).toBe('Итальянка за белых');
-      expect(card.side).toBe('white');
-      expect(card.languages).toEqual(['ru', 'en']);
-      expect(card.treeSize).toBeGreaterThan(1);
-    });
-
-    it('GET /demo/:id возвращает OpeningRepertoireDetailDto-форму с непустым tree.nodes', () => {
-      const detail = controller.getDemoRepertoire('italian');
-      expect(detail.id).toBe('italian');
-      expect(detail.ownerId).toBe('00000000-0000-0000-0000-000000000000');
-      expect(detail.side).toBe('white');
-      expect(detail.pgn).toBe(MIN_PGN);
-      expect(detail.tree).toBeDefined();
-      expect(detail.tree.meta.nodeCount).toBeGreaterThan(1);
-      expect(detail.tree.meta.edgeCount).toBeGreaterThan(0);
-      // Узлы — словарь FEN → node; должен быть как минимум root.
-      expect(Object.keys(detail.tree.nodes).length).toBeGreaterThan(1);
-      expect(detail.sources).toHaveLength(1);
-      expect(detail.sources[0].pgn).toBe(MIN_PGN);
-    });
-
-    it('GET /demo/неизвестный → 404', () => {
-      expect(() => controller.getDemoRepertoire('unknown')).toThrow(
-        NotFoundException,
-      );
-    });
+  it('GET /demo возвращает [] на пустом результате', async () => {
+    const svc = makeDemoSvcMock({ list: [] });
+    const ctrl = new OpeningTrainerPublicController(svc as never);
+    await expect(ctrl.listDemoRepertoires()).resolves.toEqual([]);
   });
 
-  // ── Defaults без meta.json ───────────────────────────────────────
-
-  describe('PGN без meta.json: side="white", description из [Annotator]', () => {
-    let dir: string;
-    let controller: OpeningTrainerPublicController;
-    beforeEach(() => {
-      const pgn = '[Event "London"]\n[Annotator "GM Smith"]\n\n1. d4 d5 2. Bf4 *';
-      dir = tmpSeedDir();
-      fs.writeFileSync(path.join(dir, 'london.pgn'), pgn, 'utf8');
-      controller = new OpeningTrainerPublicController(makeService(dir));
-    });
-    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-    it('defaults применены', () => {
-      const list = controller.listDemoRepertoires();
-      expect(list).toHaveLength(1);
-      expect(list[0].side).toBe('white');
-      expect(list[0].description).toBe('GM Smith');
-      expect(list[0].languages).toEqual([]);
-    });
+  it('GET /demo/:id делегирует в demo.getDetail и возвращает detail', async () => {
+    const detail = {
+      id: 'italian',
+      ownerId: '00000000-0000-0000-0000-000000000000',
+      title: 'Italian',
+      description: null,
+      side: 'white' as const,
+      nodeCount: 5,
+      edgeCount: 4,
+      maxDepth: 3,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      pgn: '',
+      tree: { rootFen: 'x', nodes: {}, meta: { nodeCount: 5, edgeCount: 4, maxDepth: 3 } },
+      sources: [],
+    };
+    const svc = makeDemoSvcMock({ detail });
+    const ctrl = new OpeningTrainerPublicController(svc as never);
+    await expect(ctrl.getDemoRepertoire('italian')).resolves.toBe(detail);
+    expect(svc.getDetail).toHaveBeenCalledWith('italian');
   });
 
-  // ── Битый PGN не валит сервис, отсутствует в списке ──────────────
-
-  describe('битый PGN', () => {
-    let dir: string;
-    let svc: TestableDemoSeedService;
-    let controller: OpeningTrainerPublicController;
-    beforeEach(() => {
-      dir = tmpSeedDir();
-      fs.writeFileSync(path.join(dir, 'broken.pgn'), 'nonsense', 'utf8');
-      fs.writeFileSync(path.join(dir, 'ok.pgn'), MIN_PGN, 'utf8');
-      svc = makeService(dir);
-      controller = new OpeningTrainerPublicController(svc);
-    });
-    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-    it('хороший репертуар грузится, плохой пропускается', () => {
-      const list = controller.listDemoRepertoires();
-      expect(list.map((d) => d.id)).toEqual(['ok']);
-    });
-
-    it('/demo/broken → 404 (как будто файла не было)', () => {
-      expect(() => controller.getDemoRepertoire('broken')).toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  // ── Slug-фильтр: непригодные имена файлов пропускаются ───────────
-
-  describe('slug-фильтр', () => {
-    let dir: string;
-    let controller: OpeningTrainerPublicController;
-    beforeEach(() => {
-      dir = tmpSeedDir();
-      fs.writeFileSync(path.join(dir, 'has space.pgn'), MIN_PGN, 'utf8');
-      fs.writeFileSync(path.join(dir, 'Caps.pgn'), MIN_PGN, 'utf8'); // нижний регистр после slug
-      controller = new OpeningTrainerPublicController(makeService(dir));
-    });
-    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-    it('файл с пробелом отбрасывается, "Caps.pgn" — это slug "caps"', () => {
-      const list = controller.listDemoRepertoires();
-      // Только "caps" (lower-cased slug)
-      expect(list.map((d) => d.id)).toEqual(['caps']);
-    });
-  });
-
-  // ── BOM-страйп (KS-4165): UTF-8 BOM от ChessBase/Notepad ─────────
-
-  describe('PGN с UTF-8 BOM', () => {
-    let dir: string;
-    let controller: OpeningTrainerPublicController;
-    beforeEach(() => {
-      const pgn = '﻿[Event "BOM Test"]\n\n1. e4 e5 *';
-      dir = tmpSeedDir();
-      fs.writeFileSync(path.join(dir, 'bom.pgn'), pgn, 'utf8');
-      controller = new OpeningTrainerPublicController(makeService(dir));
-    });
-    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-    it('BOM убран, title из [Event], дерево не пустое', () => {
-      const list = controller.listDemoRepertoires();
-      expect(list).toHaveLength(1);
-      expect(list[0].title).toBe('BOM Test');
-      expect(list[0].treeSize).toBeGreaterThan(1);
-    });
-  });
-
-  // ── PGN-тег "?" (KS-4165): placeholder, fallback на slug ─────────
-
-  describe('PGN-тег [Event "?"]: placeholder игнорируется', () => {
-    let dir: string;
-    let controller: OpeningTrainerPublicController;
-    beforeEach(() => {
-      const pgn = '[Event "?"]\n[Annotator "?"]\n\n1. d4 d5 *';
-      dir = tmpSeedDir();
-      fs.writeFileSync(path.join(dir, 'london-black.pgn'), pgn, 'utf8');
-      controller = new OpeningTrainerPublicController(makeService(dir));
-    });
-    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-    it('title из slug (Title Case), description пустая, не "?"', () => {
-      const list = controller.listDemoRepertoires();
-      expect(list).toHaveLength(1);
-      expect(list[0].title).toBe('London Black');
-      expect(list[0].description).toBe('');
-    });
+  it('GET /demo/:id → 404 если getDetail вернул null', async () => {
+    const svc = makeDemoSvcMock({ detail: null });
+    const ctrl = new OpeningTrainerPublicController(svc as never);
+    await expect(ctrl.getDemoRepertoire('unknown')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   // ── POST /sessions: 204 no-op (KS-4160 / §11.13) ─────────────────
 
   it('POST /sessions: 204 no-op, без рантайм-ошибок', () => {
-    const dir = tmpSeedDir();
-    const controller = new OpeningTrainerPublicController(makeService(dir));
-    try {
-      expect(controller.startSession({})).toBeUndefined();
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    const ctrl = new OpeningTrainerPublicController(makeDemoSvcMock() as never);
+    expect(ctrl.startSession({})).toBeUndefined();
   });
 });

@@ -1694,7 +1694,12 @@ export class OpeningTrainerService {
 
 interface RepertoireRow {
   id: string;
-  userId: string;
+  // KS-4674: nullable в Prisma, но в этот mapper попадают только
+  // строки пользовательских репертуаров (`is_demo=false`), у которых
+  // `user_id IS NOT NULL` гарантирован БД-CHECK
+  // (`opening_repertoires_demo_user_invariant_check`). rowToRepertoireDto
+  // явно проверяет и бросает при инварианте — defense in depth.
+  userId: string | null;
   title: string;
   description: string | null;
   pgn: string;
@@ -1738,6 +1743,14 @@ interface SessionRow {
 }
 
 function rowToRepertoireDto(row: RepertoireRow): OpeningRepertoireDto {
+  // KS-4674 / ADR-146: пользовательский поток ВСЕГДА имеет userId.
+  // Demo-репертуары (`is_demo=true`, `user_id IS NULL`) уходят через
+  // OpeningTrainerDemoService — этот mapper их видеть не должен.
+  if (!row.userId) {
+    throw new Error(
+      `rowToRepertoireDto: user repertoire ${row.id} has NULL userId (invariant violation: demo row leaked into user flow)`,
+    );
+  }
   return {
     id: row.id,
     ownerId: row.userId,
