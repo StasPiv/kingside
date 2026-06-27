@@ -42,6 +42,12 @@ export * from './utils/lecture-replay/buildMoveTimestampIndex.js';
 export * from './synthetic-chat-phrases.js';
 export * from './constants.js';
 export * from './constants/archive.js';
+// KS-4689 / ADR-147 §4.2 + §4.2.1 + §9: контракты контекстных подсказок —
+// enum anchor'ов, payload WS-события `hint:show` и REST lifecycle,
+// список тихих страниц для `HintsEngine`.
+export * from './types/hint-anchors.js';
+export * from './types/hint-payload.js';
+export * from './constants/hint-quiet-pages.js';
 export * from './utils/time-control.js';
 export * from './utils/fen-key.js';
 export * from './utils/archive-name-normalize.js';
