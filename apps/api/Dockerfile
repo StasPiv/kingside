@@ -61,6 +61,10 @@ COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
 COPY packages/archive-db ./packages/archive-db
 COPY packages/broadcasts-db ./packages/broadcasts-db
+# KS-4695 / ADR-147 T1c: events-db нужен apps/api (EventsModule
+# импортирует `@kingside/events-db` PrismaClient под учёткой
+# events_writer / owner).
+COPY packages/events-db ./packages/events-db
 COPY packages/board-image-to-fen ./packages/board-image-to-fen
 COPY packages/maia-core ./packages/maia-core
 COPY apps/api ./apps/api
@@ -82,6 +86,9 @@ RUN cd packages/archive-db && ARCHIVE_DATABASE_URL="postgresql://dummy:dummy@loc
 # apps/api/src/scripts/seed-broadcast-fixture.ts (импортирует PrismaClient
 # из @kingside/broadcasts-db).
 RUN cd packages/broadcasts-db && BROADCASTS_DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
+# KS-4695 / ADR-147 T1c: events-db (events.actor_events + matviews) —
+# нужен apps/api EventsModule.
+RUN cd packages/events-db && EVENTS_DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 # KS-3058 / KS-3051 (ADR-045 E4): отбросить devDependencies (typescript,
 # jest, ts-jest, @nestjs/cli, @types/*, ts-node-dev и т.п.).
