@@ -416,6 +416,13 @@ ECR_URI_API_MIGRATIONS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-a
 # prisma CLI / @prisma/engines — даёт экономию ~30-60 МБ сжатых на каждый.
 ECR_URI_ARCHIVE_MIGRATIONS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service-migrations"
 ECR_URI_BROADCAST_MIGRATIONS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-service-migrations"
+# KS-4694 / ADR-147 §2.3: тот же паттерн для events-db. Несмотря на то, что
+# events-db физически в той же РДС `kingside-db`, что и main, у неё отдельный
+# пакет `packages/events-db` с собственным prisma schema и migrations, и пишет
+# в неё отдельный логин events_writer (KS-4692). Отдельный migration-образ
+# симметрично с api/archive/broadcast, чтобы не тащить prisma CLI в prod-образ
+# kingside-api.
+ECR_URI_EVENTS_MIGRATIONS="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-events-migrations"
 # Короткие имена ECR-repo для aws ecr put-image / batch-get-image.
 ECR_REPO_API="kingside-api"
 ECR_REPO_API_MIGRATIONS="kingside-api-migrations"  # KS-3924
@@ -424,6 +431,7 @@ ECR_REPO_BROADCAST_SERVICE="kingside-broadcast-service"
 ECR_REPO_BROADCAST_MIGRATIONS="kingside-broadcast-service-migrations"  # KS-3925
 ECR_REPO_ARCHIVE_SERVICE="kingside-archive-service"
 ECR_REPO_ARCHIVE_MIGRATIONS="kingside-archive-service-migrations"  # KS-3925
+ECR_REPO_EVENTS_MIGRATIONS="kingside-events-migrations"  # KS-4694
 ECR_REPO_TACTIC_WORKER="kingside-tactic-worker"
 ECR_REPO_PRERENDER_SERVICE="kingside-prerender-service"  # KS-4194
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
@@ -451,6 +459,16 @@ TD_FAMILY_ARCHIVE_SERVICE="kingside-archive-service"
 # берутся из его env). Одна migrate-family на все три ARCHIVE_TD_FAMILIES —
 # БД одна (archive_kingside, ADR-018/019).
 TD_FAMILY_ARCHIVE_MIGRATE="kingside-archive-service-migrate"
+# KS-4694 / ADR-147 §2.3: migrate task-def family для events-db. Клонируется с
+# kingside-api на каждом деплое api scope, потому что:
+#   - events-db живёт в той же физической РДС kingside-db, что и main (отдельной
+#     БД нет, только schema events);
+#   - secrets/env api task-def уже содержат host/dbname для kingside-db,
+#     дополнительно нужен только EVENTS_WRITER_PASSWORD из
+#     `kingside/events-writer-password` (KS-4692). Задача backend (T1c) — добавить
+#     этот secret в kingside-api task-def и собрать EVENTS_DATABASE_URL из
+#     EVENTS_WRITER_PASSWORD + host/dbname.
+TD_FAMILY_EVENTS_MIGRATE="kingside-events-migrate"
 TD_FAMILY_ARCHIVE_IMPORTER="kingside-archive-importer"
 # KS-2440: task-def family для tactic-worker. Один family на все subcommand'ы
 # (index-tactic-drills / sf-validate / generate-puzzles), реальная команда
@@ -1602,6 +1620,73 @@ if $DEPLOY_API; then
         echo "[api] migrate skipped, schema up-to-date (KS-3049)"
     fi
     _perf_stamp "api_migrate_done"
+
+    # KS-4694 / ADR-147 §2.3: events-db migration build & deploy. events-db
+    # физически в той же РДС, что и main, но отдельная schema events и
+    # отдельный пакет `packages/events-db`. Прогоняется отдельной Fargate-таской
+    # в той же сети, что api-migrate, между main migrate и rollout — чтобы T1c
+    # writer-воркер при старте видел готовую таблицу `events.actor_events`.
+    NEW_EVENTS_MIG_IMAGE="${ECR_URI_EVENTS_MIGRATIONS}:${DEPLOY_SHA}"
+    ensure_ecr_repo "$ECR_REPO_EVENTS_MIGRATIONS"
+
+    echo "[api] Building events-migrations image (tag=$DEPLOY_SHA)..."
+    EV_MIG_BUILD_LOG="$REPO_DIR/logs/events-migrations-build-${DEPLOY_SHA}.log"
+    set +e
+    docker build --progress=plain -t "kingside-events-migrations:${DEPLOY_SHA}" \
+        -f "$REPO_DIR/scripts/Dockerfile.events-migrations" "$REPO_DIR" 2>&1 \
+        | _with_ts | tee "$EV_MIG_BUILD_LOG"
+    EV_MIG_BUILD_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$EV_MIG_BUILD_RC" -ne 0 ]; then
+        echo "  ERROR: events-migrations image build failed (rc=$EV_MIG_BUILD_RC). Full log: $EV_MIG_BUILD_LOG"
+        tail -80 "$EV_MIG_BUILD_LOG" || true
+        exit "$EV_MIG_BUILD_RC"
+    fi
+    _perf_stamp "api_events_migrations_build_done"
+
+    echo "[api] Pushing ${ECR_REPO_EVENTS_MIGRATIONS}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-events-migrations:${DEPLOY_SHA}" "$NEW_EVENTS_MIG_IMAGE"
+    EV_MIG_PUSH_LOG="$REPO_DIR/logs/events-migrations-push-${DEPLOY_SHA}.log"
+    set +e
+    docker push "$NEW_EVENTS_MIG_IMAGE" 2>&1 | _with_ts | tee "$EV_MIG_PUSH_LOG" | tail -3
+    EV_MIG_PUSH_RC=${PIPESTATUS[0]}
+    set -e
+    if [ "$EV_MIG_PUSH_RC" -ne 0 ]; then
+        echo "  ERROR: events-migrations push failed (rc=$EV_MIG_PUSH_RC). Full log: $EV_MIG_PUSH_LOG"
+        exit "$EV_MIG_PUSH_RC"
+    fi
+    _perf_stamp "api_events_migrations_push_done"
+
+    if should_run_migrate "events" "packages/events-db/prisma/migrations"; then
+        echo "[api] Running Prisma migrations for events-db..."
+        # events-migrate task-def family `kingside-events-migrate` клонируется
+        # с kingside-api на каждом деплое — все secrets/env (включая
+        # EVENTS_DATABASE_URL) уже унаследованы. Команду не override-им —
+        # ENTRYPOINT events-migration-образа = `npx prisma migrate deploy`,
+        # schema лежит в /app/prisma/schema.prisma (события).
+        # Schema.prisma events-db читает env("EVENTS_DATABASE_URL") — добавлен
+        # в kingside-api task-def как ECS secret-mapping
+        # (`kingside/api-nfkTKX:EVENTS_DATABASE_URL::`, KS-4694).
+        NEW_EVENTS_MIG_TD_ARN=$(register_migrate_task_def_revision \
+            "$TD_FAMILY_EVENTS_MIGRATE" "$TD_FAMILY_API" "$NEW_EVENTS_MIG_IMAGE")
+        echo "  events-migrate task-def: $NEW_EVENTS_MIG_TD_ARN"
+        EVENTS_MIGRATE_TASK=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" --task-definition "$NEW_EVENTS_MIG_TD_ARN" --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+        aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$EVENTS_MIGRATE_TASK"
+        EVENTS_MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$EVENTS_MIGRATE_TASK" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+        if [ "$EVENTS_MIGRATE_EXIT" != "0" ]; then
+            echo "  ERROR: events Prisma migrate failed (exit $EVENTS_MIGRATE_EXIT). Aborting deploy."
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+            exit 1
+        fi
+        echo "  events migrations applied."
+    else
+        echo "[api] events migrate skipped"
+    fi
+    _perf_stamp "api_events_migrate_done"
 
     echo "[api] Updating ECS service to new revision..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \

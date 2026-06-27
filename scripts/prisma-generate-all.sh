@@ -24,5 +24,6 @@ run_generate() {
 run_generate "main (kingside)" "packages/db/prisma/schema.prisma"
 run_generate "archive" "packages/archive-db/prisma/schema.prisma"
 run_generate "broadcasts" "packages/broadcasts-db/prisma/schema.prisma"
+run_generate "events" "packages/events-db/prisma/schema.prisma"
 
 echo "[prisma:generate] готово"

@@ -16,7 +16,14 @@
 BEGIN;
 
 -- 1. Extensions.
-CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA public;
+--    KS-4694 fixup: pg_partman 5.x ОБЯЗАН жить в schema `partman` (его
+--    миграция events-db обращается к `partman.create_parent`,
+--    `partman.part_config`, `partman.run_maintenance_proc`). Если ставить
+--    в `public`, объекты создаются там же, но prisma-миграция упадёт на
+--    `partman.part_config does not exist`. Исправлено по факту наката
+--    KS-4694 (drop+recreate в schema partman).
+CREATE SCHEMA IF NOT EXISTS partman;
+CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman;
 CREATE EXTENSION IF NOT EXISTS pg_cron;  -- pg_cron живёт в schema cron в БД cron.database_name=kingside.
 
 -- 2. Изолированная схема для аналитики.

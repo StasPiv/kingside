@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1
+#
+# KS-4694: лёгкий образ для запуска `prisma migrate deploy` в pre-rollout Fargate
+# task для events-db (ADR-147 §2.3). Отделён от production-образа `kingside-api`,
+# чтобы:
+#   - `prisma` CLI и `@prisma/engines` (~170 МБ) ушли из production node_modules
+#     (см. KS-3718, KS-3058);
+#   - cold start Fargate task для миграций был быстрее (меньше слой ECR pull).
+#
+# Симметричен scripts/Dockerfile.migrations (api, KS-3924) и
+# scripts/Dockerfile.broadcast-migrations (KS-3925) — отличается только COPY-путём
+# (packages/events-db/prisma вместо packages/db/prisma).
+#
+# Контекст сборки: корень репозитория ($REPO_DIR), запуск из scripts/deploy-aws.sh
+# через `docker build -f scripts/Dockerfile.events-migrations`.
+#
+# Содержит ТОЛЬКО:
+#   - node:20-slim + openssl (зависимость query/schema-engine);
+#   - prisma@6.19.3 CLI + @prisma/engines (выкачивается postinstall'ом под
+#     debian-openssl-3.0.x — совпадает с binaryTargets в schema.prisma);
+#   - packages/events-db/prisma/* (schema + migrations).
+#
+# НЕ содержит: application-кода, @prisma/client, generated client,
+# packages/* кроме schema/migrations, никаких aws/python-зависимостей.
+#
+# schema.prisma events-db ссылается на env("EVENTS_DATABASE_URL") — переменная
+# собирается task-def'ом из EVENTS_WRITER_PASSWORD (ECS secret mapping на
+# `kingside/events-writer-password:password::`, KS-4692) + захардкоженных
+# host/dbname/sslmode в команде ENTRYPOINT'а.
+#
+# Физически events-db живёт в той же РДС `kingside-db`, что и main — отдельная
+# схема `events` (KS-4690) с минимально-приваторованным логином
+# `events_writer` (KS-4692).
+
+FROM node:20-slim
+
+# OpenSSL нужен query-engine'у/schema-engine'у Prisma. ca-certificates — для
+# postinstall (скачивает движки из binaries.prisma.sh).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Изолированный package.json в /app — не тащим monorepo lock сюда, чтобы не
+# инвалидировать кэш этого слоя на любые изменения root package-lock.json.
+# Версия prisma пиннится явно (синхронизировано с packages/events-db/package.json:
+# "prisma": "^6.19.2", задаём конкретный patch 6.19.3 как у других migration-образов).
+RUN npm init -y --silent \
+    && npm install --no-audit --no-fund prisma@6.19.3
+
+# Только prisma-каталог: schema.prisma + migrations/. Никакого src/, dist/,
+# generated/ — `migrate deploy` ничего из этого не использует.
+COPY packages/events-db/prisma ./prisma
+
+# `prisma migrate deploy` по дефолту читает ./prisma/schema.prisma. EVENTS_DATABASE_URL
+# берётся из env (task-def собирает его из EVENTS_WRITER_PASSWORD secret +
+# host/dbname/sslmode в env API task-def — см. KS-4694).
+ENTRYPOINT ["npx", "prisma", "migrate", "deploy"]

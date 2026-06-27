@@ -8,6 +8,7 @@
 #   PRISMA_SCOPE=main npm run prisma:migrate     # только packages/db (kingside)
 #   PRISMA_SCOPE=archive ...                     # только archive-db
 #   PRISMA_SCOPE=broadcasts ...                  # только broadcasts-db
+#   PRISMA_SCOPE=events ...                      # только events-db (та же БД, schema events)
 #
 # KS-2608: Альтернативные действия для диагностики/починки локального дрейфа
 # (механизм передачи действия из MCP-агента, у которого нет ENV в whitelist).
@@ -78,6 +79,9 @@ prisma_invoke() {
       ;;
     packages/broadcasts-db/prisma/*)
       workspace_dir="packages/broadcasts-db"
+      ;;
+    packages/events-db/prisma/*)
+      workspace_dir="packages/events-db"
       ;;
     *)
       workspace_dir="apps/api"
@@ -445,22 +449,39 @@ dispatch_for_scope() {
         *) echo "[prisma:migrate] неизвестный ACTION='$action'"; exit 2 ;;
       esac
       ;;
+    events)
+      # KS-4694 / ADR-147 §2.3: events-db физически в той же БД kingside-db,
+      # что и main, но отдельная схема `events` и отдельный логин
+      # `events_writer`. EVENTS_DATABASE_URL формата
+      # `postgresql://events_writer:<pass>@host:5432/kingside?schema=events&sslmode=require`.
+      case "$action" in
+        deploy) run_migrate "events" "packages/events-db/prisma/schema.prisma" "EVENTS_DATABASE_URL" ;;
+        status) run_status "events" "packages/events-db/prisma/schema.prisma" "EVENTS_DATABASE_URL" ;;
+        diff)   run_diff   "events" "packages/events-db/prisma/schema.prisma" "EVENTS_DATABASE_URL" ;;
+        resolve-applied:*|resolve-rolled-back:*)
+          run_resolve "events" "packages/events-db/prisma/schema.prisma" "EVENTS_DATABASE_URL" "$mode" "$name" ;;
+        *) echo "[prisma:migrate] неизвестный ACTION='$action'"; exit 2 ;;
+      esac
+      ;;
     all)
       case "$action" in
         deploy)
           run_migrate "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
           run_migrate "archive" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL"
           run_migrate "broadcasts" "packages/broadcasts-db/prisma/schema.prisma" "BROADCASTS_DATABASE_URL"
+          run_migrate "events" "packages/events-db/prisma/schema.prisma" "EVENTS_DATABASE_URL"
           ;;
         status)
           run_status "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
           run_status "archive" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL"
           run_status "broadcasts" "packages/broadcasts-db/prisma/schema.prisma" "BROADCASTS_DATABASE_URL"
+          run_status "events" "packages/events-db/prisma/schema.prisma" "EVENTS_DATABASE_URL"
           ;;
         diff)
           run_diff "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
           run_diff "archive" "packages/archive-db/prisma/schema.prisma" "ARCHIVE_DATABASE_URL"
           run_diff "broadcasts" "packages/broadcasts-db/prisma/schema.prisma" "BROADCASTS_DATABASE_URL"
+          run_diff "events" "packages/events-db/prisma/schema.prisma" "EVENTS_DATABASE_URL"
           ;;
         diff-main)
           run_diff "main (kingside)" "packages/db/prisma/schema.prisma" "DATABASE_URL"
@@ -536,7 +557,7 @@ dispatch_for_scope() {
       esac
       ;;
     *)
-      echo "[prisma:migrate] неизвестный PRISMA_SCOPE='$SCOPE' (доступно: all|main|archive|broadcasts)" >&2
+      echo "[prisma:migrate] неизвестный PRISMA_SCOPE='$SCOPE' (доступно: all|main|archive|broadcasts|events)" >&2
       exit 2
       ;;
   esac
