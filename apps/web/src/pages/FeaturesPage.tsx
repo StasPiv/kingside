@@ -152,6 +152,9 @@ function GuestLandingHome() {
             to="/play/local-bot"
             className="features-btn features-btn--primary"
             data-testid="landing-hero-cta-play"
+            /* KS-4704 / ADR-147 §9: гостевой anchor `landing-play-button`
+               — для подсказок о регистрации перед попыткой партии. */
+            data-hint-anchor="landing-play-button"
           >
             {t('landing.hero.ctaPlay')}
           </Link>
@@ -194,8 +197,14 @@ function GuestLandingHome() {
         </div>
       </section>
 
-      {/* §5.2 USP — два пункта с h3 и пояснением */}
-      <section className="landing-usp" data-testid="landing-usp">
+      {/* §5.2 USP — два пункта с h3 и пояснением. KS-4704 / ADR-147 §9:
+          гостевой anchor `landing-features-block` — для общих подсказок
+          о фичах сайта. */}
+      <section
+        className="landing-usp"
+        data-testid="landing-usp"
+        data-hint-anchor="landing-features-block"
+      >
         <article className="landing-usp__item">
           <span className="landing-usp__icon" aria-hidden="true">🤖</span>
           <h3 className="landing-usp__title">{t('landing.usp.point1.title')}</h3>
@@ -218,6 +227,9 @@ function GuestLandingHome() {
               to={card.to}
               className="landing-card"
               data-testid={`landing-card-${card.key}`}
+              /* KS-4704 / ADR-147 §9: гостевой anchor
+                 `landing-puzzles-tile` — для `guest-try-puzzles`. */
+              data-hint-anchor={card.key === 'puzzles' ? 'landing-puzzles-tile' : undefined}
             >
               <span className="landing-card__icon" aria-hidden="true">{card.icon}</span>
               <p className="landing-card__text">{t(`landing.cards.${card.key}`)}</p>
@@ -275,6 +287,9 @@ function GuestLandingHome() {
           to="/register"
           className="features-btn features-btn--primary"
           data-testid="landing-cta-register"
+          /* KS-4704 / ADR-147 §9: гостевой anchor `landing-signup-button`
+             — для `guest-register-prompt`, `guest-play-friction`. */
+          data-hint-anchor="landing-signup-button"
         >
           {t('landing.cta.button')}
         </Link>

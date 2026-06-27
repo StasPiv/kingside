@@ -758,6 +758,9 @@ export function GameShell(props: GameShellProps) {
                   ? 'game-result-analyze'
                   : 'game-result-analyze-side'
               }
+              /* KS-4704 / ADR-147 §9: anchor `analyze-your-game`
+                 (`HINT_ANCHORS_USER`). */
+              data-hint-anchor="game-end-analysis-button"
               onClick={onAnalyze}
             >
               {t('gameResult.openInAnalysis', 'Open in analysis')}

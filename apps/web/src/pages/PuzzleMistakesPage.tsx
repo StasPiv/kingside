@@ -57,7 +57,14 @@ export function PuzzleMistakesPage() {
         >
           ← {t('puzzleStats.backToPuzzles', 'Back to Puzzles')}
         </Link>
-        <h1>{t('puzzle.mistakes.fullTitle', 'All mistakes')}</h1>
+        <h1
+          /* KS-4704 / ADR-147 §9: anchor `mistakes-diary`
+             (`profile-mistakes-link`). На странице /puzzles/mistakes
+             заголовок — единственная стабильная точка крепления. */
+          data-hint-anchor="profile-mistakes-link"
+        >
+          {t('puzzle.mistakes.fullTitle', 'All mistakes')}
+        </h1>
         <p className="mistakes-page__subtitle">
           {t(
             'puzzle.mistakes.fullSubtitle',

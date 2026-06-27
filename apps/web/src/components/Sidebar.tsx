@@ -466,6 +466,9 @@ export function Sidebar() {
         to={linkTargetFor(item)}
         className={`sidebar-item${isActive(item.path, item.match) ? ' sidebar-item--active' : ''}`}
         title={t(item.i18nKey)}
+        /* KS-4704 / ADR-147 §9: иконка настроек — anchor `try-pre-move`
+           (`board-settings-icon`). Открывает /settings → вкладка Board. */
+        data-hint-anchor={item.path === '/settings' ? 'board-settings-icon' : undefined}
       >
         <span className="sidebar-icon">{item.icon}</span>
       </Link>

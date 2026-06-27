@@ -211,6 +211,10 @@ export function TrainLobbyPage() {
               to={it.to}
               className="lobby-card"
               data-testid={`train-lobby-card-${it.id}`}
+              /* KS-4704 / ADR-147 §9: anchor `rush-mode-discovery`
+                 (`puzzles-rush-tab`) — рендерится на карточке Puzzle Rush
+                 в /train lobby. */
+              data-hint-anchor={it.id === 'puzzle-rush' ? 'puzzles-rush-tab' : undefined}
             >
               <span className="lobby-card__icon" aria-hidden="true">
                 {it.icon}

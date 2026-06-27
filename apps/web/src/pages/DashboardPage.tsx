@@ -90,7 +90,13 @@ export function DashboardPage() {
                   <span className="dash-action-desc">{t('dashboard.rushDesc', 'Solve as many as you can')}</span>
                 </div>
               </Link>
-              <Link to="/puzzles" className="dash-action-card">
+              <Link
+                to="/puzzles"
+                className="dash-action-card"
+                /* KS-4704 / ADR-147 §9: anchor `puzzles-comeback`
+                   (`home-puzzles-tile`). */
+                data-hint-anchor="home-puzzles-tile"
+              >
                 <span className="dash-action-icon">&#9819;</span>
                 <div className="dash-action-text">
                   <span className="dash-action-title">{t('nav.myPuzzles', 'My Puzzles')}</span>
