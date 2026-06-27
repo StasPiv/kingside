@@ -10,7 +10,7 @@
 
 ## 0. TL;DR
 
-Заводим модуль `hints` в `apps/api` + новую инфру событий. **Обслуживаются и авторизованные, и гости** (см. §1.1) — единая модель actor (`actor_type` ∈ {user, guest}, `actor_id`), guest идентифицируется подписанным cookie `guest_id`, при регистрации происходит merge гостевых данных под новый `user_id`. Pipeline сразу под целевую нагрузку 600K событий/день: источники (frontend `POST /events`, backend self-emit) → **Redis Streams** (`actor_events:stream`, durable, AOF, consumer groups) → **Events Writer Worker** → **отдельная events-RDS** (PostgreSQL + `pg_partman` weekly partitions, retention 90 дней) + параллельно **Redis hot counters** для коротких окон. HintsEngine читает **materialized views** (длинные окна) + Redis counters (короткие окна), никогда не сканирует raw `actor_events`. Правила — декларативный JSON-DSL в таблице `hints` с полями `i18n`, `acceptedBy`, `targetActorTypes`; редактирование через **полный админ-UI с самого MVP** (seed — только bootstrap чистой БД). Доставка: **push через WebSocket для авторизованных** + **pull `GET /hints/pending` раз в 15 сек для гостей** (новый WS-namespace для гостей не оправдан). Placement — anchor по `data-hint-anchor="<id>"` в DOM, рендер **desktop popover + mobile bottom-sheet в одном тикете**. Lifecycle (`viewed | dismissed | acted | ignored`) трекается обратно. Глобальные лимиты **конфигурируемы через feature-flags** (default ≤1 показ/10 мин, ≤5/сессия), namespace ключей единый — `actor_id`. Согласие на трекинг — через cookie-banner (единый для user и guest), без согласия гость не получает `guest_id` и не трекается. **GDPR endpoint'ы delete/export для обоих actor-типов — часть этого ADR**. Observability встроена в Этап 1. Масштабирование при росте — только в рамках PG-стека (§7A).
+Заводим модуль `hints` в `apps/api` + новую инфру событий. **Обслуживаются и авторизованные, и гости** (см. §1.1) — единая модель actor (`actor_type` ∈ {user, guest}, `actor_id`), guest идентифицируется подписанным cookie `guest_id`, при регистрации происходит merge гостевых данных под новый `user_id`. Pipeline сразу под целевую нагрузку 600K событий/день: источники (frontend `POST /events`, backend self-emit) → **Redis Streams** (`actor_events:stream`, durable, AOF, consumer groups) → **Events Writer Worker** → **схема `events` в основном `kingside-db`** (PostgreSQL + `pg_partman` weekly partitions, retention 90 дней; изоляция через отдельную DB-роль `events_writer`; решение по данным KS-4679, см. §7A.5.6) + параллельно **Redis hot counters** для коротких окон. HintsEngine читает **materialized views** (длинные окна) + Redis counters (короткие окна), никогда не сканирует raw `actor_events`. Правила — декларативный JSON-DSL в таблице `hints` с полями `i18n`, `acceptedBy`, `targetActorTypes`; редактирование через **полный админ-UI с самого MVP** (seed — только bootstrap чистой БД). Доставка: **push через WebSocket для авторизованных** + **pull `GET /hints/pending` раз в 15 сек для гостей** (новый WS-namespace для гостей не оправдан). Placement — anchor по `data-hint-anchor="<id>"` в DOM, рендер **desktop popover + mobile bottom-sheet в одном тикете**. Lifecycle (`viewed | dismissed | acted | ignored`) трекается обратно. Глобальные лимиты **конфигурируемы через feature-flags** (default ≤1 показ/10 мин, ≤5/сессия), namespace ключей единый — `actor_id`. Согласие на трекинг — через cookie-banner (единый для user и guest), без согласия гость не получает `guest_id` и не трекается. **GDPR endpoint'ы delete/export для обоих actor-типов — часть этого ADR**. Observability встроена в Этап 1. Масштабирование при росте — только в рамках PG-стека (§7A).
 
 ---
 
@@ -82,7 +82,7 @@ flowchart LR
   API -- XADD --> RS[(Redis Streams\nactor_events:stream)]
   EV -- XADD --> RS
   RS -- consumer group\nevents-writer --> W[Events Writer Worker]
-  W -- batch INSERT 1000/sec --> EDB[(events-RDS\nPostgres + pg_partman\nweekly partitions)]
+  W -- batch INSERT 1000/sec --> EDB[(kingside-db\nschema events.\npg_partman weekly)]
   W -- INCR по counters --> RC[(Redis hot counters\nagg:user:type:window)]
   REFR[MatView Refresher\nevery 60s] -- REFRESH CONCURRENTLY --> MV[(materialized views\nactor_event_counts_*)]
   EDB --> MV
@@ -102,8 +102,9 @@ flowchart LR
 
   Kafka/Redpanda/SQS отвергнуты для MVP: те же гарантии для нашего объёма даёт уже работающий Redis, новые операционные расходы не оправданы. Если в будущем понадобится cross-region durability или event sourcing с горизонтом >7 дней — заменим Streams на Kafka **без изменения контракта `EventsService.track()`** (см. §7A.3).
 - **Events Writer Worker** — отдельный consumer group в `apps/api`. `XREADGROUP COUNT 1000 BLOCK 1000` → batch `INSERT ... SELECT FROM jsonb_to_recordset(...)` → `XACK`. Параллельно инкрементирует Redis hot counters для горячих агрегатов (см. §2.4).
-- **events-RDS — отдельная PostgreSQL-инстанция**, не основной RDS приложения. Обоснование: write-нагрузка событий (даже на верхней границе 600K/день ≈ 7 INSERT/sec в среднем, пик 50/sec на турнире) не должна конкурировать с OLTP-нагрузкой игровых операций; разные характеристики vacuum, разные SLA. По образцу `archive-RDS` (ADR-018) и `broadcasts-RDS` (ADR-021). Конфигурация на старте — `db.t3.medium` Multi-AZ ($60/мес reserved 1y eu-central-1, по AWS pricelist 2026-06), на верхней границе целевого сценария — `db.r5.large` ($130/мес reserved). Это одна и та же RDS-семья, scale-out вертикальный, без миграции схемы.
-- **`pg_partman` extension** — нативно доступен в AWS RDS Postgres (см. AWS docs, `Appendix.PostgreSQL.CommonDBATasks.html#…pg_partman`). Автоматическое создание/дроп еженедельных партиций таблицы `actor_events`. Партиционирование с самого MVP: на 600K событий/день за 90 дней retention это ~54M строк, что **уже бенефит** от партиционирования (быстрый drop старых партиций, узкие индексы на горячих).
+- **PostgreSQL — на основном `kingside-db`**, отдельная схема `events`. По метрикам KS-4679: CPU p95 5.9%, IOPS <1% от provisioned, connections 10/87, latency 1.9–3.3 мс — нагрузка events (на стартовой ≤17 INSERT/sec пик, на целевой ≤50/sec пик) добавляется в пренебрежимом объёме. **Решение «отдельная events-RDS» отвергнуто** на основании фактических цифр (см. §7A.5: economy $27–45/мес/инкремент vs дублирование RDS-стека). Изоляция нагрузки реализована **на уровне permissions**, а не отдельной БД: писатель `events_writer` с минимальными правами (`USAGE` на schema `events`, `INSERT`/`SELECT` на `events.actor_events` и matviews), чтение тоже через отдельный role-set; полная изоляция от схем игрового приложения. Альтернатива «отдельный RDS-инстанс» детально пересмотрена в §7A.5.6 и оставлена как **fallback на ступени C** (если матвью на основном RDS перестанет вытягиваться даже после uplift до r5.large).
+- **Предусловие — апгрейд `kingside-db` с db.t3.micro до db.t3.small** (отдельный devops-тикет, **не часть ADR-147**, см. §8 sidecar). KS-4679 показал: текущая инстанция исчерпана по памяти (FreeableMemory min 49 MB ≈ 5%, swap активен постоянно). Этот апгрейд **необходим независимо от ADR-147** для закрытия существующего OLTP-техдолга; ADR-147 лишь учитывает его как фон. После апгрейда t3.small даёт ~1 GB headroom RAM — этого достаточно для events стартовой ступени (см. §7A.5.1).
+- **`pg_partman` extension** — нативно доступен в AWS RDS Postgres (см. AWS docs, `Appendix.PostgreSQL.CommonDBATasks.html#…pg_partman`). Включается в `kingside-db` (extension per-database, изолирован от других схем). Автоматическое создание/дроп еженедельных партиций таблицы `events.actor_events`. Партиционирование с самого MVP: на 600K событий/день за 90 дней retention это ~54M строк, что **уже бенефит** от партиционирования (быстрый drop старых партиций, узкие индексы на горячих).
 
 Альтернативу «писать напрямую в PG из каждого сервиса без очереди» отвергаем: пик в момент окончания турнира = десятки `INSERT` на один игровой gateway-тик; sync-write по connection pool разваливается при первом всплеске.
 
@@ -135,7 +136,7 @@ flowchart LR
 | Через 6–12 мес (рост базы) | 500–3K | 30–60 | 15K–180K |
 | Достижение цели «десятки тысяч registered» | 2K–7.5K | 40–80 | 80K–600K |
 
-**Целевая верхняя граница для архитектурного выбора — 600K событий/день** (правый край сценария «достижение цели»). Архитектура §2.2 (отдельная events-RDS + pg_partman + materialized views + Redis Streams) проектируется на эту границу с запасом ~3× и **не требует смены технологии** при достижении любого из заявленных сценариев — только масштабирования ресурсов (см. §7A).
+**Целевая верхняя граница для архитектурного выбора — 600K событий/день** (правый край сценария «достижение цели»). Архитектура §2.2 (схема `events` в `kingside-db` + pg_partman + materialized views + Redis Streams) проектируется на эту границу с запасом ~3× через uplift instance class основного RDS и **не требует смены технологии** при достижении любого из заявленных сценариев — только масштабирования ресурсов (см. §7A). Fallback C (§7A.1) — вынос events на отдельный RDS — заложен на случай systematic-конфликта matview ↔ OLTP, по сигналу метрик, а не «впрок».
 
 **Что нужно сделать в момент запуска, чтобы заменить оценку измерением:** Prometheus-метрики `actor_events_ingested_total{type, actor_type}` (XADD-counter), `actor_events_inserted_total{type, actor_type}` (counter ACK-ов от writer'а), `actor_events_buffer_lag_seconds` (gauge `time.now - ts(oldest pending entry)`) встроены в T1c (см. §8) — после запуска MVP доверять им, а не оценкам.
 
@@ -144,7 +145,7 @@ flowchart LR
 ```prisma
 // Логическая модель. На уровне Postgres таблица создаётся как
 // PARTITION BY RANGE (created_at) и управляется pg_partman:
-// SELECT partman.create_parent('public.actor_events', 'created_at', 'native', 'weekly');
+// SELECT partman.create_parent('events.actor_events', 'created_at', 'native', 'weekly');
 // pg_partman.run_maintenance() в cron'е добавляет/дропает партиции.
 model ActorEvent {
   id        BigInt   @default(autoincrement())
@@ -312,7 +313,7 @@ model ActorHintState {
 - Качественные выгоды (скорость реакции маркетинга — секунды vs часы-дни, отсутствие bottleneck на разработчика, единый источник правды без рассинхронизации seed ↔ таблица) проявляются с первого дня.
 - Принцип ADR: расширения архитектуры в будущем = техдолг, точку «пора» оценить нельзя, делаем полный вариант сразу.
 
-Seed-файл `apps/api/prisma/seeds/hints.ts` остаётся **только как механизм первичной заливки** 10–15 базовых подсказок в чистую БД (см. §9). После запуска маркетинг работает через UI; seed не trying синхронизироваться с прод-данными и не выполняется на штатных миграциях прода (запускается одноразово при первичной инициализации events-RDS).
+Seed-файл `apps/api/prisma/seeds/hints.ts` остаётся **только как механизм первичной заливки** 10–15 базовых подсказок в чистую БД (см. §9). После запуска маркетинг работает через UI; seed не пытается синхронизироваться с прод-данными и не выполняется на штатных миграциях прода (запускается одноразово при первичной инициализации схемы `events`).
 
 ### 3.4. Разрешение конфликтов
 
@@ -478,9 +479,9 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 **Сравнение делается на верхней границе целевого сценария §2.3 — 600K событий/день (18M/мес, при retention 90 дней — 54M live rows).** Не на стартовом объёме: ADR описывает решение для целевого, поэтому сравнивать справедливо именно там. Все значения — **оценки**; источники и уровень доверия указаны явно.
 
-**Вариант A — наша архитектура (§2.2): отдельная events-RDS + pg_partman + materialized views + Redis Streams.**
+**Вариант A — наша архитектура (§2.2): схема `events` в `kingside-db` + pg_partman + materialized views + Redis Streams.**
 
-Краткая сводка на 600K событий/день: **~$165/мес reserved 1y** инкрементально, ~1 ч/мес поддержки. Полная разбивка по компонентам, по ступеням масштабирования и по содержанию операционных часов — в **§7A.5** (детальный бюджет).
+Краткая сводка на 600K событий/день: **~$60–90/мес reserved 1y** инкрементально к существующему `kingside-db` (после baseline-апгрейда на t3.small для закрытия OLTP-боли §7A.5.0; на целевой ступени uplift до r5.large делает один RDS под OLTP+events), ~1 ч/мес поддержки. Полная разбивка по компонентам, по ступеням масштабирования и по содержанию операционных часов — в **§7A.5** (детальный бюджет). Fallback C (вынос events на отдельный RDS) — по сигналу метрик, не «впрок».
 
 **Вариант B — PostHog self-hosted на тот же объём.**
 
@@ -507,7 +508,7 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 | Вариант | $/мес инкр. | Часы/мес | Стек эксплуатации | p95 hot-path |
 |---------|------------|----------|-------------------|--------------|
-| A. events-RDS + pg_partman + matviews (наш) | ~165 (разбивка §7A.5) | ~1 (§7A.5.4) | существующий PG | <50 мс (оценка) |
+| A. schema `events` в `kingside-db` + pg_partman + matviews (наш) | ~60–90 на целевой (разбивка §7A.5) | ~1 (§7A.5.4) | существующий PG, без отдельного инстанса | <50 мс (оценка) |
 | B. PostHog self-hosted | ~279 | 2–10 | новый: Clickhouse + Kafka + PostHog | <100 мс по docs |
 | C. PostHog Cloud | ~4 200 | 0 | managed | <100 мс по SLA |
 
@@ -528,17 +529,20 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 ### 7A.1. Ступени масштабирования внутри PG-стека
 
-| Ступень | Нагрузка | События за 90 дней | RDS-конфигурация | Дополнительно |
-|---------|----------|-------------------|-------------------|---------------|
-| **Стартовая (MVP)** | ≤150K событий/день | ≤14M строк | `db.t3.medium` Multi-AZ | Базовая: pg_partman weekly, matviews 24h/7d/30d, Redis Streams + hot counters — всё из §2.2 |
-| **A. Вертикальный uplift** | 150K – 600K (верх целевого) | 14M – 54M строк | `db.r5.large` (2 vCPU / 16 GB) | Без изменения кода и схемы. Меняется только RDS instance class. Downtime — окно RDS maintenance (~5 мин). |
-| **B. Read-replica для аналитики** | 600K – 1.5M событий/день | до 135M строк | `db.r5.large` + `db.r5.large` read-replica | Heavy ad-hoc запросы (debug, marketing-аналитика) уводятся на replica. HintsEngine продолжает читать matviews с primary (refresh идёт на primary). Cross-AZ replica latency обычно <1 сек, для refresh раз в минуту неважно. |
-| **C. Compression на старых партициях** | 1.5M – 3M событий/день | до 270M строк | `db.r5.large` + replica | Партиции старше 14 дней — `ALTER TABLE … SET (toast_tuple_target = 128)` + `VACUUM FULL` или extension `pg_compress` (~3–5× экономии storage на сжатых партициях). Снижает storage cost и улучшает cache-hit. Pure-PG, без новой технологии. |
-| **D. Шардинг по `actor_id`** | >3M событий/день | >270M строк | 2× `db.r5.xlarge` (or larger) | pg_partman поддерживает subpartitioning. Шардинг по hash(actor_id) — каждый writer-shard пишет в свой набор партиций. HintsEngine знает routing-функцию `shard_of(actor_id)`. Это всё ещё PostgreSQL, без смены технологии, только горизонтальный scale. |
+Все ступени — внутри одного `kingside-db` через апгрейд instance class, плюс fallback C на отдельный events-RDS при необходимости.
 
-**Стартовая → A** — это **тот же ADR**, та же архитектура, та же конфигурация. Меняется только RDS instance class. **A → B → C → D** — расширения внутри PG-стека, требующие правок миграций/конфига, но не переписывания продуктового кода. Контракты §7A.3 сохраняются на всех ступенях.
+| Ступень | Нагрузка | События за 90 дней | RDS-конфигурация `kingside-db` | Дополнительно |
+|---------|----------|-------------------|----------------------------------|---------------|
+| **Стартовая (MVP)** | ≤150K событий/день | ≤14M строк | `db.t3.small` single-AZ (после baseline-апгрейда t3.micro→t3.small для закрытия текущей OLTP-боли по RAM, см. §2.2) | events в схеме `events`, pg_partman weekly, matviews 24h/7d/30d, Redis Streams + hot counters. Matview refresh: 24h — раз в 30s; 7d/30d — **раз в 5 мин** (не 30s, чтобы не вытеснять OLTP buffer pool на 1 GB shared_buffers t3.small) |
+| **A. Вертикальный uplift** | 150K – 600K (верх целевого) | 14M – 54M строк | `db.r5.large` single-AZ (2 vCPU / 16 GB, ~4 GB shared_buffers) | Без изменения кода и схемы. RDS Modify instance class — downtime окно maintenance ~5–10 мин. На r5.large matview refresh можно поднять обратно на 30s для 7d (есть buffer pool с запасом). |
+| **B. Read-replica для аналитики** | 600K – 1.5M событий/день | до 135M строк | `db.r5.large` + `db.r5.large` read-replica | Heavy ad-hoc запросы (debug, marketing-аналитика) уводятся на replica. HintsEngine продолжает читать matviews с primary. Cross-AZ replica latency обычно <1 сек, для refresh раз в минуту неважно. |
+| **C. Вынос events на отдельный RDS** (fallback) | 1.5M – 3M событий/день, **или** при систематическом конфликте matview refresh с OLTP на любом раннем этапе | до 270M строк | `kingside-db` остаётся за OLTP; отдельный `events-rds` `db.r5.large` single-AZ | One-time миграция таблицы и matviews через `pg_dump`/`pg_restore` (~3–4 часа, 15 мин downtime в maintenance window). После выноса coupling blast radius разорван — баги matview-refresher больше не влияют на OLTP. Это **единственный случай в плане**, когда добавляется отдельный инстанс. |
+| **D. Compression на старых партициях** | 3M – 5M событий/день | до 450M строк | C + pg_compress на партициях >14 дней | 3–5× экономия storage. Pure-PG, без новой технологии. |
+| **E. Шардинг по `actor_id`** | >5M событий/день | >450M строк | 2× `db.r5.xlarge` events-RDS (sharded) | pg_partman subpartitioning + hash(actor_id) routing. Это всё ещё PostgreSQL. |
 
-«D» рассчитан на 5–10× от верхней границы целевого сценария — заведомый запас, чтобы ADR оставался актуальным даже при многократном превышении прогноза. Если фактический объём пересечёт даже «D» — это означает кратное превышение цели ADR-128, что само по себе повод для отдельного архитектурного обзора всей платформы, не только аналитики.
+**Стартовая → A** — RDS Modify instance class, минимальная операция. **A → B** — добавление replica. **B → C** — единственная «большая» миграция (вынос events в отдельную БД); запускается при доказанном systematic-конфликте, не по плану. **C → D → E** — горизонтальный scale events-RDS.
+
+«E» рассчитан на 8–10× от верхней границы целевого сценария — запас на случай многократного превышения прогноза.
 
 ### 7A.2. Триггеры перехода между ступенями (наблюдаемые KPI)
 
@@ -546,12 +550,13 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 | Метрика | Порог sustained 1 неделя | Что запускает |
 |---------|--------------------------|---------------|
-| `histogram_quantile(0.95, hints_aggregate_query_duration_seconds{layer="matview"})` | > 50 мс | A — uplift RDS до r5.large |
-| `pg_database_size('events')` | > 60 GB | A или C — uplift / compression |
-| `pg_stat_replication.replay_lag` (если уже есть replica) | > 5 sec | A — uplift, replica не вытягивает |
+| `kingside_db.CPUUtilization` p95 | > 50% | A — uplift kingside-db до r5.large |
+| `kingside_db.FreeableMemory` min | < 20% от RAM | A — uplift |
+| `histogram_quantile(0.95, hints_aggregate_query_duration_seconds{layer="matview"})` | > 50 мс | A — uplift |
+| `pg_relation_size('events.actor_events') + matviews` | > 60 GB | A или D — uplift / compression |
+| `kingside_db.read_latency` p95 рост на >2× относительно baseline KS-4679 (1.9 мс) | sustained 1 неделя | **C — вынос events на отдельный RDS** (matview-refresher вредит OLTP, разрываем coupling) |
 | `rate(actor_events_ingested_total[5m])` | > 50 events/sec | B — заводим read-replica под ad-hoc нагрузку |
-| `pg_partman.show_partitions` count активных партиций | > 26 (полгода weekly) | C — compression старых |
-| `rate(actor_events_ingested_total[5m])` | > 200 events/sec | D — sharding по actor_id |
+| `rate(actor_events_ingested_total[5m])` | > 200 events/sec | D или E — compression / sharding |
 | `redis_stream_pending_entries{stream="actor_events:stream"}` | > 10K sustained 5 мин | Сразу: увеличить число writer-воркеров (consumer group горизонтально масштабируема) |
 
 ### 7A.3. Стабильные контракты (не меняются на всех ступенях)
@@ -572,100 +577,126 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 ### 7A.5. Детальный бюджет нашего стека
 
-Цены — AWS pricelist 2026-06, регион eu-central-1 Frankfurt. SKU указаны явно. Multi-AZ для RDS удваивает compute (active+standby) и storage — отражено в цифрах. Доверие к AWS SKU — **высокое** (публичные тарифы Pricing Calculator); к экспертным оценкам (Redis fit, ops hours) — **среднее**, помечено явно.
+Цены — AWS pricelist 2026-06, eu-central-1, Reserved 1y (no upfront, ~30% off On-Demand). Текущая политика проекта — **single-AZ** для `kingside-db` (см. KS-4679); ADR-147 наследует её для events. Multi-AZ — отдельное архитектурное решение, не зона этого ADR. Доверие к AWS SKU — **высокое** (публичные тарифы Pricing Calculator); к экспертным оценкам (Redis fit, ops hours) — **среднее**, помечено явно.
 
-#### 7A.5.1. Стартовая ступень (MVP, ≤150K событий/день)
+#### 7A.5.0. Предусловие — апгрейд `kingside-db` для закрытия OLTP-боли (отдельный тикет)
 
-| Компонент | Конфигурация / обоснование | SKU | $/мес On-Demand | $/мес Reserved 1y | Доверие |
-|-----------|---------------------------|-----|-----------------|--------------------|---------|
-| events-RDS instance | db.t3.medium Multi-AZ, 2 vCPU / 4 GB. Хватает на ≤150K событий/день: write-load ~2 INSERT/sec в среднем, пик 20/sec; matview refresh раз в 30–60 с по 14M строк — комфортно | RDS `db.t3.medium` Multi-AZ Postgres | ~$105 | ~$73 | высокое |
-| Storage | 80 GB gp3 Multi-AZ (= 160 GB billable). Обоснование размера: 14M строк × 200 байт + индексы + 3 matviews ≈ 5 GB активных через 6 мес + запас на 1 год роста + headroom для VACUUM = 80 GB. IOPS 3000 free, throughput 125 MB/s free — пик нагрузки укладывается. | RDS gp3 0.115 $/GB/мес × 2 (Multi-AZ) | ~$18 | ~$18 (storage не reserved) | высокое |
-| Backup snapshots | Retention 7 дней (default). Free до размера базы — 80 GB free, наша база ~5–10 GB активных. | RDS backup | $0 | $0 | высокое |
-| Redis incremental | Streams MAXLEN ~50K entries × 400 байт = 20 MB + hot counters (1K активных юзеров × 20 типов × 4 окна × 100 байт = 8 MB) + throttle/session/pending (<2 MB) = **~30 MB**. Текущий ElastiCache (cache.t3.small = 1.5 GB) держит этот объём без uplift с большим запасом. | в существующем headroom | $0 | $0 | среднее (зависит от текущей утилизации ElastiCache, проверить на T1c) |
-| apps/api CPU/RAM (EventsWriter + MatViewRefresher) | EventsWriter: batch INSERT раз в сек, ~5% CPU одной vCPU. MatViewRefresher: REFRESH раз в 30–60 с, спайки <1 с. RAM: <50 MB на оба процесса. Текущий ECS api-task должен справиться без uplift (см. ADR-045 sizing). | в существующем headroom | $0 | $0 | среднее (проверить на T1c через `container_cpu_usage` Prometheus) |
-| Egress (guest pull-loop) | 500 одновр. гостей × 4 запроса/мин × ~300 байт round-trip ≈ 600 KB/мин ≈ 26 GB/мес. Free tier AWS — 100 GB/мес egress. | AWS data transfer out | $0 | $0 | высокое |
-| Observability | Prometheus self-scrape (existing apps/api endpoint), Grafana dashboard (existing self-hosted, см. CLAUDE.md) — новый дашборд = 0 cost. | в существующей инфре | $0 | $0 | высокое |
-| **Итого стартовая ступень** | | | **~$123** | **~$91** | |
+По данным KS-4679 текущий `kingside-db` (db.t3.micro, 1 GB RAM) исчерпан по памяти: FreeableMemory 49–76 MB (~5% headroom), swap активен постоянно. **Это техдолг основного приложения**, существующий независимо от ADR-147. Закрывается отдельным devops-тикетом:
 
-#### 7A.5.2. Целевая ступень (600K событий/день)
+- **`kingside-db` t3.micro → t3.small single-AZ**: 1 GB → 2 GB RAM, тот же 2 vCPU.
+- Стоимость: ~$9 → ~$18/мес reserved (Δ +$9). Один RDS Modify, downtime в maintenance window ~5 мин.
+- После апгрейда: ожидаемый headroom RAM ~900 MB сверх текущей OLTP-нагрузки → достаточно для events стартовой ступени (см. §7A.5.1).
 
-Единственное отличие от стартовой — instance class и backup-storage растёт пропорционально размеру базы.
+ADR-147 считает этот апгрейд **базой**: все цифры ниже — **инкремент относительно `kingside-db` уже db.t3.small** (а не t3.micro). Если апгрейд не сделать — ADR-147 не запускается, нечем будет дышать RAM.
 
-| Компонент | Конфигурация / обоснование | SKU | $/мес On-Demand | $/мес Reserved 1y | Δ vs стартовая |
-|-----------|---------------------------|-----|-----------------|--------------------|----------------|
-| events-RDS instance | db.r5.large Multi-AZ, 2 vCPU / 16 GB. Обоснование memory bump: matview refresh `count(*) GROUP BY actor_id, type` по 54M строк требует ~4 GB work_mem для hash aggregate без disk spill; ×2 instance — запас на pg buffer pool. | RDS `db.r5.large` Multi-AZ Postgres | ~$210 | ~$147 | +$74 reserved |
-| Storage | 80 GB gp3 Multi-AZ (актуальный объём ~30 GB активных + matviews ~10 GB = 40 GB; ещё ~40 GB headroom). | RDS gp3 × 2 | ~$18 | ~$18 | 0 |
-| Backup snapshots | ~40 GB активных × 7 дней incremental ≈ 60 GB total. Из них первые 80 GB (= размер allocated storage) free. | RDS backup | $0 | $0 | 0 |
-| Redis incremental | Streams ~100K entries × 400 = 40 MB + counters (7.5K активных × 80 = 600 MB) + pending ~0.5 MB ≈ **~650 MB**. Cache.t3.small (1.5 GB) ещё держит. Если потребуется uplift до cache.t3.medium (3 GB) — это **+$25/мес** reserved. На границе. | возможен uplift `cache.t3.medium` | 0 или +$35 | 0 или +$25 | 0…+$25 (доверие: **низкое-среднее** — зависит от текущей утилизации) |
-| apps/api CPU/RAM | EventsWriter batch 1000 раз в сек = ~15% CPU. MatViewRefresher не растёт. Текущий ECS api-task должен справиться; если упрётся в CPU — горизонтальный scale ECS service (+1 task ~$15/мес) или uplift task definition. | в существующем headroom | $0 | $0 (с резервом) | 0 |
-| Egress (guest pull-loop) | Максимум те же 26 GB/мес. Free 100 GB/мес. | — | $0 | $0 | 0 |
-| Observability | — | — | $0 | $0 | 0 |
-| **Итого целевая ступень** | | | **~$228** | **~$165** | **+$74 reserved vs стартовая** |
+#### 7A.5.1. Стартовая ступень MVP — events в `kingside-db` (≤150K событий/день)
 
-**Прежняя цифра «$137/мес» из предыдущей итерации ADR была занижена** — учитывала только compute + storage без Multi-AZ удвоения storage и без backup-snapshots. Реалистичный итог — **~$165/мес reserved** (~$228 On-Demand). При уплифте Redis на ступени C/D добавится ~$25/мес.
+После baseline-апгрейда (§7A.5.0) `kingside-db` = db.t3.small (2 GB RAM, ~512 MB shared_buffers по default RDS).
+
+| Компонент | Конфигурация / обоснование | Δ $/мес reserved | Доверие |
+|-----------|---------------------------|--------------------|---------|
+| events instance — общий с OLTP | db.t3.small достаточно: текущий OLTP ~1 GB working set, events на стартовой добавляет 5 GB активных данных, но при partitioning и matview refresh **раз в 5 мин (не 30s)** ОС-кеш справляется. Buffer pool warm для горячей недели. | **$0** (общий ресурс) | высокое (по KS-4679 данным) |
+| Storage incremental | +20 GB к текущему `kingside-db` allocated (events ~5 GB + индексы + 3 matviews ≈ 13 GB через 6 мес + headroom). gp3 single-AZ: $0.115/GB/мес. | **~$2** | высокое |
+| Backup snapshots | Free до allocated storage. Доп. ~15 GB снэпшотов = всё ещё в free. | $0 | высокое |
+| Redis incremental | Streams MAXLEN 50K × 400 байт = 20 MB + hot counters 1K юзеров × 20 типов × 4 окна × 100 байт = 8 MB + throttle/session/pending = **~30 MB**. Текущий ElastiCache cache.t3.small (1.5 GB) держит без uplift. | $0 | среднее (зависит от текущей утилизации ElastiCache, проверка в T1c) |
+| apps/api CPU/RAM (EventsWriter + MatViewRefresher) | EventsWriter batch INSERT раз в сек = ~5% CPU. MatViewRefresher REFRESH раз в 30s–5min, спайки <1 сек. RAM <50 MB. Текущий ECS api-task справится. | $0 | среднее (проверка через `container_cpu_usage` в T1c) |
+| Egress (guest pull-loop) | 500 одновр. гостей × 4 req/мин × ~300 байт = 26 GB/мес. Free 100 GB/мес. | $0 | высокое |
+| Observability (Prometheus+Grafana) | Self-hosted, новый дашборд = 0 cost. | $0 | высокое |
+| **Итого инкрементально для ADR-147 на стартовой** | | **~$2/мес reserved** | |
+
+Не включает baseline-апгрейд `kingside-db` t3.micro→t3.small (+$9/мес, отдельный тикет, не ADR-147).
+
+#### 7A.5.2. Целевая ступень (600K событий/день) — uplift `kingside-db` до r5.large
+
+54M строк events + ~10 GB matviews требуют buffer pool 4+ GB. На t3.small (~512 MB shared_buffers) matview refresh каждый раз буферит cold-read из disk — это вытесняет OLTP-страницы. Triggers §7A.2 (memory headroom < 20% sustained либо matview p95 > 50 мс) запускают uplift всего `kingside-db`.
+
+| Компонент | Δ $/мес reserved vs стартовая | Δ vs absolute baseline (t3.small + текущий OLTP) |
+|-----------|--------------------------------|---------------------------------------------------|
+| `kingside-db` uplift db.t3.small → db.r5.large single-AZ | +$55 (~$18 → ~$73) | +$55 |
+| Storage incremental events | +$10 (60 GB сверх стартового, total +80 GB events) | +$10 |
+| Redis incremental | возможный uplift cache.t3.small → cache.t3.medium на этой ступени: +$25/мес (граничный, проверка по `INFO memory`) | +$25 |
+| apps/api CPU/RAM | $0 | $0 |
+| Egress | $0 (всё ещё в free 100 GB) | $0 |
+| **Итого инкр. для ADR-147 на целевой** | | **~$90/мес reserved** (диапазон $65–90 с учётом необязательности Redis-uplift) |
+
+**Прежняя цифра ADR «$165/мес инкр. на целевой» (отдельная events-RDS Multi-AZ) пересмотрена.** При размещении events на общем `kingside-db` инкремент **примерно вдвое ниже**: ~$90/мес против $165. Главная экономия — нет второго RDS-инстанса и не дублируется storage Multi-AZ.
 
 #### 7A.5.3. Стоимость переходов между ступенями (§7A.1)
 
-Дельты считаются reserved 1y, относительно предыдущей ступени.
+| Переход | Что добавляется | Δ $/мес reserved | Operator-часы (one-time) | Доверие |
+|---------|-----------------|-------------------|--------------------------|---------|
+| Стартовая (events в общей t3.small) | — (после baseline-апгрейда §7A.5.0) | — | в составе T1a/T1b/T1c | — |
+| **→ A: uplift `kingside-db` t3.small → r5.large** | RDS Modify instance class | **+$55** (+$25 Redis если на границе) | ~0.5 ч (RDS Modify + maintenance window ~5–10 мин downtime + мониторинг) | высокое |
+| **→ B: read-replica для аналитики** | +1× db.r5.large Single-AZ + cross-AZ traffic ~5 GB/день | **+$76** ($73 instance + $3 traffic) | ~2 ч (создать через CDK + initial sync + routing heavy ad-hoc на replica) | высокое |
+| **→ C: вынос events на отдельный events-RDS** (fallback при доказанном matview ↔ OLTP конфликте) | +db.r5.large single-AZ + 80 GB gp3. `kingside-db` остаётся за OLTP, можно вернуть его на меньший instance class (saving) | **+$73–82** (новый events-RDS) **минус $55** (downgrade kingside-db обратно на t3.small если хватит) = **net +$27** | ~3–4 ч (pg_dump 14M строк, восстановление, смена DSN events-writer, 15 мин downtime в maintenance window) | среднее (зависит от того, можно ли downgrade обратно) |
+| **→ D: compression старых партиций** | pg_compress на партициях >14 дней, экономия 3–5× storage | **−$15…−$25** (экономия) | ~8 ч (policy + тесты VACUUM FULL + maintenance window для backfill) | среднее (фактическая экономия зависит от entropy payload jsonb) |
+| **→ E: subpartitioning по hash(actor_id)** | 2× db.r5.xlarge single-AZ ($147 каждый) | **+~$220** (с учётом сноса предыдущего events-r5.large $73) | ~5–10 дней (routing-функция, миграция, rollout) | среднее |
 
-| Переход | Что добавляется | Δ $/мес reserved | Operator-часы на переход (один раз) | Доверие |
-|---------|-----------------|-------------------|--------------------------------------|---------|
-| Стартовая (db.t3.medium) | — (MVP) | — | — (входит в T1a) | — |
-| **→ A: uplift до db.r5.large** | Замена instance class через RDS Modify | **+$74** | ~0.5 ч (один клик в Console + AWS maintenance window ~5–10 мин downtime, мониторинг) | высокое |
-| **→ B: read-replica** | +1× db.r5.large Single-AZ ($95 reserved) + cross-AZ replication traffic ~5 GB/день = ~$3 | **+$98** | ~2 ч (создать через CDK/CloudFormation, дождаться initial sync ~30 мин, прописать роутинг heavy-query на replica DSN) | высокое |
-| **→ C: compression старых партиций** | Storage экономия 3–5× на партициях >14 дней. Например на 200 GB → 50 GB = −$30/мес. | **−$30** (экономия) | ~8 ч (включить partman compression policy, тест VACUUM FULL не блокирует hot path, отдельный maintenance window для backfill) | среднее (фактическая экономия зависит от entropy payload-jsonb) |
-| **→ D: subpartitioning по hash(actor_id)** | 2× db.r5.xlarge Multi-AZ ($295 reserved каждый) = $590, минус старый primary $147 = +$443. Плюс работа routing-функции в EventsService. | **+~$443** | ~5–10 дней (routing-функция, миграция данных по hash, тестирование, поэтапный rollout) | среднее |
+#### 7A.5.4. Содержание ~1 ч/мес поддержки
 
-#### 7A.5.4. Содержание 1 ч/мес поддержки (стартовая и целевая ступени)
-
-Чтобы цифра «1 ч/мес» была воспроизводимой — разбивка по задачам и частоте:
+Цифра воспроизводимая, по задачам:
 
 | Задача | Частота | Время за раз | Время в месяц |
 |--------|---------|--------------|---------------|
-| Проверка дашборда «Hints & Events» в Grafana — нет ли отклонений от baseline по метрикам §7A.2 | 1× в неделю | 5 мин | 20 мин |
-| `pg_partman.show_partitions()` — убедиться что новая еженедельная партиция создалась, старая (90+ дней) дропнулась | 1× в месяц | 5 мин | 5 мин |
-| Проверка `matview_refresh_duration_seconds` Prometheus на drift (нет ли роста) | 1× в неделю | 2 мин | 8 мин |
-| AWS RDS auto-minor-version-upgrade (если включён — 0 часов; если ручной — patch раз в квартал) | 1× в квартал | 30 мин | амортизированно ~10 мин |
-| Проверка backup snapshots в Grafana («RDS backup last success») | 1× в месяц | 2 мин | 2 мин |
-| Обновление pg_partman extension (приходит с PG minor upgrade, ~раз в полгода) | 1× в полгода | 30 мин | амортизированно ~5 мин |
-| Контроль pending entries в Redis Streams (`redis_stream_pending_entries`) | 1× в неделю | 2 мин | 8 мин |
+| Проверка дашборда «Hints & Events» в Grafana (метрики §7A.2) | 1× в неделю | 5 мин | 20 мин |
+| `pg_partman.show_partitions()` — новая партиция/дроп старой | 1× в месяц | 5 мин | 5 мин |
+| `matview_refresh_duration_seconds` drift | 1× в неделю | 2 мин | 8 мин |
+| RDS auto-minor-version-upgrade (вкл. — 0 ч; ручной patch — 1× в квартал) | амортизированно | 30 мин/квартал | ~10 мин |
+| Backup snapshots last-success в Grafana | 1× в месяц | 2 мин | 2 мин |
+| pg_partman extension upgrade (раз в полгода с PG minor) | амортизированно | 30 мин/полгода | ~5 мин |
+| `redis_stream_pending_entries` контроль | 1× в неделю | 2 мин | 8 мин |
 | **Итого** | | | **~58 мин/мес** |
 
-**Не входит в эту оценку:**
-- Реакция на инциденты (отдельный SRE-budget, не amortizable).
-- Переход на следующую ступень масштабирования (см. §7A.5.3 — отдельный one-time cost).
-- Изменения контента подсказок (это маркетинг через админ-UI, не разработка).
+**На общем `kingside-db` (стартовая и A)** — ops-нагрузка интегрирована в существующее обслуживание основной RDS (нет отдельной БД для патчей/мониторинга). При выносе events на отдельный RDS (ступень C) добавляется +0.5 ч/мес (свой дашборд, патчи).
 
-Доверие к разбивке: **среднее** — экспертная оценка по аналогии с поддержкой `archive-RDS` (ADR-027/045). Реальные часы будут видны через 2–3 месяца после запуска; если систематически больше 1.5 ч/мес — это сигнал на улучшение автоматизации (новый алерт, новый дашборд).
+**Не входит:** реакция на инциденты, переходы между ступенями (one-time), правки контента подсказок (маркетинг через админ-UI).
 
 #### 7A.5.5. Сводная таблица
 
-| Ступень | Trigger перехода (§7A.2) | $/мес reserved (инкрементально) | Δ vs пред. | Часы перехода (one-time) | Часы/мес поддержки |
-|---------|--------------------------|----------------------------------|------------|--------------------------|--------------------|
-| Стартовая (db.t3.medium) | MVP запуск | $91 | — | входит в T1a/T1b/T1c | ~1 |
-| A: uplift db.r5.large | matview p95 > 50 ms или storage > 60 GB | $165 | +$74 | 0.5 | ~1 |
-| B: + read-replica | rate > 50 events/sec | $263 | +$98 | 2 | ~1.5 |
-| C: + compression | партиций > 26 (полгода weekly) | ~$233 | −$30 | 8 | ~1.5 |
-| D: subpartitioning hash(actor_id) | rate > 200 events/sec | ~$680 | +$443 | 40–80 | ~2–3 |
+| Ступень | Trigger перехода (§7A.2) | $/мес reserved (инкр. для ADR-147) | Δ vs пред. | Часы перехода | Часы/мес поддержки |
+|---------|--------------------------|--------------------------------------|------------|---------------|--------------------|
+| Стартовая (events в общей t3.small) | MVP запуск (после baseline §7A.5.0) | **~$2** | — | в T1 | ~1 |
+| A: uplift `kingside-db` r5.large | matview p95 > 50 мс или mem < 20% headroom | **~$60–90** | +$55…$80 | 0.5 | ~1 |
+| B: + read-replica | rate > 50 events/sec | ~$136–166 | +$76 | 2 | ~1.5 |
+| C: вынос events на отдельный RDS (fallback) | read_latency p95 ×2 baseline | ~$163–193 | +$27 | 3–4 | ~1.5 |
+| D: + compression | партиций > 26 | ~$148–178 | −$15…−$25 | 8 | ~1.5 |
+| E: + sharding hash(actor_id) | rate > 200 events/sec | ~$368–398 | +$220 | 40–80 | ~2 |
 
-Все цифры — оценки. При уплифте Redis cache.t3.small → cache.t3.medium (вероятно на ступени C/D) добавляется ~$25/мес.
+Все цифры — оценки. Все стартовые/A ступени — без отдельного RDS-инстанса, только uplift `kingside-db`.
+
+#### 7A.5.6. Почему не отдельный events-RDS с MVP
+
+Старая версия ADR предполагала отдельный db.t3.medium Multi-AZ ($91/мес reserved) → db.r5.large Multi-AZ ($165/мес) для events. После данных KS-4679 видно:
+
+- Текущий `kingside-db` (single-AZ) — это **политика проекта**, Multi-AZ для events избыточен в любом случае.
+- Apparent saving в old plan был относительно дублирования (свой инстанс + свой storage). На самом деле — INSERT/IOPS/connections-нагрузка events ничтожна (≤50 INSERT/sec пик при provisioned 3000 IOPS) и не требует отдельного инстанса. Единственный реальный риск — buffer pool eviction при matview refresh.
+- На общем `kingside-db` после uplift до r5.large (4 GB shared_buffers) этот риск контролируется. Если на A ступени всё-таки начнёт страдать OLTP-latency — есть fallback C: вынос events на отдельный RDS (3–4 ч one-time, обоснованное действие по сигналу, не «впрок»).
+
+Это даёт экономию **~$45/мес на стартовой и ~$75/мес на целевой** vs прежний план, при том же риск-профиле (fallback C готов, операционно дешёв).
+
+**Когда отдельный events-RDS обязателен с самого начала:** если бы CPU основного RDS был > 60% или память без headroom **после** baseline-апгрейда. По данным KS-4679 этого нет — после t3.small запас на events достаточен.
 
 Принцип декомпозиции — **никаких «отложенных доработок»**: каждый MVP-компонент идёт сразу в полном виде (см. аудит в комментарии к KS-4678 от 2026-06-27). Observability, mobile-вариант UI, GDPR-endpoint'ы, админ-UI — части соответствующих этапов, не «отдельные следующие тикеты».
 
+### Sidecar (не часть ADR-147, отдельный devops-тикет): baseline-апгрейд `kingside-db`
+
+**S0. devops: kingside-db t3.micro → t3.small single-AZ.** Закрытие OLTP-боли по RAM (KS-4679: swap активен постоянно, headroom 5%). Один RDS Modify, downtime ~5 мин maintenance. Это **предусловие** для запуска T1a (без апгрейда events не на чем размещать).
+
 ### Этап 1. Инфраструктура событий + observability
 
-1a. **devops: events-RDS + pg_partman + Grafana dashboard**
-   - Поднять отдельный RDS instance `events-rds` (на старте `db.t3.medium` Multi-AZ, eu-central-1), extension `pg_partman` + `pg_cron`.
+1a. **devops: схема `events` в `kingside-db` + pg_partman + Grafana dashboard**
+   - **На уже-апгрейженном `kingside-db` (S0 выполнен)** включить extension `pg_partman` + `pg_cron` (доступны в RDS Postgres).
+   - Создать схему `events` и DB-роль `events_writer` с правами `USAGE events`, `INSERT/SELECT events.*` (изоляция от схем игрового приложения).
    - Параметры pg_partman: weekly partitions, retention 90 дней, автоматический `run_maintenance`.
-   - Резервирование: те же policies, что для основной RDS (ADR-027/045).
-   - Grafana dashboard «Hints & Events» с панелями под §7A.2 (все триггеры ступеней — графики и алерты).
+   - Grafana dashboard «Hints & Events» с панелями под §7A.2 (все триггеры ступеней — графики и алерты), включая `kingside_db.FreeableMemory` и `kingside_db.read_latency` для раннего обнаружения coupling-эффектов.
 
-1b. **backend: пакет `packages/events-db` + миграция + matviews**
-   - Новый Prisma-пакет `packages/events-db` (по образцу `packages/archive-db`, `packages/broadcasts-db`).
+1b. **backend: пакет `packages/events-db` + миграция + matviews в схеме `events`**
+   - Новый Prisma-пакет `packages/events-db` с отдельным `DATABASE_URL` (`KINGSIDE_DB_URL` + `?schema=events&user=events_writer`). По образцу `packages/archive-db`/`packages/broadcasts-db`, но БД та же.
    - Модель `ActorEvent` из §2.3 (partition-aware composite PK, поля `actor_id`+`actor_type`).
-   - SQL post-migration: `SELECT partman.create_parent('public.actor_events', 'created_at', 'native', 'weekly')`.
-   - Materialized views `actor_event_counts_24h | _7d | _30d` из §2.4 + unique-индексы.
-   - Тесты: insert, partition rotation, matview refresh.
+   - SQL post-migration: `SELECT partman.create_parent('events.actor_events', 'created_at', 'native', 'weekly')`.
+   - Materialized views `events.actor_event_counts_24h | _7d | _30d` из §2.4 + unique-индексы.
+   - **MatView refresh интервалы**: 24h — раз в 30 с, 7d/30d — **раз в 5 мин** (см. §7A.1 стартовая ступень: меньше буфер-пула на t3.small, более редкий refresh снижает eviction OLTP).
+   - Тесты: insert, partition rotation, matview refresh, изоляция permissions `events_writer` (нет доступа к схемам игрового приложения).
 
 1c. **backend: EventsModule + Redis Streams + Writer + matview refresher + Prometheus + GuestIdMiddleware**
    - `EventsModule`, `EventsService.track(actor, type, payload)` где `actor = {type:'user'|'guest', id}` — `XADD actor_events:stream` с проверкой согласия (user.analytics_consent или подпись cookie `analytics_consent`).
@@ -744,7 +775,7 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 ### Этап 5. Контент и админ-UI (полный, не урезанный)
 
-11. **content: первые 10–15 подсказок** — задача для marketing/content (тексты i18n ru+en, правила, anchors). Включает **минимум 3 гостевых** (примеры в §9). Заливаются в БД через seed `apps/api/prisma/seeds/hints.ts` (одноразовый bootstrap чистой events-RDS, см. §3.3).
+11. **content: первые 10–15 подсказок** — задача для marketing/content (тексты i18n ru+en, правила, anchors). Включает **минимум 3 гостевых** (примеры в §9). Заливаются в БД через seed `apps/api/prisma/seeds/hints.ts` (одноразовый bootstrap чистой схемы `events` в `kingside-db`, см. §3.3).
 
 12. **backend + frontend: полный админ-UI `/admin/hints` (CRUD + DSL preview)**
     - Backend: REST `GET/POST/PATCH/DELETE /admin/hints[/:id]` с DSL-валидацией, admin-role guard, soft-delete (поле `deleted_at`).
@@ -757,7 +788,8 @@ Endpoint'ы для гостей **не аутентифицированы JWT**,
 
 ```mermaid
 graph LR
-  T1A[1a. events-RDS + Grafana] --> T1B[1b. events-db + migration + matviews]
+  S0[S0. kingside-db t3.micro→t3.small\n отдельный devops-тикет] --> T1A[1a. schema events + pg_partman + Grafana]
+  T1A --> T1B[1b. events-db + migration + matviews]
   T1B --> T1C[1c. EventsModule + Streams + Writer + metrics]
   T1C --> T3[3. self-emit]
   T1C --> T6[6. HintsEngine + metrics]
@@ -814,7 +846,7 @@ graph LR
 ## 11. Резюме
 
 - **Своё решение, не SaaS.** Стоимость, server-side триггеры, privacy.
-- **Отдельная events-RDS (PostgreSQL + pg_partman) + Redis Streams + materialized views**, без отдельного аналитического стека. Архитектура выбрана под верхнюю границу целевого сценария (600K событий/день, §2.3). Масштабирование при росте — только uplift инстанса / replicas / compression / шарды pg_partman в рамках PG-стека (§7A), без смены технологии.
+- **Схема `events` в основном `kingside-db`** (PostgreSQL + pg_partman + materialized views) + Redis Streams + hot counters, без отдельного аналитического стека. Решение по фактическим данным KS-4679: основной RDS underutilized по CPU/IOPS, после baseline-апгрейда t3.micro→t3.small (отдельный devops-тикет) запас RAM достаточен для events стартовой ступени. Масштабирование — uplift `kingside-db` до r5.large на целевой ступени; fallback C (вынос events на отдельный RDS) — по сигналу метрик при доказанном matview ↔ OLTP конфликте, не «впрок». Всё в рамках PG-стека (§7A).
 - **Гости и авторизованные — в одном MVP** через единую модель `actor` (`actor_type`+`actor_id`), guest_id в подписанном cookie, merge при регистрации. Доставка: WS push для user, pull раз в 15 сек для guest.
 - **Декларативный JSON-DSL** для правил (с `targetActorTypes` для разделения гостевых/пользовательских правил), редактируется через полный админ-UI с MVP (seed — только bootstrap).
 - **Push (WS) + pull (REST для гостей).** Anchor по `data-hint-anchor`, desktop popover + mobile bottom-sheet в одном фронтовом тикете.
