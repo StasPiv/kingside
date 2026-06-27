@@ -55,6 +55,15 @@ model User {
   createdAt             DateTime @default(now()) @map("created_at")
   lastSeenAt            DateTime @default(now()) @map("last_seen_at")
   locale                String   @default("en") @map("locale")
+  /// KS-4695 / ADR-147 §6.2. Согласие пользователя на трекинг analytics-
+  /// событий (`actor_events`) и показ контекстных подсказок.
+  /// Default false — ужесточение относительно текущего Notification flow,
+  /// необходимо для GDPR. `EventsService.track({type:'user',id})` первым
+  /// делом читает это поле и при false выкидывает событие на входе.
+  /// Отзыв согласия (банер → снять галочку) — отдельный endpoint
+  /// `PATCH /me/consent {analytics:false}` (входит в Этап 2 ADR-147,
+  /// отдельная задача). Здесь — только storage.
+  analyticsConsent      Boolean  @default(false) @map("analytics_consent")
   boardTheme            String   @default("default") @map("board_theme")
   pieceSet              String   @default("standard") @map("piece_set")
   soundEnabled          Boolean  @default(true) @map("sound_enabled")

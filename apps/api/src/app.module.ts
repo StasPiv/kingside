@@ -74,6 +74,11 @@ import { BoardRecognitionModule } from './board-recognition/board-recognition.mo
 // инструкций модели, не подходит к политике приватного репо.
 // import { KnowledgeModule } from './knowledge/knowledge.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
+// KS-4695 / ADR-147 §6.2: подписанный cookie `guest_id` на всех роутах
+// (rolling-renew, см. шапку файла middleware).
+import { GuestIdMiddleware } from './common/guest-id.middleware';
+// KS-4695 / ADR-147 §2.2 §8 T1c: events ingest + writer + matview refresher.
+import { EventsModule } from './events/events.module';
 import { HealthController } from './health.controller';
 @Module({
   controllers: [HealthController],
@@ -159,10 +164,15 @@ import { HealthController } from './health.controller';
     BoardRecognitionModule,
     // KS-2967 / ADR-063 Phase 2 (KnowledgeModule) — временно отключён,
     // см. import выше.
+    // KS-4695 / ADR-147 §8 T1c.
+    EventsModule,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(LastSeenMiddleware).forRoutes('*');
+    // Порядок: LastSeen первый (он трогает только Bearer-юзеров),
+    // GuestIdMiddleware — второй: при отсутствии Bearer проверяет
+    // consent-cookie и выписывает/продлевает guest_id.
+    consumer.apply(LastSeenMiddleware, GuestIdMiddleware).forRoutes('*');
   }
 }
