@@ -1,0 +1,202 @@
+/* ============================================================
+ * Cookie-banner (KS-4714)
+ *
+ * Баннер consent'а аналитики из
+ * apps/web/src/components/cookie-banner/CookieBanner.tsx.
+ *
+ * До KS-4714 у `.cookie-banner` не было собственных стилей —
+ * элемент рендерился в потоке внутри `.app`, прижимался к
+ * низу страницы и левым краем уходил под `.sidebar`
+ * (`position: fixed; left: 0; width: 88px; z-index: 90`),
+ * перекрывая кнопку "Enable analytics".
+ *
+ * Решение: фиксируем баннер у нижнего края viewport'а
+ * правее sidebar'а (`left: 88px`), а на mobile (<768px)
+ * sidebar скрыт, sticky-бар внизу другой — приподнимаем
+ * над `.mobile-bottom-bar` (56px).
+ * ============================================================ */
+
+.cookie-banner {
+  position: fixed;
+  bottom: 0;
+  /* desktop: правее sidebar'а (88px). См. layout.css:625
+   * `.sidebar { width: 88px; z-index: 90 }`. */
+  left: 88px;
+  right: 0;
+  /* выше sidebar (90) и mobile-bottom-bar (90), ниже
+   * header (100) — header у нас прижат к top:0, по геометрии
+   * не пересекается, но держим консистентность z-стека. */
+  z-index: 95;
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 14px 20px;
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+
+  background: var(--bg-deep);
+  border-top: 1px solid var(--border-mid);
+  box-shadow: 0 -4px 12px var(--ov-black-40);
+  color: var(--text-primary);
+
+  /* Слайд снизу при появлении. */
+  animation: cookie-banner-in 220ms ease-out;
+}
+
+@keyframes cookie-banner-in {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.cookie-banner__text {
+  margin: 0;
+  flex: 1 1 320px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.cookie-banner__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+/* Базовая стилизация любых button внутри .cookie-banner — primary CTA
+ * (первая, "Enable analytics") выделена индиго, остальные — secondary.
+ * Кнопка-link (`.cookie-banner__link`) и `__confirm`-кнопки имеют
+ * собственные правила ниже. */
+.cookie-banner__controls > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.cookie-banner__controls > button:hover,
+.cookie-banner__controls > button:focus-visible {
+  background: var(--ov-white-10);
+  border-color: var(--border-strong);
+  outline: none;
+}
+
+.cookie-banner__controls > button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Primary CTA — accept (`[data-testid$="-accept"]`) выделен индиго. */
+.cookie-banner__controls > button[data-testid$='-accept'] {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border-color: var(--accent-primary);
+}
+
+.cookie-banner__controls > button[data-testid$='-accept']:hover,
+.cookie-banner__controls > button[data-testid$='-accept']:focus-visible {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.cookie-banner__controls > button[data-testid$='-accept']:active {
+  background: var(--accent-active);
+}
+
+/* Текстовые ссылки (Delete my data / Not now) — минимальный
+ * визуальный вес, без рамки. */
+.cookie-banner__link {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 6px 8px !important;
+  color: var(--text-secondary) !important;
+  font-weight: 500 !important;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.cookie-banner__link:hover,
+.cookie-banner__link:focus-visible {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+}
+
+.cookie-banner__error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* Confirm-диалог "Delete analytics data?" — карточка внутри
+ * controls (по DOM она сосед кнопок). */
+.cookie-banner__confirm {
+  flex-basis: 100%;
+  margin-top: 6px;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+}
+
+.cookie-banner__confirm h3 {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cookie-banner__confirm p {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* ── Mobile (<768px): sidebar скрыт, приподнимаем над
+ * mobile-bottom-bar (56px высота + safe-area). ───────────── */
+@media (max-width: 768px) {
+  .cookie-banner {
+    left: 0;
+    bottom: 56px;
+    padding: 12px 14px;
+    padding-bottom: 12px;
+    gap: 10px 12px;
+  }
+
+  .cookie-banner__text {
+    flex-basis: 100%;
+    font-size: 12.5px;
+  }
+}
+
+/* Когда mobile-bottom-bar отсутствует (focus-mode или страницы
+ * /game/, /play/local-bot — см. MainLayout.tsx `hideBottomBar`),
+ * приподнимать не нужно — прижимаем к низу.
+ * Условие через `body:not(:has(.mobile-bottom-bar))` —
+ * `:has` поддерживается в современном Safari/Chrome/Firefox. */
+@media (max-width: 768px) {
+  body:not(:has(.mobile-bottom-bar)) .cookie-banner {
+    bottom: 0;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
