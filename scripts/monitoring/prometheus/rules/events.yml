@@ -1,0 +1,103 @@
+groups:
+  - name: events-ingest
+    interval: 30s
+    rules:
+      # KS-4690 / ADR-147 §7A.2 — триггер B: горизонтальное чтение через read-replica.
+      - alert: ActorEventsIngestRateAboveB
+        expr: rate(actor_events_ingested_total[5m]) > 50
+        for: 1h
+        labels:
+          severity: warning
+          service: events
+          component: writer
+          adr: "147"
+        annotations:
+          summary: "actor_events ingest rate > 50 evt/s (sustained 1h) — порог B (ADR-147 §7A.2)"
+          description: |
+            Скорость записи в events.actor_events устойчиво выше 50 evt/sec.
+            По ADR-147 §7A.2 это сигнал на ступень B — заводим read-replica
+            под ad-hoc/аналитическую нагрузку, чтобы не делить буфер-пул с OLTP.
+            Runbook: docs/adr/147-contextual-hints.md §7A.1, §7A.5.
+            Шаги: (1) подтвердить sustained 1 неделя; (2) поставить тикет devops
+            «events read-replica»; (3) обновить EventsService.track() routing,
+            если нужно.
+
+      # KS-4690 / ADR-147 §7A.2 — триггер D: compression / sharding.
+      - alert: ActorEventsIngestRateAboveD
+        expr: rate(actor_events_ingested_total[5m]) > 200
+        for: 1h
+        labels:
+          severity: critical
+          service: events
+          component: writer
+          adr: "147"
+        annotations:
+          summary: "actor_events ingest rate > 200 evt/s (sustained 1h) — порог D (ADR-147 §7A.2)"
+          description: |
+            Скорость записи перевалила за 200 evt/sec — ступень D.
+            По ADR-147 §7A.2 это compression на партициях + потенциально
+            sharding (`actor_events:stream:<shard>`).
+            Runbook: docs/adr/147-contextual-hints.md §7A.1, §7A.5.
+
+      # KS-4690 / ADR-147 §7A.2 — Redis Streams pending growth.
+      - alert: ActorEventsStreamPendingHigh
+        expr: redis_stream_pending_entries{stream="actor_events:stream"} > 10000
+        for: 5m
+        labels:
+          severity: critical
+          service: events
+          component: stream
+          adr: "147"
+        annotations:
+          summary: "actor_events:stream pending > 10K за 5 мин — нужны доп. writer-воркеры"
+          description: |
+            В Redis Stream `actor_events:stream` накопилось >10K pending
+            записей (consumer group отстаёт). По ADR-147 §7A.2 — немедленно
+            горизонтально масштабировать events-writer (consumer group).
+            Runbook: docs/adr/147-contextual-hints.md §7A.1.
+
+  - name: events-query-perf
+    interval: 30s
+    rules:
+      # KS-4690 / ADR-147 §7A.2 — matview p95 > 50 мс sustained 1 неделя.
+      # В Prometheus делаем «ранний» сигнал на 1 час; «sustained 1 неделя»
+      # подтверждается ревью по дашборду «Hints & Events».
+      - alert: HintsAggregateMatviewP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(hints_aggregate_query_duration_seconds_bucket{layer="matview"}[5m]))
+          ) > 0.050
+        for: 1h
+        labels:
+          severity: warning
+          service: events
+          component: hints-engine
+          adr: "147"
+        annotations:
+          summary: "hints_aggregate_query_duration matview p95 > 50 мс (sustained 1h) — порог A (uplift)"
+          description: |
+            Materialized-view-слой HintsEngine медленнее 50 мс p95.
+            По ADR-147 §7A.2 это ранний сигнал на ступень A — uplift
+            kingside-db до r5.large (или compression на партициях).
+            Проверка sustained-окна 1 неделя — на дашборде «Hints & Events».
+
+  - name: events-storage
+    interval: 1m
+    rules:
+      # KS-4690 / ADR-147 §7A.2 — размер actor_events + matviews > 60 GB.
+      - alert: ActorEventsStorageAbove60GB
+        expr: pg_events_table_total_bytes{relname=~"actor_events|hints_.*_mv"} > 60 * 1024 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: warning
+          service: events
+          component: storage
+          adr: "147"
+        annotations:
+          summary: "events storage {{ $labels.relname }} > 60 GB ({{ $value | humanize1024 }}B)"
+          description: |
+            Аналитическая таблица events.{{ $labels.relname }} превысила 60 GB.
+            По ADR-147 §7A.2 — ступень A или D: uplift инстанса либо
+            включение compression на партициях через pg_partman.
+            Runbook: docs/adr/147-contextual-hints.md §7A.5.

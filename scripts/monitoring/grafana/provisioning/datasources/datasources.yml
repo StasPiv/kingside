@@ -34,3 +34,17 @@ datasources:
       sslmode: ${POSTGRES_SSLMODE:-disable}
       postgresVersion: 1600
       timescaledb: false
+
+  # KS-4690 / ADR-147 §7A.2 — CloudWatch для RDS-метрик kingside-db
+  # (FreeableMemory, CPUUtilization, ReadLatency, SwapUsage). Используется
+  # дашбордом «Hints & Events». Требует на IAM-роли monitoring-EC2
+  # политики `CloudWatchReadOnlyAccess` (или явных `cloudwatch:GetMetricData`,
+  # `cloudwatch:ListMetrics`). Креды — через инстанс-профиль EC2, без явных
+  # access-key.
+  - name: CloudWatch
+    uid: cloudwatch
+    type: cloudwatch
+    access: proxy
+    jsonData:
+      authType: default
+      defaultRegion: ${AWS_REGION:-eu-central-1}

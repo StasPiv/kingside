@@ -1,0 +1,277 @@
+{
+  "title": "Hints & Events (ADR-147 §7A.2)",
+  "uid": "hints-events",
+  "tags": ["kingside", "events", "hints", "ks-4690", "adr-147"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Ingest (Redis Streams → events.actor_events)",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "actor_events ingest rate (events/sec)",
+      "description": "rate(actor_events_ingested_total[5m]). Пороги ADR-147 §7A.2: 50 evt/s → B (read-replica), 200 evt/s → D (compression/sharding).",
+      "gridPos": { "x": 0, "y": 1, "w": 16, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "rate(actor_events_ingested_total[5m])", "legendFormat": "ingest rate" },
+        { "refId": "B", "expr": "50", "legendFormat": "B threshold (read-replica)" },
+        { "refId": "C", "expr": "200", "legendFormat": "D threshold (compression/sharding)" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "B threshold (read-replica)" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+            ] },
+          { "matcher": { "id": "byName", "options": "D threshold (compression/sharding)" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean"] } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "actor_events ingest rate (now)",
+      "gridPos": { "x": 16, "y": 1, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "rate(actor_events_ingested_total[5m])" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "decimals": 1 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Redis Stream actor_events:stream — pending entries",
+      "description": "redis_stream_pending_entries{stream=\"actor_events:stream\"}. Порог ADR-147 §7A.2: >10K sustained 5 мин → горизонтально масштабируем writer.",
+      "gridPos": { "x": 0, "y": 9, "w": 16, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "redis_stream_pending_entries{stream=\"actor_events:stream\"}", "legendFormat": "pending" },
+        { "refId": "B", "expr": "10000", "legendFormat": "scale-writer threshold" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean"] } }
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Storage (events.actor_events + matviews)",
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "events.* total size (table + indexes)",
+      "description": "pg_events_table_total_bytes по всем объектам схемы events. Порог ADR-147 §7A.2: >60 GB → A (uplift) или D (compression).",
+      "gridPos": { "x": 0, "y": 18, "w": 16, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "pg_events_table_total_bytes", "legendFormat": "{{relname}}" },
+        { "refId": "B", "expr": "60 * 1024 * 1024 * 1024", "legendFormat": "60 GB threshold" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "60 GB threshold" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["last"] } }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "events.* live rows",
+      "gridPos": { "x": 16, "y": 18, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(pg_events_stats_n_live_tup)" }],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Query perf (HintsEngine layers)",
+      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "hints_aggregate_query_duration p95 by layer",
+      "description": "histogram_quantile(0.95, ...). Цель: matview p95 < 50 мс, redis p95 < 5 мс (ADR-147 §7A.2, §3.2).",
+      "gridPos": { "x": 0, "y": 27, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, layer) (rate(hints_aggregate_query_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{layer}}"
+        },
+        { "refId": "B", "expr": "0.050", "legendFormat": "matview target 50 ms" },
+        { "refId": "C", "expr": "0.005", "legendFormat": "redis target 5 ms" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "matview target 50 ms" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+            ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean"] } }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "kingside-db RDS (CloudWatch) — coupling guard для OLTP",
+      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "kingside-db FreeableMemory",
+      "description": "ADR-147 §7A.2 порог A: < 20 % от RAM sustained 1 неделя → uplift до r5.large. Для t3.small (2 GB) порог = 410 MB.",
+      "gridPos": { "x": 0, "y": 36, "w": 12, "h": 8 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/RDS",
+          "metricName": "FreeableMemory",
+          "dimensions": { "DBInstanceIdentifier": "kingside-db" },
+          "statistic": "Minimum",
+          "period": "300",
+          "region": "eu-central-1"
+        },
+        { "refId": "B", "expression": "410 * 1024 * 1024", "label": "20 % of 2 GB RAM",
+          "namespace": "", "metricName": "", "dimensions": {}, "statistic": "Average", "period": "300", "region": "eu-central-1" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "20 % of 2 GB RAM" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["min", "mean"] } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "kingside-db CPUUtilization",
+      "description": "ADR-147 §7A.2 порог A: p95 > 50 % sustained 1 неделя → uplift до r5.large.",
+      "gridPos": { "x": 12, "y": 36, "w": 12, "h": 8 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/RDS",
+          "metricName": "CPUUtilization",
+          "dimensions": { "DBInstanceIdentifier": "kingside-db" },
+          "statistic": "Average",
+          "period": "300",
+          "region": "eu-central-1"
+        },
+        { "refId": "B", "expression": "50", "label": "50 % threshold",
+          "namespace": "", "metricName": "", "dimensions": {}, "statistic": "Average", "period": "300", "region": "eu-central-1" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percent" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "50 % threshold" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean"] } }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "kingside-db ReadLatency p95",
+      "description": "ADR-147 §7A.2 порог C (вынос events на отдельный RDS): p95 > 2× baseline KS-4679 (1.9 мс), т. е. > 3.8 мс sustained 1 неделя.",
+      "gridPos": { "x": 0, "y": 44, "w": 12, "h": 8 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/RDS",
+          "metricName": "ReadLatency",
+          "dimensions": { "DBInstanceIdentifier": "kingside-db" },
+          "statistic": "p95",
+          "period": "300",
+          "region": "eu-central-1"
+        },
+        { "refId": "B", "expression": "0.0038", "label": "2x baseline (3.8 ms)",
+          "namespace": "", "metricName": "", "dimensions": {}, "statistic": "Average", "period": "300", "region": "eu-central-1" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "2x baseline (3.8 ms)" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean"] } }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "kingside-db SwapUsage",
+      "description": "Цель: 0. Любое sustained-значение > 0 после KS-4680 (uplift до t3.small) — сигнал, что RAM снова дефицитен.",
+      "gridPos": { "x": 12, "y": 44, "w": 12, "h": 8 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/RDS",
+          "metricName": "SwapUsage",
+          "dimensions": { "DBInstanceIdentifier": "kingside-db" },
+          "statistic": "Maximum",
+          "period": "300",
+          "region": "eu-central-1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "mean"] } }
+    }
+  ]
+}

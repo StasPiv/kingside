@@ -62,3 +62,61 @@ pg_archive_stats:
     - n_tup_del:
         usage: "COUNTER"
         description: "pg_stat_user_tables.n_tup_del (кумулятивно)"
+
+# KS-4690 / ADR-147 §7A.2 — метрики схемы events (actor_events + matviews).
+# До запуска T1b таблиц в schema events нет — запрос вернёт 0 строк,
+# postgres-exporter молча отдаст пустой набор метрик (это штатно).
+pg_events_table:
+  query: |
+    SELECT
+      c.relname::text AS relname,
+      pg_table_size(c.oid)::bigint AS table_bytes,
+      pg_indexes_size(c.oid)::bigint AS indexes_bytes,
+      pg_total_relation_size(c.oid)::bigint AS total_bytes
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'events'
+      AND c.relkind IN ('r','p','m')
+  master: true
+  cache_seconds: 60
+  metrics:
+    - relname:
+        usage: "LABEL"
+        description: "Имя таблицы или матвью в схеме events"
+    - table_bytes:
+        usage: "GAUGE"
+        description: "pg_table_size(oid) — heap + toast, в байтах"
+    - indexes_bytes:
+        usage: "GAUGE"
+        description: "pg_indexes_size(oid) — сумма всех индексов, в байтах"
+    - total_bytes:
+        usage: "GAUGE"
+        description: "pg_total_relation_size(oid) — table + indexes + toast, в байтах"
+
+pg_events_stats:
+  query: |
+    SELECT
+      relname::text AS relname,
+      n_live_tup::bigint AS n_live_tup,
+      n_dead_tup::bigint AS n_dead_tup,
+      n_tup_ins::bigint AS n_tup_ins
+    FROM pg_stat_user_tables
+    WHERE schemaname = 'events'
+  master: true
+  cache_seconds: 30
+  metrics:
+    - relname:
+        usage: "LABEL"
+        description: "Имя таблицы в схеме events"
+    - n_live_tup:
+        usage: "GAUGE"
+        description: "pg_stat_user_tables.n_live_tup"
+    - n_dead_tup:
+        usage: "GAUGE"
+        description: "pg_stat_user_tables.n_dead_tup"
+    - n_tup_ins:
+        usage: "COUNTER"
+        description: "pg_stat_user_tables.n_tup_ins (кумулятивно)"
+
+# Размер heap'а Redis Stream actor_events:stream и количество pending
+# отдаёт redis-exporter под именами redis_stream_*. Запрос здесь не нужен.
