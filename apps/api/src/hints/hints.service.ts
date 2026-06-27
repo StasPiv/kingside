@@ -24,7 +24,7 @@
  * Возврат null при любой ошибке — fail-soft. Метрика длительности
  * пишется всегда.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { PrismaClient as EventsPrismaClient, Prisma } from '@kingside/events-db';
 import {
   HINT_QUIET_PAGES,
@@ -36,6 +36,7 @@ import {
 import type { Actor } from '../events/events.types';
 import { EventsService } from '../events/events.service';
 import { EventsPrismaService } from '../events/events-prisma.service';
+import { MessageGateway } from '../message/message.gateway';
 import { HintsLimitsService } from './hints-limits.service';
 import { HintsMetricsService } from './hints-metrics.service';
 import { evaluateRule, globMatch } from './hints-dsl.evaluator';
@@ -50,6 +51,9 @@ export class HintsService {
     private readonly events: EventsService,
     private readonly limits: HintsLimitsService,
     private readonly metrics: HintsMetricsService,
+    // KS-4701: WS-emit hint:show для user-actor. `@Optional` — spec-
+    // фикстуры конструируют service без MessageGateway.
+    @Optional() private readonly gateway?: MessageGateway,
   ) {}
 
   /**
@@ -139,7 +143,23 @@ export class HintsService {
       await this.limits.markShown(actor);
 
       // 7. Payload.
-      return toShowPayload(winner, locale);
+      const payload = toShowPayload(winner, locale);
+
+      // KS-4701 / ADR-147 §4.1: WS-emit для авторизованных. Для guest
+      // payload уже лёг в `hints:pending:<guest_id>` (HintsListener) —
+      // здесь дублировать не нужно.
+      if (actor.type === 'user' && this.gateway) {
+        try {
+          this.gateway.emitHintShow(actor.id, payload);
+        } catch (err) {
+          // WS-emit fail-soft: даже если сокет упал, ActorHintState
+          // уже зафиксировал show — payload вернётся при следующем
+          // (или caller сможет логировать факт).
+          this.logger.warn(`emitHintShow failed for user=${actor.id}: ${(err as Error).message}`);
+        }
+      }
+
+      return payload;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`checkFor ${actor.type}:${actor.id}: ${msg}`);

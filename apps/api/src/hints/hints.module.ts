@@ -11,15 +11,28 @@
  * pull endpoint для guest).
  */
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { GuestModule } from '../guest/guest.module';
+import { MessageModule } from '../message/message.module';
 import { MetricsModule } from '../metrics/metrics.module';
+import { HintsController } from './hints.controller';
 import { HintsLimitsService } from './hints-limits.service';
 import { HintsListener } from './hints.listener';
 import { HintsMetricsService } from './hints-metrics.service';
 import { HintsService } from './hints.service';
 
 @Module({
-  imports: [MetricsModule],
-  providers: [HintsService, HintsLimitsService, HintsMetricsService, HintsListener],
+  // KS-4701: MessageModule — для WS-emit hint:show через MessageGateway.
+  //          GuestModule — для GuestIdGuard в /hints/pending.
+  //          AuthModule — для JwtService decode в HintsController.
+  imports: [MetricsModule, AuthModule, MessageModule, GuestModule],
+  controllers: [HintsController],
+  providers: [
+    HintsService,
+    HintsLimitsService,
+    HintsMetricsService,
+    HintsListener,
+  ],
   exports: [HintsService, HintsLimitsService, HintsMetricsService],
 })
 export class HintsModule {}

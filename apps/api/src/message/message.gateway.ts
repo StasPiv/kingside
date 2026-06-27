@@ -159,6 +159,16 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     this.server.to(`user:${userId}`).emit(event, payload);
   }
 
+  /**
+   * KS-4701 / ADR-147 §4.1. Push контекстной подсказки авторизованному
+   * пользователю. Event-name `hint:show`, payload — `HintShowPayload`
+   * из shared (T7). Эмитится HintsService.checkFor после `markShown`
+   * для actor.type === 'user'.
+   */
+  emitHintShow(userId: string, payload: unknown): void {
+    this.server.to(`user:${userId}`).emit('hint:show', payload);
+  }
+
   // ─── Challenge ─────────────────────────────────────────────────────
 
   @SubscribeMessage(ChallengeEvents.SEND)
