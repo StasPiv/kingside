@@ -123,6 +123,12 @@ COPY --from=build /app/packages/db ./packages/db
 # KS-4247 / ADR-131 A1: archive-db нужен в runtime для @kingside/archive-db
 # resolve (отдельный PrismaClient в новом archive-модуле).
 COPY --from=build /app/packages/archive-db ./packages/archive-db
+# KS-4695 / ADR-147 T1c: events-db нужен в runtime — EventsModule
+# импортирует `@kingside/events-db` PrismaClient. node_modules из build-
+# стадии содержит symlink `@kingside/events-db → packages/events-db`,
+# поэтому без COPY target ссылки в production stage отсутствует и
+# require падает `Cannot find module`. Образец — archive-db выше.
+COPY --from=build /app/packages/events-db ./packages/events-db
 # KS-2363: board-image-to-fen tree включает dist/ (TS-обёртка) +
 # src/python/* (board_detect.py / board_recognize.py — spawn'ятся через
 # child_process). Без src/python модуль не сможет вызывать Python-стек.
