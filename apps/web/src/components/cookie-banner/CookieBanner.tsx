@@ -236,7 +236,7 @@ export function CookieBanner(): ReactElement | null {
       <p className="cookie-banner__text">
         {t(
           'cookieBanner.intro',
-          'We use a small amount of analytics to personalize hints and improve the site. No personal moves or messages are tracked — only high-level actions.',
+          "We'd like to collect anonymous usage events (page views, game and puzzle starts, idle time) to personalise contextual hints. Your games, moves, chat messages, ratings and account data are stored as part of the platform itself — independently of this choice.",
         )}
       </p>
 
@@ -248,7 +248,7 @@ export function CookieBanner(): ReactElement | null {
             onClick={() => void onUserChoice(true)}
             data-testid="cookie-banner-accept"
           >
-            {t('cookieBanner.accept', 'Enable analytics')}
+            {t('cookieBanner.accept', 'Enable hints analytics')}
           </button>
           <button
             type="button"
@@ -274,7 +274,7 @@ export function CookieBanner(): ReactElement | null {
             onClick={() => void onGuestChoice(true)}
             data-testid="cookie-banner-guest-accept"
           >
-            {t('cookieBanner.accept', 'Enable analytics')}
+            {t('cookieBanner.accept', 'Enable hints analytics')}
           </button>
           <button
             type="button"
@@ -290,7 +290,7 @@ export function CookieBanner(): ReactElement | null {
             onClick={onAskGuestDelete}
             data-testid="cookie-banner-guest-delete"
           >
-            {t('cookieBanner.guestDelete', 'Delete my data')}
+            {t('cookieBanner.guestDelete', 'Delete my analytics data')}
           </button>
           <button
             type="button"
@@ -323,7 +323,7 @@ export function CookieBanner(): ReactElement | null {
               <p>
                 {t(
                   'cookieBanner.guestDeleteConfirmBody',
-                  'Removes all analytics events stored for this guest session and clears the consent cookies.',
+                  'Removes only analytics events and consent cookies for this guest session. Your games and account data are not affected.',
                 )}
               </p>
               <div style={{ display: 'flex', gap: 8 }}>
