@@ -14,6 +14,7 @@ import {
   offset,
   flip,
   shift,
+  arrow,
 } from '@floating-ui/react';
 import type { Placement } from '@floating-ui/react';
 import type { HintShowPayload } from '@kingside/shared';
@@ -230,16 +231,32 @@ interface PaneProps {
   onCta: () => void;
 }
 
+// KS-4720. Сторона popover'а, противоположная placement — там
+// «прикрепляется» стрелка к anchor.
+const ARROW_OPPOSITE_SIDE: Record<string, 'top' | 'bottom' | 'left' | 'right'> = {
+  top: 'bottom',
+  bottom: 'top',
+  left: 'right',
+  right: 'left',
+};
+const ARROW_SIZE = 8;
+
 function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElement {
   const floatingPlacement = mapPlacement(hint.placement);
-  // KS-4708: возвращаем computed `placement` из @floating-ui — после flip()
-  // он может отличаться от `floatingPlacement` (например, top → bottom при
-  // нехватке места). Layout (KS-4705/hints.css) рисует стрелку по
-  // `data-placement` атрибуту, нам нужен именно фактический.
-  const { refs, floatingStyles, placement } = useFloating({
+  const arrowRef = useRef<HTMLDivElement | null>(null);
+  // KS-4708/KS-4720: возвращаем computed `placement` из @floating-ui —
+  // после flip() он может отличаться от `floatingPlacement`. Стрелка
+  // позиционируется через arrow() middleware (KS-4720), координаты
+  // приходят в middlewareData.arrow.
+  const { refs, floatingStyles, placement, middlewareData } = useFloating({
     open: true,
     placement: floatingPlacement,
-    middleware: [offset(8), flip(), shift({ padding: 8 })],
+    middleware: [
+      offset(ARROW_SIZE + 4),
+      flip(),
+      shift({ padding: 8 }),
+      arrow({ element: arrowRef, padding: 8 }),
+    ],
     whileElementsMounted: autoUpdate,
   });
 
@@ -250,6 +267,24 @@ function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElem
   // @floating-ui возвращает placement вида `top-start` / `bottom-end`.
   // Стрелка нужна по основной стороне, поэтому отрезаем модификатор.
   const sidePlacement = placement.split('-')[0];
+  const arrowOpposite = ARROW_OPPOSITE_SIDE[sidePlacement] ?? 'top';
+  // Координаты от arrow middleware: одна из x/y — число, другая undefined.
+  const arrowX = middlewareData.arrow?.x;
+  const arrowY = middlewareData.arrow?.y;
+  // Размещаем стрелку: примерно вписана в popover, центр выровнен по
+  // anchor (arrowX/arrowY от middleware). По «противоположной» стороне
+  // выезд на половину размера, чтобы получилась треугольная вершина.
+  const arrowStyle: React.CSSProperties = {
+    position: 'absolute',
+    width: ARROW_SIZE * 2,
+    height: ARROW_SIZE * 2,
+    background: 'inherit',
+    transform: 'rotate(45deg)',
+    pointerEvents: 'none',
+    ...(arrowX != null ? { left: arrowX } : {}),
+    ...(arrowY != null ? { top: arrowY } : {}),
+    [arrowOpposite]: -ARROW_SIZE,
+  };
 
   return ReactDOM.createPortal(
     <div
@@ -287,6 +322,18 @@ function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElem
           {hint.ctaLabel}
         </button>
       )}
+      {/* KS-4720: треугольная стрелка к anchor. Координаты от
+          @floating-ui/arrow(); background: inherit, чтобы цвет совпал с
+          popover'ом; layout (hints.css) при желании может уточнить
+          border/shadow по `data-placement`. */}
+      <div
+        ref={arrowRef}
+        className="hint-popover__arrow"
+        data-placement={sidePlacement}
+        data-testid="hint-popover-arrow"
+        style={arrowStyle}
+        aria-hidden="true"
+      />
     </div>,
     document.body,
   );

@@ -147,6 +147,10 @@ describe('HintHost (KS-4703)', () => {
 
     expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
     expect(screen.getByText('Analyse this game')).toBeInTheDocument();
+    // KS-4720: стрелка к anchor.
+    const arrow = screen.getByTestId('hint-popover-arrow');
+    expect(arrow).toBeInTheDocument();
+    expect(arrow.getAttribute('data-placement')).toBeTruthy();
 
     await waitFor(() => {
       const shown = vi.mocked(fetch).mock.calls.find(
