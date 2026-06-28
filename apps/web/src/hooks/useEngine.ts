@@ -174,14 +174,15 @@ export function useEngine(options: UseEngineOptions): EngineResult {
   });
 
   /**
-   * KS-4727. Событие `engine_started` — один раз на сессию запуска
-   * каждого источника. Используется правилом hints
-   * `analysis-bridge-promo`: после 3-х запусков `source='wasm'`
-   * предлагаем подключить bridge.
+   * KS-4727/KS-4735. Событие `engine_started` — один раз на сессию
+   * запуска каждого источника. Триггерится по ПЕРВОМУ переходу
+   * `state` в `'analyzing'` (движок реально начал считать), а не по
+   * `isReady` — последний у `useStockfish` равен `state === 'idle'
+   * || 'ready' || 'analyzing'` и становится `true` ещё при mount,
+   * до того как пользователь нажал Start (KS-4735 регресс: после
+   * mount ref выставлялся, и реальный запуск потом не трекался).
    *
-   * Дедуп через ref: первый переход в `isReady=true` пишет событие,
-   * последующие циклы isReady→false→true для того же источника
-   * молчат. При смене source ref противоположного источника
+   * Дедуп через ref. При смене source ref противоположного источника
    * сбрасывается — повторный запуск wasm после bridge снова даст
    * событие.
    */
@@ -189,20 +190,24 @@ export function useEngine(options: UseEngineOptions): EngineResult {
   const externalStartedRef = useRef(false);
   useEffect(() => {
     if (!enabled) return;
-    if (source === 'wasm' && wasm.isReady && !wasmStartedRef.current) {
+    if (
+      source === 'wasm'
+      && wasm.state === 'analyzing'
+      && !wasmStartedRef.current
+    ) {
       wasmStartedRef.current = true;
       externalStartedRef.current = false;
       track('engine_started', { source: 'wasm' });
     } else if (
       source === 'external'
-      && external.isReady
+      && external.state === 'analyzing'
       && !externalStartedRef.current
     ) {
       externalStartedRef.current = true;
       wasmStartedRef.current = false;
       track('engine_started', { source: 'bridge' });
     }
-  }, [enabled, source, wasm.isReady, external.isReady]);
+  }, [enabled, source, wasm.state, external.state]);
 
   return useMemo(() => {
     // KS-3908 / ADR-117 C04. Когда движок выключен (учитель отнял

@@ -20,12 +20,13 @@ import { renderHook } from '@testing-library/react';
 // Моки внутренних хуков. Подменяем до import {useEngine} так, чтобы
 // внутри обёртки реальные `useStockfish`/`useExternalEngine` не
 // дёргались. `vi.fn()` фиксирует вызовы и аргументы.
-// KS-4727: тестам нужен контроль над `isReady`, чтобы проверить
-// эмиссию `engine_started`. Меняем mock на параметризованную фабрику.
-let wasmIsReady = false;
-let externalIsReady = false;
+// KS-4727/KS-4735: тестам нужен контроль над `state`, чтобы
+// проверить эмиссию `engine_started` (триггер по переходу в
+// 'analyzing', а не по isReady — последний true даже в 'idle').
+let wasmState: 'idle' | 'loading' | 'ready' | 'analyzing' | 'error' = 'idle';
+let externalState: 'idle' | 'loading' | 'ready' | 'analyzing' | 'error' = 'idle';
 const useStockfishMock = vi.fn((_opts: unknown) => ({
-  state: 'idle',
+  state: wasmState,
   lines: [],
   analysisFen: null,
   bestMove: null,
@@ -33,12 +34,12 @@ const useStockfishMock = vi.fn((_opts: unknown) => ({
   stop: vi.fn(),
   init: vi.fn(),
   cleanup: vi.fn(),
-  isReady: wasmIsReady,
+  isReady: wasmState === 'idle' || wasmState === 'ready' || wasmState === 'analyzing',
   loadProgress: 0,
   errorReason: null,
 }));
 const useExternalEngineMock = vi.fn((_opts: unknown) => ({
-  state: 'idle',
+  state: externalState,
   lines: [],
   analysisFen: null,
   bestMove: null,
@@ -47,7 +48,7 @@ const useExternalEngineMock = vi.fn((_opts: unknown) => ({
   setOption: vi.fn(),
   init: vi.fn(),
   cleanup: vi.fn(),
-  isReady: externalIsReady,
+  isReady: externalState === 'idle' || externalState === 'ready' || externalState === 'analyzing',
   engineName: 'External',
   errorMessage: null,
 }));
@@ -70,8 +71,8 @@ describe('useEngine — KS-3908 gating', () => {
   beforeEach(() => {
     useStockfishMock.mockClear();
     useExternalEngineMock.mockClear();
-    wasmIsReady = false;
-    externalIsReady = false;
+    wasmState = 'idle';
+    externalState = 'idle';
   });
 
   it('enabled=false → useStockfish получает autoStart=false; useExternalEngine получает config=null', () => {
@@ -178,8 +179,8 @@ describe('useEngine — KS-4727 engine_started', () => {
   beforeEach(async () => {
     useStockfishMock.mockClear();
     useExternalEngineMock.mockClear();
-    wasmIsReady = false;
-    externalIsReady = false;
+    wasmState = 'idle';
+    externalState = 'idle';
     const events = await import('../lib/events');
     trackSpy = vi
       .spyOn(events, 'track')
@@ -189,8 +190,8 @@ describe('useEngine — KS-4727 engine_started', () => {
     trackSpy.mockRestore();
   });
 
-  it('wasm isReady=true → один engine_started {source:wasm}', () => {
-    wasmIsReady = true;
+  it('wasm state=analyzing → один engine_started {source:wasm}', () => {
+    wasmState = 'analyzing';
     renderHook(() =>
       useEngine({
         source: 'wasm',
@@ -205,8 +206,8 @@ describe('useEngine — KS-4727 engine_started', () => {
     expect(calls[0][1]).toEqual({ source: 'wasm' });
   });
 
-  it('external isReady=true → один engine_started {source:bridge}', () => {
-    externalIsReady = true;
+  it('external state=analyzing → один engine_started {source:bridge}', () => {
+    externalState = 'analyzing';
     renderHook(() =>
       useEngine({
         source: 'external',
@@ -221,8 +222,24 @@ describe('useEngine — KS-4727 engine_started', () => {
     expect(calls[0][1]).toEqual({ source: 'bridge' });
   });
 
-  it('enabled=false → engine_started НЕ шлётся даже при isReady', () => {
-    wasmIsReady = true;
+  it('KS-4735: state=idle (initial) — engine_started НЕ шлётся', () => {
+    // wasmState='idle' по дефолту в beforeEach. isReady=true, но это
+    // не должно триггерить событие — пользователь ещё не нажал Start.
+    renderHook(() =>
+      useEngine({
+        source: 'wasm',
+        externalConfig: null,
+        multiPv: 3,
+      }),
+    );
+    const calls = trackSpy.mock.calls.filter(
+      (c) => c[0] === 'engine_started',
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('enabled=false → engine_started НЕ шлётся даже при analyzing', () => {
+    wasmState = 'analyzing';
     renderHook(() =>
       useEngine({
         source: 'wasm',
