@@ -67,12 +67,21 @@ export class HintsService {
     const stop = this.metrics.startCheck(actor.type);
     try {
       // 0. Consent.
-      if (!(await this.events.hasConsent(actor))) return null;
+      if (!(await this.events.hasConsent(actor))) {
+        this.logger.debug?.(`checkFor skip: no-consent actor=${actor.type}:${actor.id}`);
+        return null;
+      }
 
       // 1. Killswitch + quiet pages.
       const limits = this.limits.getLimits();
-      if (!limits.enabled) return null;
-      if (ctx.page && isQuietPage(ctx)) return null;
+      if (!limits.enabled) {
+        this.logger.debug?.(`checkFor skip: killswitch off`);
+        return null;
+      }
+      if (ctx.page && isQuietPage(ctx)) {
+        this.logger.debug?.(`checkFor skip: quiet-page page=${ctx.page}`);
+        return null;
+      }
 
       const owner = this.prismaSvc.getOwner();
       if (!owner) return null;

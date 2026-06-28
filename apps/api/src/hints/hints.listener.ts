@@ -34,6 +34,13 @@ const REACTIVE_TYPES = new Set<string>([
 ]);
 
 const PENDING_TTL_SEC = 60;
+/**
+ * KS-4719: TTL last-page кэша. 5 минут — соответствует типичной длине
+ * пользовательской сессии; за это окно реактивные события (game_end,
+ * guest_landing_viewed, …) точно успеют пройти после page_view.
+ */
+const LAST_PAGE_TTL_SEC = 300;
+const LAST_PAGE_KEY_PREFIX = 'hints:last-page:';
 
 @Injectable()
 export class HintsListener implements OnModuleInit {
@@ -55,14 +62,36 @@ export class HintsListener implements OnModuleInit {
     // [puzzle_start]` правила).
     void this.hints.handleSmartDismiss(actor, type).catch(() => undefined);
 
+    // KS-4719: на любом event'e с явным `path` или `page` в payload
+    // сохраняем last-page в Redis. Эта запись используется как
+    // fallback для типов событий, которые не несут page в payload
+    // (`guest_landing_viewed`, `game_end`, ...). Без этого правила с
+    // `page.matches='/'` никогда не сматчатся на гостевые ивенты.
+    const explicitPage = readPayloadPage(payload);
+    if (explicitPage) {
+      try {
+        await this.redis.set(
+          `${LAST_PAGE_KEY_PREFIX}${actor.id}`,
+          explicitPage,
+          'EX',
+          LAST_PAGE_TTL_SEC,
+        );
+      } catch (err) {
+        this.logger.debug?.(`last-page cache set failed: ${(err as Error).message}`);
+      }
+    }
+
     if (!REACTIVE_TYPES.has(type)) return;
-    // Контекст — минимальный. `page` приходит из payload.path для
-    // page_view; для game/puzzle событий page-контекст не нужен (DSL
-    // правила без page-предиката всё равно отработают).
-    const ctxPage =
-      typeof (payload as Record<string, unknown> | null)?.path === 'string'
-        ? ((payload as Record<string, unknown>).path as string)
-        : undefined;
+
+    // Контекст — payload.page / payload.path → fallback на Redis last-page.
+    let ctxPage = explicitPage;
+    if (!ctxPage) {
+      try {
+        const cached = await this.redis.get(`${LAST_PAGE_KEY_PREFIX}${actor.id}`);
+        if (cached) ctxPage = cached;
+      } catch { /* no-op */ }
+    }
+
     let result;
     try {
       result = await this.hints.checkFor(actor, {
@@ -70,12 +99,18 @@ export class HintsListener implements OnModuleInit {
         triggerEventType: type,
       });
     } catch (err) {
-      this.logger.debug?.(`handle checkFor failed: ${(err as Error).message}`);
+      this.logger.warn(`handle checkFor failed actor=${actor.type}:${actor.id} type=${type}: ${(err as Error).message}`);
       return;
     }
+    // KS-4719: диагностический лог. Тип события + actor + page +
+    // результат (key выбранного hint либо 'no-match'). На проде это
+    // даёт быстрое объяснение «почему гость не получил подсказку».
+    this.logger.log(
+      `checkFor actor=${actor.type}:${actor.id} type=${type} page=${ctxPage ?? '∅'} → ${result ? result.key : 'no-match'}`,
+    );
     if (!result) return;
-    // Для гостя кладём в pending-list. WS gateway-для user'а появится
-    // в T8, тогда здесь будет аналогичный if (actor.type==='user') emit.
+    // Для гостя кладём в pending-list. Для user — payload уже эмитнут
+    // через WS gateway внутри HintsService.checkFor (KS-4701).
     if (actor.type === 'guest') {
       try {
         const key = `hints:pending:${actor.id}`;
@@ -86,4 +121,15 @@ export class HintsListener implements OnModuleInit {
       }
     }
   }
+}
+
+/** KS-4719: единый extract — поддержка `page` и `path` (разные хуки
+ *  на фронте используют разное имя — usePageViewTracking шлёт `path`,
+ *  useIdleTracking шлёт `page`). */
+function readPayloadPage(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.page === 'string' && p.page.length > 0) return p.page;
+  if (typeof p.path === 'string' && p.path.length > 0) return p.path;
+  return undefined;
 }
