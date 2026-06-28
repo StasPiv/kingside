@@ -29,6 +29,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import type { PrismaClient as EventsPrismaClient, Prisma } from '@kingside/events-db';
+import type Redis from 'ioredis';
 import { RedisService } from '../redis/redis.service';
 import { EventsMetricsService } from './events-metrics.service';
 import { EventsPrismaService } from './events-prisma.service';
@@ -51,6 +52,17 @@ export class EventsWriterService implements OnModuleInit, OnModuleDestroy {
   private stopRequested = false;
   private loopDone: Promise<void> | null = null;
   private pendingMetricsTimer: NodeJS.Timeout | null = null;
+  // KS-4783: отдельный ioredis-сокет для блокирующего XREADGROUP.
+  // ioredis протокол FIFO — пока сокет ждёт ответ blocking-команды,
+  // все остальные команды этого сокета копятся в очереди. Раньше
+  // writer крутил `XREADGROUP ... BLOCK 1000` на общем RedisService;
+  // hset/hgetall/zadd из других сервисов (создание партии, clock,
+  // hints) ждали по ~1с каждый — POST /games/bot стабильно 3.5с TTFB.
+  // Лечится отдельным сокетом через `redis.duplicate()` (так делает
+  // ArchiveService для subscribe — apps/api/src/archive/archive.service.ts:160).
+  // XACK/XPENDING/XGROUP/INCR-пайплайн остаются на общем RedisService —
+  // они не блокирующие.
+  private blockingRedis: Redis | null = null;
 
   constructor(
     private readonly redis: RedisService,
@@ -69,12 +81,15 @@ export class EventsWriterService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.ensureGroup();
+    // KS-4783: отдельный сокет для блокирующего XREADGROUP — см. шапку
+    // поля blockingRedis.
+    this.blockingRedis = this.redis.duplicate();
     this.loopDone = this.runLoop(writer);
     this.pendingMetricsTimer = setInterval(
       () => void this.updatePendingMetrics(),
       PENDING_METRICS_INTERVAL_MS,
     );
-    this.logger.log(`EventsWriter started (consumer=${CONSUMER_NAME}, group=${EVENTS_WRITER_GROUP}).`);
+    this.logger.log(`EventsWriter started (consumer=${CONSUMER_NAME}, group=${EVENTS_WRITER_GROUP}), blocking-socket duplicated.`);
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -87,6 +102,12 @@ export class EventsWriterService implements OnModuleInit, OnModuleDestroy {
         this.loopDone,
         new Promise<void>((resolve) => setTimeout(resolve, BLOCK_MS * 2 + 500)),
       ]);
+    }
+    // KS-4783: закрываем приватный сокет — иначе процесс не выйдет.
+    if (this.blockingRedis) {
+      try { await this.blockingRedis.quit(); }
+      catch { /* ignore */ }
+      this.blockingRedis = null;
     }
   }
 
@@ -135,7 +156,10 @@ export class EventsWriterService implements OnModuleInit, OnModuleDestroy {
   private async processBatch(writer: EventsPrismaClient): Promise<void> {
     // ioredis типизирует xreadgroup ответ как `unknown` (его форма
     // массива массивов сложна для статики). Парсим вручную.
-    const res = (await this.redis.xreadgroup(
+    // KS-4783: XREADGROUP идёт через отдельный сокет (см. blockingRedis).
+    // Если по какой-то причине дубликат не создан — fallback на общий.
+    const r = this.blockingRedis ?? this.redis;
+    const res = (await r.xreadgroup(
       'GROUP',
       EVENTS_WRITER_GROUP,
       CONSUMER_NAME,

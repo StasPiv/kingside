@@ -19,9 +19,7 @@ import { HintsAdminController } from './admin/hints-admin.controller';
 import { HintsAdminService } from './admin/hints-admin.service';
 import { HintsController } from './hints.controller';
 import { HintsLimitsService } from './hints-limits.service';
-// KS-4783: отключён вместе с EventsWriterService (см. EventsModule).
-// Включить обратно после переноса XREADGROUP на отдельный duplicate()-клиент.
-// import { HintsListener } from './hints.listener';
+import { HintsListener } from './hints.listener';
 import { HintsMetricsService } from './hints-metrics.service';
 import { HintsService } from './hints.service';
 
@@ -36,7 +34,7 @@ import { HintsService } from './hints.service';
     HintsService,
     HintsLimitsService,
     HintsMetricsService,
-    // HintsListener,  // KS-4783: см. шапку import
+    HintsListener,
     HintsAdminService,
   ],
   exports: [HintsService, HintsLimitsService, HintsMetricsService],

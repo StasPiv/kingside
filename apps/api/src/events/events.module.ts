@@ -33,14 +33,7 @@ import { EventsMetricsService } from './events-metrics.service';
 import { EventsPrismaService } from './events-prisma.service';
 import { EventsRefreshService } from './events-refresh.service';
 import { EventsService } from './events.service';
-// KS-4783: EventsWriterService временно отключён. Его бесконечный цикл
-// XREADGROUP ... BLOCK 1000 держал общий RedisService-сокет занятым,
-// hset/hgetall/zadd из других сервисов ждали по ~1с каждый — POST
-// /games/bot 3.5с TTFB. Включить обратно после правки: вместо общего
-// RedisService использовать this.redis.duplicate() в onModuleInit
-// (как делает ArchiveService). HintsListener тоже отключён (см.
-// HintsModule), т.к. без writer'а события в Postgres не доезжают.
-// import { EventsWriterService } from './events-writer.service';
+import { EventsWriterService } from './events-writer.service';
 
 // KS-4696 / ADR-147 §2.2 (T3): @Global чтобы EventsService инжектился в
 // game/puzzle/lessons/tactic-drill/analysis для self-emit без явного
@@ -55,7 +48,7 @@ import { EventsService } from './events.service';
     EventsService,
     EventsMetricsService,
     EventsPrismaService,
-    // EventsWriterService,  // KS-4783: см. шапку import
+    EventsWriterService,
     EventsRefreshService,
     InternalEventsGuard,
     // KS-4697 / ADR-147 §6.3 + §1.1: общая логика GDPR-операций
