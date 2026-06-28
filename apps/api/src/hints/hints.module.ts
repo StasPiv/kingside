@@ -19,12 +19,8 @@ import { HintsAdminController } from './admin/hints-admin.controller';
 import { HintsAdminService } from './admin/hints-admin.service';
 import { HintsController } from './hints.controller';
 import { HintsLimitsService } from './hints-limits.service';
-// KS-4783: HintsListener временно отключён. Каждый track() (game_start/
-// game_end/page_view/...) запускал handle → HintsService.checkFor с
-// десятками Prisma+Redis запросов в event loop'е api. Накопленные
-// микрозадачи блокировали handler'ы на ~1с между каждым await
-// (диагностика: POST /games/bot 3.5с TTFB). Включить обратно после
-// переноса обработки в отдельный consumer Redis Stream / BullMQ.
+// KS-4783: отключён вместе с EventsWriterService (см. EventsModule).
+// Включить обратно после переноса XREADGROUP на отдельный duplicate()-клиент.
 // import { HintsListener } from './hints.listener';
 import { HintsMetricsService } from './hints-metrics.service';
 import { HintsService } from './hints.service';
