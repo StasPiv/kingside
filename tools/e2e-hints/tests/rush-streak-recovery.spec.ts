@@ -4,9 +4,9 @@
  * DSL:     count rush_streak_broken ≥2 за сутки.
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, hoursAgo, emitHint } from '../fixtures/actor';
+import { cleanActor, seedEvents, hoursAgo } from '../fixtures/actor';
 import { loginAs, TEST_USER } from '../fixtures/auth';
-import { expectHintShown } from '../fixtures/hints';
+import { expectHintAppearsAfterEmit } from '../fixtures/hints';
 
 test('rush-streak-recovery показывается после 2 сорванных серий за сутки', async ({
   context,
@@ -22,7 +22,5 @@ test('rush-streak-recovery показывается после 2 сорванн�
   ]);
 
   await page.goto('/puzzles');
-  await emitHint(request, TEST_USER, '/puzzles');
-
-  await expectHintShown(page, 'rush-streak-recovery');
+  await expectHintAppearsAfterEmit(page, request, TEST_USER, '/puzzles', 'rush-streak-recovery');
 });

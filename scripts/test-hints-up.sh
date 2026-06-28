@@ -90,6 +90,21 @@ for i in $(seq 1 60); do
     sleep 2
 done
 
+# KS-4763: HintHost.consentGiven для авторизованного user смотрит ТОЛЬКО
+# `user.analytics_consent` (apps/web/src/lib/events.ts:370). Cookie/localStorage
+# fallback применяется только для гостя. Dev-bypass создаёт DEV user с
+# `analytics_consent=false` по дефолту Prisma → HintHost получает hint:show
+# через WS, но рендерит null без consent → popover не появляется.
+# Прокликиваем dev-bypass (создаст DEV user если ещё нет) → UPDATE consent=true.
+log "Bootstrap DEV user + analytics_consent=true ..."
+curl -sS -X POST http://localhost:3101/auth/dev-bypass \
+    -H "Content-Type: application/json" \
+    -d '{"secret":"test-hints-bypass"}' >/dev/null
+docker exec "${PROJECT}-postgres-1" psql -U kingside -d kingside -v ON_ERROR_STOP=1 -c \
+    "UPDATE users SET analytics_consent = true WHERE id = '00000000-0000-4000-a000-000000000002';" \
+    >/dev/null
+log "DEV.analytics_consent: ok"
+
 log "ready"
 cat <<EOF
 

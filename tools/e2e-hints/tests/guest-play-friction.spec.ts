@@ -5,9 +5,9 @@
  *          not exists guest_signup_form_opened.
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, minutesAgo, emitHint } from '../fixtures/actor';
+import { cleanActor, seedEvents, minutesAgo } from '../fixtures/actor';
 import { loginAsGuest } from '../fixtures/auth';
-import { expectHintShown } from '../fixtures/hints';
+import { expectHintAppearsAfterEmit } from '../fixtures/hints';
 
 test('guest-play-friction показывается после 2+ попыток сыграть без аккаунта', async ({
   context,
@@ -23,7 +23,5 @@ test('guest-play-friction показывается после 2+ попыток 
   ]);
 
   await page.goto('/');
-  await emitHint(request, guest, '/');
-
-  await expectHintShown(page, 'guest-play-friction');
+  await expectHintAppearsAfterEmit(page, request, guest, '/', 'guest-play-friction');
 });

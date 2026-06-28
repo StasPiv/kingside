@@ -1,16 +1,12 @@
 /**
  * Правило: home-idle-suggest-puzzles
- * Anchor:  home-puzzles-tile (на /play)
- * DSL:     count session_idle ≥1 за окно minutesAgo(2) с payload.page=/play.
- *
- * Этот сценарий не использует backdating — событие session_idle естественным
- * образом приходит с frontend'а после 60 сек простоя. Чтобы не ждать минуту,
- * мы можем подсунуть событие через seedEvents.
+ * Anchor:  home-puzzles-tile (на /lobby — page-override KS-4763)
+ * DSL:     count session_idle ≥1 за окно minutesAgo(2) с payload.page=/lobby.
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, minutesAgo, emitHint } from '../fixtures/actor';
+import { cleanActor, seedEvents, minutesAgo } from '../fixtures/actor';
 import { loginAs, TEST_USER } from '../fixtures/auth';
-import { expectHintShown } from '../fixtures/hints';
+import { expectHintAppearsAfterEmit } from '../fixtures/hints';
 
 test('home-idle подсказка показывается после session_idle на /play', async ({
   context,
@@ -29,7 +25,5 @@ test('home-idle подсказка показывается после session_i
   ]);
 
   await page.goto('/lobby');
-  await emitHint(request, TEST_USER, '/lobby');
-
-  await expectHintShown(page, 'home-idle-suggest-puzzles');
+  await expectHintAppearsAfterEmit(page, request, TEST_USER, '/lobby', 'home-idle-suggest-puzzles');
 });

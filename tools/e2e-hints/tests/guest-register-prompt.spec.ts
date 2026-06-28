@@ -7,7 +7,7 @@
 import { test } from '@playwright/test';
 import { cleanActor, seedEvents, minutesAgo, emitHint } from '../fixtures/actor';
 import { loginAsGuest } from '../fixtures/auth';
-import { expectHintShown, expectHintNotShown } from '../fixtures/hints';
+import { expectHintAppearsAfterEmit, expectHintNotShown } from '../fixtures/hints';
 
 test('guest-register-prompt показывается гостю после landing-view', async ({
   context,
@@ -22,9 +22,7 @@ test('guest-register-prompt показывается гостю после landi
   ]);
 
   await page.goto('/');
-  await emitHint(request, guest, '/');
-
-  await expectHintShown(page, 'guest-register-prompt');
+  await expectHintAppearsAfterEmit(page, request, guest, '/', 'guest-register-prompt');
 });
 
 test('guest-register-prompt НЕ показывается, если гость уже открывал форму регистрации', async ({

@@ -5,9 +5,9 @@
  *          not exists guest_signup_form_opened за 7 дн.
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, daysAgo, emitHint } from '../fixtures/actor';
+import { cleanActor, seedEvents, daysAgo } from '../fixtures/actor';
 import { loginAsGuest } from '../fixtures/auth';
-import { expectHintShown } from '../fixtures/hints';
+import { expectHintAppearsAfterEmit } from '../fixtures/hints';
 
 test('guest-features-discovery показывается возвращающемуся гостю', async ({
   context,
@@ -24,7 +24,5 @@ test('guest-features-discovery показывается возвращающем
   ]);
 
   await page.goto('/');
-  await emitHint(request, guest, '/');
-
-  await expectHintShown(page, 'guest-features-discovery');
+  await expectHintAppearsAfterEmit(page, request, guest, '/', 'guest-features-discovery');
 });

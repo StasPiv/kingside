@@ -92,3 +92,32 @@ export async function emitHint(
   expect(res.status(), `emit-hint: ${await res.text()}`).toBeLessThan(300);
   return (await res.json()) as { key: string | null; emitted: boolean };
 }
+
+/**
+ * KS-4763. Реактивный triger для гостей: `POST /events` page_view как от
+ * фронта. Backend EventsService.onTrack → HintsListener.handle → для
+ * `page_view`-event делает `HintsService.checkFor` → для guest RPUSH в
+ * `hints:pending:<id>` (Redis LIST, TTL 60с) — фронт получит через
+ * `GET /hints/pending` pull-loop.
+ *
+ * Зачем отдельно от `emitHint` (KS-4765/T6 endpoint): emit-hint для гостя
+ * на момент KS-4763 вызывает checkFor + WS-emit, но НЕ RPUSH'ит в pending
+ * (фикс на backend стороне отдельной задачей). Реактивный path через
+ * `/events` уже работает.
+ *
+ * Вызов требует чтобы cookies гостя (guest_id, analytics_consent*) были
+ * установлены в `request` context — после `loginAsGuest` они шарятся.
+ */
+export async function triggerGuestPageView(
+  request: APIRequestContext,
+  path: string,
+): Promise<void> {
+  const res = await request.post(`${API_URL}/events`, {
+    data: {
+      events: [
+        { type: 'page_view', payload: { path }, ts: new Date().toISOString() },
+      ],
+    },
+  });
+  expect(res.status(), `events POST: ${await res.text()}`).toBeLessThan(300);
+}

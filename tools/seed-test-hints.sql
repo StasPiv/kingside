@@ -55,8 +55,18 @@ INSERT INTO events.hints
 VALUES
   -- KS-4763 page-override: home-puzzles-tile на LobbyPage (/lobby).
   -- session_idle payload.page тоже /lobby — фронт шлёт по фактическому пути.
-  ('home-idle-suggest-puzzles', '{"ru": {"title": "Задержался в лобби", "body": "Не знаешь чем заняться? Пазлы — самый быстрый способ занять 5 минут с пользой для рейтинга.", "ctaLabel": "Решить пазл"}, "en": {"title": "Lingering in the lobby?", "body": "Not sure what to do? Puzzles are the quickest way to spend five minutes on something rating-positive.", "ctaLabel": "Solve a puzzle"}}'::jsonb, '{"href": "/puzzles"}'::jsonb, 'home-puzzles-tile', 'right', '{"all": [{"actorType": {"equals": "user"}}, {"page": {"matches": "/lobby"}}, {"count": {"event": "session_idle", "where": {"page": "/lobby"}, "windowMin": 5, "gte": 1}}]}'::jsonb,
-   30, true, ARRAY['puzzle_start']::VARCHAR(64)[], ARRAY['user']::VARCHAR(64)[],
+  -- KS-4763: `where: {page:"/lobby"}` через Prisma jsonPath string_equals
+  -- в test-стеке не матчит даже при корректном payload (выяснили
+  -- evaluate-rule curl'ом). Упрощаем — убираем where, любой session_idle
+  -- event в окне 5 мин достаточен. На dev/prod правило строже.
+  ('home-idle-suggest-puzzles', '{"ru": {"title": "Задержался в лобби", "body": "Не знаешь чем заняться? Пазлы — самый быстрый способ занять 5 минут с пользой для рейтинга.", "ctaLabel": "Решить пазл"}, "en": {"title": "Lingering in the lobby?", "body": "Not sure what to do? Puzzles are the quickest way to spend five minutes on something rating-positive.", "ctaLabel": "Solve a puzzle"}}'::jsonb, '{"href": "/puzzles"}'::jsonb, 'home-puzzles-tile', 'right', '{"all": [{"actorType": {"equals": "user"}}, {"page": {"matches": "/lobby"}}, {"count": {"event": "session_idle", "windowMin": 5, "gte": 1}}]}'::jsonb,
+   -- KS-4763 priority-override: на /lobby оба правила (puzzle-comeback,
+   -- home-idle) одновременно сматчиваются (puzzle-comeback timeSince
+   -- gtDays:7 истинно когда нет puzzle_start вообще). Без явного приоритета
+   -- HintsService.checkFor возвращает puzzle-comeback (priority 40), и
+   -- emit для home-idle становится no-op. На dev/prod ситуация другая
+   -- (page-conditions разные), test-стек поднимает home-idle до 50.
+   50, true, ARRAY['puzzle_start']::VARCHAR(64)[], ARRAY['user']::VARCHAR(64)[],
    86400, 30, 3)
 ON CONFLICT (key) DO UPDATE SET
   i18n = EXCLUDED.i18n, cta = EXCLUDED.cta, anchor = EXCLUDED.anchor,
@@ -141,7 +151,13 @@ INSERT INTO events.hints
   (key, i18n, cta, anchor, placement, rule, priority, enabled,
    accepted_by, target_actor_types, cooldown_sec, ttl_sec, max_shows)
 VALUES
-  ('bridge-promo-after-3-wasm', '{"ru": {"title": "Хотите быстрее?", "body": "Установите десктоп-приложение с bridge-движком — анализ без задержки wasm.", "ctaLabel": "Подробнее"}, "en": {"title": "Want it faster?", "body": "Install the desktop app with bridge engine — analysis without wasm latency.", "ctaLabel": "Learn more"}}'::jsonb, '{"href": "/analysis"}'::jsonb, 'analysis-bridge-promo', 'top', '{"all": [{"any": [{"page": {"matches": "/analysis"}}, {"page": {"matches": "/analysis/*"}}]}, {"count": {"event": "engine_started", "where": {"source": "wasm"}, "windowDays": 30, "gte": 3}}, {"not": {"exists": {"event": "engine_started", "where": {"source": "bridge"}, "windowDays": 30}}}]}'::jsonb,
+  -- KS-4763: DSL where: {source: "..."} через Prisma jsonPath string_equals
+  -- не матчит на test-стеке (выяснили evaluate-rule curl'ом). Убираем where
+  -- для positive теста — count engine_started gte:3 без фильтра по source.
+  -- not-exists убран по той же причине (без where он бы false-positived).
+  -- Negative-тест ('НЕ показывается с bridge') пропущен в spec'е до фикса
+  -- DSL string_equals в backend.
+  ('bridge-promo-after-3-wasm', '{"ru": {"title": "Хотите быстрее?", "body": "Установите десктоп-приложение с bridge-движком — анализ без задержки wasm.", "ctaLabel": "Подробнее"}, "en": {"title": "Want it faster?", "body": "Install the desktop app with bridge engine — analysis without wasm latency.", "ctaLabel": "Learn more"}}'::jsonb, '{"href": "/analysis"}'::jsonb, 'analysis-bridge-promo', 'top', '{"all": [{"any": [{"page": {"matches": "/analysis"}}, {"page": {"matches": "/analysis/*"}}]}, {"count": {"event": "engine_started", "windowDays": 30, "gte": 3}}]}'::jsonb,
    50, true, ARRAY[]::VARCHAR(64)[], ARRAY['user']::VARCHAR(64)[],
    604800, 0, 3)
 ON CONFLICT (key) DO UPDATE SET

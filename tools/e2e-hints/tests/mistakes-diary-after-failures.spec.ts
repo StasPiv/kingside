@@ -2,14 +2,11 @@
  * Правило: mistakes-diary-after-failures
  * Anchor:  profile-mistakes-link (на /player/<username>(/*))
  * DSL:     puzzle_failed ≥5 за 7 дней, нет feature_used{mistakes_diary_opened} за 30 дн
- *
- * USERNAME тестового user'а — фиксированный (test-fixture, см.
- * docker-compose.test-hints.yml).
  */
 import { test } from '@playwright/test';
 import { cleanActor, seedEvents, daysAgo, hoursAgo, emitHint } from '../fixtures/actor';
 import { loginAs, TEST_USER } from '../fixtures/auth';
-import { expectHintShown, expectHintNotShown } from '../fixtures/hints';
+import { expectHintAppearsAfterEmit, expectHintNotShown } from '../fixtures/hints';
 
 // KS-4763: DEV_USER username (см. packages/shared DEV_USERNAME='DEV').
 // Anchor profile-mistakes-link рендерится владельцу профиля
@@ -33,10 +30,9 @@ test('mistakes-diary показывается после 5 puzzle_failed за н
     { type: 'puzzle_failed', created_at: hoursAgo(6) },
   ]);
 
-  await page.goto(`/player/${TEST_USERNAME}`);
-  await emitHint(request, TEST_USER, `/player/${TEST_USERNAME}`);
-
-  await expectHintShown(page, 'mistakes-diary-after-failures');
+  const route = `/player/${TEST_USERNAME}`;
+  await page.goto(route);
+  await expectHintAppearsAfterEmit(page, request, TEST_USER, route, 'mistakes-diary-after-failures');
 });
 
 test('mistakes-diary НЕ показывается, если дневник ошибок уже открывали', async ({
