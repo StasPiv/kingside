@@ -168,83 +168,88 @@ export function LocalBotGamePage() {
       backLink={{ to: '/play', label: t('game.backToLobby', 'Back to lobby') }}
       forceStandardPieces={forceStandardPieces}
       hideClocks={game.noClock}
-      belowBoardBlock={
-        // KS-4151: блок отрисовывается ВСЕГДА с фиксированной высотой.
-        // Раньше div появлялся/исчезал при botThinking → менялось число
-        // детей `.game-board-area` (flex column, justify-content: center)
-        // и доска визуально смещалась вверх/вниз на каждом ходе бота —
-        // отсюда «дрожание». Сейчас высота 24px зарезервирована всегда,
-        // меняется только текстовое содержимое — без layout shift.
-        // KS-4303: при ошибке инициализации движка показываем сообщение
-        // и кнопку «Запустить движок ещё раз». До правки молчаливый
-        // ступор: `botError` ставился, но retry не было — пользователь
-        // не понимал, что движок умер, и игра «работала через раз».
-        <div
-          className="local-bot-below"
-          style={{
-            marginTop: 12,
-            minHeight: 24,
-            lineHeight: '24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            width: '100%',
-            flexWrap: 'wrap',
-          }}
-        >
-          {game.engineError ? (
-            <>
-              <span
-                className="local-bot-error"
-                data-testid="local-bot-engine-error"
-                style={{ color: '#ef4444' }}
-                role="alert"
-              >
-                {t(
-                  'game.botEngineFailed',
-                  'Could not start the bot engine.',
-                )}
-              </span>
-              <button
-                type="button"
-                onClick={game.retryEngine}
-                data-testid="local-bot-engine-retry"
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border-mid)',
-                  background: 'var(--bg-elevated, var(--c-16213e))',
-                  color: 'var(--text-primary, #fff)',
-                  cursor: 'pointer',
-                  minHeight: 28,
-                }}
-              >
-                {t('game.botEngineRetry', 'Try again')}
-              </button>
-            </>
-          ) : game.botError ? (
+    />
+    {/* KS-4774: блок «Bot is thinking…» / ошибки движка вынесен из
+        пропа `belowBoardBlock` (раньше GameShell рендерил его внутри
+        `.game-board-area`, flex column + overflow:hidden, и доска
+        теряла 36px высоты → нижний ряд координат `a-h` уходил под
+        обрез). Теперь это самостоятельный блок ПОСЛЕ `<GameShell />`:
+        `useResponsiveBoardSize` считает высоту доски правильно, blok
+        с координатами больше не обрезается. Фиксированная высота
+        24px (KS-4151) больше не нужна — баseline-shift на «дрожание»
+        доски при появлении/исчезновении статуса теперь не влияет
+        (блок снаружи game-board-area). Условный рендер вместо
+        пустого div уменьшает шум в DOM.
+        KS-4303: при ошибке инициализации движка — сообщение и
+        кнопка «Try again». До правки был молчаливый ступор:
+        `botError` ставился без retry, пользователь не понимал, что
+        движок умер. */}
+    {(game.engineError ||
+      game.botError ||
+      (game.status === 'active' && game.botThinking)) && (
+      <div
+        className="local-bot-below"
+        style={{
+          marginTop: 12,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          width: '100%',
+          flexWrap: 'wrap',
+        }}
+      >
+        {game.engineError ? (
+          <>
             <span
               className="local-bot-error"
-              data-testid="local-bot-error"
+              data-testid="local-bot-engine-error"
               style={{ color: '#ef4444' }}
               role="alert"
             >
-              {t('game.botEngineError', 'Bot engine could not start: {{msg}}', {
-                msg: game.botError,
-              })}
+              {t(
+                'game.botEngineFailed',
+                'Could not start the bot engine.',
+              )}
             </span>
-          ) : game.status === 'active' && game.botThinking ? (
-            <span
-              className="local-bot-status"
-              data-testid="local-bot-status-bot"
+            <button
+              type="button"
+              onClick={game.retryEngine}
+              data-testid="local-bot-engine-retry"
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid var(--border-mid)',
+                background: 'var(--bg-elevated, var(--c-16213e))',
+                color: 'var(--text-primary, #fff)',
+                cursor: 'pointer',
+                minHeight: 28,
+              }}
             >
-              {t('game.botThinking', 'Bot is thinking…')}
-            </span>
-          ) : null}
-        </div>
-      }
-    />
+              {t('game.botEngineRetry', 'Try again')}
+            </button>
+          </>
+        ) : game.botError ? (
+          <span
+            className="local-bot-error"
+            data-testid="local-bot-error"
+            style={{ color: '#ef4444' }}
+            role="alert"
+          >
+            {t('game.botEngineError', 'Bot engine could not start: {{msg}}', {
+              msg: game.botError,
+            })}
+          </span>
+        ) : (
+          <span
+            className="local-bot-status"
+            data-testid="local-bot-status-bot"
+          >
+            {t('game.botThinking', 'Bot is thinking…')}
+          </span>
+        )}
+      </div>
+    )}
     {/* KS-4320: SEO-блок «Играть с ботом онлайн» под игровой
         областью. Попадает в prerender'д HTML для индексации. */}
     <PlayLocalBotSeoSection />
