@@ -50,8 +50,8 @@ export class HintsTestService {
   }
 
   /**
-   * KS-4763 / T6. Прокси к `HintsService.checkFor` с принудительным
-   * запуском реактивной цепочки. `checkFor` сам:
+   * KS-4763 / T6 + KS-4775 / 2c. Прокси к `HintsService.checkFor` с
+   * принудительным запуском реактивной цепочки. `checkFor` сам:
    *   - проверяет consent (под `ANALYTICS_CONSENT_BYPASS=1` — bypass),
    *   - оценивает DSL,
    *   - upsert'ит `ActorHintState`,
@@ -61,9 +61,15 @@ export class HintsTestService {
    * `EventsService.track` → `HintsListener` не дёргается → ws-emit не
    * уходит. `/test/emit-hint` закрывает этот разрыв явно.
    *
+   * KS-4775 / 2c. Для guest-actor вручную делаем `RPUSH hints:pending:<id>`
+   * с TTL — `HintsService.checkFor` сам RPUSH не делает (это работа
+   * `HintsListener.handle`). Без этого pull-loop фронта (`useHintPull`)
+   * возвращал пустой список, фикстура была вынуждена обходить через
+   * `POST /events page_view`, чтобы реально дёрнуть listener. Теперь
+   * один helper покрывает оба actor типа.
+   *
    * Возвращает `{ key, emitted }` — `emitted` для user-actor отражает
-   * факт ws-emit'а (если есть match); для guest — payload лёг в Redis
-   * `hints:pending:<guest_id>`, фронт получит при pull.
+   * факт ws-emit'а; для guest — факт RPUSH'а в pending-list.
    */
   async emitHint(
     actor: Actor,
@@ -75,6 +81,20 @@ export class HintsTestService {
         `emitHint: actor=${actor.type}:${actor.id} page=${ctx.page ?? '∅'} → no-match`,
       );
       return { key: null, emitted: false };
+    }
+    // KS-4775 / 2c. Для гостя RPUSH в pending-list (TTL 60 сек) —
+    // совпадает с поведением HintsListener.handle:114-122. Для user
+    // ws-emit уже сделал HintsService.checkFor.
+    if (actor.type === 'guest') {
+      try {
+        const key = `hints:pending:${actor.id}`;
+        await this.redis.rpush(key, JSON.stringify(result));
+        await this.redis.expire(key, 60);
+      } catch (err) {
+        this.logger.warn(
+          `emitHint: RPUSH pending failed for guest=${actor.id}: ${(err as Error).message}`,
+        );
+      }
     }
     this.logger.log(
       `emitHint: actor=${actor.type}:${actor.id} page=${ctx.page ?? '∅'} → ${result.key}`,
