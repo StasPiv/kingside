@@ -28,7 +28,19 @@ function versionPlugin(): Plugin {
     name: 'version-json',
     buildStart() {
       const dest = path.resolve(__dirname, 'public/version.json');
-      fs.writeFileSync(dest, JSON.stringify({ version: getVersion() }));
+      try {
+        fs.writeFileSync(dest, JSON.stringify({ version: getVersion() }));
+      } catch (err) {
+        // KS-4772: в read-only sandbox (`apps/web/public` смонтирована
+        // RO для agent-юзера) запись падает с EROFS. Dev-сервер ниже
+        // отдаёт `/version.json` через middleware runtime'ом, физический
+        // файл нужен только для prod-сборки в writable CI. Не валим
+        // dev-стенд из-за этого.
+        if ((err as NodeJS.ErrnoException).code === 'EROFS') {
+          return;
+        }
+        throw err;
+      }
     },
     configureServer(server) {
       server.middlewares.use('/version.json', (_req, res) => {
