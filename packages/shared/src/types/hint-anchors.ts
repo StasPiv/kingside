@@ -55,6 +55,10 @@ export const HINT_ANCHORS_USER = [
   'puzzles-rush-tab',
   /** Ссылка «Дневник ошибок» в профиле — `mistakes-diary`. */
   'profile-mistakes-link',
+  /** KS-4729: промо-bridge в AnalysisSidebar (от просмотра партии к
+   *  созданию полноценного анализа). data-hint-anchor проставляется
+   *  KS-4727 на фронте, правило hints — KS-4728 на бэке через admin API. */
+  'analysis-bridge-promo',
 ] as const;
 
 /**
