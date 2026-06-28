@@ -44,6 +44,7 @@
     "@kingside/board-image-to-fen": "*",
     "@kingside/broadcasts-db": "*",
     "@kingside/db": "*",
+    "@kingside/events-client": "*",
     "@kingside/events-db": "*",
     "@kingside/maia-core": "*",
     "pg": "^8.13.1",

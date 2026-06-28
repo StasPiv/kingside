@@ -11,6 +11,7 @@
   "include": ["src"],
   "exclude": ["src/**/*.spec.ts"],
   "references": [
-    { "path": "../../packages/shared" }
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/events-client" }
   ]
 }

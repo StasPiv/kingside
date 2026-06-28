@@ -3,14 +3,13 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
+    "composite": true,
     "module": "CommonJS",
     "moduleResolution": "Node",
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
   },
   "include": ["src"],
-  "references": [
-    { "path": "../../packages/shared" },
-    { "path": "../../packages/events-client" }
-  ]
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"]
 }
