@@ -122,6 +122,42 @@ services:
         max-size: "10m"
         max-file: "2"
 
+  # KS-4766. Сидер feature_flags для e2e: форсирует все 6 флагов в `true`
+  # ДО старта api. FeatureFlagsService.bootstrapDefaults() при старте api
+  # делает UPSERT с `update: {}` (не перезаписывает существующие), поэтому
+  # наши true сохранятся. Env-механизма (PUZZLES_ENABLED и т.п.) на стороне
+  # api нет — источник истины таблица `feature_flags`, обходим через SQL.
+  seed-feature-flags:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      PGPASSWORD: kingside
+    depends_on:
+      migrate-events:
+        condition: service_completed_successfully
+    entrypoint:
+      - sh
+      - -c
+      - |
+        psql -h postgres -U kingside -d kingside -v ON_ERROR_STOP=1 <<'SQL'
+        INSERT INTO feature_flags (key, value, updated_at) VALUES
+          ('puzzlesEnabled',     true, NOW()),
+          ('drillsEnabled',      true, NOW()),
+          ('broadcastsEnabled',  true, NOW()),
+          ('tournamentsEnabled', true, NOW()),
+          ('lessonsEnabled',     true, NOW()),
+          ('assistantEnabled',   true, NOW())
+        ON CONFLICT (key) DO UPDATE
+          SET value = EXCLUDED.value,
+              updated_at = NOW();
+        SELECT key, value FROM feature_flags ORDER BY key;
+        SQL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
   api:
     build:
       context: .
@@ -167,6 +203,8 @@ services:
       redis:
         condition: service_healthy
       migrate-events:
+        condition: service_completed_successfully
+      seed-feature-flags:
         condition: service_completed_successfully
     healthcheck:
       test:
