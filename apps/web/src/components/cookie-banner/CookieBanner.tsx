@@ -8,7 +8,7 @@ import {
   setGuestConsentLocal,
   writeFrontAnalyticsConsentCookie,
 } from '../../lib/events';
-import { getUserConsent } from './consentTypes';
+import { getUserConsent, type UserWithConsent } from './consentTypes';
 
 const API_BASE =
   (import.meta.env?.VITE_API_URL as string | undefined) ?? 'http://localhost:3001';
@@ -215,8 +215,16 @@ export function CookieBanner(): ReactElement | null {
     setHiddenForGuest(false);
   }, [user]);
 
+  // KS-4738. Пока auth.loading — баннер не рендерим (иначе при F5
+  // у пользователя с consent=true мелькает на время /auth/me).
   if (loading) return null;
-
+  // KS-4738. Защита от частичного user без поля analyticsConsent
+  // (если /auth/me случайно вернул старый DTO без поля — раньше
+  // userConsent был null и баннер показывался). Если user в state
+  // есть, но поле отсутствует — ждём правильного ответа.
+  if (user && (user as UserWithConsent).analyticsConsent === undefined) {
+    return null;
+  }
   // Авторизованный с принятым решением (true/false) — баннер скрыт.
   // KS-4722: либо контекст уже знает userConsent, либо PATCH прошёл
   // успешно в этой сессии (страховка на случай долгого refreshUser).

@@ -239,6 +239,38 @@ describe('CookieBanner (KS-4698)', () => {
     expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
   });
 
+  it('KS-4738: user без поля analyticsConsent (старый DTO) — баннер скрыт, не мерцает', () => {
+    // Эмулирует /auth/me, который ещё не отдаёт analyticsConsent
+    // (или временный частичный объект). Раньше userConsent=null →
+    // банер выскакивал; теперь скрыт пока поле не подтянется.
+    const partial = makeUser();
+    delete (partial as Partial<UserWithConsent>).analyticsConsent;
+    wrap(<CookieBanner />, { user: partial });
+    expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
+  });
+
+  it('KS-4738: auth.loading=true — баннер скрыт даже для гостя', () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <AuthContext.Provider
+          value={{
+            user: null,
+            token: null,
+            loading: true,
+            login: async () => undefined,
+            register: async () => undefined,
+            loginWithTokens: () => undefined,
+            logout: () => undefined,
+            refreshUser: async () => undefined,
+          }}
+        >
+          <CookieBanner />
+        </AuthContext.Provider>
+      </I18nextProvider>,
+    );
+    expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
+  });
+
   it('user с consent=false — баннер скрыт', () => {
     wrap(<CookieBanner />, { user: makeUser({ analyticsConsent: false }) });
     expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
