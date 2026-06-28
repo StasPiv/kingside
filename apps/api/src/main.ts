@@ -70,7 +70,18 @@ async function bootstrap() {
   // FactsInput (MVP-2: ~325 байт/факт) × несколько десятков фактов
   // на партию. Дефолт упирался уже на средних разборах. Защита от
   // перегруза остаётся через JWT + rate-limit в ReviewCommentService.
-  app.use(json({ limit: '1mb' }));
+  // KS-4748 / ADR-149 G2: `verify` сохраняет Buffer raw-тела на req для
+  // HMAC-проверки `X-Internal-Signature` в `POST /internal/events`.
+  // Хранится ссылкой на тот же Buffer, что body-parser уже выделил —
+  // оверхеда по памяти нет.
+  app.use(
+    json({
+      limit: '1mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   app.use(urlencoded({ extended: true, limit: '1mb' }));
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
   app.useGlobalFilters(new AllExceptionsFilter());

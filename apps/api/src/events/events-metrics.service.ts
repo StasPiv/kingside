@@ -35,6 +35,18 @@ export class EventsMetricsService implements OnModuleInit {
   /** GuestIdMiddleware успешно проставил `guest_id` (новый UUID). */
   readonly guestIdIssued: Counter<string>;
 
+  /**
+   * KS-4748 / ADR-149 G2: счётчик принятых внутренних событий по
+   * `POST /internal/events` (game-service → apps/api). Растёт ровно
+   * на успешный 202 (HMAC прошёл, payload валиден, EventsService.track
+   * вызван). Метка `type` — тип события, как у `ingested`.
+   *
+   * Сравнение с `ingested_total{type}` за тот же интервал помогает
+   * увидеть, какая доля событий идёт через internal-канал vs прямой
+   * вызов `EventsService.track`.
+   */
+  readonly internalReceived: Counter<'type'>;
+
   constructor(private readonly metrics: MetricsService) {
     const registers = [this.metrics.registry];
 
@@ -88,6 +100,16 @@ export class EventsMetricsService implements OnModuleInit {
         + 'Не считает запросы с уже существующим валидным guest_id.',
       registers,
     });
+
+    this.internalReceived = new Counter({
+      name: 'internal_events_received_total',
+      help: 'Количество событий, принятых через POST /internal/events '
+        + '(game-service → apps/api, HMAC) и проброшенных в '
+        + 'EventsService.track. Растёт на успешный 202; не учитывает '
+        + '401/503/422.',
+      labelNames: ['type'] as const,
+      registers,
+    });
   }
 
   onModuleInit(): void {
@@ -122,5 +144,9 @@ export class EventsMetricsService implements OnModuleInit {
 
   incGuestIdIssued(): void {
     this.guestIdIssued.inc();
+  }
+
+  incInternalReceived(type: string): void {
+    this.internalReceived.inc({ type });
   }
 }

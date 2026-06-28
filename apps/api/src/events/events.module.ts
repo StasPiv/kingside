@@ -26,6 +26,9 @@ import { AuthModule } from '../auth/auth.module';
 import { MetricsModule } from '../metrics/metrics.module';
 import { AnalyticsDataService } from './analytics-data.service';
 import { EventsController } from './events.controller';
+// KS-4748 / ADR-149 G2: internal-канал для эмита событий из game-service.
+import { InternalEventsController } from './internal-events.controller';
+import { InternalEventsGuard } from './internal-events.guard';
 import { EventsMetricsService } from './events-metrics.service';
 import { EventsPrismaService } from './events-prisma.service';
 import { EventsRefreshService } from './events-refresh.service';
@@ -40,13 +43,14 @@ import { EventsWriterService } from './events-writer.service';
 @Global()
 @Module({
   imports: [AuthModule, MetricsModule],
-  controllers: [EventsController],
+  controllers: [EventsController, InternalEventsController],
   providers: [
     EventsService,
     EventsMetricsService,
     EventsPrismaService,
     EventsWriterService,
     EventsRefreshService,
+    InternalEventsGuard,
     // KS-4697 / ADR-147 §6.3 + §1.1: общая логика GDPR-операций
     // и guest→user merge. Используется MeController/GuestController/
     // AuthService.
