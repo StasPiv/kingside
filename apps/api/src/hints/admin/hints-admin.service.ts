@@ -23,7 +23,6 @@ import {
 } from '@nestjs/common';
 import type { PrismaClient as EventsPrismaClient } from '@kingside/events-db';
 import { Prisma } from '@kingside/events-db';
-import { HINT_ANCHORS, isHintAnchor } from '@kingside/shared';
 import { stripHtml } from '../../blog/comment-sanitize';
 import { EventsPrismaService } from '../../events/events-prisma.service';
 import { validateRule } from '../hints-dsl.evaluator';
@@ -148,11 +147,8 @@ export class HintsAdminService {
     const existing = await owner.hint.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`hint ${id} not found`);
 
-    if (dto.anchor && !isHintAnchor(dto.anchor)) {
-      throw new BadRequestException(
-        `anchor must be one of ${HINT_ANCHORS.join(', ')}`,
-      );
-    }
+    // KS-4731: формат anchor — DTO `@Matches`/`@Length` уже отвалидировал.
+    // Whitelist-проверки больше нет (ADR-148).
     if (dto.rule) {
       try {
         validateRule(dto.rule);
@@ -293,12 +289,9 @@ export class HintsAdminService {
     return owner;
   }
 
-  private validateInput(anchor: string, rule: Record<string, unknown>): void {
-    if (!isHintAnchor(anchor)) {
-      throw new BadRequestException(
-        `anchor must be one of: ${HINT_ANCHORS.join(', ')}`,
-      );
-    }
+  private validateInput(_anchor: string, rule: Record<string, unknown>): void {
+    // KS-4731 / ADR-148: anchor — свободная строка, формат проверен
+    // class-validator'ом на DTO. Whitelist `isHintAnchor` удалён.
     try {
       validateRule(rule);
     } catch (e) {

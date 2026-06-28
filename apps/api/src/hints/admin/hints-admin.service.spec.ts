@@ -70,15 +70,19 @@ describe('HintsAdminService.create', () => {
     expect(r.key).toBe('test-hint');
   });
 
-  it('невалидный anchor → BadRequest', async () => {
-    const svc = mkSvc(mkOwner());
-    await expect(svc.create({
+  it('KS-4731 / ADR-148: новый произвольный anchor принимается без правок shared', async () => {
+    const owner = mkOwner();
+    const svc = mkSvc(owner);
+    const r = await svc.create({
       key: 'k',
       i18n: VALID_I18N,
-      anchor: 'invalid-anchor',
+      anchor: 'analysis-bridge-promo',
       placement: 'top',
       rule: VALID_RULE,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    });
+    expect(r.key).toBe('k');
+    const args = owner.hint.create.mock.calls[0][0];
+    expect(args.data.anchor).toBe('analysis-bridge-promo');
   });
 
   it('невалидный rule → BadRequest с сообщением парсера', async () => {

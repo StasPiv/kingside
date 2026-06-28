@@ -3,9 +3,9 @@
  *
  * Жёсткие лимиты по полям соответствуют схеме events.hints:
  *   - `key`: 1..64 ASCII-safe (`[a-z][a-z0-9-]*`), УНИКАЛЕН.
- *   - `anchor`: должен быть из HINT_ANCHORS (shared T7). Валидируем
- *     через `isHintAnchor` на runtime, чтобы новые anchors требовали
- *     обновления типов.
+ *   - `anchor`: KS-4731 / ADR-148 — свободная строка формата
+ *     `/^[a-z][a-z0-9-]*$/` ≤64. Закрытый whitelist (`HINT_ANCHORS`)
+ *     удалён, новые anchors создаются POST'ом без правок shared.
  *   - `placement`: 'top'|'bottom'|'left'|'right'|'overlay'|'bottom-sheet'.
  *   - `i18n`: объект с локалями ru/en, каждая — {title, body, ctaLabel?}.
  *   - `cta`: {href?,event?} либо null/отсутствует.
@@ -93,8 +93,13 @@ export class CreateHintDto {
   @IsObject()
   cta?: HintCtaDto;
 
+  // KS-4731 / ADR-148: anchor — свободная строка (был closed enum в
+  // ADR-147 §4.2, оттаказались). Формат: lowercase/digits/dash.
   @IsString()
   @Length(1, 64)
+  @Matches(/^[a-z][a-z0-9-]*$/, {
+    message: 'anchor must match /^[a-z][a-z0-9-]*$/ (1..64)',
+  })
   anchor!: string;
 
   @IsIn(HINT_PLACEMENTS as unknown as string[])
@@ -161,6 +166,9 @@ export class UpdateHintDto {
   @IsOptional()
   @IsString()
   @Length(1, 64)
+  @Matches(/^[a-z][a-z0-9-]*$/, {
+    message: 'anchor must match /^[a-z][a-z0-9-]*$/ (1..64)',
+  })
   anchor?: string;
 
   @IsOptional()

@@ -1,88 +1,43 @@
 /**
- * KS-4689 / ADR-147 §4.2 + §9. Закрытый список значений атрибута
- * `data-hint-anchor` — единственная точка истины, к которой может
- * «прилипнуть» контекстная подсказка (popover на десктопе,
- * bottom-sheet на мобильном).
+ * KS-4731 / ADR-148. Контракт `data-hint-anchor` — **свободная строка**.
  *
- * Контракт: значение, которое сервер передаёт в WS-событии
- * `hint:show` (поле `anchor`), ОБЯЗАНО присутствовать в этом списке.
- * Frontend (`<HintHost>`) ищет узел через `document.querySelector(
- * '[data-hint-anchor="<key>"]')`. Если на текущей странице узла нет —
- * клиент шлёт `hint:no-anchor`, сервер фиксирует `hint_dismissed
- * { reason: 'no_anchor' }` и больше эту подсказку в текущем page-view
- * не предлагает (ADR-147 §4.2 п.2).
+ * Ранее (ADR-147 §4.2) anchor был закрытым enum через `HINT_ANCHORS`
+ * union. По ADR-148 это сужение откатано: новое правило `POST /admin/hints`
+ * заводится с любым валидным `anchor`-токеном без правки shared и без
+ * деплоя — data-driven подход совпадает с тем, как уже работают DSL
+ * правил и `event_type`. Фронт читает `[data-hint-anchor="…"]` напрямую
+ * по строке, бэк хранит varchar(64) — никакого enum в БД не было и
+ * раньше.
  *
- * Расширение списка — миграция кода: новый anchor нужно одновременно
- * добавить сюда (контракт), расставить `data-hint-anchor=...` в JSX
- * (T10) и выпустить версию shared-пакета. Через админ-UI подсказок
- * (T12) anchor НЕ создаётся — это архитектурное решение по UI,
- * не контентное.
+ * Что осталось:
+ *   - `HintAnchor = string` — тип в публичном API (используется в
+ *     `HintShowPayload.anchor`).
+ *   - `isValidAnchorFormat(s)` — чистая проверка формата (regex +
+ *     длина), без привязки к whitelist. Полезна на стороне frontend
+ *     для UX-валидации перед отправкой формы; backend выполняет ту
+ *     же проверку через class-validator `@Matches`/`@Length`.
+ *
+ * Что удалено:
+ *   - `HINT_ANCHORS_GUEST`, `HINT_ANCHORS_USER`, `HINT_ANCHORS` —
+ *     закрытые списки. Если нужен enum-like вид в админ-UI, тянем
+ *     `distinct anchor` из `GET /admin/hints` или из своего справочника
+ *     контента.
+ *   - `HintAnchorGuest`, `HintAnchorUser` — литеральные типы.
+ *   - `isHintAnchor(s)` — type-guard поверх whitelist'а. Заменён на
+ *     `isValidAnchorFormat`.
  */
 
-/**
- * Гостевые anchors — точки на публичных страницах (ADR-128). Видны
- * незарегистрированному посетителю, используются гостевыми правилами
- * (`targetActorTypes: ['guest']`, см. §9: `guest-register-prompt`,
- * `guest-try-puzzles`, `guest-play-friction`).
- */
-export const HINT_ANCHORS_GUEST = [
-  /** Кнопка регистрации в шапке/лендинге — для `guest-register-prompt`,
-   *  `guest-play-friction`. */
-  'landing-signup-button',
-  /** Плитка пазлов на лендинге — для `guest-try-puzzles`. */
-  'landing-puzzles-tile',
-  /** Кнопка «Играть» на лендинге — для подсказок о регистрации перед
-   *  попыткой партии. */
-  'landing-play-button',
-  /** Блок «Возможности» лендинга — для общих подсказок о фичах. */
-  'landing-features-block',
-] as const;
+export type HintAnchor = string;
 
-/**
- * Anchors для авторизованных пользователей — точки внутри
- * SPA после логина. Источник — стартовый набор подсказок §9.
- */
-export const HINT_ANCHORS_USER = [
-  /** Кнопка/таб «Анализ» на экране завершённой партии —
-   *  `analyze-your-game`. */
-  'game-end-analysis-button',
-  /** Иконка настроек доски в `/play/*` — `try-pre-move`
-   *  (открывает `BoardSettingsModal` через `ctaEvent`). */
-  'board-settings-icon',
-  /** Плитка пазлов на главной — `puzzles-comeback`. */
-  'home-puzzles-tile',
-  /** Таб «Puzzle Rush» в разделе пазлов — `rush-mode-discovery`. */
-  'puzzles-rush-tab',
-  /** Ссылка «Дневник ошибок» в профиле — `mistakes-diary`. */
-  'profile-mistakes-link',
-  /** KS-4729: промо-bridge в AnalysisSidebar (от просмотра партии к
-   *  созданию полноценного анализа). data-hint-anchor проставляется
-   *  KS-4727 на фронте, правило hints — KS-4728 на бэке через admin API. */
-  'analysis-bridge-promo',
-] as const;
+/** Формат токена: lowercase, цифры и дефис; 1..64 символа. */
+const ANCHOR_RE = /^[a-z][a-z0-9-]*$/;
+const MAX_LEN = 64;
 
-/**
- * Объединённый набор anchors. Литеральный тип `HintAnchor` — то, что
- * валидируется на входе/выходе контрактов (`HintShowPayload.anchor`).
- */
-export const HINT_ANCHORS = [
-  ...HINT_ANCHORS_GUEST,
-  ...HINT_ANCHORS_USER,
-] as const;
-
-export type HintAnchorGuest = (typeof HINT_ANCHORS_GUEST)[number];
-export type HintAnchorUser = (typeof HINT_ANCHORS_USER)[number];
-export type HintAnchor = HintAnchorGuest | HintAnchorUser;
-
-/**
- * Type-guard: проверка, что произвольная строка — валидный anchor.
- * Используется на входе сервера (валидация payload из БД-правила) и
- * на клиенте (защита от рассинхронизации версии shared-пакета между
- * фронтом и бэком).
- */
-export function isHintAnchor(value: unknown): value is HintAnchor {
+export function isValidAnchorFormat(value: unknown): value is string {
   return (
-    typeof value === 'string' &&
-    (HINT_ANCHORS as readonly string[]).includes(value)
+    typeof value === 'string'
+    && value.length > 0
+    && value.length <= MAX_LEN
+    && ANCHOR_RE.test(value)
   );
 }
