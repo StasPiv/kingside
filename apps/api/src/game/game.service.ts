@@ -105,9 +105,14 @@ export class GameService {
   }
 
   async initGame(gameId: string): Promise<GameState> {
+    // KS-4783: timing-маркеры.
+    const t0 = Date.now();
+    this.logger.log(`[KS-4783] initGame start gameId=${gameId}`);
+
     const game = await this.prisma.game.findUniqueOrThrow({
       where: { id: gameId },
     });
+    this.logger.log(`[KS-4783] initGame after findUnique +${Date.now() - t0}ms`);
 
     const state: GameState = {
       fen: INITIAL_FEN,
@@ -125,14 +130,19 @@ export class GameService {
       black_id: game.blackId,
       time_increment_sec: String(game.timeIncrementSec),
     });
+    this.logger.log(`[KS-4783] initGame after redis.hset +${Date.now() - t0}ms`);
 
     await this.clockService.initClocks(gameId, game.timeInitialSec * 1000);
+    this.logger.log(`[KS-4783] initGame after initClocks +${Date.now() - t0}ms`);
+
     await this.clockService.startClock(gameId);
+    this.logger.log(`[KS-4783] initGame after startClock +${Date.now() - t0}ms`);
 
     await this.prisma.game.update({
       where: { id: gameId },
       data: { status: 'active', startedAt: new Date() },
     });
+    this.logger.log(`[KS-4783] initGame after game.update +${Date.now() - t0}ms`);
 
     // KS-4696 / ADR-147 §2.1: `game_start { time_control, rated, opponent_id }`.
     // `rated` пока всегда true в проекте (нет нерейтинговых партий) — фиксируем
@@ -145,6 +155,7 @@ export class GameService {
       opponent_id_black: game.whiteId,
       is_bot: game.isBot,
     });
+    this.logger.log(`[KS-4783] initGame after trackBoth (sync return) +${Date.now() - t0}ms`);
 
     return state;
   }
@@ -754,7 +765,15 @@ export class GameService {
     botLevel: number,
     timeControl: 'bullet' | 'blitz' | 'rapid' | 'classical',
   ) {
+    // KS-4783: точечные timing-маркеры — поймать невидимые 2.56с между
+    // ALB arrival и первым внутренним логом handler'а. Бенч на той же
+    // task показал суммарно 18мс на все DB+Redis вызовы; в проде
+    // handler стабильно 3.5с. Маркеры удалить после диагностики.
+    const t0 = Date.now();
+    this.logger.log(`[KS-4783] createGameWithBot start userId=${userId} t=${t0}`);
+
     await this.cleanupStaleBotGames(userId);
+    this.logger.log(`[KS-4783] after cleanupStaleBotGames +${Date.now() - t0}ms`);
 
     const activeBotGames = await this.prisma.game.count({
       where: {
@@ -763,6 +782,7 @@ export class GameService {
         OR: [{ whiteId: userId }, { blackId: userId }],
       },
     });
+    this.logger.log(`[KS-4783] after game.count (=${activeBotGames}) +${Date.now() - t0}ms`);
 
     if (activeBotGames >= MAX_ACTIVE_BOT_GAMES) {
       throw new ConflictException(
@@ -790,10 +810,14 @@ export class GameService {
         botLevel,
       },
     });
+    this.logger.log(`[KS-4783] after game.create id=${game.id} +${Date.now() - t0}ms`);
 
     await this.initGame(game.id);
+    this.logger.log(`[KS-4783] after initGame +${Date.now() - t0}ms`);
 
-    return this.getGame(game.id);
+    const result = await this.getGame(game.id);
+    this.logger.log(`[KS-4783] after getGame (final) +${Date.now() - t0}ms`);
+    return result;
   }
 
   async getGame(id: string) {

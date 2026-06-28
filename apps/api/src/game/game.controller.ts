@@ -6,6 +6,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -26,6 +27,10 @@ import { McpTool } from '../mcp/decorators';
 
 @Controller('games')
 export class GameController {
+  // KS-4783: точечное логирование для диагностики 3.5с TTFB на POST /games/bot.
+  // Логи временные, удалить после нахождения корня.
+  private readonly logger = new Logger(GameController.name);
+
   constructor(
     private readonly gameService: GameService,
     private readonly liveGameService: LiveGameService,
@@ -87,13 +92,20 @@ export class GameController {
 
   @UseGuards(JwtAuthGuard)
   @Post('bot')
-  createGameWithBot(@Request() req: AuthenticatedRequest, @Body() dto: CreateGameWithBotDto) {
-    return this.gameService.createGameWithBot(
+  async createGameWithBot(@Request() req: AuthenticatedRequest, @Body() dto: CreateGameWithBotDto) {
+    // KS-4783: timing-маркер — entry в controller (после guards + ValidationPipe).
+    // Если в проде между ALB arrival и этим логом есть разрыв — проблема
+    // в middleware/guards/validation, не в service.
+    const t0 = Date.now();
+    this.logger.log(`[KS-4783] controller @Post('bot') entry userId=${req.user.id} t=${t0}`);
+    const game = await this.gameService.createGameWithBot(
       req.user.id,
       dto.color,
       dto.botLevel,
       dto.timeControl,
     );
+    this.logger.log(`[KS-4783] controller @Post('bot') return +${Date.now() - t0}ms`);
+    return game;
   }
 
   @Get(':id')
