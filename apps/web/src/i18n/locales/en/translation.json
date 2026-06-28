@@ -566,7 +566,7 @@
       "title": "Privacy & data",
       "notLoggedIn": "Sign in to manage your analytics consent and personal data.",
       "consentLabel": "Analytics for personalised hints",
-      "consentHint": "When enabled, the site records high-level actions (page views, idle time, game/puzzle starts) to suggest contextual hints. No move data or messages are tracked.",
+      "consentHint": "When enabled, we collect anonymous usage events (page views, game and puzzle starts, idle time) to personalise contextual hints. Your games, moves, chat messages, ratings and account data are stored as part of the platform itself — independently of this setting.",
       "consentError": "Could not update your choice. Try again.",
       "exportButton": "Download my data",
       "exportLoading": "Preparing download…",

@@ -156,7 +156,7 @@ export function PrivacyTab(): ReactElement {
         <p className="settings-hint">
           {t(
             'settings.privacy.consentHint',
-            'When enabled, the site records high-level actions (page views, idle time, game/puzzle starts) to suggest contextual hints. No move data or messages are tracked.',
+            'When enabled, we collect anonymous usage events (page views, game and puzzle starts, idle time) to personalise contextual hints. Your games, moves, chat messages, ratings and account data are stored as part of the platform itself — independently of this setting.',
           )}
         </p>
         {consentError && (
