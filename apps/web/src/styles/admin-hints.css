@@ -1,0 +1,575 @@
+/* ============================================================
+ * Admin Hints (KS-4739)
+ *
+ * Стили для админ-страниц подсказок:
+ *   - apps/web/src/pages/admin/AdminHintsListPage.tsx
+ *   - apps/web/src/pages/admin/AdminHintEditPage.tsx
+ *
+ * Те же классы (`.admin-page`, `.admin-page__header`, `.admin-table`,
+ * `.admin-page__actions` и т.д.) одновременно используются и здесь,
+ * и в других админ-страницах (`/admin/feature-flags`, `/admin/blog/*`).
+ * До KS-4739 эти классы не имели CSS — pages выглядели как сырая
+ * HTML-форма. Берём паттерн из admin-blog.css (KS-4420), приводим к
+ * семантическим токенам tokens.css.
+ * ============================================================ */
+
+/* ── Общий контейнер админ-страницы ───────────────────────── */
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  color: var(--text-primary);
+}
+
+.admin-page__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.admin-page__header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+/* «New hint» — CTA-кнопка в шапке списка. Текущий код использует <Link>
+ * (рендерится как <a>), стили под обе семантики. */
+.admin-page__create-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 1px solid var(--accent-primary);
+  border-radius: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.admin-page__create-btn:hover,
+.admin-page__create-btn:focus-visible {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  text-decoration: none;
+  outline: none;
+}
+
+/* Состояния загрузки / пустого списка / ошибки. */
+.admin-page__loading,
+.admin-page__empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.admin-page__error {
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 0.4rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+/* Низ формы — CTA-ряд (Save / Cancel). */
+.admin-page__actions {
+  display: flex;
+  gap: 0.6rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ── Фильтры списка (.admin-hints__filters) ──────────────── */
+.admin-hints__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+}
+
+.admin-hints__filters > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Чекбокс-метка «Show deleted» — горизонтальная, без вертикальной
+ * группировки. */
+.admin-hints__filters > label:has(input[type='checkbox']) {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.35rem;
+  color: var(--text-primary);
+}
+
+.admin-hints__filters input[type='text'],
+.admin-hints__filters input[type='search'],
+.admin-hints__filters select {
+  min-width: 160px;
+  padding: 0.4rem 0.55rem;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+  border-radius: 0.35rem;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.admin-hints__filters input:focus,
+.admin-hints__filters select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* ── Таблица .admin-table ────────────────────────────────── */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.admin-table thead th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  background: var(--bg-deep);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border-mid);
+}
+
+.admin-table tbody td {
+  padding: 0.7rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  color: var(--text-primary);
+}
+
+.admin-table tbody tr {
+  transition: background 100ms ease;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--ov-white-05);
+}
+
+/* Soft-deleted строка — приглушённый текст. */
+.admin-table__row--deleted td {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Ссылка в первой колонке — основной текст ключа. */
+.admin-table tbody td a {
+  color: var(--text-link);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.admin-table tbody td a:hover {
+  text-decoration: underline;
+}
+
+/* Чекбоксы внутри таблицы — увеличенный тач-таргет. */
+.admin-table input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+/* Колонка действий — кнопки и ссылки в один ряд. */
+.admin-table tbody td:last-child {
+  white-space: nowrap;
+}
+
+.admin-table tbody td:last-child > * {
+  margin-right: 0.5rem;
+}
+
+.admin-table tbody td:last-child > *:last-child {
+  margin-right: 0;
+}
+
+.admin-table tbody td:last-child button {
+  padding: 0.3rem 0.7rem;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+  border-radius: 0.3rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.admin-table tbody td:last-child button:hover:not(:disabled) {
+  background: var(--ov-white-10);
+  border-color: var(--border-strong);
+}
+
+.admin-table tbody td:last-child button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Модалка soft-delete (.admin-modal) ──────────────────── */
+.admin-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 32px));
+  padding: 1.25rem 1.4rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 0.6rem;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  color: var(--text-primary);
+}
+
+.admin-modal h2 {
+  margin: 0 0 0.6rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.admin-modal p {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.admin-modal button {
+  padding: 0.45rem 0.95rem;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+  border-radius: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.admin-modal button:hover:not(:disabled) {
+  background: var(--ov-white-10);
+}
+
+/* Первая кнопка модалки — destructive (Yes, delete). */
+.admin-modal button[data-testid$='-confirm-yes'] {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.admin-modal button[data-testid$='-confirm-yes']:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+
+/* ============================================================
+ * Форма редактирования (AdminHintEditPage)
+ * Используем .admin-page > form > fieldset/label.
+ * Селекторы — потомки .admin-page form, чтобы не задеть общий
+ * <form> на других страницах.
+ * ============================================================ */
+
+.admin-page form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* fieldset как групповая карточка с заголовком в legend. */
+.admin-page form > fieldset {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem 1rem;
+  padding: 1rem 1.1rem 1.1rem 1.1rem;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  /* Сбрасываем браузерный margin у fieldset. */
+  margin: 0;
+}
+
+.admin-page form > fieldset > legend {
+  padding: 0 0.5rem;
+  margin-left: -0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+/* Поле формы: метка над контролом. */
+.admin-page form fieldset > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.admin-page form fieldset > label:has(input[type='checkbox']:only-child),
+.admin-page form fieldset > label:has(> input[type='checkbox']):not(:has(input[type='text'], input[type='number'], input[type='search'], select, textarea)) {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.admin-page form input[type='text'],
+.admin-page form input[type='number'],
+.admin-page form input[type='search'],
+.admin-page form select,
+.admin-page form textarea {
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+  border-radius: 0.35rem;
+  font: inherit;
+  font-size: 0.9rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.admin-page form textarea {
+  resize: vertical;
+  min-height: 4rem;
+}
+
+.admin-page form input:focus,
+.admin-page form select:focus,
+.admin-page form textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.admin-page form input:disabled,
+.admin-page form select:disabled,
+.admin-page form textarea:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background: var(--bg-canvas);
+}
+
+.admin-page form input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+/* Вложенный fieldset «Target actors» — сетка чекбоксов в одну
+ * полосу внутри родительской ячейки. */
+.admin-page form fieldset fieldset {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.4rem;
+}
+
+.admin-page form fieldset fieldset legend {
+  padding: 0 0.35rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.admin-page form fieldset fieldset label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-primary);
+}
+
+/* Inline-ошибка под полем (key/rule). */
+.admin-page form label .admin-page__error {
+  margin-top: 0.25rem;
+  padding: 0.3rem 0.55rem;
+  background: transparent;
+  border: none;
+  color: var(--danger);
+  font-size: 0.78rem;
+}
+
+/* ── i18n tabs (RU/EN) ───────────────────────────────────── */
+.admin-hint-form__i18n-tabs {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-mid);
+}
+
+.admin-hint-form__i18n-tabs > button {
+  padding: 0.4rem 0.9rem;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 100ms ease, border-color 100ms ease;
+  border-radius: 0;
+}
+
+.admin-hint-form__i18n-tabs > button:hover {
+  color: var(--text-primary);
+}
+
+.admin-hint-form__i18n-tabs > button[aria-current='page'] {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+/* Контент i18n-таба занимает полную ширину в fieldset-grid. */
+.admin-hint-form__i18n-tabs + div {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* DSL-textarea: монотонный шрифт, увеличенный фон. */
+.admin-page form textarea[data-testid='admin-hint-form-rule'] {
+  grid-column: 1 / -1;
+  min-height: 12rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  background: var(--bg-canvas);
+}
+
+/* «Estimate coverage» кнопка и preview-результат. */
+.admin-page form fieldset > button[type='button'] {
+  justify-self: start;
+  grid-column: 1 / -1;
+  padding: 0.5rem 1rem;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+  border-radius: 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.admin-page form fieldset > button[type='button']:hover:not(:disabled) {
+  background: var(--ov-white-10);
+  border-color: var(--border-strong);
+}
+
+.admin-page form fieldset > button[type='button']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-page form fieldset > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* ── Submit / Cancel ─────────────────────────────────────── */
+.admin-page__actions > button {
+  padding: 0.55rem 1.15rem;
+  border-radius: 0.4rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.admin-page__actions > button[type='submit'] {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 1px solid var(--accent-primary);
+}
+
+.admin-page__actions > button[type='submit']:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.admin-page__actions > button[type='submit']:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-page__actions > button[type='button'] {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+}
+
+.admin-page__actions > button[type='button']:hover {
+  background: var(--ov-white-05);
+  border-color: var(--border-strong);
+}
+
+/* ── Адаптив ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .admin-page {
+    padding: 1rem;
+  }
+  .admin-page__header h1 {
+    font-size: 1.35rem;
+  }
+  .admin-table {
+    font-size: 0.82rem;
+  }
+  .admin-table thead th,
+  .admin-table tbody td {
+    padding: 0.5rem 0.55rem;
+  }
+  .admin-page form > fieldset {
+    grid-template-columns: 1fr;
+    padding: 0.85rem 0.9rem;
+  }
+}
