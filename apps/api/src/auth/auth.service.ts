@@ -358,6 +358,11 @@ export class AuthService {
         pieceSet: true,
         soundEnabled: true,
         showBotEngineDebugPanel: true,
+        // KS-4724 / ADR-147 §6.2. Без этого поля фронт не знает
+        // выдан ли consent → cookie-banner вылезает при каждом reload.
+        // Default false — миграция KS-4695 (новые пользователи требуют
+        // явного PATCH /me/consent).
+        analyticsConsent: true,
       },
     });
     return user;

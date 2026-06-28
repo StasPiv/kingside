@@ -541,6 +541,8 @@ describe('AuthService', () => {
           pieceSet: true,
           soundEnabled: true,
           showBotEngineDebugPanel: true,
+          // KS-4724: возвращаем для cookie-banner consent-гейта.
+          analyticsConsent: true,
         },
       });
     });
