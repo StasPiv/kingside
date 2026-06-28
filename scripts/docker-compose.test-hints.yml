@@ -1,0 +1,252 @@
+# KS-4761 / ADR-150 §T3. Изолированный compose для e2e-прогонов hints.
+#
+# Файл лежит в scripts/ (корень репо в окружении агента read-only).
+# Запускать через bash scripts/test-hints-{up,down}.sh — оба скрипта
+# делают `cd $REPO_DIR` + `docker compose -f scripts/docker-compose.test-hints.yml
+# --project-directory .`, поэтому относительные пути (./scripts/postgres-init,
+# build.context: .) интерпретируются от корня репо, а не от scripts/.
+#
+# Поднимается ПАРАЛЛЕЛЬНО с обычным docker-compose.yml (dev). Все порты
+# смещены на +100 относительно dev:
+#   postgres   5432 → 5433
+#   redis      6379 → 6380
+#   api        3001 → 3101
+#   game-svc   3002 → 3102
+#   web        5173 → 5174
+#
+# Изоляция от dev:
+#   - отдельный compose project name `kingside-test-hints` (флаг `-p` в
+#     scripts/test-hints-{up,down}.sh) → контейнеры/сеть/volumes
+#     с префиксом `kingside-test-hints_*`, не пересекаются с dev;
+#   - отдельный postgres volume `postgres_test_hints_data`;
+#   - redis на tmpfs — каждый перезапуск чистый.
+#
+# Запуск/остановка:
+#   bash scripts/test-hints-up.sh
+#   bash scripts/test-hints-down.sh
+#
+# Параллельно с T1 (HintsTestModule) и T2 (env-чтение
+# HINTS_TEST_MODE / HINTS_DEFAULTS_OVERRIDE_JSON / ANALYTICS_CONSENT_BYPASS)
+# на стороне backend.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    mem_limit: 256m
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: kingside
+      POSTGRES_PASSWORD: kingside
+      POSTGRES_DB: kingside
+    volumes:
+      - postgres_test_hints_data:/var/lib/postgresql/data
+      # Те же init-скрипты, что и в dev (создают broadcasts_kingside и archive_kingside).
+      - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kingside -d kingside"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    mem_limit: 64m
+    ports:
+      - "6380:6379"
+    # tmpfs → данные не сохраняются между перезапусками контейнера.
+    # Тестам это нужно: каждая прогонка стартует с пустым Redis (счётчики
+    # `hints:session:...`, `hints:throttle:...` отсутствуют).
+    tmpfs:
+      - /data
+    # --save '' отключает RDB-снэпшоты (на tmpfs они всё равно эфемерные).
+    command: redis-server --save "" --loglevel warning
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 3s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Sidecar для prisma migrate deploy main-schema (packages/db).
+  # Использует тот же легковесный образ, что в проде для api migrate
+  # (scripts/Dockerfile.migrations) — там только prisma CLI + schema.
+  # `restart: "no"` + `service_completed_successfully` в depends_on api
+  # ждёт его выхода с кодом 0.
+  migrate-main:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile.migrations
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # Sidecar для events-schema (packages/events-db). На локальном postgres
+  # 16-alpine pg_partman/pg_cron не установлены — миграция содержит
+  # defensive-блок (DO ... IF v_partman_present THEN ... ELSE NOTICE),
+  # поэтому в test-окружении actor_events создаётся партиционированной,
+  # но без partman.create_parent. Этого достаточно для e2e.
+  migrate-events:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile.events-migrations
+    restart: "no"
+    environment:
+      # events-db живёт в той же физической БД, что main, но в schema `events`.
+      EVENTS_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside?schema=events
+    depends_on:
+      migrate-main:
+        condition: service_completed_successfully
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    mem_limit: 700m
+    ports:
+      - "3101:3001"
+    environment:
+      DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside
+      EVENTS_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside?schema=events
+      EVENTS_WRITER_PASSWORD: kingside
+      ARCHIVE_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/archive_kingside
+      BROADCASTS_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/broadcasts_kingside
+      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PORT: 3001
+      NODE_ENV: test
+      JWT_SECRET: test-hints-jwt-secret-not-for-prod
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost:5174
+      STOCKFISH_PATH: /usr/games/stockfish
+      STOCKFISH_MAX_INSTANCES: "1"
+      LESSON_ADMIN_EMAILS: staspivovartsev@gmail.com
+      DEV_BYPASS_SECRET: test-hints-bypass
+      # ----- Hints e2e — переключатели T1/T2 backend (KS-4761 ADR-150) -----
+      HINTS_ENABLED: "true"
+      HINTS_TEST_MODE: "1"
+      # JSON-объект с overrides дефолтов HINTS_DEFAULTS (sessionMaxShows и т. п.).
+      # Передаётся как есть, парсится в HintsLimitsService при boot'е.
+      # По умолчанию пусто — дефолты HINTS_DEFAULTS из кода.
+      HINTS_DEFAULTS_OVERRIDE_JSON: ${HINTS_DEFAULTS_OVERRIDE_JSON:-}
+      # ANALYTICS_CONSENT_BYPASS=1 включает обход consent-проверки для
+      # ActorEvents.track() — без него тестовые юзеры с consent=false не
+      # трекаются и checkFor не вызывается.
+      ANALYTICS_CONSENT_BYPASS: "1"
+      # ----- Внутренний канал событий (game-service → api) -----
+      INTERNAL_EVENTS_SECRET: test-hints-internal-events-secret-shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate-events:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://localhost:3001/health',
+          r=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+        tag: "kingside-api-test-hints"
+
+  game-service:
+    build:
+      context: .
+      dockerfile: apps/game-service/Dockerfile
+    mem_limit: 400m
+    ports:
+      - "3102:3002"
+    environment:
+      DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside
+      REDIS_URL: redis://redis:6379
+      PORT: 3002
+      NODE_ENV: test
+      JWT_SECRET: test-hints-jwt-secret-not-for-prod
+      # Внутри docker-сети api доступен по имени сервиса.
+      INTERNAL_EVENTS_URL: http://api:3001/internal/events
+      INTERNAL_EVENTS_SECRET: test-hints-internal-events-secret-shared
+    depends_on:
+      api:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+        tag: "kingside-game-service-test-hints"
+
+  web:
+    # У apps/web нет своего Dockerfile (фронт в dev гонится `npm run dev`
+    # отдельно от compose). Для test-профиля поднимаем vite из node:20-slim
+    # и монтируем репо как volume — vite пользуется уже установленным
+    # корневым node_modules. Это даёт ~1 сек старт без отдельного build
+    # frontend-образа (для e2e интересен runtime фронт, а не его сборка).
+    image: node:20-slim
+    mem_limit: 768m
+    ports:
+      - "5174:5174"
+    working_dir: /app/apps/web
+    environment:
+      # Браузер ходит на хост-side порт, а не на docker-internal hostname.
+      VITE_API_URL: http://localhost:3101
+      VITE_APP_ORIGIN: http://localhost:5174
+      # broadcast/archive — не нужны в hints e2e, но vite модули падают на
+      # undefined при загрузке. Указываем «куда-то», без реального трафика.
+      VITE_ARCHIVE_URL: http://localhost:3101
+      VITE_BROADCAST_URL: http://localhost:3101
+      NODE_ENV: development
+    volumes:
+      - .:/app
+    command:
+      - sh
+      - -c
+      - npx --no-install vite --host 0.0.0.0 --port 5174 --strictPort
+    depends_on:
+      api:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "2"
+        tag: "kingside-web-test-hints"
+
+volumes:
+  postgres_test_hints_data:
+    name: kingside-test-hints_postgres_data
