@@ -470,6 +470,22 @@ export function PlayerProfilePage() {
         <TacticPuzzleProfilePanel />
       )}
 
+      {/* KS-4752: anchor `profile-mistakes-link` — ссылка на дневник
+          ошибок на профиле владельца. Без неё anchor жил только на
+          самой странице /puzzles/mistakes, page-match правила
+          (page=/profile/*) не находил узел. */}
+      {currentUser && currentUser.id === profile.id && (
+        <div className="player-profile-section">
+          <Link
+            to="/puzzles/mistakes"
+            className="players-link"
+            data-hint-anchor="profile-mistakes-link"
+          >
+            {t('puzzle.mistakes.fullTitle', 'All mistakes')}
+          </Link>
+        </div>
+      )}
+
       {/* KS-3781: секция «Мои live-трансляции» убрана из профиля —
           её вернёт отдельная задача, когда появится полноценная
           история сохранённых трансляций. Компонент удалён вместе

@@ -552,6 +552,9 @@ export function LobbyPage() {
               // KS-2218: data-testid — стабильный локатор для тестов
               // фильтрации тизеров по feature-flags.
               data-testid={`lobby-teaser-${teaser.id}`}
+              // KS-4752: anchor `home-puzzles-tile` — плитка пазлов
+              // на главной для авторизованного (LobbyPage на /play).
+              data-hint-anchor={teaser.id === 'puzzles' ? 'home-puzzles-tile' : undefined}
               onClick={handleActivate}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {

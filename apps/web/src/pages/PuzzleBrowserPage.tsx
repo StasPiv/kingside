@@ -297,6 +297,15 @@ export function PuzzleBrowserPage() {
             {t('puzzleStats.tab', 'Statistics')}
           </Link>
         )}
+        {/* KS-4752: anchor `puzzles-rush-tab` — на /puzzles это
+            таб-ссылка на Puzzle Rush. */}
+        <Link
+          to="/puzzle-rush"
+          className="puzzle-browser-tab"
+          data-hint-anchor="puzzles-rush-tab"
+        >
+          {t('nav.puzzleRush', 'Puzzle Rush')}
+        </Link>
       </div>
 
       {/* Filters */}
