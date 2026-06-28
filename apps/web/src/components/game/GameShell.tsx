@@ -758,8 +758,9 @@ export function GameShell(props: GameShellProps) {
                   ? 'game-result-analyze'
                   : 'game-result-analyze-side'
               }
-              /* KS-4704 / ADR-147 §9: anchor `analyze-your-game`
-                 (`HINT_ANCHORS_USER`). */
+              /* KS-4704 / ADR-147 §9: anchor для правила
+                 `analyze-your-game`. После KS-4731 anchor — свободная
+                 строка, не закрытый enum в shared. */
               data-hint-anchor="game-end-analysis-button"
               onClick={onAnalyze}
             >

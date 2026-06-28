@@ -4,7 +4,13 @@
  * hints:write`, читаем под `<AdminRoute>` в `App.tsx`.
  */
 import { api } from '../api';
-import type { HintAnchor } from '@kingside/shared';
+
+/**
+ * KS-4727. После KS-4731 (backend) anchor больше не закрытый enum в
+ * shared — это свободная строка `[a-z][a-z0-9-]*` (контракт админа).
+ * Backend валидирует pattern; фронт не зависит от shared-enum'а.
+ */
+export type HintAnchor = string;
 
 export type HintActorType = 'user' | 'guest';
 export type HintLocale = 'ru' | 'en';
@@ -71,7 +77,7 @@ export interface CreateHintInput {
   key: string;
   i18n: HintI18n;
   cta?: HintCta;
-  anchor: HintAnchor | string;
+  anchor: string;
   placement: HintPlacement;
   rule: Record<string, unknown>;
   priority?: number;

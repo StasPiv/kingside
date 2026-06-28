@@ -7,7 +7,8 @@
  *
  * UI:
  *   - вкладки i18n (ru/en) — title/body/ctaLabel;
- *   - поля: key, anchor (select из HINT_ANCHORS), placement (select),
+ *   - поля: key, anchor (свободная строка [a-z][a-z0-9-]*),
+ *     placement (select),
  *     priority, cooldownSec, ttlSec, maxShows, targetActorTypes
  *     (multi-select user/guest), acceptedBy (tag-input);
  *   - DSL editor (JSON textarea, валидация на blur);
@@ -19,7 +20,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { HINT_ANCHORS } from '@kingside/shared';
 import { ApiError } from '../../ApiError';
 import {
   hintsAdminApi,
@@ -69,7 +69,7 @@ function emptyEntry(): HintI18nEntry {
 function defaultForm(): FormState {
   return {
     key: '',
-    anchor: HINT_ANCHORS[0],
+    anchor: '',
     placement: 'bottom',
     priority: 0,
     enabled: false,
@@ -302,15 +302,23 @@ export function AdminHintEditPage(): ReactElement {
           </label>
           <label>
             {t('adminHints.form.anchor', 'Anchor')}
-            <select
+            {/* KS-4727/KS-4731: anchor — свободная строка, не shared-enum.
+                Pattern совпадает с backend-валидацией. Сама точка
+                привязки в DOM ставится через data-hint-anchor=<строка>
+                в коде фронта; здесь только метка, на которую правило
+                будет нацелено. */}
+            <input
+              type="text"
+              required
+              pattern="^[a-z][a-z0-9-]*$"
+              maxLength={64}
               value={form.anchor}
-              onChange={(e) => setForm((s) => ({ ...s, anchor: e.currentTarget.value }))}
+              onChange={(e) =>
+                setForm((s) => ({ ...s, anchor: e.currentTarget.value }))
+              }
+              placeholder="analysis-bridge-promo"
               data-testid="admin-hint-form-anchor"
-            >
-              {HINT_ANCHORS.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
+            />
           </label>
           <label>
             {t('adminHints.form.placement', 'Placement')}

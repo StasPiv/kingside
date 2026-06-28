@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useStockfish } from './useStockfish';
 import { useExternalEngine } from './useExternalEngine';
 import { useDebouncedValue } from './useDebouncedValue';
 import type { ExternalEngineConfig } from './useExternalEngine';
 import type { EvalLine, EngineErrorReason } from './useStockfish';
+import { track } from '../lib/events';
 
 /**
  * KS-3112: задержка перед отправкой смены MultiPV/depth в engine. UI-state
@@ -171,6 +172,37 @@ export function useEngine(options: UseEngineOptions): EngineResult {
     searchmoves:
       enabled && source === 'external' ? debouncedSearchmoves : null,
   });
+
+  /**
+   * KS-4727. Событие `engine_started` — один раз на сессию запуска
+   * каждого источника. Используется правилом hints
+   * `analysis-bridge-promo`: после 3-х запусков `source='wasm'`
+   * предлагаем подключить bridge.
+   *
+   * Дедуп через ref: первый переход в `isReady=true` пишет событие,
+   * последующие циклы isReady→false→true для того же источника
+   * молчат. При смене source ref противоположного источника
+   * сбрасывается — повторный запуск wasm после bridge снова даст
+   * событие.
+   */
+  const wasmStartedRef = useRef(false);
+  const externalStartedRef = useRef(false);
+  useEffect(() => {
+    if (!enabled) return;
+    if (source === 'wasm' && wasm.isReady && !wasmStartedRef.current) {
+      wasmStartedRef.current = true;
+      externalStartedRef.current = false;
+      track('engine_started', { source: 'wasm' });
+    } else if (
+      source === 'external'
+      && external.isReady
+      && !externalStartedRef.current
+    ) {
+      externalStartedRef.current = true;
+      wasmStartedRef.current = false;
+      track('engine_started', { source: 'bridge' });
+    }
+  }, [enabled, source, wasm.isReady, external.isReady]);
 
   return useMemo(() => {
     // KS-3908 / ADR-117 C04. Когда движок выключен (учитель отнял

@@ -4,8 +4,9 @@
  * UI:
  *   - таблица: key, enabled (toggle), anchor, targetActorTypes,
  *     priority, обновлено;
- *   - фильтры: enabled (any/on/off), anchor (select из HINT_ANCHORS),
- *     actorType (any/user/guest), поиск по key/title;
+ *   - фильтры: enabled (any/on/off), anchor (свободная строка с
+ *     datalist-подсказкой), actorType (any/user/guest), поиск по
+ *     key/title;
  *   - чекбокс «Показать удалённые»;
  *   - действия: «Редактировать», переключение enabled, «Удалить»
  *     с confirm; для soft-deleted — «Восстановить».
@@ -16,7 +17,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { HINT_ANCHORS } from '@kingside/shared';
 import {
   hintsAdminApi,
   type AdminHintSummary,
@@ -160,18 +160,22 @@ export function AdminHintsListPage(): ReactElement {
         </label>
         <label>
           {t('adminHints.filter.anchor', 'Anchor')}
-          <select
+          {/* KS-4727/KS-4731: anchor — свободная строка, без shared-enum.
+              datalist подтягивает distinct-значения из загруженного
+              списка как подсказку (опционально). */}
+          <input
+            type="text"
             value={anchorF}
             onChange={(e) => setAnchorF(e.currentTarget.value)}
+            list="admin-hints-anchor-options"
+            placeholder={t('adminHints.filter.anchorPlaceholder', 'e.g. landing-signup-button')}
             data-testid="admin-hints-filter-anchor"
-          >
-            <option value="">{t('adminHints.filter.any', 'Any')}</option>
-            {HINT_ANCHORS.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
+          />
+          <datalist id="admin-hints-anchor-options">
+            {Array.from(new Set(items.map((r) => r.anchor))).map((a) => (
+              <option key={a} value={a} />
             ))}
-          </select>
+          </datalist>
         </label>
         <label>
           {t('adminHints.filter.actor', 'Actor')}

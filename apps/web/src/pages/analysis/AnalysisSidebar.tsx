@@ -451,9 +451,17 @@ export function AnalysisSidebar({
         </div>
       )}
 
-      {/* Bridge promo — desktop only */}
+      {/* Bridge promo — desktop only. KS-4727: anchor
+          `analysis-bridge-promo` для подсказки «после 3 запусков
+          wasm — предложить bridge» (правило HintsEngine, KS-4728).
+          Якорь живёт только пока блок виден (activeSource='wasm' и
+          не закрыт пользователем) — HintHost корректно ignored с
+          reason=no_anchor, если блока нет. */}
       {activeSource === 'wasm' && !bridgePromoDismissed && (
-        <div className="bridge-promo analysis-desktop-only">
+        <div
+          className="bridge-promo analysis-desktop-only"
+          data-hint-anchor="analysis-bridge-promo"
+        >
           <div className="bridge-promo__text">
             <strong>{t('bridgePromo.title', 'Want deeper analysis?')}</strong>
             <span>

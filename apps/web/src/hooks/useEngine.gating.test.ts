@@ -14,12 +14,16 @@
  */
 
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
 // Моки внутренних хуков. Подменяем до import {useEngine} так, чтобы
 // внутри обёртки реальные `useStockfish`/`useExternalEngine` не
 // дёргались. `vi.fn()` фиксирует вызовы и аргументы.
+// KS-4727: тестам нужен контроль над `isReady`, чтобы проверить
+// эмиссию `engine_started`. Меняем mock на параметризованную фабрику.
+let wasmIsReady = false;
+let externalIsReady = false;
 const useStockfishMock = vi.fn((_opts: unknown) => ({
   state: 'idle',
   lines: [],
@@ -29,7 +33,7 @@ const useStockfishMock = vi.fn((_opts: unknown) => ({
   stop: vi.fn(),
   init: vi.fn(),
   cleanup: vi.fn(),
-  isReady: false,
+  isReady: wasmIsReady,
   loadProgress: 0,
   errorReason: null,
 }));
@@ -43,7 +47,7 @@ const useExternalEngineMock = vi.fn((_opts: unknown) => ({
   setOption: vi.fn(),
   init: vi.fn(),
   cleanup: vi.fn(),
-  isReady: false,
+  isReady: externalIsReady,
   engineName: 'External',
   errorMessage: null,
 }));
@@ -66,6 +70,8 @@ describe('useEngine — KS-3908 gating', () => {
   beforeEach(() => {
     useStockfishMock.mockClear();
     useExternalEngineMock.mockClear();
+    wasmIsReady = false;
+    externalIsReady = false;
   });
 
   it('enabled=false → useStockfish получает autoStart=false; useExternalEngine получает config=null', () => {
@@ -161,5 +167,73 @@ describe('useEngine — KS-3908 gating', () => {
     };
     expect(extArgs.config).toEqual(cfg);
     expect(extArgs.autoStart).toBe(true);
+  });
+});
+
+// KS-4727: эмиссия `engine_started` при isReady=true. Гейт consent
+// внутри `track()` тестируется отдельно в lib/events.test.ts —
+// здесь подменяем сам трекер, чтобы видеть факт вызова.
+describe('useEngine — KS-4727 engine_started', () => {
+  let trackSpy: ReturnType<typeof vi.fn>;
+  beforeEach(async () => {
+    useStockfishMock.mockClear();
+    useExternalEngineMock.mockClear();
+    wasmIsReady = false;
+    externalIsReady = false;
+    const events = await import('../lib/events');
+    trackSpy = vi
+      .spyOn(events, 'track')
+      .mockImplementation(() => undefined) as ReturnType<typeof vi.fn>;
+  });
+  afterEach(() => {
+    trackSpy.mockRestore();
+  });
+
+  it('wasm isReady=true → один engine_started {source:wasm}', () => {
+    wasmIsReady = true;
+    renderHook(() =>
+      useEngine({
+        source: 'wasm',
+        externalConfig: null,
+        multiPv: 3,
+      }),
+    );
+    const calls = trackSpy.mock.calls.filter(
+      (c) => c[0] === 'engine_started',
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toEqual({ source: 'wasm' });
+  });
+
+  it('external isReady=true → один engine_started {source:bridge}', () => {
+    externalIsReady = true;
+    renderHook(() =>
+      useEngine({
+        source: 'external',
+        externalConfig: { name: 'X', url: 'ws://x' } as unknown as never,
+        multiPv: 3,
+      }),
+    );
+    const calls = trackSpy.mock.calls.filter(
+      (c) => c[0] === 'engine_started',
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toEqual({ source: 'bridge' });
+  });
+
+  it('enabled=false → engine_started НЕ шлётся даже при isReady', () => {
+    wasmIsReady = true;
+    renderHook(() =>
+      useEngine({
+        source: 'wasm',
+        externalConfig: null,
+        multiPv: 3,
+        enabled: false,
+      }),
+    );
+    const calls = trackSpy.mock.calls.filter(
+      (c) => c[0] === 'engine_started',
+    );
+    expect(calls).toHaveLength(0);
   });
 });
