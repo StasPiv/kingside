@@ -54,6 +54,15 @@ for (const key of Object.keys(perAppEnv)) {
 }
 
 export default defineConfig({
+  // KS-4770: cacheDir настраиваемый через env. Дефолт vite
+  // (`node_modules/.vite`) сохраняется при отсутствии VITE_CACHE_DIR.
+  // Нужно когда `node_modules/.vite/deps` принадлежит другому
+  // пользователю и vite не может переоптимизировать deps —
+  // запуск с `VITE_CACHE_DIR=/tmp/.vite-<scope>` направляет кеш
+  // в writable-папку без правки прав на основной кеш.
+  cacheDir: process.env.VITE_CACHE_DIR
+    ? path.resolve(process.env.VITE_CACHE_DIR)
+    : undefined,
   plugins: [
     versionPlugin(),
     react(),
