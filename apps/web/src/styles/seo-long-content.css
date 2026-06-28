@@ -155,8 +155,15 @@
 /* (1) .main скроллится внутри — base `.app-body > .main { overflow-y:auto }`
        перебивался `overflow:hidden` у `.main:has(.analysis-page)` /
        `.main:has(.game-page)`. */
-.main:has(.analysis-page + .seo-long),
-.main:has(.game-page + .seo-long) {
+/* KS-4768/KS-4776: было `.game-page + .seo-long` (adjacent sibling). Любой
+   промежуточный div между .game-page и .seo-long рвал adjacency и снимал
+   фикс-высоту с .game-page → доска схлопывалась в нулевую высоту в
+   родительском flex (регресс KS-4774 на /play/local-bot после выноса
+   belowBoardBlock из GameShell). Заменили на пару `:has()`-чеков, которые
+   проверяют наличие обоих потомков независимо от их прямого соседства —
+   правило выживает при произвольной структуре между .game-page и .seo-long. */
+.main:has(.analysis-page):has(.seo-long),
+.main:has(.game-page):has(.seo-long) {
   overflow-y: auto !important;
   overflow-x: hidden;
 }
@@ -164,8 +171,8 @@
 /* (2) Доска занимает первый экран — фиксируем размер, чтобы
        flex:1 на .analysis-page/.game-page не давал SEO-блоку
        выдавить её в нулевую высоту. */
-.main:has(.analysis-page + .seo-long) > .analysis-page,
-.main:has(.game-page + .seo-long) > .game-page {
+.main:has(.analysis-page):has(.seo-long) > .analysis-page,
+.main:has(.game-page):has(.seo-long) > .game-page {
   flex: 0 0 auto;
   height: calc(100dvh - 48px);
   min-height: calc(100dvh - 48px);
@@ -176,8 +183,8 @@
    доску шире viewport (calc(100vw - 16px) + sidebar), и без явного
    width SEO-блок наследует ту же ширину из flex-line cross-size
    (align-items:stretch). */
-.main:has(.analysis-page + .seo-long) > .seo-long,
-.main:has(.game-page + .seo-long) > .seo-long {
+.main:has(.analysis-page):has(.seo-long) > .seo-long,
+.main:has(.game-page):has(.seo-long) > .seo-long {
   flex: 0 0 auto;
   width: 100%;
   min-width: 0;
@@ -188,10 +195,12 @@
 
 /* (3) /play/local-bot: game.css держит overflow:hidden !important
        на html/body/.app/.app-body — снимаем при наличии sibling. */
-html:has(.game-page + .seo-long),
-body:has(.game-page + .seo-long),
-.app:has(.game-page + .seo-long),
-.app-body:has(.game-page + .seo-long) {
+/* KS-4768/KS-4776: то же замечание, что и в (1)/(2) — `+` зависел от
+   прямого соседства .game-page и .seo-long. Гейтим парой :has(). */
+html:has(.game-page):has(.seo-long),
+body:has(.game-page):has(.seo-long),
+.app:has(.game-page):has(.seo-long),
+.app-body:has(.game-page):has(.seo-long) {
   overflow: visible !important;
 }
 
@@ -207,15 +216,16 @@ body:has(.game-page + .seo-long),
      (на /analysis он показан; на /play/local-bot скрыт через
      hideBottomBar — но padding ниже последнего абзаца SEO лишним
      не будет, лишних 72px невидны для пользователя). */
+  /* KS-4768/KS-4776: `+` → пара `:has()` (см. блоки 1-3 выше). */
   body.has-analysis-page:has(.seo-long) .main,
-  body:has(.game-page + .seo-long) .main {
+  body:has(.game-page):has(.seo-long) .main {
     overflow-y: auto !important;
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   }
 
   /* /play/local-bot mobile: body:has(.game-page){overflow:hidden}
      из responsive.css — перебиваем по специфичности. */
-  body:has(.game-page + .seo-long) {
+  body:has(.game-page):has(.seo-long) {
     overflow: visible;
   }
 }
