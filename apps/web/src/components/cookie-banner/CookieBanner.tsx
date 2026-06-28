@@ -93,7 +93,13 @@ export function CookieBanner(): ReactElement | null {
         body: JSON.stringify({ analytics }),
       });
       if (!res.ok) {
-        setError(`HTTP ${res.status}`);
+        // KS-4722: показываем код, чтобы QA/юзер сразу видели причину
+        // (раньше было generic «try again»). Console-лог — для
+        // прод-DevTools диагностики (CORS-preflight, 5xx и т.п.).
+        const text = await res.text().catch(() => '');
+        const detail = text ? `${res.status} ${text.slice(0, 80)}` : `HTTP ${res.status}`;
+        console.error('[CookieBanner] /guest/consent failed', detail);
+        setError(detail);
         return;
       }
       // KS-4715: явно фиксируем согласие в localStorage. До фикса
@@ -114,6 +120,10 @@ export function CookieBanner(): ReactElement | null {
       // / page_view не стартуют.
       dispatchConsentChanged();
     } catch (err) {
+      // KS-4722: типичная причина — CORS-preflight reject; в Network
+      // виден только OPTIONS без POST. Console.error помогает увидеть
+      // конкретный TypeError ("Failed to fetch" / "NetworkError").
+      console.error('[CookieBanner] /guest/consent network error', err);
       setError(err instanceof Error ? err.message : 'network');
     } finally {
       setSubmitting(false);
@@ -218,6 +228,8 @@ export function CookieBanner(): ReactElement | null {
           {error && (
             <span className="cookie-banner__error" data-testid="cookie-banner-error">
               {t('cookieBanner.error', 'Could not save your choice — try again.')}
+              {' '}
+              <small className="cookie-banner__error-detail">({error})</small>
             </span>
           )}
         </div>
