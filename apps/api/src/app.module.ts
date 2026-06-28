@@ -181,7 +181,9 @@ import { HealthController } from './health.controller';
     // KS-4699 / ADR-147 §8 T6.
     HintsModule,
     // KS-4759 / ADR-150 T1: e2e test-endpoints под HINTS_TEST_MODE=1.
-    HintsTestModule,
+    // forRoot() — чтобы условная регистрация работала при e2e (env
+    // выставляется в Jest setupFiles до Nest.compile, см. ADR-150 T4).
+    HintsTestModule.forRoot(),
   ],
 })
 export class AppModule implements NestModule {

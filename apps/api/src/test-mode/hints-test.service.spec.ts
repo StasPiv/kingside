@@ -27,7 +27,8 @@ describe('HintsTestService (KS-4759)', () => {
       del: jest.fn().mockResolvedValue(1),
       scan: jest.fn().mockResolvedValue(['0', []]),
     };
-    svc = new HintsTestService(eventsPrisma, redis);
+    const hints = { checkFor: jest.fn().mockResolvedValue(null) } as any;
+    svc = new HintsTestService(eventsPrisma, redis, hints);
   });
 
   describe('seedEvents', () => {
@@ -114,6 +115,55 @@ describe('HintsTestService (KS-4759)', () => {
     it('owner=null → 503', async () => {
       eventsPrisma.getOwner.mockReturnValue(null);
       await expect(svc.refreshMatviews()).rejects.toBeInstanceOf(ServiceUnavailableException);
+    });
+  });
+
+  // KS-4762 / ADR-150 T4.
+  describe('evaluateRuleByKey', () => {
+    let hints: any;
+
+    beforeEach(() => {
+      hints = { checkFor: jest.fn() };
+      owner.hint = {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'h-1',
+          key: 'test-rule',
+          rule: { actorType: { equals: 'user' } },
+        }),
+      };
+      owner.actorEvent = {
+        ...owner.actorEvent,
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
+      };
+      svc = new HintsTestService(eventsPrisma, redis, hints);
+    });
+
+    it('matched=true для подходящего правила', async () => {
+      const r = await svc.evaluateRuleByKey(
+        { type: 'user', id: 'u-1' },
+        { page: '/' },
+        'test-rule',
+      );
+      expect(r).toEqual({ matched: true });
+      expect(owner.hint.findFirst).toHaveBeenCalledWith({
+        where: { key: 'test-rule', enabled: true, deletedAt: null },
+      });
+    });
+
+    it('404 если правила с таким key нет', async () => {
+      owner.hint.findFirst.mockResolvedValue(null);
+      const { NotFoundException } = await import('@nestjs/common');
+      await expect(
+        svc.evaluateRuleByKey({ type: 'user', id: 'u-1' }, {}, 'missing'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('owner=null → 503', async () => {
+      eventsPrisma.getOwner.mockReturnValue(null);
+      await expect(
+        svc.evaluateRuleByKey({ type: 'user', id: 'u-1' }, {}, 'x'),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
     });
   });
 });

@@ -6,11 +6,41 @@
  * и эндпоинты отвечают 404. На проде env-var не выставляется.
  */
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { HintsTestService } from './hints-test.service';
 import {
+  TestActorDto,
   TestCleanActorBodyDto,
   TestSeedEventsBodyDto,
 } from './dto/test-seed-events.dto';
+
+class TestCheckForBodyDto {
+  @ValidateNested()
+  @Type(() => TestActorDto)
+  actor!: TestActorDto;
+
+  @IsOptional()
+  @IsString()
+  page?: string;
+
+  @IsOptional()
+  @IsString()
+  triggerEventType?: string;
+}
+
+class TestEvaluateRuleBodyDto {
+  @ValidateNested()
+  @Type(() => TestActorDto)
+  actor!: TestActorDto;
+
+  @IsOptional()
+  @IsString()
+  page?: string;
+
+  @IsString()
+  key!: string;
+}
 
 @Controller('test')
 export class HintsTestController {
@@ -36,5 +66,28 @@ export class HintsTestController {
   @HttpCode(200)
   refresh(): Promise<{ refreshed: string[] }> {
     return this.svc.refreshMatviews();
+  }
+
+  /**
+   * KS-4762 / ADR-150 T4. Proxy к `HintsService.checkFor` —
+   * возвращает ключ выбранного hint'а или null. Только для e2e suite.
+   */
+  @Post('check-for')
+  @HttpCode(200)
+  checkFor(@Body() body: TestCheckForBodyDto): Promise<{ key: string | null }> {
+    return this.svc.checkFor(body.actor, {
+      page: body.page,
+      triggerEventType: body.triggerEventType,
+    });
+  }
+
+  /**
+   * KS-4762 / ADR-150 T4. Эвалюация одного правила по key,
+   * минуя приоритезацию и per-hint лимиты HintsService.checkFor.
+   */
+  @Post('evaluate-rule')
+  @HttpCode(200)
+  evaluateRule(@Body() body: TestEvaluateRuleBodyDto): Promise<{ matched: boolean }> {
+    return this.svc.evaluateRuleByKey(body.actor, { page: body.page }, body.key);
   }
 }

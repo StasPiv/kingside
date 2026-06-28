@@ -40,6 +40,11 @@ const config: Config = {
   // Один раннер: e2e гоняет реальный `AppModule`, конкурентные прогоны
   // схлестнутся на общей БД. Быстрее и стабильнее один worker.
   maxWorkers: 1,
+  // KS-4762 / ADR-150 T4: setupFiles запускается ДО первого `import`
+  // тестового файла → env-vars выставляются раньше, чем грузится
+  // AppModule + HintsTestModule.forRoot(), и controllers/providers
+  // реально регистрируются.
+  setupFiles: ['<rootDir>/setup-e2e-env.ts'],
 };
 
 export default config;

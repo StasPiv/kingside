@@ -8,10 +8,13 @@
  *   - чистить актёра между прогонами,
  *   - принудительно обновлять матвью если правила их используют.
  */
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@kingside/events-db';
 import { EventsPrismaService } from '../events/events-prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { HintsService } from '../hints/hints.service';
+import { evaluateRule } from '../hints/hints-dsl.evaluator';
+import type { Actor } from '../events/events.types';
 import type {
   TestActorDto,
   TestSeedEventDto,
@@ -24,7 +27,51 @@ export class HintsTestService {
   constructor(
     private readonly eventsPrisma: EventsPrismaService,
     private readonly redis: RedisService,
+    private readonly hints: HintsService,
   ) {}
+
+  /**
+   * KS-4762 / ADR-150 T4. Прямой proxy к `HintsService.checkFor` для
+   * e2e сценариев. Возвращает ключ выбранного hint'а или null.
+   * Не пишет в Redis (canShow гейт обходим: тесты ставят throttle=0
+   * через HINTS_DEFAULTS_OVERRIDE_JSON), не идёт через event-bus —
+   * вызов синхронный.
+   */
+  async checkFor(
+    actor: Actor,
+    ctx: { page?: string; triggerEventType?: string },
+  ): Promise<{ key: string | null }> {
+    const r = await this.hints.checkFor(actor, ctx);
+    return { key: r?.key ?? null };
+  }
+
+  /**
+   * KS-4762 / ADR-150 T4. Эвалюация одного конкретного правила по key.
+   * Игнорирует приоритезацию и per-hint лимиты — нужно e2e suite чтобы
+   * проверить только DSL `rule` без помех от других active-правил
+   * (которые могут иметь больший priority и перебить winner).
+   * 404 если правила с таким key нет (или оно disabled/deleted).
+   */
+  async evaluateRuleByKey(
+    actor: Actor,
+    ctx: { page?: string },
+    key: string,
+  ): Promise<{ matched: boolean }> {
+    const owner = this.eventsPrisma.getOwner();
+    if (!owner) {
+      throw new ServiceUnavailableException('EVENTS owner-Prisma not configured');
+    }
+    const hint = await owner.hint.findFirst({
+      where: { key, enabled: true, deletedAt: null },
+    });
+    if (!hint) {
+      throw new NotFoundException(`hint not found: key=${key}`);
+    }
+    const matched = await evaluateRule(hint.rule as unknown, actor, ctx, {
+      events: owner,
+    });
+    return { matched };
+  }
 
   /**
    * Прямой INSERT в `events.actor_events`. Минует XADD/HintsEngine —
