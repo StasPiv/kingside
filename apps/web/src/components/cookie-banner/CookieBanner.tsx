@@ -70,6 +70,9 @@ export function CookieBanner(): ReactElement | null {
       try {
         await api.patch('/me/consent', { analytics: next });
         await refreshUser();
+        // KS-4718: оповестим EventsBootstrap/HintHost, чтобы
+        // tracking/pull стартовал сразу, без reload.
+        dispatchConsentChanged();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'error');
       } finally {
@@ -106,6 +109,10 @@ export function CookieBanner(): ReactElement | null {
         setHiddenForGuest(true);
       }
       setBump((b) => b + 1);
+      // KS-4718: оповещаем EventsBootstrap и HintHost — без события
+      // они узнают о новом consent только после reload, и pull-loop
+      // / page_view не стартуют.
+      dispatchConsentChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'network');
     } finally {
@@ -150,6 +157,9 @@ export function CookieBanner(): ReactElement | null {
       setGuestDelete({ kind: 'done' });
       setBump((b) => b + 1);
       setHiddenForGuest(true);
+      // KS-4718: consent отозван — пусть EventsBootstrap/HintHost
+      // остановят pull/tracking немедленно.
+      dispatchConsentChanged();
     } catch (err) {
       setGuestDelete({
         kind: 'error',
@@ -337,6 +347,19 @@ function setGuestDismissed(): void {
     window.localStorage.setItem(GUEST_DISMISSED_KEY, String(Date.now()));
   } catch {
     /* private mode и т.п. */
+  }
+}
+
+/**
+ * KS-4718. Сигнал «consent изменился» — слушают `EventsBootstrap` и
+ * `HintHost`, чтобы перенастроить tracking/pull без reload.
+ */
+function dispatchConsentChanged(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('kingside:consent-changed'));
+  } catch {
+    /* старые браузеры — пропускаем */
   }
 }
 

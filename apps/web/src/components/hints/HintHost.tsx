@@ -19,10 +19,11 @@ import type { Placement } from '@floating-ui/react';
 import type { HintShowPayload } from '@kingside/shared';
 import { useAuth } from '../../context/AuthContext';
 import { useIsMobile } from '../../hooks/useIsMobile';
-import { readAnalyticsConsentCookie } from '../../lib/events';
+import { isAnalyticsConsentGiven } from '../../lib/events';
 import { messagesSocket } from '../../socket';
 import { useHintPull } from '../../hooks/useHintPull';
 import { sendHintLifecycle } from './hintsApi';
+import type { UserWithConsent } from '../cookie-banner/consentTypes';
 
 /**
  * KS-4703 / ADR-147 §4. Глобальный хост контекстных подсказок.
@@ -41,9 +42,24 @@ import { sendHintLifecycle } from './hintsApi';
 export function HintHost(): ReactElement | null {
   const { user, token } = useAuth();
   const isAuthorized = Boolean(user);
+  // KS-4718: реагируем на смену consent (event из CookieBanner) — без
+  // bump'а useMemo не пересчитается до reload, и pull-loop для гостя
+  // никогда не стартует после accept.
+  const [consentBump, setConsentBump] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onChange = () => setConsentBump((b) => b + 1);
+    window.addEventListener('kingside:consent-changed', onChange);
+    window.addEventListener('storage', onChange);
+    return () => {
+      window.removeEventListener('kingside:consent-changed', onChange);
+      window.removeEventListener('storage', onChange);
+    };
+  }, []);
   const consentGiven = useMemo(
-    () => Boolean(user) || readAnalyticsConsentCookie(),
-    [user],
+    () => isAnalyticsConsentGiven(user as UserWithConsent | null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, consentBump],
   );
   const [hint, setHint] = useState<HintShowPayload | null>(null);
 

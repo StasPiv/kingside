@@ -52,6 +52,8 @@ import { HintHost } from './HintHost';
 const API_BASE = 'http://localhost:3001';
 
 function makeUser(): User {
+  // KS-4718: isAnalyticsConsentGiven(user) требует analyticsConsent=true
+  // — иначе HintHost корректно «выключен» (по ADR-147 §6.2).
   return {
     id: 'u1',
     username: 'alice',
@@ -61,6 +63,8 @@ function makeUser(): User {
     ratingRapid: 1500,
     ratingClassical: 1500,
     createdAt: '2026-01-01T00:00:00.000Z',
+    // analyticsConsent поля нет в shared User — поэтому через cast.
+    ...({ analyticsConsent: true } as Record<string, unknown>),
   };
 }
 

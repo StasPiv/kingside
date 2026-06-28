@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   configureEvents,
@@ -6,24 +6,46 @@ import {
   teardownEvents,
 } from './events';
 import type { UserWithConsent } from '../components/cookie-banner/consentTypes';
+import { usePageViewTracking } from '../hooks/usePageViewTracking';
+import { useIdleTracking } from '../hooks/useIdleTracking';
+import { useGuestLandingTracking } from '../hooks/useGuestLandingTracking';
 
 /**
- * KS-4684/KS-4698 / ADR-147 §2.2. Инициализирует events-клиент после
- * первого рендера и обновляет конфиг при смене пользователя / токена /
- * consent. Без этого `track()` остаётся полным no-op (по дизайну
- * KS-4684).
+ * KS-4684/KS-4698/KS-4718 / ADR-147 §2.2. Инициализирует events-клиент
+ * после первого рендера, реконфигурирует при смене user/token/consent
+ * и активирует tracking-хуки (page_view / session_idle /
+ * guest_landing_viewed). Без этого `track()` остаётся no-op, а POST
+ * /events никогда не уходит.
  *
- * Гейт `isConsented`:
+ * Гейт `isConsented` (см. `isAnalyticsConsentGiven`):
  *  - user → `user.analyticsConsent === true`;
- *  - guest → cookie `analytics_consent=1` (выставляет backend
- *    `POST /guest/consent`, KS-4700).
+ *  - guest → cookie `analytics_consent=1` или localStorage-флаг
+ *    (KS-4715 fallback на случай Domain=api.kingside.site).
  *
- * Источник токена: `localStorage['token']` — тот же, что использует
- * `api.ts` (минуем cycle через AuthContext, который перерисовывается
- * при refresh).
+ * Реактивность к consent: слушаем custom-event
+ * `kingside:consent-changed` — диспатчится из `CookieBanner` после
+ * accept/decline/delete. Это триггерит reconfigure без reload.
  */
 export function EventsBootstrap(): null {
   const { user, token } = useAuth();
+  // bump переинициализирует configureEvents при изменении consent
+  // (cookie/localStorage не наблюдаются подпиской).
+  const [consentBump, setConsentBump] = useState(0);
+
+  // Подписка на смену consent.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onChange = () => setConsentBump((b) => b + 1);
+    window.addEventListener('kingside:consent-changed', onChange);
+    // storage event срабатывает в других вкладках того же origin —
+    // удобно для случая, когда пользователь сменил consent в другой
+    // вкладке.
+    window.addEventListener('storage', onChange);
+    return () => {
+      window.removeEventListener('kingside:consent-changed', onChange);
+      window.removeEventListener('storage', onChange);
+    };
+  }, []);
 
   useEffect(() => {
     configureEvents({
@@ -31,15 +53,24 @@ export function EventsBootstrap(): null {
         isAnalyticsConsentGiven(user as UserWithConsent | null),
       getAuthToken: () => token,
     });
-    // teardown между перенастройками не нужен — configureEvents
-    // идемпотентен по unload-listener'ам и таймеру.
     return () => {
       // Только при полном unmount (тесты/HMR) сбрасываем модуль.
       teardownEvents();
     };
     // user объект может пересоздаваться — реагируем на стабильные поля.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, (user as UserWithConsent | null)?.analyticsConsent, token]);
+  }, [
+    user?.id,
+    (user as UserWithConsent | null)?.analyticsConsent,
+    token,
+    consentBump,
+  ]);
+
+  // Tracking-хуки сами не зависят от consent — он проверяется внутри
+  // `track()` в lib/events.ts. Без consent хуки безопасно no-op'ят.
+  usePageViewTracking();
+  useIdleTracking();
+  useGuestLandingTracking({ disabled: Boolean(user) });
 
   return null;
 }
