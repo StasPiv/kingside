@@ -52,6 +52,12 @@ COPY packages/broadcasts-db/package.json packages/broadcasts-db/
 # `node_modules/@kingside/events-db` создался; иначе старт api падает
 # `Cannot find module '@kingside/events-db'`.
 COPY packages/events-db/package.json packages/events-db/
+# KS-4747 / ADR-149 G1: events-client — shared-пакет (типы Actor/EventPayload/
+# InternalEventInput + утилиты) для cross-process эмита actor-событий
+# (apps/game-service → apps/api `POST /internal/events`). package.json
+# нужен до `npm ci`, иначе workspace-symlink не создастся и nest build
+# apps/api падает `TS2307 Cannot find module '@kingside/events-client'`.
+COPY packages/events-client/package.json packages/events-client/
 # KS-4070: position-comment подключает Maia-3 как forced-line фильтр
 # (apps/api/src/position-comment/maia.service.ts через @kingside/maia-core).
 # Сам пакет резолвится из packages/maia-core (workspace symlink), его
@@ -70,6 +76,8 @@ COPY packages/broadcasts-db ./packages/broadcasts-db
 # импортирует `@kingside/events-db` PrismaClient под учёткой
 # events_writer / owner).
 COPY packages/events-db ./packages/events-db
+# KS-4747 / ADR-149 G1: исходники events-client — для `tsc --build` ниже.
+COPY packages/events-client ./packages/events-client
 COPY packages/board-image-to-fen ./packages/board-image-to-fen
 COPY packages/maia-core ./packages/maia-core
 COPY apps/api ./apps/api
@@ -78,6 +86,11 @@ RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN rm -f packages/board-image-to-fen/tsconfig.tsbuildinfo
 RUN rm -f packages/maia-core/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
+# KS-4747 / ADR-149 G1: собираем events-client (pure TS, без deps).
+# Должно быть ДО `nest build` apps/api — apps/api/tsconfig.json
+# references его, без dist/index.d.ts падает TS6053.
+RUN rm -f packages/events-client/tsconfig.tsbuildinfo
+RUN npx tsc --build packages/events-client
 # KS-2363 / ADR-040 §5.1: dist/ нужен в production для `await import(
 # '@kingside/board-image-to-fen')` из BoardRecognitionService (lazy).
 RUN npx tsc --build packages/board-image-to-fen
@@ -129,6 +142,9 @@ COPY --from=build /app/packages/archive-db ./packages/archive-db
 # поэтому без COPY target ссылки в production stage отсутствует и
 # require падает `Cannot find module`. Образец — archive-db выше.
 COPY --from=build /app/packages/events-db ./packages/events-db
+# KS-4747 / ADR-149 G1: events-client в runtime — apps/api EventsModule
+# (InternalEventsController + DTO) импортирует типы из @kingside/events-client.
+COPY --from=build /app/packages/events-client ./packages/events-client
 # KS-2363: board-image-to-fen tree включает dist/ (TS-обёртка) +
 # src/python/* (board_detect.py / board_recognize.py — spawn'ятся через
 # child_process). Без src/python модуль не сможет вызывать Python-стек.
@@ -192,6 +208,9 @@ RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@ki
 RUN rm -rf node_modules/@kingside/board-image-to-fen && ln -s ../../packages/board-image-to-fen node_modules/@kingside/board-image-to-fen
 # KS-4070: символическая ссылка на maia-core, по образцу tactic-worker.
 RUN rm -rf node_modules/@kingside/maia-core && ln -s ../../packages/maia-core node_modules/@kingside/maia-core
+# KS-4747 / ADR-149 G1: symlink для @kingside/events-client (npm prune
+# мог удалить workspace-symlink, восстанавливаем явно как для остальных).
+RUN rm -rf node_modules/@kingside/events-client && ln -s ../../packages/events-client node_modules/@kingside/events-client
 
 ENV NODE_ENV=production
 # KS-2411: Node автоматически подхватывает этот CA bundle для всех
