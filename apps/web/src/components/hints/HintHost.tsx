@@ -71,15 +71,42 @@ export function HintHost(): ReactElement | null {
   });
 
   // WS для авторизованного.
+  // KS-4737. messagesSocket — глобальный, шарится с MessagesPage,
+  // PlayPage, GamePage, FriendsPage через useLazySocket. Когда любой
+  // из них unmount'ится, useLazySocket вызывает s.disconnect() →
+  // HintHost остаётся подписан на 'hint:show', но socket disconnected
+  // и backend emit в room user:<id> уходит в пустоту. Фиксим: на
+  // событие 'disconnect' переподключаемся (с тем же handshake-auth),
+  // чтобы room user:<id> заново join'нулся на серверной стороне.
   useEffect(() => {
     if (!isAuthorized || !token) return;
     messagesSocket.auth = { token };
-    if (!messagesSocket.connected) messagesSocket.connect();
+    const ensureConnected = () => {
+      if (!messagesSocket.connected) messagesSocket.connect();
+    };
+    ensureConnected();
+    const onConnect = () => {
+      // eslint-disable-next-line no-console
+      console.warn('[HintHost] WS /messages connected, room user:<id> joined');
+    };
+    const onDisconnect = (reason: string) => {
+      // eslint-disable-next-line no-console
+      console.warn('[HintHost] WS /messages disconnected:', reason, '— reconnecting');
+      // Небольшая задержка чтобы не толкать reconnect сразу после
+      // намеренного disconnect от useLazySocket cleanup.
+      setTimeout(ensureConnected, 100);
+    };
     const onShow = (payload: HintShowPayload) => {
+      // eslint-disable-next-line no-console
+      console.warn('[HintHost] hint:show received', payload);
       setHint(payload);
     };
+    messagesSocket.on('connect', onConnect);
+    messagesSocket.on('disconnect', onDisconnect);
     messagesSocket.on('hint:show', onShow);
     return () => {
+      messagesSocket.off('connect', onConnect);
+      messagesSocket.off('disconnect', onDisconnect);
       messagesSocket.off('hint:show', onShow);
       // Не дисконнектим — сокет может быть нужен другим страницам.
     };
@@ -145,12 +172,25 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
     setAnchorEl(el);
     if (!el && !noAnchorFiredRef.current) {
       noAnchorFiredRef.current = true;
+      // KS-4737: явно диагностируем разрыв «backend прислал hint, но
+      // anchor не нашёлся на странице» — частая причина «не показалась
+      // подсказка» (anchor только в условно-рендеримом блоке, либо
+      // пользователь dismissed его, либо не на той странице).
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[HintHost] no anchor on page for hint:',
+        hint.anchor,
+        '— sending ignored{no_anchor}',
+      );
       void sendHintLifecycle({
         hintId: hint.hintId,
         kind: 'ignored',
         reason: 'no_anchor',
         token,
       });
+    } else if (el) {
+      // eslint-disable-next-line no-console
+      console.warn('[HintHost] anchor resolved:', hint.anchor, el);
     }
   }, [hint.anchor, hint.hintId, token]);
 
