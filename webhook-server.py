@@ -159,6 +159,15 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     # Scripts/docs
     "ROLE_WRITE_SCRIPTS":              [f"{_P}/scripts:/project/scripts"],
     "ROLE_READ_SCRIPTS":               [f"{_P}/scripts:/project/scripts:ro"],
+    # Test-hints test-инфра: compose-профиль + up/down скрипты + общий init для postgres.
+    # Даёт право чинить файлы при падении прогонов e2e (ADR-150).
+    # tools/e2e-hints уже RW через _BASE_VOLUMES (tools:rw).
+    "ROLE_WRITE_TEST_HINTS":           [
+        f"{_P}/scripts/test-hints-up.sh:/project/scripts/test-hints-up.sh",
+        f"{_P}/scripts/test-hints-down.sh:/project/scripts/test-hints-down.sh",
+        f"{_P}/scripts/docker-compose.test-hints.yml:/project/scripts/docker-compose.test-hints.yml",
+        f"{_P}/scripts/postgres-init:/project/scripts/postgres-init",
+    ],
     "ROLE_WRITE_DOCS":                 [f"{_P}/docs:/project/docs"],
     "ROLE_READ_DOCS":                  [f"{_P}/docs:/project/docs:ro"],
     # node_modules (ro)
@@ -965,6 +974,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_DEPLOY_ARCHIVE_SERVICE", "ROLE_DEPLOY_TACTIC_WORKER",
         "ROLE_DEPLOY_PRERENDER_SERVICE",
         "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
+        "ROLE_TEST_HINTS", "ROLE_WRITE_TEST_HINTS",
         # файлы
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
         "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_BROADCAST_SERVICE",
@@ -978,6 +988,7 @@ AGENT_ROLES: dict[str, list[str]] = {
     "frontend": [
         "ROLE_READ_PROJECT",
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
+        "ROLE_TEST_HINTS", "ROLE_WRITE_TEST_HINTS",
         "ROLE_WRITE_APPS_WEB", "ROLE_READ_PACKAGES_SHARED", "ROLE_READ_PACKAGES_MAIA_CORE",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
@@ -1020,9 +1031,11 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_APPS", "ROLE_READ_PACKAGES", "ROLE_READ_DOCS",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_PACKAGE_LOCK", "ROLE_READ_TSCONFIG_BASE",
+        "ROLE_TEST_HINTS",
     ],
     "qa": [
         "ROLE_GIT_READ", "ROLE_READ_PROJECT",
+        "ROLE_TEST_HINTS", "ROLE_WRITE_TEST_HINTS",
     ],
     "content": [
         # Контент-инженер: RO весь проект (для запуска утилит и чтения схем),
@@ -1033,6 +1046,8 @@ AGENT_ROLES: dict[str, list[str]] = {
         # tools/ уже RW базово, нужен бинарь playwright из /project/node_modules
         # и api_start чтобы поднять локальный сервер для записи сценариев.
         "ROLE_READ_NODE_MODULES", "ROLE_API_START",
+        # Hints e2e: правка fixtures/rules и прогон test-hints стека (ADR-150).
+        "ROLE_TEST_HINTS", "ROLE_WRITE_TEST_HINTS",
     ],
 }
 
@@ -1076,6 +1091,7 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/gsc/search-analytics": "ROLE_GSC",
     "/gsc/sitemaps": "ROLE_GSC",
     "/gsc/sites": "ROLE_GSC",
+    "/test-hints": "ROLE_TEST_HINTS",
 }
 
 DOCKER_COMPOSE_ALLOWED = {"build", "up", "down", "logs", "ps", "config", "restart"}
@@ -3289,6 +3305,64 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
+        if path == "/test-hints":
+            if not self._check_role("/test-hints"):
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            action = payload.get("action", "")
+            # Допустимые действия:
+            #   up   — поднять test-hints compose-стек (postgres 5434, redis 6381, api 3101, web 5174, game-service 3102)
+            #   down — погасить стек и удалить volumes
+            #   e2e  — `npm run e2e:hints` (стек должен быть поднят)
+            if action not in {"up", "down", "e2e"}:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "action must be 'up' | 'down' | 'e2e'"}).encode())
+                return
+            if action == "up":
+                cmd = ["bash", os.path.join(PROJECT_DIR, "scripts/test-hints-up.sh")]
+                timeout = 600
+            elif action == "down":
+                cmd = ["bash", os.path.join(PROJECT_DIR, "scripts/test-hints-down.sh")]
+                timeout = 120
+            else:  # e2e
+                cmd = ["npm", "run", "e2e:hints", "--workspace=@kingside/e2e-hints"]
+                timeout = 1800
+            log(f"test-hints {action}: {' '.join(cmd)} (timeout {timeout}s)")
+            try:
+                result = subprocess.run(
+                    cmd, cwd=PROJECT_DIR, capture_output=True, text=True, timeout=timeout,
+                )
+                ok = result.returncode == 0
+                log(f"test-hints {action} завершён: rc={result.returncode}")
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success" if ok else "failed",
+                    "action": action,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout[-4000:],
+                    "stderr": result.stderr[-4000:],
+                }).encode())
+            except subprocess.TimeoutExpired:
+                self.send_response(504)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "timeout", "action": action, "timeout_s": timeout}).encode())
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "action": action, "detail": str(e)}).encode())
             return
 
         if path == "/up":

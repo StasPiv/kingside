@@ -80,8 +80,8 @@ cat <<EOF
 
   api          → http://localhost:3101
   web          → http://localhost:5174
-  postgres     → localhost:5433  (user/pass: kingside/kingside)
-  redis        → localhost:6380  (tmpfs, эфемерный)
+  postgres     → localhost:5434  (user/pass: kingside/kingside)
+  redis        → localhost:6381  (tmpfs, эфемерный)
   game-service → localhost:3102
 
   Логи:   docker compose -p $PROJECT -f $COMPOSE_FILE logs -f <service>

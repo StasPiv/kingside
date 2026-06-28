@@ -34,7 +34,7 @@ services:
     image: postgres:16-alpine
     mem_limit: 256m
     ports:
-      - "5433:5432"
+      - "5434:5432"
     environment:
       POSTGRES_USER: kingside
       POSTGRES_PASSWORD: kingside
@@ -59,7 +59,7 @@ services:
     image: redis:7-alpine
     mem_limit: 64m
     ports:
-      - "6380:6379"
+      - "6381:6379"
     # tmpfs → данные не сохраняются между перезапусками контейнера.
     # Тестам это нужно: каждая прогонка стартует с пустым Redis (счётчики
     # `hints:session:...`, `hints:throttle:...` отсутствуют).
@@ -133,7 +133,7 @@ services:
       DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside
       EVENTS_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside?schema=events
       EVENTS_WRITER_PASSWORD: kingside
-      ARCHIVE_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/archive_kingside
+      ARCHIVE_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside_archive
       BROADCASTS_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/broadcasts_kingside
       REDIS_URL: redis://redis:6379
       REDIS_HOST: redis
@@ -236,7 +236,7 @@ services:
     command:
       - sh
       - -c
-      - npx --no-install vite --host 0.0.0.0 --port 5174 --strictPort
+      - /app/node_modules/.bin/vite --host 0.0.0.0 --port 5174 --strictPort
     depends_on:
       api:
         condition: service_healthy
