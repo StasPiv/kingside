@@ -233,9 +233,10 @@
 }
 
 /* ── Anchor highlight ──────────────────────────────────────── */
-/* position, z-index, координаты — заданы inline в JS (зависят
- * от runtime-rect anchor). Border, скругление и свечение —
- * здесь, в единой индиго-палитре сайта (KS-4708). */
+/* Overlay-вариант (KS-4708): отдельный <div class="hint-anchor-highlight">
+ * рендерится только в HintBottomSheet (mobile). Координаты, position,
+ * z-index — inline в JS (зависят от runtime-rect anchor). Border,
+ * скругление и свечение — здесь, в единой индиго-палитре. */
 .hint-anchor-highlight {
   border: 2px solid var(--accent-primary);
   border-radius: 4px;
@@ -251,6 +252,55 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+/* KS-4721. Доп. подсветка САМОГО anchor-элемента через outline +
+ * box-shadow на `[data-hint-anchor]`. Закрывает два пробела
+ * предыдущей реализации:
+ *   1. На desktop overlay-div `.hint-anchor-highlight` вообще не
+ *      рендерится (только в HintBottomSheet) → визуально anchor
+ *      ничем не выделен. Этот селектор покрывает desktop popover.
+ *   2. QA-проверка computed styles на самом anchor видела пустоту
+ *      (border/outline/box-shadow = none) — стиль был на overlay-
+ *      контейнере, не на кнопке. Теперь stylesheet прописан
+ *      непосредственно на anchor — computed читается корректно.
+ *
+ * Условие активации — `:has(.hint-popover, .hint-bottom-sheet)`
+ * на `body`. Одна активная подсказка за раз (HintHost замещает
+ * старую при `hint:show`), а помеченных `[data-hint-anchor]` на
+ * странице обычно 1, изредка 2 → ложных срабатываний практически
+ * нет. Когда frontend добавит `data-hint-active="true"` на
+ * активный anchor — селектор можно будет сузить, текущий не
+ * мешает (правило идемпотентно). */
+body:has(.hint-popover, .hint-bottom-sheet) [data-hint-anchor] {
+  /* outline не сдвигает layout, в отличие от border. */
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 4px var(--ov-accent-15),
+    0 0 12px 2px var(--ov-accent-30);
+  /* Лёгкая пульсация, чтобы взгляд автоматически шёл к anchor'у
+   * от подсказки (особенно важно на desktop, где popover может
+   * быть в 100+px от anchor). */
+  animation: hint-anchor-target-pulse 1.6s ease-in-out infinite;
+  /* Гарантируем что подсветка не уходит под соседние элементы
+   * (например, под прижатый снизу bottom-sheet с z-index 9999). */
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes hint-anchor-target-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 4px var(--ov-accent-15),
+      0 0 12px 2px var(--ov-accent-30);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px var(--ov-accent-18, var(--ov-accent-20)),
+      0 0 20px 4px var(--ov-accent-30);
   }
 }
 
