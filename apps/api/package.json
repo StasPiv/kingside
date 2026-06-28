@@ -5,6 +5,7 @@
   "scripts": {
     "build": "nest build",
     "dev": "nest start --watch",
+    "dev:sandbox": "node scripts/dev-sandbox.js",
     "start": "node dist/main.js",
     "lint": "npm run seed:lessons:lint && eslint src/",
     "seed:lessons": "npx ts-node src/lessons/seed/seed-lessons.ts",

@@ -10,3 +10,7 @@ node_modules
 # в Dockerfile) — храним только .keep.
 .bake-cache/*
 !.bake-cache/.keep
+
+# KS-4773: tsconfig.sandbox.json генерируется scripts/dev-sandbox.js
+# на каждый запуск с outDir из env API_DIST_DIR.
+tsconfig.sandbox.json
