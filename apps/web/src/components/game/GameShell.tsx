@@ -157,6 +157,18 @@ export interface GameShellProps {
   /** Произвольный блок над сайдбаром — например, статус «бот думает». */
   belowBoardBlock?: ReactNode;
   /**
+   * KS-4774 / KS-4776: дополнительные пиксели вертикали, которые
+   * `useResponsiveBoardSize` должен вычесть из доступной высоты
+   * доски. Нужно когда вызывающая страница рендерит ниже доски
+   * собственный блок постоянной высоты (например, `belowBoardBlock`
+   * на `/play/local-bot` — статус «Bot is thinking…», 24 + 12px
+   * marginTop). Без этого `.game-board-area` (flex column +
+   * overflow:hidden) подгружает доску на полную высоту, последний
+   * ряд клеток уходит под обрез вместе с координатами `a-h`. На
+   * `/game/:id` блока нет — дефолт `0` сохраняет прежнее поведение.
+   */
+  extraBoardSubtractPx?: number;
+  /**
    * KS-4148: принудительно использовать стандартный набор фигур
    * react-chessboard (pieceSet 'standard'), игнорируя customPieces
    * из BoardSettingsContext. Используется на `/play/local-bot`,
@@ -261,6 +273,7 @@ export function GameShell(props: GameShellProps) {
     // Поэтому не деструктурируем сюда.
     showHelpButton = false,
     belowBoardBlock,
+    extraBoardSubtractPx = 0,
     forceStandardPieces = false,
     hideClocks = false,
     mode,
@@ -409,6 +422,11 @@ export function GameShell(props: GameShellProps) {
     // player-bar — заменяет тонкую строку «последний ход» из KS-4298.
     // Высота ленты ≈32 px учитывается через `hasMoveStrip` (KS-4291).
     hasMoveStrip: true,
+    // KS-4774 / KS-4776: дополнительный резерв для `belowBoardBlock`
+    // вызывающей страницы. Без вычета `.game-board-area` (flex column
+    // + overflow:hidden) сжимает доску — нижний ряд координат `a-h`
+    // уходит за обрез. Дефолт 0 — на `/game/:id` блока нет.
+    extraSubtract: extraBoardSubtractPx,
   });
   const [chatInput, setChatInput] = useState('');
   const [pendingPromotion, setPendingPromotion] = useState<
