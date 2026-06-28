@@ -336,6 +336,8 @@ function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElem
       aria-labelledby={`hint-${hint.hintId}-title`}
       data-testid="hint-popover"
       data-placement={sidePlacement}
+      data-hint-popover
+      data-hint-key={hint.key}
     >
       <div className="hint-popover__header">
         <h3 id={`hint-${hint.hintId}-title`} className="hint-popover__title">
@@ -426,6 +428,8 @@ function HintBottomSheet({ hint, anchorEl, onDismiss, onCta }: PaneProps): React
         aria-modal="false"
         aria-labelledby={`hint-${hint.hintId}-title-m`}
         data-testid="hint-bottom-sheet"
+        data-hint-popover
+        data-hint-key={hint.key}
         style={{
           position: 'fixed',
           left: 0,
