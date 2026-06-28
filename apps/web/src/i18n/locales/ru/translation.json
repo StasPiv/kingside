@@ -313,7 +313,11 @@
     "challengeReceived": "Вызов от {{from}}",
     "friendRequest": "Запрос дружбы от {{from}}",
     "gameStarted": "Партия начата с {{opponent}}",
-    "newMessage": "Сообщение от {{from}}"
+    "newMessage": "Сообщение от {{from}}",
+    "blog_post_published": {
+      "title": "{{title}}",
+      "body": "Новая статья в блоге"
+    }
   },
   "friends": {
     "title": "Друзья",

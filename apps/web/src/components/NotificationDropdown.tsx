@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { NotificationItem } from '@kingside/shared';
 
 interface NotificationDropdownProps {
@@ -27,6 +28,8 @@ const TYPE_ICONS: Record<string, string> = {
   friend_request: '👥',
   game_started: '♟️',
   message: '✉️',
+  // KS-4741: новый тип уведомления — публикация статьи блога.
+  blog_post_published: '📝',
 };
 
 function formatTimeControl(initial: number, increment: number): string {
@@ -59,7 +62,11 @@ export function NotificationDropdown({
   const handleClick = useCallback((n: NotificationItem) => {
     if (!n.read) onMarkAsRead(n.id);
     const p = n.payload as Record<string, string>;
-    switch (n.type) {
+    // KS-4741: новые типы (`blog_post_published`) добавляются на бэке
+    // и shared может ещё не успеть. Расширяем тип до string, чтобы
+    // switch принимал любые ключи и default-ветка ловила незнакомые.
+    const ntype = n.type as string;
+    switch (ntype) {
       case 'message':
         navigate(p.senderId ? `/messages/${p.senderId}` : '/messages');
         break;
@@ -69,7 +76,19 @@ export function NotificationDropdown({
       case 'game_started':
         if (p.gameId) navigate(`/game/${p.gameId}`);
         break;
+      // KS-4741: переход на статью блога. Префикс локали обязателен —
+      // /<locale>/blog/<slug>; fallback 'en' если поле не пришло.
+      case 'blog_post_published': {
+        if (p.slug) {
+          const locale = p.locale || 'en';
+          navigate(`/${locale}/blog/${p.slug}`);
+        }
+        break;
+      }
       default:
+        // Для неизвестного типа — лучше отправить на главную, чем
+        // молча закрыть колокольчик без реакции.
+        navigate('/');
         break;
     }
     onClose();
@@ -108,7 +127,7 @@ export function NotificationDropdown({
               <span className="notification-item__icon">{TYPE_ICONS[n.type] || '🔔'}</span>
               <div className="notification-item__body">
                 <span className="notification-item__text">
-                  {renderNotificationText(n)}
+                  {renderNotificationText(n, t)}
                 </span>
                 <span className="notification-item__time">{formatTimeAgo(n.createdAt)}</span>
               </div>
@@ -120,9 +139,10 @@ export function NotificationDropdown({
   );
 }
 
-function renderNotificationText(n: NotificationItem): string {
+function renderNotificationText(n: NotificationItem, t: TFunction): string {
   const p = n.payload as Record<string, string>;
-  switch (n.type) {
+  const ntype = n.type as string;
+  switch (ntype) {
     case 'message': {
       const sender = p.senderUsername || p.from || 'Someone';
       const preview = p.preview ? `: ${p.preview.slice(0, 50)}` : '';
@@ -141,7 +161,16 @@ function renderNotificationText(n: NotificationItem): string {
       const opponent = p.opponent || p.opponentUsername || 'opponent';
       return `Game started vs ${opponent}`;
     }
+    // KS-4741: «Новая статья в блоге — <Title>». Title из payload,
+    // i18n локализован.
+    case 'blog_post_published': {
+      const title = p.title || t('notifications.blog_post_published.body', 'New blog post');
+      const subtitle = t('notifications.blog_post_published.body', 'New blog post');
+      return `${subtitle} — ${title}`;
+    }
     default:
+      // Для незнакомого type — fallback на сырой type-ключ, чтобы
+      // колокольчик хотя бы не падал и QA увидел что нужен новый case.
       return n.type;
   }
 }

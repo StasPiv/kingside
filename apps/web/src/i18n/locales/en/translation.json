@@ -313,7 +313,11 @@
     "challengeReceived": "Challenge from {{from}}",
     "friendRequest": "Friend request from {{from}}",
     "gameStarted": "Game started vs {{opponent}}",
-    "newMessage": "Message from {{from}}"
+    "newMessage": "Message from {{from}}",
+    "blog_post_published": {
+      "title": "{{title}}",
+      "body": "New blog post"
+    }
   },
   "friends": {
     "title": "Friends",
