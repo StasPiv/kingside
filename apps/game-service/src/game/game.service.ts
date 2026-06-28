@@ -1,4 +1,4 @@
-import { Injectable, Logger, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, Optional, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Chess, Square } from 'chess.js';
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +7,8 @@ import { GameClockService, ClockState } from './game-clock.service';
 import { RatingService } from './rating.service';
 import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, DEFAULT_CATEGORY_TC, classifyTimeControl } from '@kingside/shared';
 import { GameResult, Termination } from '@kingside/db';
+// KS-4750 / ADR-149 G4: эмит actor-событий в apps/api через POST /internal/events.
+import { EventsClientService } from '../events-client/events-client.service';
 
 interface GameState {
   fen: string;
@@ -63,6 +65,10 @@ export class GameService {
     private readonly clockService: GameClockService,
     private readonly ratingService: RatingService,
     private readonly i18n: I18nService,
+    // KS-4750 / ADR-149 G4: self-emit `game_start`/`game_end`/`resign`/
+    // `draw_offered`. `@Optional` — unit-spec'и могут создавать сервис
+    // без mock'а (EventsClientService no-op без INTERNAL_EVENTS_SECRET).
+    @Optional() private readonly events?: EventsClientService,
   ) {}
 
   private stateKey(gameId: string): string {
@@ -97,6 +103,17 @@ export class GameService {
     await this.prisma.game.update({
       where: { id: gameId },
       data: { status: 'active', startedAt: new Date() },
+    });
+
+    // KS-4750 / ADR-149 G4: `game_start { time_control, rated, opponent_id, is_bot }`.
+    // Контракт совпадает с apps/api (KS-4696). Bot-actor пропускается.
+    this.events?.trackBothExcludingBot(game.whiteId, game.blackId, STOCKFISH_BOT_ID, 'game_start', {
+      game_id: gameId,
+      time_control: classifyTimeControl(game.timeInitialSec, game.timeIncrementSec),
+      rated: !game.isBot,
+      opponent_id_white: game.blackId,
+      opponent_id_black: game.whiteId,
+      is_bot: game.isBot,
     });
 
     return state;
@@ -464,6 +481,15 @@ export class GameService {
     }
 
     const result = userId === game.whiteId ? 'black' : 'white';
+    // KS-4750 / ADR-149 G4: `resign` от actor'а, который сдался. Идёт
+    // до `endGame`, чтобы порядок событий в actor_events совпадал с
+    // временем игрового действия (DSL правил может смотреть `since`).
+    if (userId !== STOCKFISH_BOT_ID) {
+      void this.events?.track({ type: 'user', id: userId }, 'resign', {
+        game_id: gameId,
+        color: userId === game.whiteId ? 'white' : 'black',
+      });
+    }
     const clocks = await this.clockService.stopClock(gameId);
     const ratingChange = await this.endGame(gameId, result, 'resignation');
 
@@ -482,6 +508,13 @@ export class GameService {
       throw new ForbiddenException(this.i18n.t('messages.game.notAPlayer'));
     }
     await this.redis.set(`game:${gameId}:draw_offer`, userId, 'EX', 120);
+    // KS-4750 / ADR-149 G4: `draw_offered` от actor'а, предложившего ничью.
+    if (userId !== STOCKFISH_BOT_ID) {
+      void this.events?.track({ type: 'user', id: userId }, 'draw_offered', {
+        game_id: gameId,
+        color: userId === game.whiteId ? 'white' : 'black',
+      });
+    }
   }
 
   async handleDrawAccept(gameId: string, userId: string): Promise<EndResult> {
@@ -609,6 +642,54 @@ export class GameService {
         await this.redis.lpush('puzzle-gen:queue', gameId);
       }
     } catch { /* non-critical */ }
+
+    // KS-4750 / ADR-149 G4 + KS-4749 §1.5: `game_end` per-actor
+    // (result/winner/rating_delta — точно как в apps/api endGame).
+    // Bot-actor пропускается. fail-soft через try/catch на уровне эмита.
+    try {
+      const players = await this.prisma.game.findUnique({
+        where: { id: gameId },
+        select: { whiteId: true, blackId: true },
+      });
+      if (players && this.events) {
+        const winner: 'white' | 'black' | 'draw' = result;
+        const ratingDeltaWhite = ratingChange
+          ? ratingChange.whiteRatingAfter - ratingChange.whiteRatingBefore
+          : null;
+        const ratingDeltaBlack = ratingChange
+          ? ratingChange.blackRatingAfter - ratingChange.blackRatingBefore
+          : null;
+        const resultFor = (color: 'white' | 'black'): 'win' | 'loss' | 'draw' =>
+          winner === 'draw' ? 'draw' : winner === color ? 'win' : 'loss';
+
+        if (players.whiteId && players.whiteId !== STOCKFISH_BOT_ID) {
+          void this.events.track({ type: 'user', id: players.whiteId }, 'game_end', {
+            game_id: gameId,
+            color: 'white',
+            result: resultFor('white'),
+            winner,
+            termination,
+            rating_delta: ratingDeltaWhite,
+            rating_delta_white: ratingDeltaWhite,
+            rating_delta_black: ratingDeltaBlack,
+          });
+        }
+        if (players.blackId && players.blackId !== STOCKFISH_BOT_ID) {
+          void this.events.track({ type: 'user', id: players.blackId }, 'game_end', {
+            game_id: gameId,
+            color: 'black',
+            result: resultFor('black'),
+            winner,
+            termination,
+            rating_delta: ratingDeltaBlack,
+            rating_delta_white: ratingDeltaWhite,
+            rating_delta_black: ratingDeltaBlack,
+          });
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`game_end track failed for ${gameId}: ${e.message}`);
+    }
 
     // Fire post-game hooks in background (arena scoring, etc.) — don't block the hot path
     if (this.postGameHooks.length > 0) {

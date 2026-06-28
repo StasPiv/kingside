@@ -11,6 +11,8 @@ import { MatchmakingModule } from './matchmaking/matchmaking.module';
 import { ChatModule } from './chat/chat.module';
 import { UserModule } from './user/user.module';
 import { HealthController } from './health.controller';
+// KS-4750 / ADR-149 G4: HTTP-клиент для эмита actor-событий в apps/api.
+import { EventsClientModule } from './events-client/events-client.module';
 
 @Module({
   controllers: [HealthController],
@@ -28,6 +30,7 @@ import { HealthController } from './health.controller';
     RedisModule,
     AuthModule,
     UserModule,
+    EventsClientModule,
     GameModule,
     ArenaModule,
     MatchmakingModule,
