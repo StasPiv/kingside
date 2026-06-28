@@ -54,6 +54,7 @@ describe('CookieBanner (KS-4698)', () => {
   beforeEach(() => {
     localStorage.clear();
     document.cookie = 'analytics_consent=; Max-Age=0; path=/';
+    document.cookie = 'ks_analytics_consent=; Max-Age=0; path=/';
   });
 
   afterEach(() => {
@@ -70,6 +71,18 @@ describe('CookieBanner (KS-4698)', () => {
 
   it('гость с cookie analytics_consent=1 — баннер скрыт', () => {
     document.cookie = 'analytics_consent=1; path=/';
+    wrap(<CookieBanner />, { user: null });
+    expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
+  });
+
+  it('KS-4722: ks_analytics_consent=1 на mount скрывает баннер сразу', () => {
+    document.cookie = 'ks_analytics_consent=1; path=/';
+    wrap(<CookieBanner />, { user: null });
+    expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
+  });
+
+  it('KS-4722: cookie в RFC-6265 кавычках (analytics_consent="1") распознаётся', () => {
+    document.cookie = 'analytics_consent="1"; path=/';
     wrap(<CookieBanner />, { user: null });
     expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument();
   });
@@ -114,7 +127,10 @@ describe('CookieBanner (KS-4698)', () => {
     });
     // Cookie не появилась, localStorage не сохранил — но баннер
     // обязан исчезнуть благодаря React state acceptedThisSession.
-    expect(document.cookie).not.toContain('analytics_consent=1');
+    // На dev (localhost) writeFrontAnalyticsConsentCookie не ставит
+    // cookie с Domain=.kingside.site → проверяем что backend cookie
+    // analytics_consent=1 НЕ записана (Storage упал, backend mocked).
+    expect(document.cookie).not.toMatch(/(?:^|;\s*)analytics_consent=1/);
     await waitFor(() =>
       expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument(),
     );

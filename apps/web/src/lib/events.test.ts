@@ -33,8 +33,9 @@ function parseBody(init: RequestInit | undefined): { events: Array<{ type: strin
 describe('events client (KS-4684)', () => {
   beforeEach(() => {
     __resetEventsForTests();
-    // Сброс cookie между тестами.
+    // Сброс cookies между тестами (оба источника).
     document.cookie = 'analytics_consent=; Max-Age=0; path=/';
+    document.cookie = 'ks_analytics_consent=; Max-Age=0; path=/';
     vi.useFakeTimers();
   });
 
@@ -285,6 +286,21 @@ describe('events client (KS-4684)', () => {
     it('readAnalyticsConsentCookie — false при значении "0"', () => {
       document.cookie = 'analytics_consent=0; path=/';
       expect(readAnalyticsConsentCookie()).toBe(false);
+    });
+
+    it('KS-4722: cookie в RFC-6265 кавычках распознаётся', () => {
+      document.cookie = 'analytics_consent="1"; path=/';
+      expect(readAnalyticsConsentCookie()).toBe(true);
+    });
+
+    it('KS-4722: ks_analytics_consent=1 (frontend-fallback cookie) распознаётся', () => {
+      document.cookie = 'ks_analytics_consent=1; path=/';
+      expect(readAnalyticsConsentCookie()).toBe(true);
+    });
+
+    it('KS-4722: value="true" (case-insensitive) распознаётся', () => {
+      document.cookie = 'analytics_consent=true; path=/';
+      expect(readAnalyticsConsentCookie()).toBe(true);
     });
 
     it('isAnalyticsConsentGiven — user.analytics_consent доминирует над cookie', () => {

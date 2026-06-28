@@ -6,6 +6,7 @@ import {
   readAnalyticsConsentCookie,
   readGuestConsentLocal,
   setGuestConsentLocal,
+  writeFrontAnalyticsConsentCookie,
 } from '../../lib/events';
 import { getUserConsent } from './consentTypes';
 
@@ -125,11 +126,18 @@ export function CookieBanner(): ReactElement | null {
       // и ставим dismissed, чтобы баннер не вылезал снова.
       if (analytics) {
         setGuestConsentLocal(true);
-        // KS-4722: React state гарантирует, что баннер скроется даже
-        // если cookie/localStorage не сохранились.
+        // KS-4722: дублируем cookie от фронта (Domain=.kingside.site).
+        // Backend Set-Cookie может не дойти (HttpOnly/ITP/WebView/CDN
+        // strip), localStorage может быть недоступен (private mode).
+        // Этот cookie — третий независимый источник для readAnalytics-
+        // ConsentCookie() на следующем mount/reload.
+        writeFrontAnalyticsConsentCookie(true);
+        // React state — для текущего рендера, чтобы баннер скрылся
+        // сразу же, без ожидания пересчёта useMemo.
         setAcceptedThisSession(true);
       } else {
         setGuestConsentLocal(false);
+        writeFrontAnalyticsConsentCookie(false);
         setAcceptedThisSession(false);
         setGuestDismissed();
         setHiddenForGuest(true);
@@ -182,7 +190,10 @@ export function CookieBanner(): ReactElement | null {
       // чтобы баннер не «возродился» сразу после удаления.
       // KS-4715: чистим и localStorage-флаг — иначе после reload
       // баннер останется скрытым, хотя данных уже нет.
+      // KS-4722: и front-cookie тоже.
       setGuestConsentLocal(false);
+      writeFrontAnalyticsConsentCookie(false);
+      setAcceptedThisSession(false);
       setGuestDismissed();
       setGuestDelete({ kind: 'done' });
       setBump((b) => b + 1);

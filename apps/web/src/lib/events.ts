@@ -239,16 +239,80 @@ function safeGetToken(): string | null {
 /* ------------------------------------------------------------------ */
 
 /**
- * Читает cookie `analytics_consent` из `document.cookie`.
- * Возвращает `true`, если значение `'1'`. ADR-147 §6.2: HttpOnly не
- * ставится — банер должен уметь читать своё состояние с клиента.
+ * KS-4722. Имена cookie для consent гостя:
+ *  - `analytics_consent` — backend Set-Cookie (KS-4716, Domain=.kingside.site).
+ *  - `ks_analytics_consent` — frontend-fallback (ставим сами после 200 OK,
+ *    чтобы UI больше не зависел от того, дошёл ли backend Set-Cookie
+ *    до браузера: HttpOnly-флаг, ITP, in-app WebView quirks).
+ */
+export const ANALYTICS_CONSENT_COOKIE = 'analytics_consent';
+export const ANALYTICS_CONSENT_FRONT_COOKIE = 'ks_analytics_consent';
+
+/**
+ * Читает cookie consent из `document.cookie`. Возвращает `true`, если
+ * хоть один из источников (`analytics_consent` или
+ * `ks_analytics_consent`) даёт truthy-значение (`'1'`, `'true'`, в т.ч.
+ * закавыченное по RFC-6265). ADR-147 §6.2: HttpOnly на основной cookie
+ * не ставится — банер должен уметь читать состояние с клиента.
  */
 export function readAnalyticsConsentCookie(): boolean {
   if (typeof document === 'undefined' || typeof document.cookie !== 'string') {
     return false;
   }
-  const match = document.cookie.match(/(?:^|;\s*)analytics_consent=([^;]+)/);
-  return match?.[1] === '1';
+  return (
+    cookieIsAccepted(ANALYTICS_CONSENT_COOKIE) ||
+    cookieIsAccepted(ANALYTICS_CONSENT_FRONT_COOKIE)
+  );
+}
+
+function cookieIsAccepted(name: string): boolean {
+  const re = new RegExp(
+    `(?:^|;\\s*)${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}=([^;]+)`,
+  );
+  const m = document.cookie.match(re);
+  if (!m) return false;
+  // RFC-6265 допускает значения в двойных кавычках; некоторые серверы
+  // URL-кодируют; нормализуем перед сравнением.
+  let raw = m[1].trim();
+  if (raw.startsWith('"') && raw.endsWith('"')) raw = raw.slice(1, -1);
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    /* ignore */
+  }
+  return raw === '1' || raw.toLowerCase() === 'true';
+}
+
+/**
+ * Frontend-write fallback cookie (`ks_analytics_consent=1` или `=0`).
+ * Domain=.kingside.site — чтобы был виден и на api-субдомене (для
+ * консистентности с backend cookie; backend его не валидирует, но
+ * frontend читает на следующем mount).
+ *
+ * На localhost Domain не указываем — браузер откажет в Set-Cookie с
+ * Domain=.kingside.site на чужом origin.
+ */
+export function writeFrontAnalyticsConsentCookie(value: boolean): void {
+  if (typeof document === 'undefined') return;
+  try {
+    const host = typeof window !== 'undefined' ? window.location.hostname : '';
+    const isProdDomain =
+      host === 'kingside.site' || host.endsWith('.kingside.site');
+    const secure = isProdDomain ? '; Secure' : '';
+    const domain = isProdDomain ? '; Domain=.kingside.site' : '';
+    if (value) {
+      document.cookie =
+        `${ANALYTICS_CONSENT_FRONT_COOKIE}=1; Path=/; Max-Age=31536000; SameSite=Lax${domain}${secure}`;
+    } else {
+      // Удаляем оба варианта (Domain= и без), браузер выберет совпадающий.
+      document.cookie =
+        `${ANALYTICS_CONSENT_FRONT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${domain}${secure}`;
+      document.cookie =
+        `${ANALYTICS_CONSENT_FRONT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+    }
+  } catch {
+    /* sandboxed iframe etc. */
+  }
 }
 
 /**
