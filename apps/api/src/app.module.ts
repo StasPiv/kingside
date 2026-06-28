@@ -84,6 +84,10 @@ import { MeModule } from './me/me.module';
 import { GuestModule } from './guest/guest.module';
 // KS-4699 / ADR-147 §3 §4 §5 T6: HintsEngine (DSL, лимиты, listener).
 import { HintsModule } from './hints/hints.module';
+// KS-4759 / ADR-150 T1: тестовый модуль для e2e hints. Контроллер
+// маршрутизируется только под `HINTS_TEST_MODE=1`; без env-var
+// endpoints возвращают 404 (модуль импортируется, но controllers пуст).
+import { HintsTestModule } from './test-mode/hints-test.module';
 import { HealthController } from './health.controller';
 @Module({
   controllers: [HealthController],
@@ -176,6 +180,8 @@ import { HealthController } from './health.controller';
     GuestModule,
     // KS-4699 / ADR-147 §8 T6.
     HintsModule,
+    // KS-4759 / ADR-150 T1: e2e test-endpoints под HINTS_TEST_MODE=1.
+    HintsTestModule,
   ],
 })
 export class AppModule implements NestModule {
