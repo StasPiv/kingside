@@ -56,6 +56,59 @@ describe('DSL evaluator — operators', () => {
     expect(JSON.stringify(arg.where)).toContain('"path":["rated"]');
   });
 
+  // KS-4757: для строковых значений Prisma 6 на PG JSONB+path с
+  // `equals` строит SQL который не находит записи. Используем
+  // `string_equals`. Для number/boolean/null оставляем `equals`.
+  it('count.where: строка → string_equals, не equals', async () => {
+    const ev = mkEvents([{ id: '1' }, { id: '2' }, { id: '3' }]);
+    const ok = await evaluateRule(
+      { count: { event: 'game_end', where: { result: 'loss' }, windowDays: 7, gte: 3 } },
+      ACTOR_USER, {}, { events: ev },
+    );
+    expect(ok).toBe(true);
+    const arg = ev.actorEvent.findMany.mock.calls[0][0];
+    const whereStr = JSON.stringify(arg.where);
+    expect(whereStr).toContain('"path":["result"]');
+    expect(whereStr).toContain('"string_equals":"loss"');
+    expect(whereStr).not.toContain('"equals":"loss"');
+  });
+
+  it('count.where: bool → equals (не string_equals)', async () => {
+    const ev = mkEvents([{ id: '1' }]);
+    await evaluateRule(
+      { count: { event: 'game_start', where: { rated: true }, windowMin: 30, gte: 1 } },
+      ACTOR_USER, {}, { events: ev },
+    );
+    const arg = ev.actorEvent.findMany.mock.calls[0][0];
+    const whereStr = JSON.stringify(arg.where);
+    expect(whereStr).toContain('"equals":true');
+    expect(whereStr).not.toContain('"string_equals"');
+  });
+
+  it('count.where: number → equals', async () => {
+    const ev = mkEvents([{ id: '1' }]);
+    await evaluateRule(
+      { count: { event: 'rating_change', where: { delta: 10 }, windowMin: 30, gte: 1 } },
+      ACTOR_USER, {}, { events: ev },
+    );
+    const arg = ev.actorEvent.findMany.mock.calls[0][0];
+    const whereStr = JSON.stringify(arg.where);
+    expect(whereStr).toContain('"equals":10');
+    expect(whereStr).not.toContain('"string_equals"');
+  });
+
+  it('count.where: смешанный — string + bool в одном where', async () => {
+    const ev = mkEvents([{ id: '1' }]);
+    await evaluateRule(
+      { count: { event: 'game_end', where: { result: 'loss', rated: true }, windowDays: 7, gte: 1 } },
+      ACTOR_USER, {}, { events: ev },
+    );
+    const arg = ev.actorEvent.findMany.mock.calls[0][0];
+    const whereStr = JSON.stringify(arg.where);
+    expect(whereStr).toContain('"string_equals":"loss"');
+    expect(whereStr).toContain('"equals":true');
+  });
+
   it('exists.event: true если хотя бы один найден', async () => {
     const ev = mkEvents([], { id: '1' });
     expect(await evaluateRule(

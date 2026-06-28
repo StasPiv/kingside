@@ -209,10 +209,21 @@ function compileEventWhere(where: unknown): Record<string, unknown> {
   // `where` — простые равенства по полям payload. Prisma jsonPath:
   // `payload: { path: ['rated'], equals: true }`. Поддерживаем плоские
   // ключи; вложенность можно добавить, когда понадобится.
+  //
+  // KS-4757: для строковых значений используем `string_equals` вместо
+  // `equals`. Prisma 6 на PostgreSQL JSONB с `path + equals` для строки
+  // строит SQL, который не находит записи (известная gadcha JSON path
+  // фильтра: нужна предварительная JSON-сериализация значения, либо
+  // отдельный оператор `string_equals`). Для number/boolean/null
+  // оставляем `equals` — там тип сериализуется корректно.
   if (!isObj(where)) return {};
   const conds: Array<Record<string, unknown>> = [];
   for (const [k, v] of Object.entries(where)) {
-    conds.push({ payload: { path: [k], equals: v as Prisma.InputJsonValue } });
+    if (typeof v === 'string') {
+      conds.push({ payload: { path: [k], string_equals: v } });
+    } else {
+      conds.push({ payload: { path: [k], equals: v as Prisma.InputJsonValue } });
+    }
   }
   return conds.length > 0 ? { AND: conds } : {};
 }
