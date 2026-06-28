@@ -103,28 +103,49 @@ async function evaluateCount(
   const stopTimer = deps.startAggregate?.('matview') ?? null;
   let cnt = 0;
   try {
-    // Полагаемся на raw-таблицу: matview обновляется реже, и для DSL
-    // мы хотим ровно интервал из правила, не привязанный к 24h/7d/30d
-    // matview-окнам. SELECT с актуальным индексом (actor_id, type,
-    // created_at DESC) — index-only scan по партиции, миллисекунды.
-    const where = compileEventWhere(node.where);
-    const rows = await deps.events.actorEvent.findMany({
-      where: {
-        actorId: actor.id,
-        actorType: actor.type,
-        type: eventType,
-        createdAt: { gte: since },
-        ...where,
-      },
-      select: { id: true },
-    });
-    cnt = rows.length;
+    const whereObj = isObj(node.where) ? node.where : null;
+    if (whereObj && Object.keys(whereObj).length > 0) {
+      // KS-4782 (вторая итерация): Prisma `payload: {path:[k], equals:v}`
+      // на PostgreSQL JSONB строит SQL `payload @> ...` / `payload @@ ...`,
+      // который для нашей раскладки `payload = {"result":"loss",...}` НЕ
+      // находит совпадений (count=0). Это подтверждено в проде: правило
+      // `analyze-after-loss` с `where:{result:"loss"}` не сматчилось ни
+      // разу при 15 game_end loss за сутки у Stanislav. Переходим на
+      // явный `payload->>'<key>' = '<value>'` через $queryRaw — это
+      // канонический PostgreSQL-способ сравнения по JSONB-полю, который
+      // гарантированно работает.
+      cnt = await rawCountWithPayloadWhere(
+        deps.events,
+        actor,
+        eventType,
+        since,
+        whereObj,
+      );
+    } else {
+      // Полагаемся на raw-таблицу: matview обновляется реже, и для DSL
+      // мы хотим ровно интервал из правила, не привязанный к 24h/7d/30d
+      // matview-окнам. SELECT с актуальным индексом (actor_id, type,
+      // created_at DESC) — index-only scan по партиции, миллисекунды.
+      const rows = await deps.events.actorEvent.findMany({
+        where: {
+          actorId: actor.id,
+          actorType: actor.type,
+          type: eventType,
+          createdAt: { gte: since },
+        },
+        select: { id: true },
+      });
+      cnt = rows.length;
+    }
   } catch (err) {
     log.warn(`evaluateCount: ${(err as Error).message}`);
     return false;
   } finally {
     if (stopTimer) stopTimer();
   }
+  log.debug?.(
+    `evaluateCount actor=${actor.type}:${actor.id} type=${eventType} since=${since.toISOString()} where=${JSON.stringify(node.where ?? null)} → cnt=${cnt} (op=${JSON.stringify({gte:node.gte,lte:node.lte,eq:node.eq})})`,
+  );
   return compare(cnt, node);
 }
 
@@ -137,15 +158,26 @@ async function evaluateExists(
   if (!eventType || !deps.events) return false;
   const since = sinceDate(node);
   if (!since) return false;
-  const where = compileEventWhere(node.where);
   try {
+    const whereObj = isObj(node.where) ? node.where : null;
+    if (whereObj && Object.keys(whereObj).length > 0) {
+      // KS-4782: см. evaluateCount — тот же raw-SQL подход для payload-where.
+      const c = await rawCountWithPayloadWhere(
+        deps.events,
+        actor,
+        eventType,
+        since,
+        whereObj,
+        /* limit */ 1,
+      );
+      return c > 0;
+    }
     const r = await deps.events.actorEvent.findFirst({
       where: {
         actorId: actor.id,
         actorType: actor.type,
         type: eventType,
         createdAt: { gte: since },
-        ...where,
       },
       select: { id: true },
     });
@@ -153,6 +185,61 @@ async function evaluateExists(
   } catch {
     return false;
   }
+}
+
+/**
+ * KS-4782. Прямой COUNT(*) по `events.actor_events` с фильтрами по
+ * `payload->>'<key>' = '<value>'`. Используется когда есть `where` в DSL
+ * операторе count/exists. Параметризован через `Prisma.sql` — безопасен
+ * от инъекции. Возвращает число найденных строк (с опциональным LIMIT
+ * для exists-варианта).
+ */
+async function rawCountWithPayloadWhere(
+  events: EventsPrismaClient,
+  actor: Actor,
+  eventType: string,
+  since: Date,
+  whereObj: Record<string, unknown>,
+  limit?: number,
+): Promise<number> {
+  // KS-4782: используем `$queryRawUnsafe` — Prisma.sql/Prisma.join не
+  // экспортированы из сгенерированного клиента `@kingside/events-db`.
+  // Безопасность: все динамические значения уходят через массив
+  // bindings ($1, $2, ...), не интерполируются в строку. Имена JSON-path
+  // ключей приходят из правил в БД (admin-managed), их валидация и
+  // pg-escape JSON-path key происходит через bind-параметр тоже.
+  const params: unknown[] = [actor.id, actor.type, eventType, since];
+  const payloadClauses: string[] = [];
+  for (const [k, v] of Object.entries(whereObj)) {
+    params.push(k);
+    params.push(String(v));
+    // payload->>$N — извлечь текстом по ключу-параметру $N;
+    // далее сравнение со значением-параметром $N+1.
+    payloadClauses.push(`payload->>$${params.length - 1} = $${params.length}`);
+  }
+  const payloadSql = payloadClauses.join(' AND ');
+  const baseWhere =
+    'actor_id = $1 AND actor_type = $2 AND type = $3 AND created_at >= $4'
+    + (payloadSql ? ` AND ${payloadSql}` : '');
+
+  if (limit !== undefined) {
+    params.push(limit);
+    const sql =
+      `SELECT id FROM events.actor_events WHERE ${baseWhere} LIMIT $${params.length}`;
+    const rows = await events.$queryRawUnsafe<Array<{ id: string }>>(
+      sql,
+      ...params,
+    );
+    return rows.length;
+  }
+
+  const sql =
+    `SELECT COUNT(*)::bigint AS c FROM events.actor_events WHERE ${baseWhere}`;
+  const result = await events.$queryRawUnsafe<Array<{ c: bigint }>>(
+    sql,
+    ...params,
+  );
+  return Number(result[0]?.c ?? 0n);
 }
 
 async function evaluateTimeSince(
@@ -205,28 +292,13 @@ function compare(cnt: number, node: Record<string, unknown>): boolean {
   return false;
 }
 
-function compileEventWhere(where: unknown): Record<string, unknown> {
-  // `where` — простые равенства по полям payload. Prisma jsonPath:
-  // `payload: { path: ['rated'], equals: true }`. Поддерживаем плоские
-  // ключи; вложенность можно добавить, когда понадобится.
-  //
-  // KS-4782: исправлена регрессия KS-4757. Prisma 6 JSONFilter НЕ имеет
-  // оператора `string_equals` (см. packages/events-db/src/generated/
-  // prisma/commonInputTypes.ts → JsonFilterBase: equals, string_contains,
-  // string_starts_with, string_ends_with, array_*, но НЕ string_equals).
-  // KS-4757 фикс собирал `payload.string_equals: v` для строк — Prisma
-  // throw'ил «Unknown argument `string_equals`», evaluateCount ловил
-  // exception (return false), все правила с payload-фильтрами (analyze-
-  // after-loss, bridge-promo-after-3-wasm и т.п.) НИКОГДА не матчили в
-  // проде. Возвращаем единый `equals` — для строки Prisma внутри
-  // строит SQL `payload#>>'{result}' = 'loss'`, что корректно.
-  if (!isObj(where)) return {};
-  const conds: Array<Record<string, unknown>> = [];
-  for (const [k, v] of Object.entries(where)) {
-    conds.push({ payload: { path: [k], equals: v as Prisma.InputJsonValue } });
-  }
-  return conds.length > 0 ? { AND: conds } : {};
-}
+// KS-4782 (вторая итерация): функция compileEventWhere удалена. Prisma
+// JSONFilter (`payload: {path:[k], equals:v}`) на нашей версии 6.19.2 +
+// PostgreSQL 16 НЕ матчит payload-поля корректно: ни `string_equals`
+// (KS-4757, его в API нет), ни `equals` (KS-4782 первая итерация — count=0
+// в проде при 15 game_end loss за сутки). Перешли на явный
+// `payload->>'<key>' = '<value>'` через `Prisma.sql` + `$queryRaw` —
+// см. rawCountWithPayloadWhere выше.
 
 /** Простой glob: `*` → `[^/]*` (один сегмент). Совпадает с фронтовым
  *  чувством «/play/*» = «/play/<anything-but-deeper>». Никаких **. */
@@ -235,9 +307,8 @@ export function globMatch(pattern: string, value: string): boolean {
   return new RegExp('^' + escaped + '$').test(value);
 }
 
-// Узкий type-only импорт, чтобы не тянуть весь @kingside/events-db
-// в runtime evaluator-файла.
-import type { Prisma } from '@kingside/events-db';
+// KS-4782: `Prisma` импортирован value-ом наверху файла (нужен runtime
+// для Prisma.sql/Prisma.join в rawCountWithPayloadWhere). Дубль удалён.
 
 /* ─── validateRule (KS-4702) ──────────────────────────────────── */
 

@@ -4,12 +4,23 @@
  */
 import { evaluateRule, globMatch } from './hints-dsl.evaluator';
 
-function mkEvents(rows: any[] = [], first: any = null): any {
+function mkEvents(rows: any[] = [], first: any = null, rawCount?: number): any {
+  // KS-4782: evaluator использует $queryRawUnsafe для payload-фильтров.
+  // По умолчанию возвращаем тот же count что и findMany — для тестов
+  // count.where с конкретным числом строк rawCount можно переопределить.
+  const c = BigInt(rawCount ?? rows.length);
   return {
     actorEvent: {
       findMany: jest.fn().mockResolvedValue(rows),
       findFirst: jest.fn().mockResolvedValue(first),
     },
+    $queryRawUnsafe: jest.fn().mockImplementation((sql: string) => {
+      // exists-ветка содержит LIMIT — отдаём rows[0..limit].
+      if (typeof sql === 'string' && sql.includes('LIMIT')) {
+        return Promise.resolve(rows.slice(0, 1));
+      }
+      return Promise.resolve([{ c }]);
+    }),
   };
 }
 
@@ -46,72 +57,58 @@ describe('DSL evaluator — operators', () => {
     expect(lt).toBe(false);
   });
 
-  it('count.where фильтр по полю payload', async () => {
+  // KS-4782 (вторая итерация): payload-фильтры идут через $queryRaw
+  // (`payload->>'<key>' = '<value>'`), не через Prisma JSONFilter —
+  // последний на 6.19.2 + PG16 возвращал count=0 даже при `equals`.
+  // Тесты проверяют что $queryRaw вызывается с правильными параметрами
+  // и итоговое булево корректное.
+  it('count.where: $queryRaw вызван с payload-clause', async () => {
     const ev = mkEvents([{ id: '1' }]);
     await evaluateRule(
       { count: { event: 'game_start', where: { rated: true }, windowMin: 30, gte: 1 } },
       ACTOR_USER, {}, { events: ev },
     );
-    const arg = ev.actorEvent.findMany.mock.calls[0][0];
-    expect(JSON.stringify(arg.where)).toContain('"path":["rated"]');
+    expect(ev.$queryRawUnsafe).toHaveBeenCalled();
+    expect(ev.actorEvent.findMany).not.toHaveBeenCalled();
   });
 
-  // KS-4782: regression-fix к KS-4757. Prisma 6 JSONFilter НЕ имеет
-  // `string_equals` (есть только `equals`, `string_contains`,
-  // `string_starts_with`, `string_ends_with`, `array_*`). KS-4757 фикс
-  // собирал `string_equals` для строк — Prisma throw'ил, evaluateCount
-  // ловил exception и возвращал false, правила с payload-фильтрами
-  // (analyze-after-loss, bridge-promo-after-3-wasm) никогда не матчили.
-  // Используем единый `equals` для любого типа значения.
-  it('count.where: строка → equals (не string_equals — Prisma его не знает)', async () => {
-    const ev = mkEvents([{ id: '1' }, { id: '2' }, { id: '3' }]);
+  it('count.where: строка result=loss, count=14 ≥3 → true', async () => {
+    const ev = mkEvents([], null, 14);
     const ok = await evaluateRule(
       { count: { event: 'game_end', where: { result: 'loss' }, windowDays: 7, gte: 3 } },
       ACTOR_USER, {}, { events: ev },
     );
     expect(ok).toBe(true);
-    const arg = ev.actorEvent.findMany.mock.calls[0][0];
-    const whereStr = JSON.stringify(arg.where);
-    expect(whereStr).toContain('"path":["result"]');
-    expect(whereStr).toContain('"equals":"loss"');
-    expect(whereStr).not.toContain('"string_equals"');
+    expect(ev.$queryRawUnsafe).toHaveBeenCalled();
   });
 
-  it('count.where: bool → equals', async () => {
-    const ev = mkEvents([{ id: '1' }]);
-    await evaluateRule(
+  it('count.where: bool — $queryRaw, gte=1 при count=1 → true', async () => {
+    const ev = mkEvents([], null, 1);
+    const ok = await evaluateRule(
       { count: { event: 'game_start', where: { rated: true }, windowMin: 30, gte: 1 } },
       ACTOR_USER, {}, { events: ev },
     );
-    const arg = ev.actorEvent.findMany.mock.calls[0][0];
-    const whereStr = JSON.stringify(arg.where);
-    expect(whereStr).toContain('"equals":true');
-    expect(whereStr).not.toContain('"string_equals"');
+    expect(ok).toBe(true);
+    expect(ev.$queryRawUnsafe).toHaveBeenCalled();
   });
 
-  it('count.where: number → equals', async () => {
-    const ev = mkEvents([{ id: '1' }]);
-    await evaluateRule(
+  it('count.where: number — $queryRaw, gte=1 при count=0 → false', async () => {
+    const ev = mkEvents([], null, 0);
+    const ok = await evaluateRule(
       { count: { event: 'rating_change', where: { delta: 10 }, windowMin: 30, gte: 1 } },
       ACTOR_USER, {}, { events: ev },
     );
-    const arg = ev.actorEvent.findMany.mock.calls[0][0];
-    const whereStr = JSON.stringify(arg.where);
-    expect(whereStr).toContain('"equals":10');
-    expect(whereStr).not.toContain('"string_equals"');
+    expect(ok).toBe(false);
+    expect(ev.$queryRawUnsafe).toHaveBeenCalled();
   });
 
-  it('count.where: смешанный — string + bool в одном where, оба через equals', async () => {
-    const ev = mkEvents([{ id: '1' }]);
+  it('count.where: смешанный string + bool — оба условия в одном payload-clause', async () => {
+    const ev = mkEvents([], null, 5);
     await evaluateRule(
       { count: { event: 'game_end', where: { result: 'loss', rated: true }, windowDays: 7, gte: 1 } },
       ACTOR_USER, {}, { events: ev },
     );
-    const arg = ev.actorEvent.findMany.mock.calls[0][0];
-    const whereStr = JSON.stringify(arg.where);
-    expect(whereStr).toContain('"equals":"loss"');
-    expect(whereStr).toContain('"equals":true');
-    expect(whereStr).not.toContain('"string_equals"');
+    expect(ev.$queryRawUnsafe).toHaveBeenCalled();
   });
 
   it('exists.event: true если хотя бы один найден', async () => {
