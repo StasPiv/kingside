@@ -56,10 +56,14 @@ describe('DSL evaluator — operators', () => {
     expect(JSON.stringify(arg.where)).toContain('"path":["rated"]');
   });
 
-  // KS-4757: для строковых значений Prisma 6 на PG JSONB+path с
-  // `equals` строит SQL который не находит записи. Используем
-  // `string_equals`. Для number/boolean/null оставляем `equals`.
-  it('count.where: строка → string_equals, не equals', async () => {
+  // KS-4782: regression-fix к KS-4757. Prisma 6 JSONFilter НЕ имеет
+  // `string_equals` (есть только `equals`, `string_contains`,
+  // `string_starts_with`, `string_ends_with`, `array_*`). KS-4757 фикс
+  // собирал `string_equals` для строк — Prisma throw'ил, evaluateCount
+  // ловил exception и возвращал false, правила с payload-фильтрами
+  // (analyze-after-loss, bridge-promo-after-3-wasm) никогда не матчили.
+  // Используем единый `equals` для любого типа значения.
+  it('count.where: строка → equals (не string_equals — Prisma его не знает)', async () => {
     const ev = mkEvents([{ id: '1' }, { id: '2' }, { id: '3' }]);
     const ok = await evaluateRule(
       { count: { event: 'game_end', where: { result: 'loss' }, windowDays: 7, gte: 3 } },
@@ -69,11 +73,11 @@ describe('DSL evaluator — operators', () => {
     const arg = ev.actorEvent.findMany.mock.calls[0][0];
     const whereStr = JSON.stringify(arg.where);
     expect(whereStr).toContain('"path":["result"]');
-    expect(whereStr).toContain('"string_equals":"loss"');
-    expect(whereStr).not.toContain('"equals":"loss"');
+    expect(whereStr).toContain('"equals":"loss"');
+    expect(whereStr).not.toContain('"string_equals"');
   });
 
-  it('count.where: bool → equals (не string_equals)', async () => {
+  it('count.where: bool → equals', async () => {
     const ev = mkEvents([{ id: '1' }]);
     await evaluateRule(
       { count: { event: 'game_start', where: { rated: true }, windowMin: 30, gte: 1 } },
@@ -97,7 +101,7 @@ describe('DSL evaluator — operators', () => {
     expect(whereStr).not.toContain('"string_equals"');
   });
 
-  it('count.where: смешанный — string + bool в одном where', async () => {
+  it('count.where: смешанный — string + bool в одном where, оба через equals', async () => {
     const ev = mkEvents([{ id: '1' }]);
     await evaluateRule(
       { count: { event: 'game_end', where: { result: 'loss', rated: true }, windowDays: 7, gte: 1 } },
@@ -105,8 +109,9 @@ describe('DSL evaluator — operators', () => {
     );
     const arg = ev.actorEvent.findMany.mock.calls[0][0];
     const whereStr = JSON.stringify(arg.where);
-    expect(whereStr).toContain('"string_equals":"loss"');
+    expect(whereStr).toContain('"equals":"loss"');
     expect(whereStr).toContain('"equals":true');
+    expect(whereStr).not.toContain('"string_equals"');
   });
 
   it('exists.event: true если хотя бы один найден', async () => {

@@ -210,20 +210,20 @@ function compileEventWhere(where: unknown): Record<string, unknown> {
   // `payload: { path: ['rated'], equals: true }`. Поддерживаем плоские
   // ключи; вложенность можно добавить, когда понадобится.
   //
-  // KS-4757: для строковых значений используем `string_equals` вместо
-  // `equals`. Prisma 6 на PostgreSQL JSONB с `path + equals` для строки
-  // строит SQL, который не находит записи (известная gadcha JSON path
-  // фильтра: нужна предварительная JSON-сериализация значения, либо
-  // отдельный оператор `string_equals`). Для number/boolean/null
-  // оставляем `equals` — там тип сериализуется корректно.
+  // KS-4782: исправлена регрессия KS-4757. Prisma 6 JSONFilter НЕ имеет
+  // оператора `string_equals` (см. packages/events-db/src/generated/
+  // prisma/commonInputTypes.ts → JsonFilterBase: equals, string_contains,
+  // string_starts_with, string_ends_with, array_*, но НЕ string_equals).
+  // KS-4757 фикс собирал `payload.string_equals: v` для строк — Prisma
+  // throw'ил «Unknown argument `string_equals`», evaluateCount ловил
+  // exception (return false), все правила с payload-фильтрами (analyze-
+  // after-loss, bridge-promo-after-3-wasm и т.п.) НИКОГДА не матчили в
+  // проде. Возвращаем единый `equals` — для строки Prisma внутри
+  // строит SQL `payload#>>'{result}' = 'loss'`, что корректно.
   if (!isObj(where)) return {};
   const conds: Array<Record<string, unknown>> = [];
   for (const [k, v] of Object.entries(where)) {
-    if (typeof v === 'string') {
-      conds.push({ payload: { path: [k], string_equals: v } });
-    } else {
-      conds.push({ payload: { path: [k], equals: v as Prisma.InputJsonValue } });
-    }
+    conds.push({ payload: { path: [k], equals: v as Prisma.InputJsonValue } });
   }
   return conds.length > 0 ? { AND: conds } : {};
 }
