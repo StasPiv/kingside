@@ -10,7 +10,7 @@
 
 ## 0. TL;DR
 
-Текущая реализация (ADR-147) требует для нового правила: правки `packages/shared/src/types/hint-anchors.ts` (union `HINT_ANCHORS_USER` + валидатор `isHintAnchor`), сборки shared-пакета и тройного деплоя (api + frontend + shared). Делаем data-driven: **anchor — свободная строка**, валидируется только через `document.querySelector` на клиенте (как уже сделано в `<HintHost>` §4.2 ADR-147); **события** — generic `track()` уже generic, к нему добавляем **декларативные DOM-триггеры** через `data-track-click` / `data-track-view` атрибуты + один global delegating listener, чтобы 80% новых событий заводились без правок TS-кода компонентов; **реестр anchors/events** в админ-UI — справочный (autocomplete по `SELECT DISTINCT`), не валидирующий. Результат: новое правило — один `POST /admin/hints` без правок shared, без сборки, без деплоя; новый anchor — один атрибут `data-hint-anchor="..."` в JSX (одной строкой через PR без обновления контрактов); новое событие через DOM — один атрибут `data-track-click="..."` без TS.
+Текущая реализация (ADR-147 §4.2) требует для нового правила: правки `packages/shared/src/types/hint-anchors.ts` (union `HINT_ANCHORS_USER` + валидатор `isHintAnchor`), сборки shared-пакета и тройного деплоя (api + frontend + shared). Решение ADR-147 §4.2 пересмотрено: **anchor — свободная строка**, валидируется только через `document.querySelector` на клиенте (как уже сделано в `<HintHost>` §4.2 п.1 ADR-147). Это закрывается **одним тикетом M** на ~1 день — связный PR через shared (удаление union и `isHintAnchor`), backend (DTO без runtime-валидатора), frontend (тип `string`). Дополнительные инициативы — декларативные DOM-триггеры событий (`data-track-click` / `data-track-view`) и справочный реестр anchors/events в админ-UI — намеренно вынесены в follow-up (§6.2 F1/F2): заводятся отдельными тикетами по факту потребности, не сейчас. Результат после M: новое правило с существующими событиями и anchor — один `POST /admin/hints` без правок shared, без сборки, без деплоя backend; новый anchor — одна строка `data-hint-anchor="..."` в JSX без обновления контрактов; новое событие — `track('...', payload)` в нужном хуке (generic-API уже работает, см. `apps/web/src/lib/events.ts`).
 
 ---
 
@@ -203,42 +203,37 @@ Frontend подтягивает `GET /events/specs` раз в 5 мин, деле
 
 **Вариант C не выбран** — хрупкость CSS-селекторов в БД и отсутствие у нас процесса «тегер событий, отделённый от разработчика» делает его дороже A+B по совокупности.
 
-**Анти-вариант — оставить как есть** (вариант 0): продолжать заводить новое правило тремя тикетами. Уже видно по KS-4727..KS-4729, что это создаёт реальные задержки и противоречит явной директиве пользователя.
+**Анти-вариант — оставить как есть** (вариант 0): продолжать заводить новое правило тремя тикетами. По кейсу KS-4727..KS-4729 видно, что это создаёт ощутимые задержки и не соответствует целевому процессу «правило — данные в БД».
 
 ---
 
 ## 6. Миграционный план
 
-### 6.1. Тикеты (предлагаются взамен KS-4727 / KS-4728 / KS-4729)
+### 6.1. Один тикет миграции
 
-| # | Тикет | Кто | Содержание | Зависимости |
-|---|-------|-----|------------|-------------|
-| M1 | **shared: убрать union `HINT_ANCHORS_*` и `isHintAnchor`** | backend (владеет shared) | `packages/shared/src/types/hint-anchors.ts`: удалить константы, оставить `export type HintAnchor = string`. Обновить `hint-payload.ts` (`anchor: string`). Обновить экспорты пакета. Bump версии shared. | — |
-| M2 | **backend: data-driven anchor в admin-DTO** | backend | `apps/api/src/hints/admin/admin-hint.dto.ts`: убрать import `isHintAnchor`, оставить `@IsString @Length(1, 64) @Matches(/^[a-z][a-z0-9-]*$/) anchor!: string`. `hints-admin.service.ts`: убрать вызов `isHintAnchor`. Обновить `hints-admin.service.spec.ts` и `admin-hint.dto.spec.ts`. | M1 |
-| M3 | **frontend: убрать ссылки на `HINT_ANCHORS_*`** | frontend | `apps/web/src/components/hints/HintHost.tsx` и тесты — заменить `HintAnchor` на `string`, оставить runtime `querySelector` как есть. | M1 |
-| M4 | **frontend: декларативные DOM-триггеры событий** | frontend | Новый файл `apps/web/src/lib/domEventsTracking.ts`: один `useEffect`-mount в `App.tsx` (или `EventsBootstrap`), который вешает делегированный `click` listener на `document` (фильтр `closest('[data-track-click]')`), и `MutationObserver`-driven `IntersectionObserver` на `[data-track-view]`. Payload — из `data-track-payload` (JSON, безопасный parse через try/catch). Тесты на каждый случай. Документация в `docs/dev/events-tracking.md`. | — (независим от M1–M3) |
-| M5 | **backend + frontend: справочный реестр anchors/events в админ-UI** | backend + frontend | `GET /admin/hints/anchors-seen` (DISTINCT anchor из `hints` за всё время + DISTINCT из последних `hint_no_anchor` reasons за 7 дней) и `GET /admin/hints/events-seen` (DISTINCT type из `actor_events` за 7 дней). Frontend: autocomplete в форме создания/редактирования hint (поле anchor, поле триггера событий в DSL). Это **UX админки**, не валидация — admin может ввести любую строку и сохранить. | M2 (для events-seen используется существующая таблица) |
-| M6 | **content/docs: обновить материалы для маркетинга** | content + architect | Короткий гайд «как завести новое правило подсказки» — теперь это про POST в админку и (опц.) одну строку JSX. Заменить упоминания о правке shared. | M2, M5 |
+Решение ADR-147 §4.2 (anchor = закрытый enum в shared) пересмотрено в пользу свободной строки. Изменение проходит через 3 файла одним связным PR и заводится одним тикетом:
 
-Все 6 тикетов укладываются в ~3–4 дня суммарно. Можно параллелить M1+M2 и M4.
+| Тикет | Кто | Содержание |
+|-------|-----|------------|
+| **M. hints: anchor = свободная строка** | backend (владеет shared) + frontend | <ul><li>`packages/shared/src/types/hint-anchors.ts` — удалить константы `HINT_ANCHORS_GUEST/USER/HINT_ANCHORS` и type-guard `isHintAnchor`; оставить `export type HintAnchor = string`. Обновить экспорты пакета, bump версии shared.</li><li>`packages/shared/src/types/hint-payload.ts` — поле `anchor: string`.</li><li>`apps/api/src/hints/admin/admin-hint.dto.ts` — убрать import `isHintAnchor`, оставить `@IsString @Length(1, 64) @Matches(/^[a-z][a-z0-9-]*$/) anchor!: string` (тот же regex, что для `key`). Обновить `apps/api/src/hints/admin/hints-admin.service.ts` (убрать вызов `isHintAnchor`). Спецификации `hints-admin.service.spec.ts` и `admin-hint.dto.spec.ts` — переписать под новый контракт.</li><li>`apps/web/src/components/hints/HintHost.tsx` и тесты — заменить `HintAnchor` на `string`. Runtime `querySelector` уже работает (ADR-147 §4.2 п.1) — без правок логики.</li></ul>Цена: ~1 день, один PR через shared/backend/frontend. Совместимость: промежуточные deploy-состояния безопасны — backend без `isHintAnchor` принимает любой anchor, фронт без union просто использует строку, для незнакомых anchors `<HintHost>` шлёт `hint:no-anchor` штатно. |
 
-### 6.2. Что делать с уже-открытыми тикетами KS-4727 / KS-4728 / KS-4729
+### 6.2. Follow-up — НЕ сейчас, только по факту потребности
 
-Эти тикеты заводились под старую модель (правка shared + frontend track + backend rule). После принятия этого ADR:
+Три инициативы намеренно вынесены из миграции:
 
-- **KS-4729** (backend: правка shared под `analysis-bridge-promo`) — **отменяется**: после M1/M2 любой anchor валиден без правки shared. Правило `analysis-bridge-promo` создаётся обычным `POST /admin/hints` (M5 даст автодополнение).
-- **KS-4728** (backend: правило в admin API) — **сводится к одной команде**: после M1/M2 это просто `curl -X POST /admin/hints -d @rule.json` или клик в админке. Закрыть как «выполнено через единый процесс M2/M5».
-- **KS-4727** (frontend: `data-track-click="engine_started"` + `data-hint-anchor="analysis-bridge-promo"`) — **остаётся**, но в новой формулировке: вместо отдельного `track('engine_started')` в `useEngine` используется атрибут `data-track-click="engine_started"` на UI-кнопке запуска движка (если такая есть) **или** остаётся как есть (явный `track()` в `useEngine.ts:195` уже работает). Анкор `data-hint-anchor="analysis-bridge-promo"` — одна строка в `AnalysisSidebar.tsx`.
+- **F1. Декларативные DOM-триггеры событий** (`data-track-click` / `data-track-view` + один global delegating listener в `apps/web`). Новый механизм, не возврат к ранее заявленному. Заводится отдельным ADR + тикетом, когда увидим, что повторяющаяся правка хуков для `track()` действительно становится проблемой. Сейчас `track(type, payload)` уже generic — критической нужды нет.
+- **F2. Справочные эндпоинты для админ-UI** (`GET /admin/hints/anchors-seen` / `events-seen` + autocomplete). UX-улучшение. Заводится отдельным тикетом, если admin-UI начнёт «теряться» в количестве уникальных anchors/events. До этого admin вводит строку вручную.
+- **F3. Обновление материалов для маркетинга/контента.** Заводится отдельным тикетом, когда контент-команда соберётся писать первый набор правил по новому процессу.
 
-Координатор по итогам ADR решает: закрыть KS-4727..4729 и завести M1..M6, либо переписать существующие в M1..M6.
+### 6.3. Что делать с уже-открытыми тикетами KS-4727 / KS-4728 / KS-4729
 
-### 6.3. Совместимость и поэтапность
+Эти тикеты заводились под старую модель (правка shared + frontend track + backend rule). После M:
 
-M1–M3 совместимы с running production: до развёртывания M3 во фронте — backend всё ещё принимает любой anchor, фронт ищет по querySelector. Промежуточное состояние «backend без isHintAnchor, frontend ещё на union» — безопасное (новые anchors просто не будут отображаться, пока deploy frontend не доедет).
+- **KS-4729** (backend: правка shared под `analysis-bridge-promo`) — **отменяется**: после M любой anchor валиден без правки shared. Правило `analysis-bridge-promo` создаётся обычным `POST /admin/hints`.
+- **KS-4728** (backend: правило в admin API) — **сводится к одной команде**: `curl -X POST /admin/hints -d @rule.json` или клик в админке. Закрыть как «выполнено через единый процесс M».
+- **KS-4727** (frontend: атрибуты в JSX) — **остаётся**: одна строка `data-hint-anchor="analysis-bridge-promo"` в `AnalysisSidebar.tsx`. Track события `engine_started` уже работает в `useEngine.ts:195` (явный `track()`).
 
-M4 — изолированная фича, можно деплоить независимо.
-
-M5 — UX-улучшение, не блокирует основной workflow.
+Координатор по итогам ADR решает: закрыть KS-4727..4729 и завести M, либо переписать одно из них в M.
 
 ---
 
@@ -265,9 +260,9 @@ M5 — UX-улучшение, не блокирует основной workflow.
 
 ## 9. Резюме
 
-- **Anchor становится свободной строкой** (вариант A) — закрывает главное трение (правка shared при каждом правиле).
-- **Декларативные DOM-триггеры событий** (вариант B-инкремент) — `data-track-click` / `data-track-view` атрибуты + один global listener, чтобы 60–70% новых событий заводились без TS-кода в хуках.
-- **Реестр anchors/events в админ-UI справочный** (autocomplete, не валидация) — `SELECT DISTINCT` из существующих таблиц, отдельная таблица не нужна.
+- **Anchor становится свободной строкой** (вариант A) — закрывает главное трение (правка shared при каждом правиле). Решение ADR-147 §4.2 (закрытый enum) пересмотрено.
+- **Декларативные DOM-триггеры событий** (вариант B-инкремент) — новый механизм поверх A, не часть текущей миграции. Заводится отдельным ADR + тикетом по факту потребности (см. §6.2 F1).
+- **Реестр anchors/events в админ-UI справочный** (autocomplete, не валидация) — UX-помощник, тоже отдельным тикетом по факту потребности (§6.2 F2).
 - **Полный admin-driven c CSS-селекторами в БД** (вариант C) **отвергнут** — хрупкость и риски не оправданы при нашем процессе.
-- **Миграционный план — 6 тикетов на ~3–4 дня**. KS-4727/4728/4729 пересматриваются: KS-4729 отменяется, KS-4728 сводится к одному POST, KS-4727 остаётся с новой формулировкой.
+- **Миграционный план — один тикет M** «hints: anchor = свободная строка» (~1 день, один связный PR через shared/backend/frontend). KS-4729 отменяется, KS-4728 сводится к одному POST, KS-4727 остаётся с одной строкой `data-hint-anchor=` в JSX.
 - **Результат:** новое правило hints — один `POST /admin/hints` (если событие и anchor уже есть), либо POST + 1–2 атрибута в JSX без касания shared, без сборки, без деплоя backend.
