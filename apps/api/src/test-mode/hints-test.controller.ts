@@ -5,9 +5,10 @@
  * (`HINTS_TEST_MODE === '1'`). Без env-var контроллер не маршрутизируется
  * и эндпоинты отвечают 404. На проде env-var не выставляется.
  */
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
-import { IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Body, Controller, HttpCode, Post, Res } from '@nestjs/common';
+import { IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { Response } from 'express';
 import { HintsTestService } from './hints-test.service';
 import {
   TestActorDto,
@@ -40,6 +41,22 @@ class TestEvaluateRuleBodyDto {
 
   @IsString()
   key!: string;
+}
+
+class TestEmitHintBodyDto {
+  @ValidateNested()
+  @Type(() => TestActorDto)
+  actor!: TestActorDto;
+
+  @IsOptional()
+  @IsString()
+  page?: string;
+}
+
+class TestIssueGuestCookiesBodyDto {
+  @IsOptional()
+  @IsUUID()
+  guest_id?: string;
 }
 
 @Controller('test')
@@ -89,5 +106,33 @@ export class HintsTestController {
   @HttpCode(200)
   evaluateRule(@Body() body: TestEvaluateRuleBodyDto): Promise<{ matched: boolean }> {
     return this.svc.evaluateRuleByKey(body.actor, { page: body.page }, body.key);
+  }
+
+  /**
+   * KS-4763 / T6. Триггер reactive-цепи через прямой вызов
+   * `HintsService.checkFor`. Аналогичен check-for, но семантически
+   * подчёркивает «эмитни ws hint:show если matched». Под капотом
+   * checkFor уже эмитит для user-actor через MessageGateway, поэтому
+   * метод не дублирует emit, а лишь возвращает факт ({ key, emitted }).
+   */
+  @Post('emit-hint')
+  @HttpCode(200)
+  emitHint(@Body() body: TestEmitHintBodyDto): Promise<{ key: string | null; emitted: boolean }> {
+    return this.svc.emitHint(body.actor, { page: body.page });
+  }
+
+  /**
+   * KS-4763 / T6. Выпуск подписанных guest cookies (analytics_consent
+   * + signature + guest_id). Без этого e2e гостевые сценарии не
+   * проходят: `GuestIdMiddleware` без валидной подписи `req.guestId=null`.
+   * Логика идентична `GuestPublicController.consent({analytics:true})`.
+   */
+  @Post('issue-guest-cookies')
+  @HttpCode(200)
+  issueGuestCookies(
+    @Body() body: TestIssueGuestCookiesBodyDto,
+    @Res({ passthrough: true }) res: Response,
+  ): { guest_id: string; expires_in_sec: number } {
+    return this.svc.issueGuestCookies(res, body.guest_id);
   }
 }

@@ -1,0 +1,16 @@
+{
+  "name": "@kingside/e2e-hints",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Playwright e2e для контекстных подсказок (ADR-150). Гоняется на изолированном test-окружении docker-compose.test-hints.yml.",
+  "scripts": {
+    "test": "echo \"Use e2e:hints to run via scripts/test-hints-up.sh\"",
+    "e2e:hints": "playwright test",
+    "e2e:hints:ui": "playwright test --ui",
+    "e2e:hints:headed": "playwright test --headed",
+    "e2e:hints:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

@@ -11,9 +11,6 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
 PROJECT=kingside-test-hints
-# compose-файл лежит в scripts/ (корень репо read-only в окружении агента).
-# --project-directory "$REPO_DIR" даёт compose возможность интерпретировать
-# относительные пути (build.context: ., volumes: ./scripts/...) от корня репо.
 COMPOSE_FILE="$REPO_DIR/scripts/docker-compose.test-hints.yml"
 
 log() { echo "[test-hints-up $(date +%H:%M:%S)] $*"; }
@@ -23,15 +20,9 @@ compose() {
 }
 
 log "Запуск postgres + redis + миграции (init-стадия)..."
-# Поднимаем БД, ждём здоровья postgres, прогоняем sidecar-миграции (main + events),
-# и только потом стартуем api/game-service/web — у них в depends_on условия
-# service_healthy / service_completed_successfully, docker compose сам выстраивает
-# порядок, но для наглядных логов разбиваем на два прохода.
 compose up -d --build postgres redis migrate-main migrate-events
 
 log "Жду завершения migrate-main / migrate-events ..."
-# `compose wait` в docker compose 2.20+ ждёт run-to-completion task'ы.
-# На старых версиях fallback через цикл polling ниже.
 if compose wait migrate-main migrate-events 2>/dev/null; then
     :
 else
@@ -53,6 +44,30 @@ else
     done
 fi
 log "migrate-main / migrate-events: ok"
+
+# KS-4763: events.actor_events партиционирована BY RANGE created_at, но
+# на test-стеке pg_partman не установлен → партиций нет, любой INSERT
+# падает с `no partition of relation found for row`. Создаём DEFAULT-
+# партицию, чтобы seedEvents с произвольным created_at работал.
+log "Создаю DEFAULT-партицию для events.actor_events ..."
+docker exec "${PROJECT}-postgres-1" psql -U kingside -d kingside -v ON_ERROR_STOP=1 -c \
+    "CREATE TABLE IF NOT EXISTS events.actor_events_default PARTITION OF events.actor_events DEFAULT;" \
+    >/dev/null
+log "actor_events_default: ok"
+
+# KS-4763: сидируем правила hints из tools/seed-test-hints.sql.
+# Без сидов admin/hints?enabled=true пуст → HintsService.checkFor всегда
+# возвращает null → e2e падает «hint should appear». ON CONFLICT-апсерт
+# делает шаг идемпотентным.
+SEED_FILE="$REPO_DIR/tools/seed-test-hints.sql"
+if [[ -f "$SEED_FILE" ]]; then
+    log "Сидирую правила hints из tools/seed-test-hints.sql ..."
+    docker exec -i "${PROJECT}-postgres-1" psql -U kingside -d kingside -v ON_ERROR_STOP=1 \
+        < "$SEED_FILE" >/dev/null
+    log "hints seed: ok"
+else
+    log "WARN: $SEED_FILE не найден — правила не сидированы, e2e упадёт."
+fi
 
 log "Запуск api / game-service / web ..."
 compose up -d --build api game-service web

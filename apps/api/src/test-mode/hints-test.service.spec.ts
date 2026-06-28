@@ -28,7 +28,8 @@ describe('HintsTestService (KS-4759)', () => {
       scan: jest.fn().mockResolvedValue(['0', []]),
     };
     const hints = { checkFor: jest.fn().mockResolvedValue(null) } as any;
-    svc = new HintsTestService(eventsPrisma, redis, hints);
+    const config = { get: jest.fn().mockReturnValue('test-secret') } as any;
+    svc = new HintsTestService(eventsPrisma, redis, hints, config);
   });
 
   describe('seedEvents', () => {
@@ -136,7 +137,8 @@ describe('HintsTestService (KS-4759)', () => {
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue(null),
       };
-      svc = new HintsTestService(eventsPrisma, redis, hints);
+      const config = { get: jest.fn().mockReturnValue('test-secret') } as any;
+    svc = new HintsTestService(eventsPrisma, redis, hints, config);
     });
 
     it('matched=true для подходящего правила', async () => {

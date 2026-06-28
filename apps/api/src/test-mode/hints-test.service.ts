@@ -9,26 +9,115 @@
  *   - принудительно обновлять матвью если правила их используют.
  */
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@kingside/events-db';
+import { randomUUID } from 'node:crypto';
+import type { Response } from 'express';
 import { EventsPrismaService } from '../events/events-prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { HintsService } from '../hints/hints.service';
 import { evaluateRule } from '../hints/hints-dsl.evaluator';
+import { GuestCookieSigner } from '../common/guest-cookie-signer';
+import {
+  ANALYTICS_CONSENT_COOKIE,
+  ANALYTICS_CONSENT_SIG_COOKIE,
+  GUEST_ID_COOKIE,
+} from '../events/events.types';
 import type { Actor } from '../events/events.types';
 import type {
   TestActorDto,
   TestSeedEventDto,
 } from './dto/test-seed-events.dto';
 
+const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
+
 @Injectable()
 export class HintsTestService {
   private readonly logger = new Logger(HintsTestService.name);
+  private readonly signer: GuestCookieSigner;
 
   constructor(
     private readonly eventsPrisma: EventsPrismaService,
     private readonly redis: RedisService,
     private readonly hints: HintsService,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    const secret =
+      this.config.get<string>('GUEST_COOKIE_SECRET')
+      ?? this.config.get<string>('JWT_SECRET')
+      ?? '';
+    this.signer = new GuestCookieSigner(secret);
+  }
+
+  /**
+   * KS-4763 / T6. Прокси к `HintsService.checkFor` с принудительным
+   * запуском реактивной цепочки. `checkFor` сам:
+   *   - проверяет consent (под `ANALYTICS_CONSENT_BYPASS=1` — bypass),
+   *   - оценивает DSL,
+   *   - upsert'ит `ActorHintState`,
+   *   - для `actor.type='user'` эмитит ws-event `hint:show` через
+   *     `MessageGateway`.
+   * Нужен e2e suite, т.к. `seedEvents` пишет напрямую в PG, минуя
+   * `EventsService.track` → `HintsListener` не дёргается → ws-emit не
+   * уходит. `/test/emit-hint` закрывает этот разрыв явно.
+   *
+   * Возвращает `{ key, emitted }` — `emitted` для user-actor отражает
+   * факт ws-emit'а (если есть match); для guest — payload лёг в Redis
+   * `hints:pending:<guest_id>`, фронт получит при pull.
+   */
+  async emitHint(
+    actor: Actor,
+    ctx: { page?: string },
+  ): Promise<{ key: string | null; emitted: boolean }> {
+    const result = await this.hints.checkFor(actor, ctx);
+    if (!result) {
+      this.logger.log(
+        `emitHint: actor=${actor.type}:${actor.id} page=${ctx.page ?? '∅'} → no-match`,
+      );
+      return { key: null, emitted: false };
+    }
+    this.logger.log(
+      `emitHint: actor=${actor.type}:${actor.id} page=${ctx.page ?? '∅'} → ${result.key}`,
+    );
+    return { key: result.key, emitted: true };
+  }
+
+  /**
+   * KS-4763 / T6. Выпуск signed guest cookies теми же средствами, что
+   * `GuestPublicController.consent` и `GuestIdMiddleware`. Используется
+   * e2e suite: гостевые сценарии (page=/) требуют валидные
+   * `analytics_consent_sig` + `guest_id` cookies — middleware иначе
+   * `req.guestId=null`, `POST /events` от гостя падает.
+   *
+   * Алгоритм идентичен `GuestPublicController.consent({analytics:true})`
+   * (см. apps/api/src/guest/guest-public.controller.ts:117-134). Cookies
+   * ставятся через `res.append('Set-Cookie', ...)` — Playwright подхватит
+   * через browser context.
+   */
+  issueGuestCookies(
+    res: Response,
+    guestIdParam: string | undefined,
+  ): { guest_id: string; expires_in_sec: number } {
+    const guestId = guestIdParam ?? randomUUID();
+    const isProduction = this.config.get<string>('NODE_ENV') === 'production';
+    const cookieDomain = this.config.get<string>('COOKIE_DOMAIN') ?? null;
+
+    const sig = this.signer.sign('1');
+    const guestCookieValue = this.signer.signCombined(guestId);
+
+    setCookie(res, ANALYTICS_CONSENT_COOKIE, '1', {
+      httpOnly: false, isProduction, cookieDomain,
+    });
+    setCookie(res, ANALYTICS_CONSENT_SIG_COOKIE, sig, {
+      httpOnly: true, isProduction, cookieDomain,
+    });
+    setCookie(res, GUEST_ID_COOKIE, guestCookieValue, {
+      httpOnly: false, isProduction, cookieDomain,
+    });
+
+    this.logger.log(`issueGuestCookies: guest_id=${guestId}`);
+    return { guest_id: guestId, expires_in_sec: ONE_YEAR_SECONDS };
+  }
 
   /**
    * KS-4762 / ADR-150 T4. Прямой proxy к `HintsService.checkFor` для
@@ -196,4 +285,27 @@ export class HintsTestService {
     } while (cursor !== '0');
     return found;
   }
+}
+
+/**
+ * KS-4763 / T6. Локальный helper построения Set-Cookie. Контракт совпадает
+ * с `GuestPublicController.setCookie` (apps/api/src/guest/guest-public.controller.ts:154-172):
+ * Max-Age=1y, Path=/, SameSite=Lax, опциональный Domain, Secure под prod.
+ */
+function setCookie(
+  res: Response,
+  name: string,
+  value: string,
+  opts: { httpOnly: boolean; isProduction: boolean; cookieDomain: string | null },
+): void {
+  const parts = [
+    `${name}=${value}`,
+    'Path=/',
+    `Max-Age=${ONE_YEAR_SECONDS}`,
+    'SameSite=Lax',
+  ];
+  if (opts.cookieDomain) parts.push(`Domain=${opts.cookieDomain}`);
+  if (opts.isProduction) parts.push('Secure');
+  if (opts.httpOnly) parts.push('HttpOnly');
+  res.append('Set-Cookie', parts.join('; '));
 }

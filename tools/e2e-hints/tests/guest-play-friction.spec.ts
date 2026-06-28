@@ -1,0 +1,28 @@
+/**
+ * Правило: guest-play-friction
+ * Anchor:  landing-signup-button
+ * DSL:     actorType=guest, page=/, count guest_play_attempted ≥2 за час,
+ *          not exists guest_signup_form_opened.
+ */
+import { test } from '@playwright/test';
+import { cleanActor, seedEvents, minutesAgo } from '../fixtures/actor';
+import { loginAsGuest, TEST_GUEST } from '../fixtures/auth';
+import { expectHintShown } from '../fixtures/hints';
+
+test('guest-play-friction показывается после 2+ попыток сыграть без аккаунта', async ({
+  context,
+  request,
+  page,
+}) => {
+  await cleanActor(request, TEST_GUEST);
+  await loginAsGuest(context, TEST_GUEST);
+
+  await seedEvents(request, TEST_GUEST, [
+    { type: 'guest_play_attempted', payload: { mode: 'vs_human' }, created_at: minutesAgo(30) },
+    { type: 'guest_play_attempted', payload: { mode: 'vs_bot' }, created_at: minutesAgo(5) },
+  ]);
+
+  await page.goto('/');
+
+  await expectHintShown(page, 'guest-play-friction');
+});
