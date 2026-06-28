@@ -7,7 +7,8 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "tools/e2e-hints"
   ],
   "scripts": {
     "preinstall": "bash scripts/prevent-worktree-install.sh",
