@@ -974,7 +974,6 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_DEPLOY_ARCHIVE_SERVICE", "ROLE_DEPLOY_TACTIC_WORKER",
         "ROLE_DEPLOY_PRERENDER_SERVICE",
         "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
-        "ROLE_TEST_HINTS", "ROLE_WRITE_TEST_HINTS",
         # файлы
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
         "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_BROADCAST_SERVICE",
@@ -988,7 +987,6 @@ AGENT_ROLES: dict[str, list[str]] = {
     "frontend": [
         "ROLE_READ_PROJECT",
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
-        "ROLE_TEST_HINTS", "ROLE_WRITE_TEST_HINTS",
         "ROLE_WRITE_APPS_WEB", "ROLE_READ_PACKAGES_SHARED", "ROLE_READ_PACKAGES_MAIA_CORE",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
@@ -1031,7 +1029,6 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_APPS", "ROLE_READ_PACKAGES", "ROLE_READ_DOCS",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_PACKAGE_LOCK", "ROLE_READ_TSCONFIG_BASE",
-        "ROLE_TEST_HINTS",
     ],
     "qa": [
         "ROLE_GIT_READ", "ROLE_READ_PROJECT",
@@ -1046,8 +1043,6 @@ AGENT_ROLES: dict[str, list[str]] = {
         # tools/ уже RW базово, нужен бинарь playwright из /project/node_modules
         # и api_start чтобы поднять локальный сервер для записи сценариев.
         "ROLE_READ_NODE_MODULES", "ROLE_API_START",
-        # Hints e2e: правка fixtures/rules и прогон test-hints стека (ADR-150).
-        "ROLE_TEST_HINTS", "ROLE_WRITE_TEST_HINTS",
     ],
 }
 
