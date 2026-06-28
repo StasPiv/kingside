@@ -8,7 +8,7 @@
  * мы можем подсунуть событие через seedEvents.
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, minutesAgo } from '../fixtures/actor';
+import { cleanActor, seedEvents, minutesAgo, emitHint } from '../fixtures/actor';
 import { loginAs, TEST_USER } from '../fixtures/auth';
 import { expectHintShown } from '../fixtures/hints';
 
@@ -23,12 +23,13 @@ test('home-idle подсказка показывается после session_i
   await seedEvents(request, TEST_USER, [
     {
       type: 'session_idle',
-      payload: { page: '/play', idle_seconds: 65 },
+      payload: { page: '/lobby', idle_seconds: 65 },
       created_at: minutesAgo(1),
     },
   ]);
 
-  await page.goto('/play');
+  await page.goto('/lobby');
+  await emitHint(request, TEST_USER, '/lobby');
 
   await expectHintShown(page, 'home-idle-suggest-puzzles');
 });

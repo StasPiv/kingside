@@ -5,8 +5,8 @@
  *          not exists guest_signup_form_opened.
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, minutesAgo } from '../fixtures/actor';
-import { loginAsGuest, TEST_GUEST } from '../fixtures/auth';
+import { cleanActor, seedEvents, minutesAgo, emitHint } from '../fixtures/actor';
+import { loginAsGuest } from '../fixtures/auth';
 import { expectHintShown, expectHintNotShown } from '../fixtures/hints';
 
 test('guest-register-prompt показывается гостю после landing-view', async ({
@@ -14,14 +14,15 @@ test('guest-register-prompt показывается гостю после landi
   request,
   page,
 }) => {
-  await cleanActor(request, TEST_GUEST);
-  await loginAsGuest(context, TEST_GUEST);
+  const guest = await loginAsGuest(context, request);
+  await cleanActor(request, guest);
 
-  await seedEvents(request, TEST_GUEST, [
+  await seedEvents(request, guest, [
     { type: 'guest_landing_viewed', created_at: minutesAgo(2) },
   ]);
 
   await page.goto('/');
+  await emitHint(request, guest, '/');
 
   await expectHintShown(page, 'guest-register-prompt');
 });
@@ -31,15 +32,16 @@ test('guest-register-prompt НЕ показывается, если гость �
   request,
   page,
 }) => {
-  await cleanActor(request, TEST_GUEST);
-  await loginAsGuest(context, TEST_GUEST);
+  const guest = await loginAsGuest(context, request);
+  await cleanActor(request, guest);
 
-  await seedEvents(request, TEST_GUEST, [
+  await seedEvents(request, guest, [
     { type: 'guest_landing_viewed', created_at: minutesAgo(2) },
     { type: 'guest_signup_form_opened', created_at: minutesAgo(1) },
   ]);
 
   await page.goto('/');
+  await emitHint(request, guest, '/');
 
   await expectHintNotShown(page, 'guest-register-prompt');
 });

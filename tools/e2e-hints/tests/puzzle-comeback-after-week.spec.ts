@@ -4,7 +4,7 @@
  * DSL:     timeSince puzzle_start gtDays:7
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, daysAgo } from '../fixtures/actor';
+import { cleanActor, seedEvents, daysAgo, emitHint } from '../fixtures/actor';
 import { loginAs, TEST_USER } from '../fixtures/auth';
 import { expectHintShown, expectHintNotShown } from '../fixtures/hints';
 
@@ -21,7 +21,8 @@ test('puzzle-comeback показывается, если puzzle_start был 8 �
     { type: 'puzzle_start', created_at: daysAgo(8) },
   ]);
 
-  await page.goto('/play');
+  await page.goto('/lobby');
+  await emitHint(request, TEST_USER, '/lobby');
 
   await expectHintShown(page, 'puzzle-comeback-after-week');
 });
@@ -38,7 +39,8 @@ test('puzzle-comeback НЕ показывается, если puzzle_start бы�
     { type: 'puzzle_start', created_at: daysAgo(1) },
   ]);
 
-  await page.goto('/play');
+  await page.goto('/lobby');
+  await emitHint(request, TEST_USER, '/lobby');
 
   await expectHintNotShown(page, 'puzzle-comeback-after-week');
 });

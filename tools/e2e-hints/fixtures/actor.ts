@@ -64,3 +64,31 @@ export function hoursAgo(n: number): string {
 export function minutesAgo(n: number): string {
   return new Date(Date.now() - n * 60_000).toISOString();
 }
+
+/**
+ * KS-4765 / T6. Триггер reactive-check + emit ws-сообщения. Заменяет
+ * естественную цепочку `page_view → EventsService.onTrack →
+ * HintsListener → HintsService.checkFor → gateway.emitHintShow`,
+ * которая в e2e не срабатывает: `seedEvents` пишет напрямую в БД,
+ * минуя XADD в actor-stream.
+ *
+ * Returns:
+ *   - `{key: <hintKey>, emitted: true}` — backend выбрал подсказку и
+ *     либо ws-emit'ил (user), либо положил в `hints:pending:<guest_id>` (guest).
+ *   - `{key: null, emitted: false}` — checkFor вернул null (правило не сматчилось).
+ *
+ * Вызывать ПОСЛЕ `seedEvents` и `page.goto(<page>)` — фронт должен
+ * быть смонтирован, ws-соединение (для user) или pull-loop (для guest)
+ * подняты, чтобы успеть подхватить emit.
+ */
+export async function emitHint(
+  request: APIRequestContext,
+  actor: ActorRef,
+  page?: string,
+): Promise<{ key: string | null; emitted: boolean }> {
+  const res = await request.post(`${API_URL}/test/emit-hint`, {
+    data: page ? { actor, page } : { actor },
+  });
+  expect(res.status(), `emit-hint: ${await res.text()}`).toBeLessThan(300);
+  return (await res.json()) as { key: string | null; emitted: boolean };
+}

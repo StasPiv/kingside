@@ -4,9 +4,9 @@
  * DSL:     3+ engine_started{source:wasm} за 30 дн, не было engine_started{source:bridge}
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, daysAgo } from '../fixtures/actor';
+import { cleanActor, seedEvents, daysAgo, emitHint } from '../fixtures/actor';
 import { loginAs, TEST_USER } from '../fixtures/auth';
-import { expectHintShown } from '../fixtures/hints';
+import { expectHintShown, expectHintNotShown } from '../fixtures/hints';
 
 test('bridge-promo показывается после 3 запусков wasm-движка', async ({
   context,
@@ -23,8 +23,9 @@ test('bridge-promo показывается после 3 запусков wasm-�
     { type: 'engine_started', payload: { source: 'wasm' }, created_at: daysAgo(2) },
   ]);
 
-  // Заход на /analysis — reactive check на page_view выстреливает правило.
+  // Заход на /analysis — emitHint триггерит checkFor + ws-emit.
   await page.goto('/analysis');
+  await emitHint(request, TEST_USER, '/analysis');
 
   await expectHintShown(page, 'bridge-promo-after-3-wasm');
 });
@@ -46,7 +47,7 @@ test('bridge-promo НЕ показывается, если уже был зап�
   ]);
 
   await page.goto('/analysis');
+  await emitHint(request, TEST_USER, '/analysis');
 
-  const { expectHintNotShown } = await import('../fixtures/hints');
   await expectHintNotShown(page, 'bridge-promo-after-3-wasm');
 });

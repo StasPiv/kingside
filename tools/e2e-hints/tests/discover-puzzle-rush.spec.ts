@@ -4,7 +4,7 @@
  * DSL:     puzzle_solved ≥10 за 30 дн, not exists rush_start за 30 дн.
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, daysAgo } from '../fixtures/actor';
+import { cleanActor, seedEvents, daysAgo, emitHint } from '../fixtures/actor';
 import { loginAs, TEST_USER } from '../fixtures/auth';
 import { expectHintShown } from '../fixtures/hints';
 
@@ -24,6 +24,7 @@ test('discover-puzzle-rush показывается активному реша�
   await seedEvents(request, TEST_USER, seeds);
 
   await page.goto('/puzzles');
+  await emitHint(request, TEST_USER, '/puzzles');
 
   await expectHintShown(page, 'discover-puzzle-rush');
 });

@@ -7,11 +7,15 @@
  * docker-compose.test-hints.yml).
  */
 import { test } from '@playwright/test';
-import { cleanActor, seedEvents, daysAgo, hoursAgo } from '../fixtures/actor';
+import { cleanActor, seedEvents, daysAgo, hoursAgo, emitHint } from '../fixtures/actor';
 import { loginAs, TEST_USER } from '../fixtures/auth';
 import { expectHintShown, expectHintNotShown } from '../fixtures/hints';
 
-const TEST_USERNAME = process.env.E2E_HINTS_TEST_USERNAME || 'tester';
+// KS-4763: DEV_USER username (см. packages/shared DEV_USERNAME='DEV').
+// Anchor profile-mistakes-link рендерится владельцу профиля
+// (PlayerProfilePage.tsx: currentUser.id === profile.id) → URL должен
+// совпадать с username DEV-юзера.
+const TEST_USERNAME = process.env.E2E_HINTS_TEST_USERNAME || 'DEV';
 
 test('mistakes-diary показывается после 5 puzzle_failed за неделю', async ({
   context,
@@ -30,6 +34,7 @@ test('mistakes-diary показывается после 5 puzzle_failed за н
   ]);
 
   await page.goto(`/player/${TEST_USERNAME}`);
+  await emitHint(request, TEST_USER, `/player/${TEST_USERNAME}`);
 
   await expectHintShown(page, 'mistakes-diary-after-failures');
 });
@@ -56,6 +61,7 @@ test('mistakes-diary НЕ показывается, если дневник ош
   ]);
 
   await page.goto(`/player/${TEST_USERNAME}`);
+  await emitHint(request, TEST_USER, `/player/${TEST_USERNAME}`);
 
   await expectHintNotShown(page, 'mistakes-diary-after-failures');
 });

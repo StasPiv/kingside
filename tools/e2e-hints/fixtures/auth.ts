@@ -1,45 +1,43 @@
 /**
- * KS-4763. Логин тестового user'а через `/auth/dev-bypass`.
+ * KS-4763. Логин user'а через `/auth/dev-bypass` и bootstrap гостя
+ * через `/test/issue-guest-cookies` (KS-4765 / T6).
  *
- * Auth flow:
- *  - test-стек поднимается с `DEV_BYPASS_SECRET=test-hints-bypass` и
- *    `NODE_ENV=test` (см. scripts/docker-compose.test-hints.yml). На проде
- *    endpoint режется по `NODE_ENV==='production'` (apps/api/src/auth/auth.service.ts).
+ * Auth flow (user):
  *  - `POST /auth/dev-bypass {secret}` (без `user`) → upsert DEV_USER
- *    (id `00000000-0000-4000-a000-000000000002`, см. `@kingside/shared/DEV_USER_ID`)
- *    + JWT (`{accessToken, refreshToken}`).
- *  - Frontend (`apps/web/src/context/AuthContext.tsx`) читает токены из
- *    `localStorage['token']` / `localStorage['refreshToken']`. Кладём их
- *    через `context.addInitScript` — выполняется ДО загрузки приложения
- *    в каждом новом document'е, поэтому AuthProvider при init получает
- *    уже валидный token.
+ *    (id `00000000-0000-4000-a000-000000000002`, см.
+ *    `@kingside/shared/DEV_USER_ID`) + `{accessToken, refreshToken}`.
+ *  - Токены кладутся в `localStorage['token'] / ['refreshToken']`
+ *    через `context.addInitScript` — выполняется ДО загрузки
+ *    приложения, AuthProvider читает уже валидный token.
  *
  * Guest flow:
- *  - `GuestIdMiddleware` выпускает signed `guest_id` cookie ТОЛЬКО если
- *    в запросе уже есть валидная подписанная `analytics_consent` cookie.
- *    Без backend-helper'а корректно подложить guest_id в browser context
- *    невозможно (подпись HMAC-SHA256 на JWT_SECRET).
- *  - `loginAsGuest()` поэтому открывает `/` и достаёт UUID из выписанной
- *    middleware'ом cookie. Возвращает динамический ActorRef — тесты должны
- *    использовать его, а не константу.
+ *  - `POST /test/issue-guest-cookies` ставит подписанные
+ *    `analytics_consent` + `analytics_consent_sig` + `guest_id` cookies
+ *    (тем же `GuestCookieSigner`, что `GuestPublicController.consent`).
+ *  - Playwright `APIRequestContext` шарит cookie store с
+ *    `BrowserContext` — после запроса cookies автоматически становятся
+ *    доступны для запросов из браузера на тот же host (localhost:3101).
+ *  - Дополнительно ставим `ks_analytics_consent=1` на frontend-origin
+ *    через `addInitScript` — `useHintPull` (frontend pull-loop)
+ *    проверяет consent через `document.cookie` на своём origin.
  */
-import { type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
+import { type APIRequestContext, type BrowserContext } from '@playwright/test';
 import type { ActorRef } from './actor';
 
 const API_URL = process.env.E2E_HINTS_API_URL || 'http://localhost:3101';
 
 /**
  * Секрет dev-bypass на test-стеке (см. scripts/docker-compose.test-hints.yml).
- * Хардкод-дефолт безопасен: этот же файл задаёт `NODE_ENV=test`, на проде
- * dev-bypass запрещён руками в `AuthService.devBypass`.
+ * Хардкод-дефолт безопасен: тот же compose задаёт `NODE_ENV=test`, на
+ * проде dev-bypass запрещён в `AuthService.devBypass`.
  */
 const DEV_BYPASS_SECRET =
   process.env.E2E_HINTS_DEV_BYPASS_SECRET || 'test-hints-bypass';
 
 /**
  * DEV_USER_ID из `@kingside/shared` — фиксированный UUID детерминированного
- * dev-пользователя. Чтобы `seedEvents`/`cleanActor` работали с тем же
- * actor_id, что и реальный JWT-claim после dev-bypass.
+ * dev-пользователя. `seedEvents`/`cleanActor` работают с тем же actor_id,
+ * что и реальный JWT-claim после dev-bypass.
  */
 export const TEST_USER: ActorRef = {
   type: 'user',
@@ -47,9 +45,9 @@ export const TEST_USER: ActorRef = {
 };
 
 /**
- * Default guest-ActorRef для negative-сценариев, где UUID не важен.
- * Для позитивных сценариев используй `loginAsGuest()` — он вернёт
- * актуальный UUID, выписанный middleware'ом.
+ * Default guest-ActorRef (используется для импорта в спецах до вызова
+ * loginAsGuest). Реальный id выдаётся backend'ом через
+ * /test/issue-guest-cookies — используй возвращаемое значение.
  */
 export const TEST_GUEST: ActorRef = {
   type: 'guest',
@@ -74,14 +72,12 @@ async function devBypass(request: APIRequestContext): Promise<AuthTokens> {
 }
 
 /**
- * Кладёт JWT-токены в localStorage браузерного контекста.
+ * Кладёт JWT-токены в localStorage браузерного контекста + consent-cookie
+ * на frontend-origin. Использует `addInitScript`, чтобы запись произошла
+ * ДО первого `page.goto` и инициализации `AuthProvider`.
  *
- * Использует `addInitScript`, чтобы запись произошла ДО первого `page.goto`
- * и инициализации `AuthProvider`. Иначе AuthProvider стартует с `token=null`,
- * редиректит на /login и тест ловит wrong page.
- *
- * `cleanActor` нужно звать ДО `loginAs` — dev-bypass делает upsert user'а
- * (создаст заново после удаления), но actor_events таблица очистится корректно.
+ * `cleanActor` зови ДО `loginAs` — dev-bypass делает upsert user'а
+ * заново после удаления, actor_events таблица очищается корректно.
  */
 export async function loginAs(
   context: BrowserContext,
@@ -94,8 +90,10 @@ export async function loginAs(
       try {
         window.localStorage.setItem('token', access);
         window.localStorage.setItem('refreshToken', refresh);
-        // KS-4722: фронт-fallback cookie для analytics consent (cookie с
-        // подписью требует backend-Set-Cookie; для e2e достаточно fallback).
+        // Frontend-fallback cookie на frontend-origin: useHintPull
+        // (для гостя) и HintHost проверяют consent через document.cookie.
+        // Для user-actor это не нужно (consent проверяется через user.analytics_consent),
+        // но ставим единообразно — не мешает.
         document.cookie = 'ks_analytics_consent=1; path=/; max-age=31536000';
       } catch {
         /* noop — page может ещё не иметь storage (about:blank) */
@@ -105,38 +103,72 @@ export async function loginAs(
   );
 }
 
+const FRONT_URL = process.env.E2E_HINTS_FRONT_URL || 'http://localhost:5174';
+
 /**
- * Bootstrap'ает гостя через реальный middleware: открывает `/`, ждёт когда
- * backend выпишет signed `guest_id`, достаёт UUID из cookie.
+ * KS-4765 T6 + KS-4767 T8. Bootstrap'ает гостя через
+ * `/test/issue-guest-cookies` — backend подписывает
+ * `analytics_consent`/`analytics_consent_sig`/`guest_id` тем же
+ * `GuestCookieSigner`, что использует `GuestIdMiddleware`.
  *
- * ВАЖНО: middleware выписывает cookie только при наличии валидной
- * `analytics_consent=1` (signed) cookie. На test-стеке backend
- * `ANALYTICS_CONSENT_BYPASS=1` — но проверка идёт в EventsController,
- * GuestIdMiddleware всё равно требует подписанную consent-cookie.
- * Поэтому helper сначала выдёргивает signed consent через `/guest/consent`
- * (если такой endpoint есть) — иначе падает с информативным сообщением.
+ * Origin-проблема: API (3101) и фронт (5174) — разные origin'ы. Cookies
+ * из `Set-Cookie` без `Domain=` ассоциируются только с api-origin →
+ * фронт `<HintHost>` через `document.cookie` не видит `analytics_consent`,
+ * `consentGiven=false`, `useHintPull` отключён. T8 решение: endpoint
+ * возвращает в body сами значения cookies, фикстура зашивает их через
+ * `BrowserContext.addCookies()` на обоих origin'ах. Подпись HMAC origin-
+ * агностична — middleware при `POST /events` на API увидит валидную sig.
  *
- * Возвращает ActorRef с реальным UUID — тест должен использовать его
- * в `seedEvents` / `cleanActor`.
+ * Возвращает ActorRef с реальным UUID — используй его в `seedEvents` /
+ * `cleanActor` / `emitHint`.
  */
 export async function loginAsGuest(
   context: BrowserContext,
-  page: Page,
+  request: APIRequestContext,
+  guestId?: string,
 ): Promise<ActorRef> {
-  // Открываем landing — middleware попытается выписать guest_id.
-  await page.goto('/');
-
-  // Ищем выписанную cookie на любом из доменов (API и фронт могут шарить
-  // cookies, если backend cookieDomain пустой — кука уйдёт на host API).
-  const cookies = await context.cookies();
-  const guestCookie = cookies.find((c) => c.name === 'guest_id');
-  if (!guestCookie) {
+  const res = await request.post(`${API_URL}/test/issue-guest-cookies`, {
+    data: guestId ? { guest_id: guestId } : {},
+  });
+  if (!res.ok()) {
     throw new Error(
-      'guest_id cookie not set after GET / — проверь что test-стек поднят с GUEST_COOKIE_SECRET и что analytics-consent cookie выписана. ' +
-        'Без backend-helper /test/issue-guest-cookie guest-сценарии не работают.',
+      `issue-guest-cookies failed: ${res.status()} ${await res.text()}`,
     );
   }
-  // Формат: `<uuid>.<base64sig>` (см. apps/api/src/common/guest-id.middleware.ts).
-  const uuid = guestCookie.value.split('.')[0];
-  return { type: 'guest', id: uuid };
+  const body = (await res.json()) as {
+    guest_id: string;
+    cookies: {
+      analytics_consent: { name: string; value: string };
+      analytics_consent_sig: { name: string; value: string };
+      guest_id: { name: string; value: string };
+    };
+  };
+
+  // KS-4767 / T8. Зашиваем cookies явно на оба origin'а через addCookies —
+  // браузер тогда увидит analytics_consent/guest_id и на frontend (где их
+  // читает HintHost.consentGiven), и на api (где их читает GuestIdMiddleware).
+  const origins = [API_URL, FRONT_URL];
+  const toAdd: Parameters<BrowserContext['addCookies']>[0] = [];
+  for (const url of origins) {
+    toAdd.push(
+      { name: body.cookies.analytics_consent.name, value: body.cookies.analytics_consent.value, url, sameSite: 'Lax' },
+      { name: body.cookies.analytics_consent_sig.name, value: body.cookies.analytics_consent_sig.value, url, sameSite: 'Lax', httpOnly: true },
+      { name: body.cookies.guest_id.name, value: body.cookies.guest_id.value, url, sameSite: 'Lax' },
+    );
+  }
+  await context.addCookies(toAdd);
+
+  // Дополнительно ставим frontend-fallback ks_analytics_consent=1 в
+  // localStorage-friendly cookie на frontend-origin: readAnalyticsConsentCookie
+  // умеет читать оба имени (analytics_consent || ks_analytics_consent).
+  // Подстраховка, если addCookies на FRONT_URL отвалится из-за порт-mismatch.
+  await context.addInitScript(() => {
+    try {
+      document.cookie = 'ks_analytics_consent=1; path=/; max-age=31536000; SameSite=Lax';
+    } catch {
+      /* noop — about:blank нет storage */
+    }
+  });
+
+  return { type: 'guest', id: body.guest_id };
 }

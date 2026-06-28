@@ -83,7 +83,7 @@ export class HintsTestService {
   }
 
   /**
-   * KS-4763 / T6. Выпуск signed guest cookies теми же средствами, что
+   * KS-4763 / T6+T8. Выпуск signed guest cookies теми же средствами, что
    * `GuestPublicController.consent` и `GuestIdMiddleware`. Используется
    * e2e suite: гостевые сценарии (page=/) требуют валидные
    * `analytics_consent_sig` + `guest_id` cookies — middleware иначе
@@ -92,20 +92,38 @@ export class HintsTestService {
    * Алгоритм идентичен `GuestPublicController.consent({analytics:true})`
    * (см. apps/api/src/guest/guest-public.controller.ts:117-134). Cookies
    * ставятся через `res.append('Set-Cookie', ...)` — Playwright подхватит
-   * через browser context.
+   * через browser context на API-origin.
+   *
+   * KS-4767 / T8. Дополнительно возвращаем в body сами значения cookies
+   * (`*_value`). API и фронт в e2e на разных origin'ах (api:3101,
+   * web:5174); `Set-Cookie` без `Domain=` ассоциируется только с
+   * API-origin, фронт не видит `analytics_consent` через `document.cookie`
+   * и `consentGiven` остаётся false. Фикстура использует body+
+   * `BrowserContext.addCookies()` чтобы зашить те же значения на
+   * frontend-origin. Подпись валидируется backend'ом тем же
+   * `GuestCookieSigner` — origin cookie не влияет на проверку HMAC.
    */
   issueGuestCookies(
     res: Response,
     guestIdParam: string | undefined,
-  ): { guest_id: string; expires_in_sec: number } {
+  ): {
+    guest_id: string;
+    expires_in_sec: number;
+    cookies: {
+      analytics_consent: { name: string; value: string };
+      analytics_consent_sig: { name: string; value: string };
+      guest_id: { name: string; value: string };
+    };
+  } {
     const guestId = guestIdParam ?? randomUUID();
     const isProduction = this.config.get<string>('NODE_ENV') === 'production';
     const cookieDomain = this.config.get<string>('COOKIE_DOMAIN') ?? null;
 
-    const sig = this.signer.sign('1');
+    const consentValue = '1';
+    const sig = this.signer.sign(consentValue);
     const guestCookieValue = this.signer.signCombined(guestId);
 
-    setCookie(res, ANALYTICS_CONSENT_COOKIE, '1', {
+    setCookie(res, ANALYTICS_CONSENT_COOKIE, consentValue, {
       httpOnly: false, isProduction, cookieDomain,
     });
     setCookie(res, ANALYTICS_CONSENT_SIG_COOKIE, sig, {
@@ -116,7 +134,15 @@ export class HintsTestService {
     });
 
     this.logger.log(`issueGuestCookies: guest_id=${guestId}`);
-    return { guest_id: guestId, expires_in_sec: ONE_YEAR_SECONDS };
+    return {
+      guest_id: guestId,
+      expires_in_sec: ONE_YEAR_SECONDS,
+      cookies: {
+        analytics_consent: { name: ANALYTICS_CONSENT_COOKIE, value: consentValue },
+        analytics_consent_sig: { name: ANALYTICS_CONSENT_SIG_COOKIE, value: sig },
+        guest_id: { name: GUEST_ID_COOKIE, value: guestCookieValue },
+      },
+    };
   }
 
   /**

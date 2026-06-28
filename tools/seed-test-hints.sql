@@ -35,7 +35,10 @@ INSERT INTO events.hints
   (key, i18n, cta, anchor, placement, rule, priority, enabled,
    accepted_by, target_actor_types, cooldown_sec, ttl_sec, max_shows)
 VALUES
-  ('puzzle-comeback-after-week', '{"ru": {"title": "Не решал пазлы неделю", "body": "Тактический рейтинг тает быстро. Пять минут на разминку — и форма вернётся.", "ctaLabel": "К пазлам"}, "en": {"title": "No puzzles for a week", "body": "Tactical rating fades fast. Five minutes of practice will bring your shape back.", "ctaLabel": "Open puzzles"}}'::jsonb, '{"href": "/puzzles"}'::jsonb, 'home-puzzles-tile', 'right', '{"all": [{"actorType": {"equals": "user"}}, {"any": [{"page": {"matches": "/play"}}, {"page": {"matches": "/play/*"}}]}, {"timeSince": {"event": "puzzle_start", "gtDays": 7}}]}'::jsonb,
+  -- KS-4763 page-override: anchor home-puzzles-tile живёт на LobbyPage (/lobby),
+  -- не на PlayPage (/play). На dev/prod может быть иначе, но в test-стеке
+  -- сматчиваем по фактическому URL anchor-страницы.
+  ('puzzle-comeback-after-week', '{"ru": {"title": "Не решал пазлы неделю", "body": "Тактический рейтинг тает быстро. Пять минут на разминку — и форма вернётся.", "ctaLabel": "К пазлам"}, "en": {"title": "No puzzles for a week", "body": "Tactical rating fades fast. Five minutes of practice will bring your shape back.", "ctaLabel": "Open puzzles"}}'::jsonb, '{"href": "/puzzles"}'::jsonb, 'home-puzzles-tile', 'right', '{"all": [{"actorType": {"equals": "user"}}, {"any": [{"page": {"matches": "/lobby"}}, {"page": {"matches": "/lobby/*"}}]}, {"timeSince": {"event": "puzzle_start", "gtDays": 7}}]}'::jsonb,
    40, true, ARRAY['puzzle_start']::VARCHAR(64)[], ARRAY['user']::VARCHAR(64)[],
    172800, 0, 4)
 ON CONFLICT (key) DO UPDATE SET
@@ -50,7 +53,9 @@ INSERT INTO events.hints
   (key, i18n, cta, anchor, placement, rule, priority, enabled,
    accepted_by, target_actor_types, cooldown_sec, ttl_sec, max_shows)
 VALUES
-  ('home-idle-suggest-puzzles', '{"ru": {"title": "Задержался в лобби", "body": "Не знаешь чем заняться? Пазлы — самый быстрый способ занять 5 минут с пользой для рейтинга.", "ctaLabel": "Решить пазл"}, "en": {"title": "Lingering in the lobby?", "body": "Not sure what to do? Puzzles are the quickest way to spend five minutes on something rating-positive.", "ctaLabel": "Solve a puzzle"}}'::jsonb, '{"href": "/puzzles"}'::jsonb, 'home-puzzles-tile', 'right', '{"all": [{"actorType": {"equals": "user"}}, {"page": {"matches": "/play"}}, {"count": {"event": "session_idle", "where": {"page": "/play"}, "windowMin": 5, "gte": 1}}]}'::jsonb,
+  -- KS-4763 page-override: home-puzzles-tile на LobbyPage (/lobby).
+  -- session_idle payload.page тоже /lobby — фронт шлёт по фактическому пути.
+  ('home-idle-suggest-puzzles', '{"ru": {"title": "Задержался в лобби", "body": "Не знаешь чем заняться? Пазлы — самый быстрый способ занять 5 минут с пользой для рейтинга.", "ctaLabel": "Решить пазл"}, "en": {"title": "Lingering in the lobby?", "body": "Not sure what to do? Puzzles are the quickest way to spend five minutes on something rating-positive.", "ctaLabel": "Solve a puzzle"}}'::jsonb, '{"href": "/puzzles"}'::jsonb, 'home-puzzles-tile', 'right', '{"all": [{"actorType": {"equals": "user"}}, {"page": {"matches": "/lobby"}}, {"count": {"event": "session_idle", "where": {"page": "/lobby"}, "windowMin": 5, "gte": 1}}]}'::jsonb,
    30, true, ARRAY['puzzle_start']::VARCHAR(64)[], ARRAY['user']::VARCHAR(64)[],
    86400, 30, 3)
 ON CONFLICT (key) DO UPDATE SET
@@ -110,7 +115,10 @@ INSERT INTO events.hints
   (key, i18n, cta, anchor, placement, rule, priority, enabled,
    accepted_by, target_actor_types, cooldown_sec, ttl_sec, max_shows)
 VALUES
-  ('hint-overuse-mistakes-diary', '{"ru": {"title": "Часто нажимаешь «Подсказка» в пазлах", "body": "В «Дневнике ошибок» собраны темы, где ты застреваешь — точечная тренировка эффективнее, чем подсказки на ходу.", "ctaLabel": "К дневнику"}, "en": {"title": "Using hints a lot in puzzles", "body": "The Mistakes Diary groups topics where you get stuck — targeted training beats hint-spamming.", "ctaLabel": "Open diary"}}'::jsonb, '{"href": "/mistakes"}'::jsonb, 'profile-mistakes-link', 'right', '{"all": [{"actorType": {"equals": "user"}}, {"page": {"matches": "/player/*/*"}}, {"count": {"event": "hint_used", "windowDays": 7, "gte": 5}}, {"not": {"exists": {"event": "feature_used", "where": {"feature_key": "mistakes_diary_opened"}, "windowDays": 30}}}]}'::jsonb,
+  -- KS-4763 page-override: anchor profile-mistakes-link рендерится владельцу
+  -- профиля на /player/<username> (PlayerProfilePage.tsx:482). Один сегмент
+  -- после /player/ — заменяем /player/*/* на /player/*.
+  ('hint-overuse-mistakes-diary', '{"ru": {"title": "Часто нажимаешь «Подсказка» в пазлах", "body": "В «Дневнике ошибок» собраны темы, где ты застреваешь — точечная тренировка эффективнее, чем подсказки на ходу.", "ctaLabel": "К дневнику"}, "en": {"title": "Using hints a lot in puzzles", "body": "The Mistakes Diary groups topics where you get stuck — targeted training beats hint-spamming.", "ctaLabel": "Open diary"}}'::jsonb, '{"href": "/mistakes"}'::jsonb, 'profile-mistakes-link', 'right', '{"all": [{"actorType": {"equals": "user"}}, {"page": {"matches": "/player/*"}}, {"count": {"event": "hint_used", "windowDays": 7, "gte": 5}}, {"not": {"exists": {"event": "feature_used", "where": {"feature_key": "mistakes_diary_opened"}, "windowDays": 30}}}]}'::jsonb,
    50, true, ARRAY['feature_used']::VARCHAR(64)[], ARRAY['user']::VARCHAR(64)[],
    259200, 0, 3)
 ON CONFLICT (key) DO UPDATE SET
