@@ -51,16 +51,31 @@ export function CookieBanner(): ReactElement | null {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guestDelete, setGuestDelete] = useState<GuestDeleteState>({ kind: 'idle' });
+  // KS-4722. Безусловный признак «гость нажал accept в этой сессии».
+  // Не зависит от cookie (которая может не записаться в iOS Safari
+  // ITP / WebView quirks) и от localStorage (private mode → quota).
+  // Гарантирует, что баннер скроется сразу после 200 OK от
+  // POST /guest/consent. Storage остаётся источником на mount/reload.
+  const [acceptedThisSession, setAcceptedThisSession] = useState(false);
 
-  // KS-4715. Backend ставит cookie на api.kingside.site (без
-  // Domain=.kingside.site), фронт на основном домене её не видит.
-  // Поэтому смотрим И на cookie, И на localStorage-флаг —
-  // достаточно одного источника.
+  // KS-4715/KS-4722. Источники признака consent:
+  //   1) React state `acceptedThisSession` — синхронно после 200 OK;
+  //   2) cookie `analytics_consent=1` — на следующем mount/reload;
+  //   3) localStorage-флаг — fallback для случая «cookie не доехала».
+  // Достаточно одного истинного.
   const guestConsentGiven = useMemo(
-    () => readAnalyticsConsentCookie() || readGuestConsentLocal(),
+    () =>
+      acceptedThisSession
+      || readAnalyticsConsentCookie()
+      || readGuestConsentLocal(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bump],
+    [bump, acceptedThisSession],
   );
+
+  // KS-4722. Для авторизованного — тот же страховочный state, чтобы
+  // баннер скрылся сразу после PATCH /me/consent, не дожидаясь
+  // refreshUser/обновления контекста.
+  const [userChoiceMadeThisSession, setUserChoiceMadeThisSession] = useState(false);
 
   const onUserChoice = useCallback(
     async (next: boolean) => {
@@ -69,6 +84,7 @@ export function CookieBanner(): ReactElement | null {
       setError(null);
       try {
         await api.patch('/me/consent', { analytics: next });
+        setUserChoiceMadeThisSession(true);
         await refreshUser();
         // KS-4718: оповестим EventsBootstrap/HintHost, чтобы
         // tracking/pull стартовал сразу, без reload.
@@ -109,8 +125,12 @@ export function CookieBanner(): ReactElement | null {
       // и ставим dismissed, чтобы баннер не вылезал снова.
       if (analytics) {
         setGuestConsentLocal(true);
+        // KS-4722: React state гарантирует, что баннер скроется даже
+        // если cookie/localStorage не сохранились.
+        setAcceptedThisSession(true);
       } else {
         setGuestConsentLocal(false);
+        setAcceptedThisSession(false);
         setGuestDismissed();
         setHiddenForGuest(true);
       }
@@ -187,7 +207,9 @@ export function CookieBanner(): ReactElement | null {
   if (loading) return null;
 
   // Авторизованный с принятым решением (true/false) — баннер скрыт.
-  if (user && userConsent !== null) return null;
+  // KS-4722: либо контекст уже знает userConsent, либо PATCH прошёл
+  // успешно в этой сессии (страховка на случай долгого refreshUser).
+  if (user && (userConsent !== null || userChoiceMadeThisSession)) return null;
   // Гость уже дал согласие через cookie — баннер скрыт.
   if (!user && guestConsentGiven) return null;
   // Гость, уже отклонивший баннер в этой сессии — скрыт.

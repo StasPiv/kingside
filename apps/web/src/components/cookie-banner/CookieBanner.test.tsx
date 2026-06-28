@@ -94,6 +94,33 @@ describe('CookieBanner (KS-4698)', () => {
     expect(localStorage.getItem('cookieBanner.guestDismissedAt')).toBeTruthy();
   });
 
+  it('KS-4722: гость accept скрывает баннер даже без cookie и без localStorage', async () => {
+    // Эмулирует iOS Safari ITP / private mode: localStorage не пишется,
+    // cookie не сохраняется (Set-Cookie проигнорирован браузером).
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ analytics: true, guestIssued: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    wrap(<CookieBanner />, { user: null });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('cookie-banner-guest-accept'));
+    });
+    // Cookie не появилась, localStorage не сохранил — но баннер
+    // обязан исчезнуть благодаря React state acceptedThisSession.
+    expect(document.cookie).not.toContain('analytics_consent=1');
+    await waitFor(() =>
+      expect(screen.queryByTestId('cookie-banner')).not.toBeInTheDocument(),
+    );
+    setItem.mockRestore();
+  });
+
   it('гость accept → POST /guest/consent {analytics:true} + локальный флаг + баннер скрыт', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ analytics: true, guestIssued: true }), {
