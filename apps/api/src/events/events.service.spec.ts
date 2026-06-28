@@ -104,4 +104,42 @@ describe('EventsService.track', () => {
     expect(prisma.user.findUnique).toHaveBeenCalledTimes(1);
     expect(redis.xadd).toHaveBeenCalledTimes(2);
   });
+
+  // KS-4760 / ADR-150 T2.
+  describe('ANALYTICS_CONSENT_BYPASS', () => {
+    const ORIG_ENV = { ...process.env };
+    afterEach(() => {
+      process.env.NODE_ENV = ORIG_ENV.NODE_ENV;
+      process.env.ANALYTICS_CONSENT_BYPASS = ORIG_ENV.ANALYTICS_CONSENT_BYPASS;
+    });
+
+    it('NODE_ENV=test + bypass=1 → user без analyticsConsent всё-равно проходит', async () => {
+      process.env.NODE_ENV = 'test';
+      process.env.ANALYTICS_CONSENT_BYPASS = '1';
+      const actor = { type: 'user' as const, id: '00000000-0000-4000-8000-000000000006' };
+      const ok = await svc.track(actor, 'page_view', { path: '/' });
+      expect(ok).toBe(true);
+      // hasUserConsent НЕ должен дёрнуться — bypass короткое замыкание ДО SELECT
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(redis.xadd).toHaveBeenCalledTimes(1);
+    });
+
+    it('bypass=1 без NODE_ENV=test → не работает', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.ANALYTICS_CONSENT_BYPASS = '1';
+      prisma.user.findUnique.mockResolvedValue({ analyticsConsent: false });
+      const actor = { type: 'user' as const, id: '00000000-0000-4000-8000-000000000007' };
+      const ok = await svc.track(actor, 'page_view', null);
+      expect(ok).toBe(false);
+    });
+
+    it('NODE_ENV=test без bypass → consent читается из БД', async () => {
+      process.env.NODE_ENV = 'test';
+      delete process.env.ANALYTICS_CONSENT_BYPASS;
+      prisma.user.findUnique.mockResolvedValue({ analyticsConsent: false });
+      const actor = { type: 'user' as const, id: '00000000-0000-4000-8000-000000000008' };
+      const ok = await svc.track(actor, 'page_view', null);
+      expect(ok).toBe(false);
+    });
+  });
 });

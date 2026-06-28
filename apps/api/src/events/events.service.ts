@@ -117,7 +117,9 @@ export class EventsService {
 
     // Гейт consent для user. Для guest consent уже проверен middleware'ом
     // (без cookie-подписи нет guest_id, см. GuestIdMiddleware).
-    if (actor.type === 'user') {
+    // KS-4760: bypass под NODE_ENV=test + ANALYTICS_CONSENT_BYPASS=1 —
+    // единая точка с `hasConsent` (избегаем расхождения).
+    if (actor.type === 'user' && !isConsentBypass()) {
       const ok = await this.hasUserConsent(actor.id);
       if (!ok) return false;
     }
@@ -183,6 +185,11 @@ export class EventsService {
    * TTL-кэш, что `track`. HintsService переиспользует этот метод
    * вместо дублирования логики (без рефакторинга на отдельный сервис —
    * `track` и `checkFor` всегда вместе).
+   *
+   * KS-4760 / ADR-150 T2: под `NODE_ENV=test` И `ANALYTICS_CONSENT_BYPASS=1`
+   * возвращает true для любого user — нужно e2e сценариям, где fixture
+   * user не имеет реального `analyticsConsent=true` в БД. Обе проверки
+   * — env-var'ы; на проде ни одно из двух не задано.
    */
   async hasConsent(actor: Actor): Promise<boolean> {
     if (actor.type === 'guest') {
@@ -191,6 +198,7 @@ export class EventsService {
       // проверять нечего.
       return true;
     }
+    if (isConsentBypass()) return true;
     return this.hasUserConsent(actor.id);
   }
 
@@ -229,6 +237,18 @@ export class EventsService {
       this.consentCache.clear();
     }
   }
+}
+
+/**
+ * KS-4760 / ADR-150 T2. Bypass проверки analytics_consent под
+ * `NODE_ENV=test` + `ANALYTICS_CONSENT_BYPASS=1`. Используется только
+ * e2e-сценариями hints. На проде ни одно из двух условий не выполнено.
+ */
+function isConsentBypass(): boolean {
+  return (
+    process.env.NODE_ENV === 'test'
+    && process.env.ANALYTICS_CONSENT_BYPASS === '1'
+  );
 }
 
 /* ---------------------------------------------------------------- */

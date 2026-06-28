@@ -54,7 +54,65 @@ describe('HintsLimitsService.getLimits', () => {
     const svc = new HintsLimitsService(cfg, mkRedis());
     svc.getLimits(1000);
     svc.getLimits(30_000);
-    expect(cfg.get).toHaveBeenCalledTimes(4); // 4 ключа, один раз
+    expect(cfg.get).toHaveBeenCalledTimes(5); // 4 поля + 1 override
+  });
+
+  // KS-4760 / ADR-150 T2.
+  describe('HINTS_DEFAULTS_OVERRIDE_JSON', () => {
+    it('JSON override применяется поверх env / defaults', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+        HINTS_GLOBAL_THROTTLE_SEC: '300',
+        HINTS_DEFAULTS_OVERRIDE_JSON: '{"globalThrottleSec":0,"sessionMaxShows":1000}',
+      }), mkRedis());
+      expect(svc.getLimits()).toEqual({
+        enabled: true,
+        globalThrottleSec: 0,
+        sessionMaxShows: 1000,
+        smartDismissWindowH: 24,
+      });
+    });
+
+    it('JSON override с enabled=false', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+        HINTS_DEFAULTS_OVERRIDE_JSON: '{"enabled":false}',
+      }), mkRedis());
+      expect(svc.getLimits().enabled).toBe(false);
+    });
+
+    it('невалидный JSON → defaults применяются, не падаем', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+        HINTS_DEFAULTS_OVERRIDE_JSON: '{not-json',
+      }), mkRedis());
+      expect(svc.getLimits().enabled).toBe(true);
+      expect(svc.getLimits().sessionMaxShows).toBe(5);
+    });
+
+    it('JSON со unknown ключами игнорирует их', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+        HINTS_DEFAULTS_OVERRIDE_JSON: '{"foo":42,"sessionMaxShows":99}',
+      }), mkRedis());
+      expect(svc.getLimits().sessionMaxShows).toBe(99);
+    });
+
+    it('JSON с отрицательными значениями отбраковывает', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+        HINTS_DEFAULTS_OVERRIDE_JSON: '{"globalThrottleSec":-5}',
+      }), mkRedis());
+      expect(svc.getLimits().globalThrottleSec).toBe(600); // default
+    });
+
+    it('пустой env → defaults без вмешательства', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+        HINTS_DEFAULTS_OVERRIDE_JSON: '',
+      }), mkRedis());
+      expect(svc.getLimits().sessionMaxShows).toBe(5);
+    });
   });
 });
 

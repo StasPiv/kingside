@@ -71,8 +71,49 @@ export class HintsLimitsService {
         HINTS_DEFAULTS.smartDismissWindowH,
       ),
     };
+    // KS-4760 / ADR-150 T2: `HINTS_DEFAULTS_OVERRIDE_JSON` — JSON-объект
+    // с любыми полями HintsLimits, который merge'ится поверх env-чтения.
+    // Используется e2e test-окружением (docker-compose.test-hints.yml),
+    // чтобы за один env-var разом поставить throttle=0, session_max_shows
+    // в тысячу и т.д. без правки кода и без перечисления 4 отдельных
+    // переменных. Приоритет: JSON-override > отдельные env > defaults.
+    const override = this.readOverrideJson();
+    if (override) Object.assign(v, override);
     this.cache = { value: v, expiresAt: now + CACHE_TTL_MS };
     return v;
+  }
+
+  /**
+   * Читает env `HINTS_DEFAULTS_OVERRIDE_JSON`, парсит JSON, отдаёт
+   * только белый список ключей HintsLimits. Невалидный JSON → warn + null
+   * (не падаем — defaults применятся). Без env → null.
+   */
+  private readOverrideJson(): Partial<HintsLimits> | null {
+    const raw = this.config.get<string>('HINTS_DEFAULTS_OVERRIDE_JSON');
+    if (!raw || raw.trim() === '') return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      this.logger.warn(
+        `HINTS_DEFAULTS_OVERRIDE_JSON invalid JSON: ${(err as Error).message}`,
+      );
+      return null;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const src = parsed as Record<string, unknown>;
+    const out: Partial<HintsLimits> = {};
+    if (typeof src.enabled === 'boolean') out.enabled = src.enabled;
+    if (typeof src.globalThrottleSec === 'number' && src.globalThrottleSec >= 0) {
+      out.globalThrottleSec = src.globalThrottleSec;
+    }
+    if (typeof src.sessionMaxShows === 'number' && src.sessionMaxShows >= 0) {
+      out.sessionMaxShows = src.sessionMaxShows;
+    }
+    if (typeof src.smartDismissWindowH === 'number' && src.smartDismissWindowH >= 0) {
+      out.smartDismissWindowH = src.smartDismissWindowH;
+    }
+    return Object.keys(out).length > 0 ? out : null;
   }
 
   /**
