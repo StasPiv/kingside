@@ -200,3 +200,43 @@
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
 }
+
+/* ============================================================
+ * KS-4722. Chat-FAB (`.chat-widget-btn`, chat.css:2) — круглая
+ * кнопка чата `position: fixed; right: 20px; z-index: 9000`. На
+ * mobile её bottom=72px (поднята над mobile-bottom-bar). При
+ * активном cookie-banner (bottom=56px, высота ~150–220px на
+ * mobile при 3+ строках текста) FAB попадает В баннер и перекрывает
+ * правый край кнопок «Enable analytics» / «Decline» — тап в правую
+ * часть кнопки уходит в FAB вместо banner-кнопок.
+ *
+ * Поднимаем chat-FAB выше cookie-banner'а через `body:has(.cookie-
+ * banner) .chat-widget-btn`, пока баннер в DOM. Дополнительно
+ * z-index баннера поднимается выше FAB'а (с 95 до 9100) — даже
+ * если высота баннера превысит запас, тап по его кнопкам всё
+ * равно дойдёт (баннер лежит поверх FAB по z-стеку).
+ * ============================================================ */
+
+/* Баннер выше chat-FAB (z=9000) и hint-popover (z=9999, рендерится
+ * только при активной подсказке — два слоя одновременно не
+ * пересекаются). */
+body:has(.chat-widget-btn) .cookie-banner {
+  z-index: 9100;
+}
+
+@media (max-width: 768px) {
+  /* На mobile FAB уезжает выше cookie-banner'а. 240px = mobile-
+   * bottom-bar (56) + типичная высота banner на 360–390px (~180) +
+   * запас (~4) — банер влезает с любым переводом строк CTA. */
+  body:has(.cookie-banner) .chat-widget-btn {
+    bottom: 240px;
+  }
+}
+
+/* Desktop: банер занимает ~50–60px (всё в одну строку), FAB
+ * с bottom=20px цепляет нижний край банера. Поднимаем чуть выше. */
+@media (min-width: 769px) {
+  body:has(.cookie-banner) .chat-widget-btn {
+    bottom: 88px;
+  }
+}
