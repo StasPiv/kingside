@@ -6,9 +6,11 @@ import { MessageGateway } from '../message/message.gateway';
 describe('NotificationService', () => {
   let service: NotificationService;
   let prisma: {
-    notification: { create: jest.Mock; findMany: jest.Mock; count: jest.Mock; updateMany: jest.Mock };
+    notification: { create: jest.Mock; findMany: jest.Mock; count: jest.Mock; updateMany: jest.Mock; createMany: jest.Mock };
+    user: { findMany: jest.Mock };
   };
   let gateway: { server: { to: jest.Mock } };
+  let emit: jest.Mock;
 
   beforeEach(async () => {
     prisma = {
@@ -17,9 +19,11 @@ describe('NotificationService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         updateMany: jest.fn(),
+        createMany: jest.fn(),
       },
+      user: { findMany: jest.fn() },
     };
-    const emit = jest.fn();
+    emit = jest.fn();
     gateway = { server: { to: jest.fn().mockReturnValue({ emit }) } };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -76,5 +80,39 @@ describe('NotificationService', () => {
     prisma.notification.updateMany.mockResolvedValue({ count: 5 });
     const result = await service.markAllAsRead('user-1');
     expect(result).toEqual({ marked: 5 });
+  });
+
+  describe('createBroadcast (KS-4740)', () => {
+    it('createMany по всем активным user + WS-emit в каждую room', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        { id: 'u-1' }, { id: 'u-2' }, { id: 'u-3' },
+      ]);
+      prisma.notification.createMany.mockResolvedValue({ count: 3 });
+
+      const r = await service.createBroadcast('blog_post_published', {
+        post_id: 'p-1', slug: 'hello', title: 'Hello', locale: 'ru',
+      });
+
+      expect(r).toEqual({ created: 3 });
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: { isBot: false, isSynthetic: false, isHidden: false },
+        select: { id: true },
+      });
+      const args = prisma.notification.createMany.mock.calls[0][0];
+      expect(args.data).toHaveLength(3);
+      expect(args.data[0].type).toBe('blog_post_published');
+      expect(JSON.parse(args.data[0].payload).post_id).toBe('p-1');
+      expect(gateway.server.to).toHaveBeenCalledWith('user:u-1');
+      expect(gateway.server.to).toHaveBeenCalledWith('user:u-2');
+      expect(gateway.server.to).toHaveBeenCalledWith('user:u-3');
+      expect(emit).toHaveBeenCalledTimes(3);
+    });
+
+    it('пустая аудитория → no-op без createMany', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+      const r = await service.createBroadcast('blog_post_published', {});
+      expect(r).toEqual({ created: 0 });
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    });
   });
 });

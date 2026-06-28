@@ -33,9 +33,11 @@ import { AuthModule } from '../auth/auth.module';
 // create/update/delete/setStatus, воркер сохраняет HTML в
 // `s3://kingside-prerender-store/{locale}/blog/<slug>.html`.
 import { PrerenderModule } from '../prerender/prerender.module';
+// KS-4740: уведомление в колокольчик при публикации статьи.
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [AuthModule, PrerenderModule],
+  imports: [AuthModule, PrerenderModule, NotificationModule],
   controllers: [
     BlogController,
     BlogAdminController,

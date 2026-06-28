@@ -2904,6 +2904,12 @@ model BlogPost {
   commentsCount   Int       @default(0) @map("comments_count")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime  @updatedAt       @map("updated_at") @db.Timestamptz(3)
+  /// KS-4740. Метка «broadcast-notification уже разослано подписчикам
+  /// колокольчика на этот пост». Используется для идемпотентности:
+  /// повторная публикация (edit→re-publish) или второй updatePost со
+  /// `status='published'` не плодит дубли в Notification. Сбрасывается
+  /// только вручную (если потребуется заново оповестить).
+  publishedNotificationSentAt DateTime? @map("published_notification_sent_at") @db.Timestamptz(3)
 
   author   BlogAuthor        @relation(fields: [authorId], references: [id], onDelete: Restrict)
   likes    BlogPostLike[]

@@ -7,7 +7,7 @@
  * Изолирован от публичного `BlogService` — чтобы случайная утечка
  * админ-метода на публичный controller не отдала черновики.
  */
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Prisma } from '@kingside/db';
 import {
   type BlogAuthor as SharedBlogAuthor,
@@ -21,6 +21,8 @@ import { PrismaService } from '../prisma/prisma.service';
 // HTML в `s3://kingside-prerender-store/{locale}/blog/<slug>.html`.
 // Best-effort: ошибки SQS не валят основную операцию.
 import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service';
+// KS-4740: broadcast Notification на publish — для колокольчика.
+import { NotificationService } from '../notification/notification.service';
 import { estimateReadingTimeMin, renderMarkdownToHtml } from './markdown';
 
 type BlogPost = Prisma.BlogPostModel;
@@ -30,10 +32,54 @@ const PAGE_SIZE = 24;
 
 @Injectable()
 export class BlogAdminService {
+  private readonly logger = new Logger(BlogAdminService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly prerender: PrerenderEnqueueService,
+    // KS-4740: broadcast Notification «новый пост блога». `@Optional`
+    // — для unit-spec'ов, конструирующих сервис без полного DI.
+    @Optional() private readonly notifications?: NotificationService,
   ) {}
+
+  /**
+   * KS-4740. Идемпотентный hook на публикацию: один раз на пост
+   * рассылает Notification всем активным пользователям + WS-emit.
+   * Дедуп через `BlogPost.publishedNotificationSentAt` — UPDATE
+   * с `WHERE publishedNotificationSentAt IS NULL` гарантирует, что
+   * два параллельных publish'а не уйдут в две рассылки.
+   *
+   * Best-effort: ошибка broadcast не валит publish.
+   */
+  private async notifyBlogPublished(post: BlogPost): Promise<void> {
+    if (post.status !== 'published' || post.publishedAt === null) return;
+    try {
+      // CAS-update: возвращает count=1 только если до этого
+      // publishedNotificationSentAt был NULL. На повторный вызов с
+      // тем же id вернёт 0 → пропускаем broadcast.
+      const claim = await this.prisma.blogPost.updateMany({
+        where: { id: post.id, publishedNotificationSentAt: null },
+        data: { publishedNotificationSentAt: new Date() },
+      });
+      if (claim.count === 0) {
+        return; // уже отправляли ранее
+      }
+      if (!this.notifications) return;
+      await this.notifications.createBroadcast('blog_post_published', {
+        post_id: post.id,
+        slug: post.slug,
+        locale: post.locale,
+        title: post.title,
+        description: post.description,
+        cover_url: post.coverUrl,
+        published_at: post.publishedAt.toISOString(),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `notifyBlogPublished post=${post.id}: ${(err as Error).message}`,
+      );
+    }
+  }
 
   /**
    * KS-4616. Поставить prerender-задачу на пост блога. Тонкий хелпер,
@@ -155,6 +201,8 @@ export class BlogAdminService {
     // service-account script). Для draft-постов snapshot тоже есть
     // смысл (preview-окружение), а лишние SQS-сообщения дёшевы.
     this.enqueueBlogPostPrerender({ locale: row.locale, slug: row.slug });
+    // KS-4740: если пост создан сразу как `published` — broadcast.
+    await this.notifyBlogPublished(row);
     return this.toAdminPost(row);
   }
 
@@ -249,6 +297,10 @@ export class BlogAdminService {
         slug: current.slug,
       });
     }
+    // KS-4740: переход draft → published (или create-as-published мы
+    // ловим в createPost). Дедуп через `publishedNotificationSentAt` —
+    // повторный publish после edit'a не плодит вторую рассылку.
+    await this.notifyBlogPublished(row);
     return this.toAdminPost(row);
   }
 
