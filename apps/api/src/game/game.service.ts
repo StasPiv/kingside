@@ -513,14 +513,10 @@ export class GameService {
     const result = userId === game.whiteId ? 'black' : 'white';
     const clocks = await this.clockService.stopClock(gameId);
 
-    // KS-4696 / ADR-147 §2.1: `resign` — отдельно от `game_end`,
-    // эмитится ТОЛЬКО для сдавшего (event про действие, не про факт
-    // окончания партии).
-    void this.events?.track(
-      { type: 'user', id: userId },
-      'resign',
-      { game_id: gameId },
-    );
+    // KS-4745: track('resign') удалён — этот метод в apps/api
+    // никем не дёргается (GameGateway.RESIGN живёт в apps/game-service,
+    // который вызывает свой собственный resign). Реальный self-emit
+    // теперь в apps/game-service/src/game/game.service.ts.
 
     const ratingChange = await this.endGame(gameId, result, 'resignation');
 
@@ -540,13 +536,9 @@ export class GameService {
     }
     await this.redis.set(`game:${gameId}:draw_offer`, userId, 'EX', 120);
 
-    // KS-4696 / ADR-147 §2.1: `draw_offered` — действие пользователя,
-    // эмитим только для предложившего.
-    void this.events?.track(
-      { type: 'user', id: userId },
-      'draw_offered',
-      { game_id: gameId },
-    );
+    // KS-4745: track('draw_offered') удалён — handleDrawOffer в
+    // apps/api никем не дёргается (DRAW_OFFER идёт через WS gateway
+    // в apps/game-service). Реальный self-emit там.
   }
 
   async handleDrawAccept(gameId: string, userId: string): Promise<EndResult> {
@@ -652,27 +644,70 @@ export class GameService {
     }
     this.logger.log(`Game ${gameId} ended: ${result} by ${termination}`);
 
-    // KS-4696 / ADR-147 §2.1: `game_end { result, termination, rating_delta }`.
-    // Эмитим обоим игрокам (кроме бота). rating_delta нормирован на цвет
-    // (для white delta = afterWhite - beforeWhite, и т.п.) — реализуем
-    // в payload как два поля.
+    // KS-4696 / ADR-147 §2.1 + KS-4749 / ADR-149 §1.5:
+    // `game_end { result, winner, termination, rating_delta }`.
+    //   - `result`: per-actor `'win' | 'loss' | 'draw'` — относительно
+    //     цвета конкретного игрока. Нужно DSL'ю правил («3 проигрыша
+    //     подряд» → `where:{result:'loss'}`).
+    //   - `winner`: per-game `'white' | 'black' | 'draw'` — оставлен
+    //     как дополнительное поле (back-compat для существующих
+    //     потребителей; правила могут использовать его, если важна
+    //     сторона победителя).
+    //   - `rating_delta`: per-actor — изменение рейтинга своего цвета.
+    //   - Поля `rating_delta_white` / `rating_delta_black` сохранены
+    //     для back-compat (использовались в первых рассылках).
+    //
+    // Эмитим явно по игрокам (не через `trackBoth`), потому что
+    // payload отличается для каждого actor'а (`result` и
+    // `rating_delta`).
     try {
       const players = await this.prisma.game.findUnique({
         where: { id: gameId },
         select: { whiteId: true, blackId: true },
       });
-      if (players) {
-        this.trackBoth(players.whiteId, players.blackId, 'game_end', {
-          game_id: gameId,
-          result,
-          termination,
-          rating_delta_white: ratingChange
-            ? ratingChange.whiteRatingAfter - ratingChange.whiteRatingBefore
-            : null,
-          rating_delta_black: ratingChange
-            ? ratingChange.blackRatingAfter - ratingChange.blackRatingBefore
-            : null,
-        });
+      if (players && this.events) {
+        const winner: 'white' | 'black' | 'draw' = result;
+        const ratingDeltaWhite = ratingChange
+          ? ratingChange.whiteRatingAfter - ratingChange.whiteRatingBefore
+          : null;
+        const ratingDeltaBlack = ratingChange
+          ? ratingChange.blackRatingAfter - ratingChange.blackRatingBefore
+          : null;
+        const resultFor = (color: 'white' | 'black'): 'win' | 'loss' | 'draw' =>
+          winner === 'draw' ? 'draw' : winner === color ? 'win' : 'loss';
+
+        if (players.whiteId && players.whiteId !== STOCKFISH_BOT_ID) {
+          void this.events.track(
+            { type: 'user', id: players.whiteId },
+            'game_end',
+            {
+              game_id: gameId,
+              color: 'white',
+              result: resultFor('white'),
+              winner,
+              termination,
+              rating_delta: ratingDeltaWhite,
+              rating_delta_white: ratingDeltaWhite,
+              rating_delta_black: ratingDeltaBlack,
+            },
+          );
+        }
+        if (players.blackId && players.blackId !== STOCKFISH_BOT_ID) {
+          void this.events.track(
+            { type: 'user', id: players.blackId },
+            'game_end',
+            {
+              game_id: gameId,
+              color: 'black',
+              result: resultFor('black'),
+              winner,
+              termination,
+              rating_delta: ratingDeltaBlack,
+              rating_delta_white: ratingDeltaWhite,
+              rating_delta_black: ratingDeltaBlack,
+            },
+          );
+        }
       }
     } catch (e: any) {
       this.logger.warn(`game_end track failed for ${gameId}: ${e.message}`);

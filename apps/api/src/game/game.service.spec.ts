@@ -753,4 +753,88 @@ describe('GameService', () => {
       });
     });
   });
+
+  // KS-4749 / ADR-149 §1.5: payload.result в `game_end` — per-actor
+  // (`'win'|'loss'|'draw'`), не per-game (`'white'|'black'|'draw'`).
+  // `winner` оставлен как дополнительное поле (back-compat).
+  describe('endGame: per-actor result payload', () => {
+    const whiteId = '22222222-2222-4222-a222-222222222222';
+    const blackId = '33333333-3333-4333-a333-333333333333';
+    const gameId = 'game-end-1';
+    let events: { track: jest.Mock };
+
+    beforeEach(() => {
+      events = { track: jest.fn().mockResolvedValue(undefined) } as any;
+      service = new GameService(prisma, redis, clockService, ratingService, i18n, events as any);
+
+      redis.hgetall.mockResolvedValue({ fen: 'fen', moves: '[]' });
+      prisma.game.update.mockResolvedValue({ id: gameId } as any);
+      prisma.game.findUnique.mockResolvedValue({ whiteId, blackId } as any);
+      ratingService.updateRatingsAfterGame.mockResolvedValue({
+        whiteRatingBefore: 1500,
+        whiteRatingAfter: 1510,
+        blackRatingBefore: 1500,
+        blackRatingAfter: 1490,
+      });
+    });
+
+    function findCall(actorId: string) {
+      return events.track.mock.calls.find((c: any[]) => c[0].id === actorId);
+    }
+
+    it('winner=white → result=win для white, result=loss для black', async () => {
+      await service.endGame(gameId, 'white', 'checkmate');
+      const w = findCall(whiteId);
+      const b = findCall(blackId);
+      expect(w).toBeDefined();
+      expect(b).toBeDefined();
+      expect(w![1]).toBe('game_end');
+      expect(w![2]).toMatchObject({
+        game_id: gameId,
+        color: 'white',
+        result: 'win',
+        winner: 'white',
+        termination: 'checkmate',
+        rating_delta: 10,
+        rating_delta_white: 10,
+        rating_delta_black: -10,
+      });
+      expect(b![2]).toMatchObject({
+        color: 'black',
+        result: 'loss',
+        winner: 'white',
+        rating_delta: -10,
+      });
+    });
+
+    it('winner=black → result=loss для white, result=win для black', async () => {
+      await service.endGame(gameId, 'black', 'timeout');
+      expect(findCall(whiteId)![2]).toMatchObject({ result: 'loss', winner: 'black' });
+      expect(findCall(blackId)![2]).toMatchObject({ result: 'win', winner: 'black' });
+    });
+
+    it('draw → result=draw обоим', async () => {
+      await service.endGame(gameId, 'draw', 'stalemate');
+      expect(findCall(whiteId)![2]).toMatchObject({ result: 'draw', winner: 'draw' });
+      expect(findCall(blackId)![2]).toMatchObject({ result: 'draw', winner: 'draw' });
+    });
+
+    it('bot-партия (black=STOCKFISH_BOT_ID) — track только для user', async () => {
+      prisma.game.findUnique.mockResolvedValue({ whiteId, blackId: STOCKFISH_BOT_ID } as any);
+      await service.endGame(gameId, 'white', 'checkmate');
+      expect(findCall(whiteId)).toBeDefined();
+      expect(findCall(STOCKFISH_BOT_ID)).toBeUndefined();
+    });
+
+    it('rating change null → rating_delta=null', async () => {
+      ratingService.updateRatingsAfterGame.mockRejectedValue(new Error('rating failed'));
+      await service.endGame(gameId, 'white', 'checkmate');
+      expect(findCall(whiteId)![2]).toMatchObject({
+        result: 'win',
+        rating_delta: null,
+        rating_delta_white: null,
+        rating_delta_black: null,
+      });
+    });
+  });
 });
