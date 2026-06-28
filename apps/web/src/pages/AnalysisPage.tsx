@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { track } from '../lib/events';
 import { useAiPositionComment } from '../hooks/useAiPositionComment';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -3083,11 +3084,24 @@ function AnalysisPageInner({
   const toggleAnalysis = useCallback(() => {
     setAnalysisEnabled((prev) => {
       const next = !prev;
-      if (prev) { stopEngine(); } else { setEngineFailed(false); }
+      if (prev) {
+        stopEngine();
+      } else {
+        setEngineFailed(false);
+        // KS-4735: фикс через useEffect+state не сработал в проде
+        // (state переходит асинхронно, ref залипал). Прямой track в
+        // момент клика Start — самый надёжный сигнал «пользователь
+        // запустил движок». source берётся из ec.engineSource
+        // (wasm | external), нормализуем external→bridge для
+        // соответствия контракту правил hints.
+        track('engine_started', {
+          source: ec.engineSource === 'external' ? 'bridge' : 'wasm',
+        });
+      }
       try { localStorage.setItem('analysisRunning', String(next)); } catch { /* ignore */ }
       return next;
     });
-  }, []);
+  }, [ec.engineSource, stopEngine]);
 
   // KS-3696. Реализация ref-функции «приостановить движок при
   // схлопывании engine-панели». Если анализ активен — выключаем (то же
