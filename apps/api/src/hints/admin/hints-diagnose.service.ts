@@ -15,8 +15,9 @@
  * сервис-аккаунтом со scope `hints:read` для диагностики «почему
  * popover не дошёл / откуда лимит».
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
 import { EventsPrismaService } from '../../events/events-prisma.service';
+import { MessageGateway } from '../../message/message.gateway';
 import { RedisService } from '../../redis/redis.service';
 import { HintsLimitsService } from '../hints-limits.service';
 import {
@@ -59,10 +60,24 @@ export interface HintsLimitsState {
   };
 }
 
+/**
+ * KS-4814. Срез состояния Socket.IO rooms по двум namespace'ам —
+ * чтобы отличить «сокет вообще не joined» от «сокет joined, но в
+ * другом namespace».
+ */
+export interface RoomInspection {
+  room: string;
+  root_size: number;
+  messages_size: number;
+  root_total_rooms: number;
+  messages_total_rooms: number;
+}
+
 export interface HintsDiagnoseResult {
   actor: Actor;
   states: ActorHintStateRow[];
   limits: HintsLimitsState;
+  room?: RoomInspection;
 }
 
 @Injectable()
@@ -73,12 +88,19 @@ export class HintsDiagnoseService {
     private readonly prismaSvc: EventsPrismaService,
     private readonly redis: RedisService,
     private readonly limitsSvc: HintsLimitsService,
+    // KS-4814. MessageGateway инжектируется через forwardRef — он сам
+    // зависит от HintsService (replayPending). @Optional — spec-фикстуры
+    // и юниты без MessageModule.
+    @Optional()
+    @Inject(forwardRef(() => MessageGateway))
+    private readonly gateway?: MessageGateway,
   ) {}
 
   async diagnose(actor: Actor, hintId?: string): Promise<HintsDiagnoseResult> {
     const states = await this.readStates(actor, hintId);
     const limits = await this.readLimitsState(actor);
-    return { actor, states, limits };
+    const room = this.gateway?.inspectRoom(actor.id);
+    return { actor, states, limits, ...(room ? { room } : {}) };
   }
 
   /**

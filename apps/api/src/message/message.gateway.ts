@@ -53,6 +53,36 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @Optional() private readonly hintsMetrics?: HintsMetricsService,
   ) {}
 
+  /**
+   * KS-4814. Диагностика: сравнить размеры room `user:<id>` в **двух**
+   * namespace'ах — root `/` и `/messages`. Если сокет реально joined
+   * в `/messages` (как и должно быть по handleConnection), а у root
+   * пусто — значит наш `emit hint:show` через `this.server.to(room)`
+   * адресуется не туда (метод `to()` на корневом Server'е работает с
+   * root namespace, не с namespace gateway'а).
+   *
+   * Также возвращает общее число rooms в каждом namespace — sanity для
+   * понимания «вообще ли есть какие-то join'ы».
+   */
+  inspectRoom(userId: string): {
+    room: string;
+    root_size: number;
+    messages_size: number;
+    root_total_rooms: number;
+    messages_total_rooms: number;
+  } {
+    const room = `user:${userId}`;
+    const rootNs = this.server?.sockets?.adapter;
+    const msgNs = (this.server as any)?.of?.('/messages')?.adapter;
+    return {
+      room,
+      root_size: rootNs?.rooms?.get(room)?.size ?? 0,
+      messages_size: msgNs?.rooms?.get(room)?.size ?? 0,
+      root_total_rooms: rootNs?.rooms?.size ?? 0,
+      messages_total_rooms: msgNs?.rooms?.size ?? 0,
+    };
+  }
+
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token || client.handshake.query?.token;
