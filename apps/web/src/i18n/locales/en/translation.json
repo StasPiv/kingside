@@ -5151,5 +5151,38 @@
   },
   "lectureLanding": {
     "author": "Coach"
+  },
+  "event": {
+    "game_start": "Game started",
+    "game_end": "Game finished",
+    "resign": "Resigned",
+    "draw_offered": "Draw offered",
+    "puzzle_start": "Puzzle started",
+    "puzzle_solved": "Puzzle solved",
+    "puzzle_failed": "Puzzle failed",
+    "rush_start": "Puzzle Rush started",
+    "rush_finish": "Puzzle Rush finished",
+    "rush_streak_broken": "Puzzle Rush streak broken",
+    "lesson_open": "Lesson opened",
+    "lesson_start": "Lesson started",
+    "lesson_complete": "Lesson completed",
+    "drill_start": "Tactic drill started",
+    "drill_complete": "Tactic drill completed",
+    "analysis_open": "Analysis opened",
+    "engine_started": "Engine started",
+    "hint_shown": "Hint shown",
+    "hint_acted": "Hint acted upon",
+    "hint_used": "Hint used",
+    "page_view": "Page viewed",
+    "session_start": "Session started",
+    "session_idle": "Session idle",
+    "guest_landing_viewed": "Landing viewed (guest)",
+    "guest_play_attempted": "Tried to play (guest)",
+    "feature_used": "Feature used",
+    "no_lives": "Out of lives"
+  },
+  "myActions": {
+    "unknownEvent": "Unknown event: {{type}}",
+    "retentionHint": "You have been active for {{days}} days"
   }
 }

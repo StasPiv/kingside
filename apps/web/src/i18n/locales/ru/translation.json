@@ -5196,5 +5196,38 @@
   "lecturesPublic": {
     "moreLecturesTitle": "Ещё лекции",
     "allLecturesLink": "Все лекции →"
+  },
+  "event": {
+    "game_start": "Партия начата",
+    "game_end": "Партия завершена",
+    "resign": "Сдача",
+    "draw_offered": "Предложение ничьей",
+    "puzzle_start": "Задача начата",
+    "puzzle_solved": "Задача решена",
+    "puzzle_failed": "Задача не решена",
+    "rush_start": "Раш начат",
+    "rush_finish": "Раш завершён",
+    "rush_streak_broken": "Серия в раше прервана",
+    "lesson_open": "Урок открыт",
+    "lesson_start": "Урок начат",
+    "lesson_complete": "Урок завершён",
+    "drill_start": "Тактика начата",
+    "drill_complete": "Тактика завершена",
+    "analysis_open": "Анализ открыт",
+    "engine_started": "Движок запущен",
+    "hint_shown": "Подсказка показана",
+    "hint_acted": "Действие по подсказке",
+    "hint_used": "Подсказка использована",
+    "page_view": "Просмотр страницы",
+    "session_start": "Сессия начата",
+    "session_idle": "Сессия в простое",
+    "guest_landing_viewed": "Лендинг просмотрен (гость)",
+    "guest_play_attempted": "Попытка игры (гость)",
+    "feature_used": "Функция использована",
+    "no_lives": "Жизни закончились"
+  },
+  "myActions": {
+    "unknownEvent": "Неизвестное событие: {{type}}",
+    "retentionHint": "Вы активны {{days}} дн."
   }
 }
