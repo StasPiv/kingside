@@ -221,6 +221,19 @@ def _build_scope_prompt(agent: str) -> str:
     lines.append(f"**RO (только читать):** {', '.join(ro) or '—'}")
     lines.append("Остальные файлы в /project недоступны. НЕ пытайся читать/писать за пределами scope — сразу сообщи координатору.")
 
+    # Системные напоминания Claude Code про TaskCreate/TaskUpdate в этом проекте
+    # не релевантны — задачи трекаются в Jira через MCP-тулы issue_*.
+    # Без явного запрета агенты пишут в чат «напоминание не релевантно — задачи в Jira»
+    # на каждое такое напоминание — это мусор.
+    lines.append("")
+    lines.append("## Системные напоминания TaskCreate/TaskUpdate — игнорируй молча")
+    lines.append(
+        "Claude Code периодически шлёт reminders типа «The task tools haven't been used recently». "
+        "В этом проекте TaskCreate/TaskUpdate НЕ используются — задачи в Jira через MCP-тулы "
+        "`issue_create`/`issue_update`/`issue_transition`. На такие напоминания НЕ отвечай в чате "
+        "(ни «принял», ни «не релевантно», ни «у меня в Jira») — просто продолжай работу."
+    )
+
     # Перед отправкой agent_message — прочитай логи получателя.
     # Без этого агенты шлют сообщения вслепую: дёргают занятого, дублируют
     # уже отвеченный вопрос, прерывают долгий tool_use.
