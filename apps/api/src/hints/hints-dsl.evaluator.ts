@@ -218,8 +218,15 @@ async function rawCountWithPayloadWhere(
     payloadClauses.push(`payload->>$${params.length - 1} = $${params.length}`);
   }
   const payloadSql = payloadClauses.join(' AND ');
+  // KS-4785: `actor_id` в `events.actor_events` имеет тип UUID. Prisma
+  // `$queryRawUnsafe` биндит JS-string как PG `text`, без implicit cast
+  // `text → uuid` (его нет в Postgres 16). Без явного `::uuid` каждый
+  // запрос падает `ERROR: operator does not exist: uuid = text` (42883)
+  // — и evaluateCount/Exists молча возвращают false (try/catch).
+  // Так с KS-4782 не работали ВСЕ правила с `where` (`bridge-promo-
+  // after-3-wasm`, `analyze-after-loss`, гостевые с payload-фильтром).
   const baseWhere =
-    'actor_id = $1 AND actor_type = $2 AND type = $3 AND created_at >= $4'
+    'actor_id = $1::uuid AND actor_type = $2 AND type = $3 AND created_at >= $4'
     + (payloadSql ? ` AND ${payloadSql}` : '');
 
   if (limit !== undefined) {
