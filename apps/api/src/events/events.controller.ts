@@ -76,8 +76,25 @@ export class EventsController {
     }
 
     const actor = this.resolveActor(req);
+
+    // KS-4787: диагностический лог входа в ingest. Печатает что
+    // фронт реально присылает в `/events`. После закрытия KS-4787 —
+    // снести. Префикс `ks-diag` симметричен фронтовому в
+    // 027a7296 (frontend), чтобы grep по test-hints логам собирал
+    // обе стороны цепочки.
+    const types = dto.events.map((e) => e.type).join(',');
+    const auth = req.headers.authorization;
+    const hasBearer = typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ');
+    const actorTag = actor ? `${actor.type}:${actor.id.slice(0, 8)}` : 'none';
+    this.logger.log(
+      `[ks-diag ingest] count=${dto.events.length} types=${types} bearer=${hasBearer} actor=${actorTag}`,
+    );
+
     if (!actor) {
       // Нет ни JWT, ни guest-id — нет согласия. Drop всё.
+      this.logger.log(
+        `[ks-diag ingest] DROPPED all ${dto.events.length} events: no actor (bearer=${hasBearer})`,
+      );
       return { accepted: 0, dropped: dto.events.length };
     }
 
@@ -88,6 +105,11 @@ export class EventsController {
         occurredAt: ts,
       });
       if (ok) accepted += 1;
+    }
+    if (accepted < dto.events.length) {
+      this.logger.log(
+        `[ks-diag ingest] partial accept=${accepted}/${dto.events.length} actor=${actorTag}`,
+      );
     }
     return { accepted, dropped: dto.events.length - accepted };
   }
