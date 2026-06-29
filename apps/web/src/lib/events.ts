@@ -92,12 +92,6 @@ function stopFlushTimer() {
  * unload-листенеры.
  */
 export function configureEvents(next: EventsClientConfig): void {
-  // KS-4787 diag: фиксируем переход — был ли модуль до этого настроен,
-  // что было в буфере на момент пересборки клиента.
-  // eslint-disable-next-line no-console
-  console.log(
-    `[ks-diag configure] prevConfigured=${config !== null} bufBefore=${buffer.length}`,
-  );
   config = next;
   attachUnloadListeners();
   startFlushTimer();
@@ -115,17 +109,6 @@ export function configureEvents(next: EventsClientConfig): void {
  * (см. `__resetEventsForTests`).
  */
 export function teardownEvents(opts: { resetBuffer?: boolean } = {}): void {
-  // KS-4787 diag: ключевой лог — фиксирует, что было в буфере на момент
-  // teardown и сбрасываем ли мы его. Stack показывает инициатора.
-  // eslint-disable-next-line no-console
-  console.log(
-    `[ks-diag teardown] bufBefore=${buffer.length} ` +
-      `types=[${buffer.map((e) => e.type).join(',')}] ` +
-      `configured=${config !== null} timerActive=${flushTimer !== null} ` +
-      `resetBuffer=${opts.resetBuffer === true}`,
-  );
-  // eslint-disable-next-line no-console
-  console.log(`[ks-diag teardown] stack=\n${new Error().stack ?? ''}`);
   stopFlushTimer();
   detachUnloadListeners();
   if (opts.resetBuffer === true) {
@@ -139,20 +122,9 @@ export function teardownEvents(opts: { resetBuffer?: boolean } = {}): void {
  * настроен — полный no-op.
  */
 export function track(type: string, payload?: EventPayload): void {
-  // KS-4787 diag: временный лог для e2e — убрать после зелёного прогона.
-  if (!config) {
-    // eslint-disable-next-line no-console
-    console.log(`[ks-diag track] DROP ${type}: no config`);
-    return;
-  }
-  if (!safeIsConsented()) {
-    // eslint-disable-next-line no-console
-    console.log(`[ks-diag track] DROP ${type}: not consented`);
-    return;
-  }
+  if (!config) return;
+  if (!safeIsConsented()) return;
   buffer.push({ type, payload, ts: new Date().toISOString() });
-  // eslint-disable-next-line no-console
-  console.log(`[ks-diag track] BUFFERED ${type}: bufSize=${buffer.length}`);
   if (buffer.length >= MAX_BATCH) {
     void flush();
   }
@@ -167,22 +139,10 @@ export function track(type: string, payload?: EventPayload): void {
 export async function flush(): Promise<void> {
   if (!config) return;
   if (!safeIsConsented()) {
-    // KS-4787 diag: временный лог для e2e — убрать после зелёного прогона.
-    if (buffer.length > 0) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[ks-diag flush] DROP ${buffer.length} buffered events: not consented`,
-      );
-    }
     buffer = [];
     return;
   }
   if (buffer.length === 0) return;
-  // KS-4787 diag: временный лог.
-  // eslint-disable-next-line no-console
-  console.log(
-    `[ks-diag flush] sending batch types=[${buffer.map((e) => e.type).join(',')}]`,
-  );
 
   const batch = buffer.splice(0, MAX_BATCH);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

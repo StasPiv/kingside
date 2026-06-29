@@ -48,25 +48,14 @@ export function EventsBootstrap(): null {
   }, []);
 
   useEffect(() => {
-    // KS-4787 diag: каждый запуск этого useEffect = новый configureEvents.
-    // eslint-disable-next-line no-console
-    console.log(
-      `[ks-diag bootstrap] configure-effect run: user.id=${user?.id ?? 'null'} ` +
-        `consent=${(user as UserWithConsent | null)?.analyticsConsent} ` +
-        `token=${token ? 'set' : 'null'} consentBump=${consentBump}`,
-    );
     configureEvents({
       isConsented: () =>
         isAnalyticsConsentGiven(user as UserWithConsent | null),
       getAuthToken: () => token,
     });
     return () => {
-      // Только при полном unmount (тесты/HMR) сбрасываем модуль.
-      // KS-4787 diag: фиксируем причину — deps-change rerun или реальный unmount.
-      // eslint-disable-next-line no-console
-      console.log(
-        `[ks-diag bootstrap] configure-effect cleanup (deps changed OR unmount)`,
-      );
+      // Snimaem listeners/timer. KS-4787: buffer сохраняется по умолчанию,
+      // чтобы StrictMode mount→unmount→remount не терял page_view.
       teardownEvents();
     };
     // user объект может пересоздаваться — реагируем на стабильные поля.
@@ -88,14 +77,6 @@ export function EventsBootstrap(): null {
     () => isAnalyticsConsentGiven(user as UserWithConsent | null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user?.id, (user as UserWithConsent | null)?.analyticsConsent, consentBump],
-  );
-
-  // KS-4787 diag: временный лог для e2e — убрать после зелёного прогона.
-  // eslint-disable-next-line no-console
-  console.log(
-    `[ks-diag bootstrap] render: user.id=${user?.id ?? 'null'} ` +
-      `user.analyticsConsent=${(user as UserWithConsent | null)?.analyticsConsent} ` +
-      `consentBump=${consentBump} eventsReady=${eventsReady}`,
   );
 
   // Tracking-хуки сами не зависят от consent — он проверяется внутри
