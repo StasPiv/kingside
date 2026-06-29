@@ -17,7 +17,8 @@ import {
   arrow,
 } from '@floating-ui/react';
 import type { Placement } from '@floating-ui/react';
-import type { HintShowPayload } from '@kingside/shared';
+import { useLocation } from 'react-router-dom';
+import { isQuietPage, type HintShowPayload } from '@kingside/shared';
 import { useAuth } from '../../context/AuthContext';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { isAnalyticsConsentGiven } from '../../lib/events';
@@ -100,6 +101,26 @@ export function HintHost(): ReactElement | null {
   useEffect(() => {
     setHint(null);
   }, [isAuthorized]);
+
+  // KS-4813 / ADR-153 §2.4. SPA-навигация на «тихую» страницу
+  // (`/live/*`, `/broadcast/*`, `/lecture/:id`, `/admin/*`) пока pending
+  // hint ждал anchor через MutationObserver — отменяем hint c
+  // `ignored{quiet_page}`. Освобождает session-quota быстрее, чем
+  // 30-секундный `no_anchor`-fallback (KS-4790), и снижает шум в
+  // метрике `hints_emit_no_anchor_after_navigate_total`. Backend
+  // принимает reason='quiet_page' после KS-4806 (F2a).
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (!hint) return;
+    if (!isQuietPage(pathname)) return;
+    void sendHintLifecycle({
+      hintId: hint.hintId,
+      kind: 'ignored',
+      reason: 'quiet_page',
+      token,
+    });
+    setHint(null);
+  }, [pathname, hint, token]);
 
   const handleClose = useCallback(
     (kind: 'dismissed' | 'acted' | 'ignored', reason?: 'close_button' | 'cta_clicked' | 'ttl_expired') => {

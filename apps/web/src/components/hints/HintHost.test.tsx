@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '../../i18n/index';
 import { AuthContext } from '../../context/AuthContext';
@@ -85,10 +85,14 @@ function makePayload(overrides: Partial<HintShowPayload> = {}): HintShowPayload 
   };
 }
 
-function wrap(ui: ReactNode, user: User | null = null) {
+function wrap(
+  ui: ReactNode,
+  user: User | null = null,
+  initialEntries: string[] = ['/'],
+) {
   return render(
     <I18nextProvider i18n={i18n}>
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter initialEntries={initialEntries}>
         <AuthContext.Provider
           value={{
             user,
@@ -105,6 +109,22 @@ function wrap(ui: ReactNode, user: User | null = null) {
         </AuthContext.Provider>
       </MemoryRouter>
     </I18nextProvider>,
+  );
+}
+
+// KS-4813. Тестовый компонент-навигатор: позволяет внутри теста
+// инициировать SPA-переход через `useNavigate`, чтобы триггерить
+// `useEffect` HintHost'а по `useLocation`.
+function NavTo({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      data-testid="nav-trigger"
+      onClick={() => navigate(to)}
+    >
+      go
+    </button>
   );
 }
 
@@ -371,6 +391,104 @@ describe('HintHost (KS-4703)', () => {
         (shown?.[1] as RequestInit).headers as Record<string, string>;
       expect(headers['Authorization']).toBeUndefined();
     });
+  });
+
+  it('SPA navigation на quiet-page при активном hint → POST ignored{quiet_page} + popover исчезает', async () => {
+    // KS-4813 / ADR-153 §2.4. Сценарий: hint показан на /play, пользователь
+    // переходит на /live/round1 — popover должен сразу исчезнуть с
+    // lifecycle ignored{quiet_page}, не дожидаясь 30-секундного
+    // MutationObserver-fallback'а KS-4790.
+    setupAnchor('game-end-analysis-button');
+    wrap(
+      <>
+        <HintHost />
+        <NavTo to="/live/round1" />
+      </>,
+      makeUser(),
+      ['/play'],
+    );
+
+    await act(async () => {
+      fireWs('hint:show', makePayload());
+    });
+    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('nav-trigger'));
+    });
+
+    expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
+    await waitFor(() => {
+      const ignored = vi.mocked(fetch).mock.calls.find(
+        ([url], i) => {
+          // Берём именно ignored с reason=quiet_page (могут быть и другие
+          // ignored из других сценариев — фильтруем по body).
+          if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
+          const body = JSON.parse(
+            (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
+          );
+          return body?.reason === 'quiet_page';
+        },
+      );
+      expect(ignored).toBeDefined();
+    });
+  });
+
+  it('hint:show приходит когда уже на quiet-page → ignored{quiet_page} немедленно, popover не рендерится', async () => {
+    // KS-4813. Edge: user уже на /admin к моменту прихода hint'а
+    // (например, через WS replay после reconnect). useEffect срабатывает
+    // на смене hint (depsы [pathname, hint, token]) — отбрасываем сразу.
+    setupAnchor('admin-some-anchor');
+    wrap(<HintHost />, makeUser(), ['/admin/hints']);
+
+    await act(async () => {
+      fireWs('hint:show', makePayload({ anchor: 'admin-some-anchor' }));
+    });
+
+    await waitFor(() => {
+      const ignored = vi.mocked(fetch).mock.calls.find(([url], i) => {
+        if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
+        const body = JSON.parse(
+          (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
+        );
+        return body?.reason === 'quiet_page';
+      });
+      expect(ignored).toBeDefined();
+    });
+    expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
+  });
+
+  it('SPA navigation на нормальную страницу не отменяет hint', async () => {
+    // KS-4813. Регрессия: переход на /lessons (не quiet) — popover
+    // продолжает жить, ignored{quiet_page} не шлётся.
+    setupAnchor('game-end-analysis-button');
+    wrap(
+      <>
+        <HintHost />
+        <NavTo to="/lessons" />
+      </>,
+      makeUser(),
+      ['/play'],
+    );
+
+    await act(async () => {
+      fireWs('hint:show', makePayload());
+    });
+    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('nav-trigger'));
+    });
+
+    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+    const quietIgnored = vi.mocked(fetch).mock.calls.find(([url], i) => {
+      if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
+      const body = JSON.parse(
+        (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
+      );
+      return body?.reason === 'quiet_page';
+    });
+    expect(quietIgnored).toBeUndefined();
   });
 
   it('переход guest→user — pending перестаёт зваться, WS работает', async () => {
