@@ -221,6 +221,53 @@ def _build_scope_prompt(agent: str) -> str:
     lines.append(f"**RO (только читать):** {', '.join(ro) or '—'}")
     lines.append("Остальные файлы в /project недоступны. НЕ пытайся читать/писать за пределами scope — сразу сообщи координатору.")
 
+    # Список MCP-тулов которые требуют ROLE_* — агент должен знать чем может
+    # пользоваться, иначе делает вызов → ловит 401 от webhook → пробует снова.
+    # Сейчас MCP-сервер показывает ВСЕ тулы, без role-фильтрации.
+    agent_roles = set(AGENT_ROLES.get(agent, []))
+    # Мапа: endpoint → MCP-тул (читаемое имя)
+    _ENDPOINT_TO_MCP = {
+        "/commit": "commit",
+        "/git-log": "git_log",
+        "/api-start": "api_start",
+        "/vite-start": "vite_start",
+        "/up": "(just up через MCP не доступно)",
+        "/npm-install": "npm_install",
+        "/npm-run": "npm_run",
+        "/docker-compose": "docker_compose",
+        "/deploy": "deploy",
+        "/test-hints": "test_hints",
+        "/gsc/url-inspect": "gsc_*",
+    }
+    allowed_mcp: list[str] = []
+    forbidden_mcp: list[str] = []
+    for ep, spec in ENDPOINT_ROLE.items():
+        mcp_name = _ENDPOINT_TO_MCP.get(ep, ep)
+        if isinstance(spec, dict):
+            # Например, /deploy с разными scope требуют разные роли.
+            allowed_scopes = [s for s, r in spec.items() if r in agent_roles]
+            if allowed_scopes:
+                allowed_mcp.append(f"{mcp_name}(scope:{','.join(sorted(allowed_scopes))})")
+            else:
+                forbidden_mcp.append(mcp_name)
+        else:
+            if spec in agent_roles:
+                allowed_mcp.append(mcp_name)
+            else:
+                forbidden_mcp.append(mcp_name)
+    # Дедуп (gsc_* etc.)
+    allowed_mcp = sorted(set(allowed_mcp))
+    forbidden_mcp = sorted(set(forbidden_mcp))
+    lines.append("")
+    lines.append("## MCP-тулы которыми ты можешь пользоваться")
+    lines.append(f"**Доступны (auth ok):** {', '.join(allowed_mcp) or '—'}")
+    lines.append(f"**Запрещены (вернут 401):** {', '.join(forbidden_mcp) or '—'}")
+    lines.append(
+        "Если задача требует запрещённого тула — НЕ вызывай его (получишь 401 и потеряешь turn). "
+        "Делегируй через `agent_message` агенту у которого роль есть. Например, прогон e2e "
+        "(`test_hints`) — только у qa, деплой по scope — у владельца сервиса."
+    )
+
     # Системные напоминания Claude Code про TaskCreate/TaskUpdate в этом проекте
     # не релевантны — задачи трекаются в Jira через MCP-тулы issue_*.
     # Без явного запрета агенты пишут в чат «напоминание не релевантно — задачи в Jira»
