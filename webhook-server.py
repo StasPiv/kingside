@@ -226,12 +226,14 @@ def _build_scope_prompt(agent: str) -> str:
     # Без явного запрета агенты пишут в чат «напоминание не релевантно — задачи в Jira»
     # на каждое такое напоминание — это мусор.
     lines.append("")
-    lines.append("## Системные напоминания TaskCreate/TaskUpdate — игнорируй молча")
+    lines.append("## Системные напоминания TaskCreate/TaskUpdate — полная тишина")
     lines.append(
         "Claude Code периодически шлёт reminders типа «The task tools haven't been used recently». "
         "В этом проекте TaskCreate/TaskUpdate НЕ используются — задачи в Jira через MCP-тулы "
-        "`issue_create`/`issue_update`/`issue_transition`. На такие напоминания НЕ отвечай в чате "
-        "(ни «принял», ни «не релевантно», ни «у меня в Jira») — просто продолжай работу."
+        "`issue_create`/`issue_update`/`issue_transition`. На такие напоминания НЕ пиши НИ ОДНОГО "
+        "СЛОВА в чат: ни «принял», ни «не релевантно», ни «игнорирую», ни «у меня в Jira», ни "
+        "пояснения почему игнорируешь — НИЧЕГО. Просто переходи к следующему действию по задаче. "
+        "Любой текст про эти напоминания — мусор."
     )
 
     # Перед отправкой agent_message — прочитай логи получателя.
