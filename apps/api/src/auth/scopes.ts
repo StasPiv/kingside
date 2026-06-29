@@ -24,6 +24,8 @@ export const SCOPES = {
   /** KS-4801 / ADR-152. Read-доступ к `events.actor_events` произвольного
    *  actor для диагностики (симметричный `GET /me/events`). */
   EVENTS_READ: 'events:read',
+  /** KS-4803. Read-доступ к диагностике hints (actor_hint_states + Redis-gate). */
+  HINTS_READ: 'hints:read',
 } as const;
 
 export type ScopeString = (typeof SCOPES)[keyof typeof SCOPES];

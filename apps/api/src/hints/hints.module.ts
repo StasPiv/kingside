@@ -17,6 +17,9 @@ import { MessageModule } from '../message/message.module';
 import { MetricsModule } from '../metrics/metrics.module';
 import { HintsAdminController } from './admin/hints-admin.controller';
 import { HintsAdminService } from './admin/hints-admin.service';
+// KS-4803: read-only диагностика hints для service-account.
+import { HintsDiagnoseController } from './admin/hints-diagnose.controller';
+import { HintsDiagnoseService } from './admin/hints-diagnose.service';
 import { HintsController } from './hints.controller';
 import { HintsLimitsService } from './hints-limits.service';
 import { HintsListener } from './hints.listener';
@@ -34,13 +37,14 @@ import { HintsService } from './hints.service';
   // MessageModule возвращает undefined → UndefinedModuleException на
   // bootstrap.
   imports: [MetricsModule, AuthModule, forwardRef(() => MessageModule), GuestModule],
-  controllers: [HintsController, HintsAdminController],
+  controllers: [HintsController, HintsAdminController, HintsDiagnoseController],
   providers: [
     HintsService,
     HintsLimitsService,
     HintsMetricsService,
     HintsListener,
     HintsAdminService,
+    HintsDiagnoseService,
   ],
   exports: [HintsService, HintsLimitsService, HintsMetricsService],
 })
