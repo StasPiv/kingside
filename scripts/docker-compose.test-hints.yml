@@ -158,6 +158,49 @@ services:
         max-size: "10m"
         max-file: "2"
 
+  # KS-4793. Сидер Stockfish bot user в `users` ДО старта api.
+  # POST /games/bot создаёт партию с white_id/black_id = STOCKFISH_BOT_ID
+  # и падает FK violation `games_white_id_fkey`, если в `users` ещё нет
+  # этой записи. В обычном dev/prod BotGameService.ensureStockfishBot()
+  # делает upsert в onModuleInit() через setImmediate (fire-and-forget),
+  # но в test-hints e2e запросы прилетают раньше, чем setImmediate отрабатывает —
+  # отсюда гонка. Заранее сидируем через sidecar, чтобы убрать окно гонки.
+  #
+  # UUID и username — `STOCKFISH_BOT_ID` / `STOCKFISH_BOT_USERNAME` из
+  # `packages/shared/src/constants.ts`. Значения рейтингов и email — те же,
+  # что в `BotGameService.ensureStockfishBot()` (apps/api/src/game/bot-game.service.ts).
+  # ON CONFLICT DO NOTHING — безопасно, если ensureStockfishBot всё-таки
+  # успеет первым (между прогонами на сохраняемом volume).
+  seed-stockfish-bot:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      PGPASSWORD: kingside
+    depends_on:
+      migrate-events:
+        condition: service_completed_successfully
+    entrypoint:
+      - sh
+      - -c
+      - |
+        psql -h postgres -U kingside -d kingside -v ON_ERROR_STOP=1 <<'SQL'
+        INSERT INTO users (id, username, email, password_hash, is_bot,
+                           rating_bullet, rating_blitz, rating_rapid, rating_classical)
+        VALUES ('00000000-0000-4000-a000-000000000001',
+                'Stockfish Bot',
+                'stockfish-bot@kingside.local',
+                '',
+                true,
+                1500, 1500, 1500, 1500)
+        ON CONFLICT (id) DO NOTHING;
+        SELECT id, username, is_bot FROM users WHERE id = '00000000-0000-4000-a000-000000000001';
+        SQL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
   api:
     build:
       context: .
@@ -168,7 +211,10 @@ services:
     environment:
       DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside
       EVENTS_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside?schema=events
-      EVENTS_WRITER_PASSWORD: kingside
+      # KS-4785: НЕ задаём EVENTS_WRITER_PASSWORD — роль `events_writer` создаётся
+      # вручную в проде через scripts/sql/events-schema-init.sql, в test-hints её нет.
+      # Без переменной events-prisma.service.ts использует owner-роль `kingside`
+      # (у неё все права), это документированный путь для локального dev.
       ARCHIVE_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/kingside_archive
       BROADCASTS_DATABASE_URL: postgresql://kingside:kingside@postgres:5432/broadcasts_kingside
       REDIS_URL: redis://redis:6379
@@ -205,6 +251,8 @@ services:
       migrate-events:
         condition: service_completed_successfully
       seed-feature-flags:
+        condition: service_completed_successfully
+      seed-stockfish-bot:
         condition: service_completed_successfully
     healthcheck:
       test:
