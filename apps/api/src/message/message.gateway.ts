@@ -24,6 +24,7 @@ import {
 } from '@kingside/shared';
 import { randomUUID } from 'crypto';
 import { NotificationService } from '../notification/notification.service';
+import { HintsService } from '../hints/hints.service';
 
 const CHALLENGE_TTL_SEC = 60;
 const ONLINE_SET_KEY = 'online_users';
@@ -43,6 +44,8 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly prisma: PrismaService,
     private readonly gameService: GameService,
     @Inject(forwardRef(() => NotificationService)) private readonly notifications: NotificationService,
+    // KS-4786: replay контекстных подсказок на handleConnection.
+    @Inject(forwardRef(() => HintsService)) private readonly hints: HintsService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -55,6 +58,27 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       const payload = this.jwtService.verify<JwtPayload>(String(token));
       client.data.user = { id: payload.sub, username: payload.username };
       await client.join(`user:${payload.sub}`);
+
+      // KS-4786: replay контекстных подсказок, потерянных из-за гонки
+      // page_view → emit vs WS-handshake (типичный сценарий перезагрузки
+      // страницы). HintsListener при page_view пишет последнюю страницу
+      // в `hints:last-page:<actor_id>` (TTL 300с) — используем её как
+      // контекст. `triggerEventType: 'ws_connected'` — синтетика только
+      // для checkFor, в EventsService.track НЕ пишется (нет зацикливания
+      // через HintsListener). HintsService.checkFor сам сделает
+      // emitHintShow если правило сматчится; per-hint лимиты
+      // (maxShows/cooldown) защитят от дублей с уже состоявшимся показом.
+      // Не await — fire-and-forget, чтобы не задерживать handshake;
+      // HintsService.checkFor fail-soft, исключения не пробрасывает.
+      try {
+        const lastPage = await this.redis.get(`hints:last-page:${payload.sub}`);
+        void this.hints.checkFor(
+          { type: 'user', id: payload.sub },
+          { page: lastPage ?? undefined, triggerEventType: 'ws_connected' },
+        );
+      } catch {
+        /* no-op: replay best-effort */
+      }
 
       // Cancel pending offline timer
       const pending = this.disconnectTimers.get(payload.sub);

@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { GameModule } from '../game/game.module';
 import { UserModule } from '../user/user.module';
 import { NotificationModule } from '../notification/notification.module';
+import { HintsModule } from '../hints/hints.module';
 import { MessageController } from './message.controller';
 import { MessageService } from './message.service';
 import { MessageGateway } from './message.gateway';
@@ -19,7 +20,17 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
   defaultAuth: 'user',
 })
 @Module({
-  imports: [AuthModule, forwardRef(() => GameModule), UserModule, forwardRef(() => NotificationModule)],
+  // KS-4786: HintsModule подключаем через forwardRef — HintsService
+  // уже инжектит MessageGateway (`@Optional`), теперь и MessageGateway
+  // инжектит HintsService для replay контекстных подсказок на
+  // handleConnection. Без forwardRef Nest падает на циклическом DI.
+  imports: [
+    AuthModule,
+    forwardRef(() => GameModule),
+    UserModule,
+    forwardRef(() => NotificationModule),
+    forwardRef(() => HintsModule),
+  ],
   controllers: [MessageController],
   providers: [MessageService, MessageGateway],
   exports: [MessageService, MessageGateway],

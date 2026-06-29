@@ -54,6 +54,10 @@ export class HintsListener implements OnModuleInit {
 
   onModuleInit(): void {
     this.events.onTrack((e) => this.handle(e.actor, e.type, e.payload));
+    // KS-4785: подтверждение в логах что listener реально подписался.
+    // Если строки нет — HintsModule не инициализирован, и реактивная
+    // ветка checkFor никогда не сработает.
+    this.logger.log('onModuleInit: subscribed to EventsService.onTrack');
   }
 
   private async handle(actor: Actor, type: string, payload: unknown): Promise<void> {
