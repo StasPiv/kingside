@@ -159,6 +159,11 @@ export class HintsService {
       // здесь дублировать не нужно.
       if (actor.type === 'user' && this.gateway) {
         try {
+          // KS-4785: лог вызова emit — чтобы видеть, доходит ли HintsService
+          // до точки эмита (и не отбрасывается ли ранее на consent/limits).
+          this.logger.log(
+            `[ks-diag emit] calling gateway.emitHintShow user=${actor.id} key=${payload.key} trigger=${ctx.triggerEventType ?? '?'}`,
+          );
           this.gateway.emitHintShow(actor.id, payload);
         } catch (err) {
           // WS-emit fail-soft: даже если сокет упал, ActorHintState
@@ -166,6 +171,11 @@ export class HintsService {
           // (или caller сможет логировать факт).
           this.logger.warn(`emitHintShow failed for user=${actor.id}: ${(err as Error).message}`);
         }
+      } else {
+        // KS-4785: ветка молчания — actor не user или gateway не подключён.
+        this.logger.log(
+          `[ks-diag emit] SKIP gateway emit: actorType=${actor.type} gateway=${this.gateway ? 'yes' : 'no'}`,
+        );
       }
 
       return payload;

@@ -190,7 +190,20 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
    * для actor.type === 'user'.
    */
   emitHintShow(userId: string, payload: unknown): void {
-    this.server.to(`user:${userId}`).emit('hint:show', payload);
+    // KS-4785: диагностика доставки `hint:show`. Печатает namespace,
+    // room-имя, размер room (сколько сокетов получит emit) — без этого
+    // в логах нет следов вызова emit на бэке, не видно есть ли клиент
+    // в room на момент emit'а. После закрытия задачи — снести.
+    const room = `user:${userId}`;
+    const rooms = (this.server?.adapter as any)?.rooms;
+    const roomSet = rooms?.get(room);
+    const roomSize = roomSet ? roomSet.size : 0;
+    const namespace = (this.server as any)?.name ?? '?';
+    const payloadKey = (payload as { key?: string } | null)?.key ?? '?';
+    this.logger.log(
+      `[ks-diag emit] hint:show ns=${namespace} room=${room} size=${roomSize} key=${payloadKey}`,
+    );
+    this.server.to(room).emit('hint:show', payload);
   }
 
   // ─── Challenge ─────────────────────────────────────────────────────
