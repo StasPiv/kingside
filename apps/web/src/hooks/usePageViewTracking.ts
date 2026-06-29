@@ -11,17 +11,27 @@ import { track } from '../lib/events';
  *
  * Поведение для user и guest одинаково: backend различает actor по
  * JWT/cookie (§2.2).
+ *
+ * KS-4787: параметр `ready` (по умолчанию `true`) — гейт на готовность
+ * consent и инициализации `configureEvents()`. Пока `ready=false`
+ * хук не считает текущий pathname «отправленным» — `sentForPathRef`
+ * обновляется только после реального вызова `track`. При смене
+ * `ready` с false на true (auth.me пришёл, consent появился) — будет
+ * выслан `page_view` для текущего pathname. Дублей нет: для одного
+ * pathname `track` вызывается ровно один раз.
  */
-export function usePageViewTracking(): void {
+export function usePageViewTracking(ready: boolean = true): void {
   const location = useLocation();
-  const prevPathRef = useRef<string | null>(null);
+  const sentForPathRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!ready) return;
     const path = location.pathname;
-    const prev = prevPathRef.current;
-    // Не шлём событие при no-op rerender'ах (тот же путь).
+    const prev = sentForPathRef.current;
+    // Не шлём событие при no-op rerender'ах и повторных переходах
+    // в тот же pathname (например, после прихода consent).
     if (prev === path) return;
     track('page_view', { path, prev_path: prev });
-    prevPathRef.current = path;
-  }, [location.pathname]);
+    sentForPathRef.current = path;
+  }, [location.pathname, ready]);
 }

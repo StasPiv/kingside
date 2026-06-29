@@ -70,4 +70,39 @@ describe('usePageViewTracking (KS-4684)', () => {
     rerender();
     expect(trackSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('KS-4787: не шлёт page_view, пока ready=false', () => {
+    renderHook(({ ready }) => usePageViewTracking(ready), {
+      wrapper,
+      initialProps: { ready: false },
+    });
+    expect(trackSpy).not.toHaveBeenCalled();
+  });
+
+  it('KS-4787: шлёт page_view, когда ready меняется false → true', () => {
+    const { rerender } = renderHook(
+      ({ ready }) => usePageViewTracking(ready),
+      { wrapper, initialProps: { ready: false } },
+    );
+    expect(trackSpy).not.toHaveBeenCalled();
+
+    rerender({ ready: true });
+
+    expect(trackSpy).toHaveBeenCalledTimes(1);
+    expect(trackSpy).toHaveBeenCalledWith('page_view', {
+      path: '/foo',
+      prev_path: null,
+    });
+  });
+
+  it('KS-4787: не дублирует page_view при последующем ready-rerender для того же pathname', () => {
+    const { rerender } = renderHook(
+      ({ ready }) => usePageViewTracking(ready),
+      { wrapper, initialProps: { ready: false } },
+    );
+    rerender({ ready: true });
+    rerender({ ready: true });
+    rerender({ ready: true });
+    expect(trackSpy).toHaveBeenCalledTimes(1);
+  });
 });

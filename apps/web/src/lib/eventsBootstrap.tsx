@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   configureEvents,
@@ -66,9 +66,21 @@ export function EventsBootstrap(): null {
     consentBump,
   ]);
 
+  // KS-4787: считаем events-клиент готовым, когда consent дан. До этого
+  // `track()` всё равно no-op'ает — но `usePageViewTracking` без гейта
+  // считал бы pathname «отправленным» и больше не повторил бы попытку,
+  // даже когда consent появится после auth.me. consentBump участвует в
+  // зависимостях, чтобы реактивно реагировать на cookie/localStorage,
+  // которые сами по себе не наблюдаемы подпиской.
+  const eventsReady = useMemo(
+    () => isAnalyticsConsentGiven(user as UserWithConsent | null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user?.id, (user as UserWithConsent | null)?.analyticsConsent, consentBump],
+  );
+
   // Tracking-хуки сами не зависят от consent — он проверяется внутри
   // `track()` в lib/events.ts. Без consent хуки безопасно no-op'ят.
-  usePageViewTracking();
+  usePageViewTracking(eventsReady);
   useIdleTracking();
   useGuestLandingTracking({ disabled: Boolean(user) });
 
