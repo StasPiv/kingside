@@ -78,6 +78,14 @@ export function EventsBootstrap(): null {
     [user?.id, (user as UserWithConsent | null)?.analyticsConsent, consentBump],
   );
 
+  // KS-4787 diag: временный лог для e2e — убрать после зелёного прогона.
+  // eslint-disable-next-line no-console
+  console.log(
+    `[ks-diag bootstrap] render: user.id=${user?.id ?? 'null'} ` +
+      `user.analyticsConsent=${(user as UserWithConsent | null)?.analyticsConsent} ` +
+      `consentBump=${consentBump} eventsReady=${eventsReady}`,
+  );
+
   // Tracking-хуки сами не зависят от consent — он проверяется внутри
   // `track()` в lib/events.ts. Без consent хуки безопасно no-op'ят.
   usePageViewTracking(eventsReady);

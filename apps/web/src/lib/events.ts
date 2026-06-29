@@ -113,9 +113,20 @@ export function teardownEvents(): void {
  * настроен — полный no-op.
  */
 export function track(type: string, payload?: EventPayload): void {
-  if (!config) return;
-  if (!safeIsConsented()) return;
+  // KS-4787 diag: временный лог для e2e — убрать после зелёного прогона.
+  if (!config) {
+    // eslint-disable-next-line no-console
+    console.log(`[ks-diag track] DROP ${type}: no config`);
+    return;
+  }
+  if (!safeIsConsented()) {
+    // eslint-disable-next-line no-console
+    console.log(`[ks-diag track] DROP ${type}: not consented`);
+    return;
+  }
   buffer.push({ type, payload, ts: new Date().toISOString() });
+  // eslint-disable-next-line no-console
+  console.log(`[ks-diag track] BUFFERED ${type}: bufSize=${buffer.length}`);
   if (buffer.length >= MAX_BATCH) {
     void flush();
   }
@@ -130,10 +141,22 @@ export function track(type: string, payload?: EventPayload): void {
 export async function flush(): Promise<void> {
   if (!config) return;
   if (!safeIsConsented()) {
+    // KS-4787 diag: временный лог для e2e — убрать после зелёного прогона.
+    if (buffer.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[ks-diag flush] DROP ${buffer.length} buffered events: not consented`,
+      );
+    }
     buffer = [];
     return;
   }
   if (buffer.length === 0) return;
+  // KS-4787 diag: временный лог.
+  // eslint-disable-next-line no-console
+  console.log(
+    `[ks-diag flush] sending batch types=[${buffer.map((e) => e.type).join(',')}]`,
+  );
 
   const batch = buffer.splice(0, MAX_BATCH);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

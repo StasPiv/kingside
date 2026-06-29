@@ -25,12 +25,19 @@ export function usePageViewTracking(ready: boolean = true): void {
   const sentForPathRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // KS-4787 diag: временный лог для e2e — убрать после зелёного прогона.
+    // eslint-disable-next-line no-console
+    console.log(
+      `[ks-diag pageView] effect: ready=${ready} pathname=${location.pathname} sent=${sentForPathRef.current}`,
+    );
     if (!ready) return;
     const path = location.pathname;
     const prev = sentForPathRef.current;
     // Не шлём событие при no-op rerender'ах и повторных переходах
     // в тот же pathname (например, после прихода consent).
     if (prev === path) return;
+    // eslint-disable-next-line no-console
+    console.log(`[ks-diag pageView] track('page_view', {path:${path}})`);
     track('page_view', { path, prev_path: prev });
     sentForPathRef.current = path;
   }, [location.pathname, ready]);
