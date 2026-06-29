@@ -54,19 +54,9 @@ export class HintsListener implements OnModuleInit {
 
   onModuleInit(): void {
     this.events.onTrack((e) => this.handle(e.actor, e.type, e.payload));
-    // KS-4785: подтверждение в логах что listener реально подписался.
-    // Если строки нет — HintsModule не инициализирован, и реактивная
-    // ветка checkFor никогда не сработает.
-    this.logger.log('onModuleInit: subscribed to EventsService.onTrack');
   }
 
   private async handle(actor: Actor, type: string, payload: unknown): Promise<void> {
-    // KS-4785: лог входа в handle — попадает в окно `container_logs.api`
-    // тула `test_hints` (200 строк / 15 мин). Это единственный способ
-    // подтвердить из тест-стенда, что listener реально получает
-    // callback из EventsService.onTrack. После закрытия диагностики —
-    // снизить до debug.
-    this.logger.log(`handle: type=${type} actor=${actor.type}:${actor.id}`);
     // Smart-dismiss первым: даже на не-реактивных событиях может
     // сработать `acceptedBy` (например, puzzle_start от `acceptedBy:
     // [puzzle_start]` правила).
