@@ -88,6 +88,12 @@ export class EventsClientService implements OnModuleInit {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    // KS-4800: диагностический лог факта попытки — чтобы по
+    // CloudWatch было видно, что track() реально вызван (а не отрезан
+    // по optional-DI/секрету).
+    this.logger.log(
+      `POST /internal/events → ${this.url} (type=${type}, actor.type=${actor.type}, actor.id=${actor.id})`,
+    );
     try {
       const res = await fetch(this.url, {
         method: 'POST',
@@ -103,6 +109,11 @@ export class EventsClientService implements OnModuleInit {
         this.logger.warn(
           `POST /internal/events ${res.status}: ${text.slice(0, 200)} (type=${type})`,
         );
+      } else {
+        // KS-4800: успешный 2xx тоже логируем — нужно для пары к
+        // `actor_events_inserted_total{type=game_end}` (если POST дошёл,
+        // а insert не случился — проблема дальше по pipeline'у).
+        this.logger.log(`POST /internal/events ${res.status} ok (type=${type})`);
       }
     } catch (e: any) {
       this.logger.warn(

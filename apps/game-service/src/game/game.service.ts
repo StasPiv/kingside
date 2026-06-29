@@ -651,6 +651,14 @@ export class GameService {
         where: { id: gameId },
         select: { whiteId: true, blackId: true },
       });
+      // KS-4800: диагностический лог состояния блока эмиссии. По нему
+      // видно, дошёл ли поток до этой ветки и не отрезан ли DI
+      // (this.events undefined при отсутствии EventsClientModule в DI).
+      this.logger.log(
+        `[KS-4800] game_end emit gate gameId=${gameId} players=${!!players} events=${!!this.events} `
+          + `whiteId=${players?.whiteId ?? null} blackId=${players?.blackId ?? null} `
+          + `result=${result} termination=${termination}`,
+      );
       if (players && this.events) {
         const winner: 'white' | 'black' | 'draw' = result;
         const ratingDeltaWhite = ratingChange
