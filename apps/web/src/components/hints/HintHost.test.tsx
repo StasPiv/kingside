@@ -214,24 +214,79 @@ describe('HintHost (KS-4703)', () => {
     window.removeEventListener('kingside:hint-cta', onEvent);
   });
 
-  it('anchor не найден → POST ignored reason=no_anchor, no-render', async () => {
-    wrap(<HintHost />, makeUser());
-    await act(async () => {
-      fireWs(
-        'hint:show',
-        makePayload({ anchor: 'home-puzzles-tile' }),
-      );
-    });
+  it('anchor так и не появился за окно ожидания → POST ignored reason=no_anchor, no-render', async () => {
+    // KS-4790: HintHost теперь не шлёт ignored сразу — он ждёт появления
+    // anchor через MutationObserver до ANCHOR_WAIT_MS. Если за это время
+    // элемент не появился, лайфсайкл = ignored{no_anchor}.
+    vi.useFakeTimers();
+    try {
+      wrap(<HintHost />, makeUser());
+      await act(async () => {
+        fireWs(
+          'hint:show',
+          makePayload({ anchor: 'home-puzzles-tile' }),
+        );
+      });
 
-    await waitFor(() => {
+      // Сразу после hint:show ignored ещё НЕ отправлен.
+      const earlyIgnored = vi.mocked(fetch).mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
+      );
+      expect(earlyIgnored).toBeUndefined();
+
+      // Прокрутили окно ожидания.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
       const ignored = vi.mocked(fetch).mock.calls.find(
         ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
       );
       expect(ignored).toBeDefined();
       const body = JSON.parse((ignored?.[1] as RequestInit).body as string);
       expect(body).toEqual({ reason: 'no_anchor' });
+      expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('anchor появляется уже после hint:show → popover рендерится, POST shown', async () => {
+    // KS-4790: правило `bridge-promo-after-3-wasm` триггерится на
+    // ws_connected, но `[data-hint-anchor="analysis-bridge-promo"]`
+    // рендерится только когда `activeSource === 'wasm'` — после действий
+    // пользователя. HintHost должен дождаться появления якоря через
+    // MutationObserver и показать popover.
+    wrap(<HintHost />, makeUser());
+    await act(async () => {
+      fireWs(
+        'hint:show',
+        makePayload({ anchor: 'analysis-bridge-promo' }),
+      );
     });
+
+    // Сразу popover'а нет: якоря в DOM ещё нет.
     expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
+
+    // Якорь появляется позже (имитация условного рендера блока).
+    await act(async () => {
+      setupAnchor('analysis-bridge-promo');
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('hint-popover')).toBeInTheDocument(),
+    );
+    await waitFor(() => {
+      const shown = vi.mocked(fetch).mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/shown'),
+      );
+      expect(shown).toBeDefined();
+    });
+    // ignored по no_anchor не отправлен.
+    const ignored = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
+    );
+    expect(ignored).toBeUndefined();
   });
 
   it('ttl истёк → POST ignored reason=ttl_expired', async () => {

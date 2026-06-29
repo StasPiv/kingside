@@ -157,28 +157,52 @@ interface RendererProps {
   ) => void;
 }
 
+/**
+ * KS-4790. Сколько ждём появления anchor в DOM, прежде чем отказаться от
+ * hint и отправить `ignored{no_anchor}`. Якорь может прийти позже самого
+ * `hint:show`: правило (например `bridge-promo-after-3-wasm`) триггерится
+ * на `ws_connected` через replay сразу после connect, а блок-якорь
+ * рендерится условно (`activeSource === 'wasm'` для bridge-promo) — то
+ * есть только после действий пользователя. До правки HintHost сразу слал
+ * ignored и hint терялся; теперь подписываемся через MutationObserver и
+ * ждём появления элемента в этом окне.
+ */
+const ANCHOR_WAIT_MS = 30_000;
+
 function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | null {
   const isMobile = useIsMobile();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const noAnchorFiredRef = useRef(false);
   const shownFiredRef = useRef(false);
 
-  // Поиск anchor в DOM. Делается синхронно после первого render'а, чтобы
-  // ushevcli заглавный DOM был готов.
+  // Поиск anchor в DOM. KS-4790: если на момент рендера якоря ещё нет,
+  // подписываемся через MutationObserver и ждём его появления до
+  // ANCHOR_WAIT_MS. По таймауту отправляем ignored{no_anchor}.
   useLayoutEffect(() => {
-    const el = document.querySelector<HTMLElement>(
-      `[data-hint-anchor="${hint.anchor}"]`,
-    );
-    setAnchorEl(el);
-    if (!el && !noAnchorFiredRef.current) {
+    if (typeof document === 'undefined') return;
+    const selector = `[data-hint-anchor="${hint.anchor}"]`;
+
+    const initial = document.querySelector<HTMLElement>(selector);
+    if (initial) {
+      // eslint-disable-next-line no-console
+      console.warn('[HintHost] anchor resolved (immediate):', hint.anchor, initial);
+      setAnchorEl(initial);
+      return;
+    }
+
+    let resolved = false;
+    const finishIgnored = () => {
+      if (resolved) return;
+      resolved = true;
+      observer.disconnect();
+      clearTimeout(timeoutId);
+      if (noAnchorFiredRef.current) return;
       noAnchorFiredRef.current = true;
-      // KS-4737: явно диагностируем разрыв «backend прислал hint, но
-      // anchor не нашёлся на странице» — частая причина «не показалась
-      // подсказка» (anchor только в условно-рендеримом блоке, либо
-      // пользователь dismissed его, либо не на той странице).
       // eslint-disable-next-line no-console
       console.warn(
-        '[HintHost] no anchor on page for hint:',
+        '[HintHost] anchor did not appear within',
+        ANCHOR_WAIT_MS,
+        'ms for hint:',
         hint.anchor,
         '— sending ignored{no_anchor}',
       );
@@ -188,10 +212,33 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
         reason: 'no_anchor',
         token,
       });
-    } else if (el) {
+    };
+
+    const observer = new MutationObserver(() => {
+      if (resolved) return;
+      const el = document.querySelector<HTMLElement>(selector);
+      if (!el) return;
+      resolved = true;
+      observer.disconnect();
+      clearTimeout(timeoutId);
       // eslint-disable-next-line no-console
-      console.warn('[HintHost] anchor resolved:', hint.anchor, el);
-    }
+      console.warn('[HintHost] anchor resolved (deferred):', hint.anchor, el);
+      setAnchorEl(el);
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-hint-anchor'],
+    });
+
+    const timeoutId = setTimeout(finishIgnored, ANCHOR_WAIT_MS);
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(timeoutId);
+    };
   }, [hint.anchor, hint.hintId, token]);
 
   // POST shown — один раз после успешного render.
