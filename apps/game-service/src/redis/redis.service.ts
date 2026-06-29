@@ -37,20 +37,30 @@ export function redisConnLabel(configService?: ConfigService): string {
   return resolveRedisTarget(configService).label;
 }
 
+/**
+ * Свести multi-call super() в один: ioredis принимает либо `new Redis(url, opts)`,
+ * либо `new Redis(opts)`. Для super() в derived class TypeScript ломает порядок
+ * инициализации parameter properties при `super()` внутри `if/else` — поэтому
+ * собираем единый аргумент здесь и вызываем `super(url, opts)` всегда: если
+ * REDIS_URL не задан, синтезируем `redis://host:port`.
+ */
+function buildRedisServiceUrlAndOpts(configService: ConfigService): { url: string; opts: RedisOptions } {
+  const target = resolveRedisTarget(configService);
+  const url = target.url ?? `redis://${target.host}:${target.port}`;
+  const isTls = url.startsWith('rediss://');
+  const opts: RedisOptions = isTls ? { tls: { rejectUnauthorized: false } } : {};
+  return { url, opts };
+}
+
 @Injectable()
 export class RedisService extends Redis implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
 
-  constructor(private readonly configService: ConfigService) {
-    const target = resolveRedisTarget(configService);
-    if (target.url) {
-      const isTls = target.url.startsWith('rediss://');
-      super(target.url, { ...(isTls ? { tls: { rejectUnauthorized: false } } : {}) });
-    } else {
-      super({ host: target.host, port: target.port });
-    }
+  constructor(configService: ConfigService) {
+    const { url, opts } = buildRedisServiceUrlAndOpts(configService);
+    super(url, opts);
 
-    this.logger.log(`RedisService connected to ${target.label}`);
+    this.logger.log(`RedisService connected to ${url.replace(/\/\/.*:.*@/, '//***@')}`);
 
     this.on('error', (err) => {
       if (err.message?.includes('READONLY')) {
