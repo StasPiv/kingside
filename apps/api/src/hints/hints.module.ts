@@ -10,7 +10,7 @@
  * HTTP-контроллера здесь нет — это T8 (WS emit + REST lifecycle +
  * pull endpoint для guest).
  */
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { GuestModule } from '../guest/guest.module';
 import { MessageModule } from '../message/message.module';
@@ -28,7 +28,12 @@ import { HintsService } from './hints.service';
   //          GuestModule — для GuestIdGuard в /hints/pending.
   //          AuthModule — для JwtService decode в HintsController.
   // KS-4702: AuthModule — также для AdminOrServiceGuard цепочки в admin-CRUD.
-  imports: [MetricsModule, AuthModule, MessageModule, GuestModule],
+  // KS-4786: MessageModule через `forwardRef` — теперь MessageGateway
+  // инжектит HintsService (replay на handleConnection), а HintsModule
+  // импортирует MessageModule. Без `forwardRef` ES-модуль импорта
+  // MessageModule возвращает undefined → UndefinedModuleException на
+  // bootstrap.
+  imports: [MetricsModule, AuthModule, forwardRef(() => MessageModule), GuestModule],
   controllers: [HintsController, HintsAdminController],
   providers: [
     HintsService,
