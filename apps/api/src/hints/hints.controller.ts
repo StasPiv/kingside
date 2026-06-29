@@ -177,7 +177,17 @@ export class HintsController {
     const now = new Date();
     try {
       switch (kind) {
-        case 'shown':
+        case 'shown': {
+          // KS-4788 / ADR-151 §2.2 + §4.3. `shown` теперь client-ack:
+          // пишет ТОЛЬКО shownAckAt + инкремент shownCount. lastShownAt
+          // не трогаем — это server-emit поле, его пишет HintsService.checkFor.
+          // Если ack пришёл без предшествующего checkFor (ручной POST,
+          // аномалия) — lastShownAt останется NULL, replay такую строку
+          // не выберет, последствий нет.
+          const beforeAck = await owner.actorHintState.findUnique({
+            where: { actorId_hintId: { actorId: actor.id, hintId } },
+            select: { lastShownAt: true },
+          });
           await owner.actorHintState.upsert({
             where: { actorId_hintId: { actorId: actor.id, hintId } },
             create: {
@@ -185,12 +195,20 @@ export class HintsController {
               actorType: actor.type,
               hintId,
               shownCount: 1,
-              lastShownAt: now,
+              shownAckAt: now,
             },
-            update: { shownCount: { increment: 1 }, lastShownAt: now },
+            update: { shownCount: { increment: 1 }, shownAckAt: now },
           });
           this.metrics.shown.inc({ key: hint.key, actor_type: actor.type });
+          // KS-4788 §7. Лаг ack vs emit (только когда есть legit emit).
+          if (beforeAck?.lastShownAt) {
+            const lagSec = (now.getTime() - beforeAck.lastShownAt.getTime()) / 1000;
+            if (lagSec >= 0) {
+              this.metrics.shownAckLag.observe({ actor_type: actor.type }, lagSec);
+            }
+          }
           break;
+        }
         case 'dismissed':
           await owner.actorHintState.upsert({
             where: { actorId_hintId: { actorId: actor.id, hintId } },
@@ -222,17 +240,20 @@ export class HintsController {
           this.metrics.acted.inc({ key: hint.key, actor_type: actor.type });
           break;
         case 'ignored':
-          // ttl истёк без действия — `actedAt=null`, `lastShownAt=now`
-          // (повторно покажется по cooldown). По §5.3.
+          // KS-4788 / ADR-151 §2.2. ttl истёк без действия — клиент
+          // подтверждает «видел и не закрыл явно». Пишем shownAckAt
+          // (это тоже ack-факт), lastShownAt не трогаем. Раньше
+          // (KS-4699 §5.3) писали lastShownAt=now — после ADR-151 это
+          // приводило бы к ложному replay-кандидату.
           await owner.actorHintState.upsert({
             where: { actorId_hintId: { actorId: actor.id, hintId } },
             create: {
               actorId: actor.id,
               actorType: actor.type,
               hintId,
-              lastShownAt: now,
+              shownAckAt: now,
             },
-            update: { actedAt: null, lastShownAt: now },
+            update: { shownAckAt: now },
           });
           this.metrics.ignored.inc({ key: hint.key, actor_type: actor.type });
           break;

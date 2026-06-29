@@ -45,6 +45,12 @@ export const HINTS_DEFAULTS = {
   globalThrottleSec: 600, // 10 минут
   sessionMaxShows: 5,
   smartDismissWindowH: 24,
+  // KS-4788 / ADR-151 §2.3. Окно реплея на WS-handshake: hint, у которого
+  // `lastShownAt > now - replayWindowSec` и нет client-ack, повторно
+  // эмитится при reconnect. 60s — десятикратный запас на типовой
+  // page reload (1–5с), при этом достаточно коротко, чтобы не отдавать
+  // протухший popover.
+  replayWindowSec: 60,
 } as const;
 
 /** Префиксы Redis-ключей для лимитов (§5.2). */

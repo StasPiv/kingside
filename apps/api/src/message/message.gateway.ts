@@ -59,25 +59,26 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       client.data.user = { id: payload.sub, username: payload.username };
       await client.join(`user:${payload.sub}`);
 
-      // KS-4786: replay контекстных подсказок, потерянных из-за гонки
-      // page_view → emit vs WS-handshake (типичный сценарий перезагрузки
-      // страницы). HintsListener при page_view пишет последнюю страницу
-      // в `hints:last-page:<actor_id>` (TTL 300с) — используем её как
-      // контекст. `triggerEventType: 'ws_connected'` — синтетика только
-      // для checkFor, в EventsService.track НЕ пишется (нет зацикливания
-      // через HintsListener). HintsService.checkFor сам сделает
-      // emitHintShow если правило сматчится; per-hint лимиты
-      // (maxShows/cooldown) защитят от дублей с уже состоявшимся показом.
-      // Не await — fire-and-forget, чтобы не задерживать handshake;
-      // HintsService.checkFor fail-soft, исключения не пробрасывает.
+      // KS-4788 / ADR-151. Replay контекстных подсказок, потерянных из-за
+      // гонки primary-emit (DSL match) vs WS-handshake. Отдельный путь
+      // данных: НЕ оценивает DSL, НЕ применяет throttle/session-лимиты,
+      // НЕ правит state. Источник — `ActorHintState.lastShownAt` vs
+      // `shownAckAt`: если сервер пытался эмитнуть, но клиент не ack-нул
+      // в окне `replayWindowSec` (default 60s) — на handshake получит
+      // тот же hint. Per-handshake/multi-tab дубли дедупит frontend
+      // `<HintHost>` по hintId.
+      //
+      // Прежний вариант (KS-4786) делал `checkFor({triggerEventType:'ws_connected'})`
+      // — полный pipeline c DSL и canShow. Глобальный throttle 600s после
+      // первого матча давал `canShow=false` на ws_connected → replay не
+      // срабатывал. Новый путь решает это явно.
       try {
-        const lastPage = await this.redis.get(`hints:last-page:${payload.sub}`);
-        void this.hints.checkFor(
-          { type: 'user', id: payload.sub },
-          { page: lastPage ?? undefined, triggerEventType: 'ws_connected' },
-        );
-      } catch {
-        /* no-op: replay best-effort */
+        const replays = await this.hints.replayPending({ type: 'user', id: payload.sub });
+        for (const p of replays) {
+          this.emitHintShow(payload.sub, p);
+        }
+      } catch (err) {
+        this.logger.debug?.(`replayPending failed for user=${payload.sub}: ${(err as Error).message}`);
       }
 
       // Cancel pending offline timer

@@ -20,6 +20,12 @@ export class HintsMetricsService implements OnModuleInit {
   readonly dismissed: Counter<'key' | 'actor_type'>;
   /** lifecycle 'ignored' получен (ttl истёк). */
   readonly ignored: Counter<'key' | 'actor_type'>;
+  /** KS-4788 / ADR-151 §7. Replay-метрики (WS-handshake реплей подсказок). */
+  readonly replayAttempts: Counter<'actor_type'>;
+  readonly replayEmitted: Counter<'actor_type'>;
+  readonly replaySkipped: Counter<'actor_type' | 'reason'>;
+  /** KS-4788. Лаг между server-emit (`lastShownAt`) и client-ack (`shownAckAt`). */
+  readonly shownAckLag: Histogram<'actor_type'>;
 
   constructor(private readonly metrics: MetricsService) {
     const registers = [this.metrics.registry];
@@ -63,6 +69,33 @@ export class HintsMetricsService implements OnModuleInit {
       name: 'hints_ignored_total',
       help: 'ttlSec истёк без действия (lifecycle kind=ignored).',
       labelNames: ['key', 'actor_type'] as const,
+      registers,
+    });
+    this.replayAttempts = new Counter({
+      name: 'hints_replay_attempts_total',
+      help: 'KS-4788. HintsService.replayPending() вызван (WS-handshake).',
+      labelNames: ['actor_type'] as const,
+      registers,
+    });
+    this.replayEmitted = new Counter({
+      name: 'hints_replay_emitted_total',
+      help: 'KS-4788. Replay вернул payload и он эмитнут в room user:<id>.',
+      labelNames: ['actor_type'] as const,
+      registers,
+    });
+    this.replaySkipped = new Counter({
+      name: 'hints_replay_skipped_total',
+      help: 'KS-4788. Replay не эмитил. reason ∈ {no_candidate, window_expired, '
+        + 'already_acked, dismissed_or_acted, hint_disabled, killswitch_off, replay_off}.',
+      labelNames: ['actor_type', 'reason'] as const,
+      registers,
+    });
+    this.shownAckLag = new Histogram({
+      name: 'hints_shown_ack_lag_seconds',
+      help: 'KS-4788. Разница shownAckAt - lastShownAt на каждом /shown ack. '
+        + 'Хвост >5s означает частый race на handshake.',
+      labelNames: ['actor_type'] as const,
+      buckets: [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60],
       registers,
     });
   }

@@ -39,6 +39,8 @@ export interface HintsLimits {
   globalThrottleSec: number;
   sessionMaxShows: number;
   smartDismissWindowH: number;
+  /** KS-4788 / ADR-151. Окно replay на WS-handshake, секунды. 0 — replay выключен. */
+  replayWindowSec: number;
 }
 
 const CACHE_TTL_MS = 60_000;
@@ -69,6 +71,11 @@ export class HintsLimitsService {
       smartDismissWindowH: this.intEnv(
         'HINTS_SMART_DISMISS_WINDOW_H',
         HINTS_DEFAULTS.smartDismissWindowH,
+      ),
+      // KS-4788. Допускаем 0 (replay выключен) — поэтому intEnv (>0) не подходит.
+      replayWindowSec: this.intEnvAllowZero(
+        'HINTS_REPLAY_WINDOW_SEC',
+        HINTS_DEFAULTS.replayWindowSec,
       ),
     };
     // KS-4785: при `HINTS_TEST_MODE=1` (test-hints стек, e2e) глобальный
@@ -123,6 +130,11 @@ export class HintsLimitsService {
     }
     if (typeof src.smartDismissWindowH === 'number' && src.smartDismissWindowH >= 0) {
       out.smartDismissWindowH = src.smartDismissWindowH;
+    }
+    // KS-4788 / ADR-151 §2.3. Принимаем replayWindowSec через JSON-override
+    // (e2e может выставить большое окно или 0 для negative-test'ов).
+    if (typeof src.replayWindowSec === 'number' && src.replayWindowSec >= 0) {
+      out.replayWindowSec = src.replayWindowSec;
     }
     return Object.keys(out).length > 0 ? out : null;
   }
@@ -195,5 +207,13 @@ export class HintsLimitsService {
     if (v === undefined) return def;
     const n = Number.parseInt(v, 10);
     return Number.isFinite(n) && n > 0 ? n : def;
+  }
+
+  /** Как intEnv, но принимает 0 как валидное значение (например, выключить replay). */
+  private intEnvAllowZero(key: string, def: number): number {
+    const v = this.config.get<string>(key);
+    if (v === undefined) return def;
+    const n = Number.parseInt(v, 10);
+    return Number.isFinite(n) && n >= 0 ? n : def;
   }
 }

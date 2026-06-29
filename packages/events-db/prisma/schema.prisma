@@ -122,6 +122,10 @@ model ActorHintState {
   hintId          String    @map("hint_id") @db.Uuid
   shownCount      Int       @default(0) @map("shown_count")
   lastShownAt     DateTime? @map("last_shown_at") @db.Timestamptz()
+  /// KS-4788 / ADR-151. Client-confirmed render (POST /hints/:id/shown
+  /// или /ignored). Сравнивается с `lastShownAt` в HintsService.replayPending:
+  /// `shownAckAt IS NULL OR shownAckAt < lastShownAt` → есть пропущенный emit.
+  shownAckAt      DateTime? @map("shown_ack_at") @db.Timestamptz()
   dismissedAt     DateTime? @map("dismissed_at") @db.Timestamptz()
   actedAt         DateTime? @map("acted_at") @db.Timestamptz()
   suppressedUntil DateTime? @map("suppressed_until") @db.Timestamptz()

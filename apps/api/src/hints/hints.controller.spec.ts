@@ -25,13 +25,19 @@ function mkMetrics(): any {
     dismissed: { inc: jest.fn() },
     acted: { inc: jest.fn() },
     ignored: { inc: jest.fn() },
+    // KS-4788 / ADR-151.
+    shownAckLag: { observe: jest.fn() },
   };
 }
 
-function mkOwner(hint = { id: 'h1', key: 'analyze-your-game', deletedAt: null } as any) {
+function mkOwner(hint = { id: 'h1', key: 'analyze-your-game', deletedAt: null } as any, preAck: { lastShownAt: Date | null } | null = null) {
   return {
     hint: { findUnique: jest.fn().mockResolvedValue(hint) },
-    actorHintState: { upsert: jest.fn().mockResolvedValue({}) },
+    actorHintState: {
+      upsert: jest.fn().mockResolvedValue({}),
+      // KS-4788: shown читает lastShownAt перед upsert, чтобы посчитать ack-lag метрику.
+      findUnique: jest.fn().mockResolvedValue(preAck),
+    },
   };
 }
 
@@ -139,5 +145,46 @@ describe('HintsController.lifecycle', () => {
     const { ctrl, owner } = makeCtrl({ events: mkEvents(false) });
     await ctrl.shown('00000000-0000-0000-0000-000000000001', {}, makeReq({}, 'g-1'));
     expect(owner.actorHintState.upsert).not.toHaveBeenCalled();
+  });
+
+  // KS-4788 / ADR-151 §2.2 + §4.3.
+  describe('KS-4788: shownAckAt семантика', () => {
+    it('shown пишет shownAckAt, НЕ трогает lastShownAt', async () => {
+      const { ctrl, owner } = makeCtrl();
+      await ctrl.shown('00000000-0000-0000-0000-000000000001', {}, makeReq({}, 'g-1'));
+      const args = owner.actorHintState.upsert.mock.calls[0][0];
+      expect(args.create.shownAckAt).toBeInstanceOf(Date);
+      expect(args.create.lastShownAt).toBeUndefined();
+      expect(args.update.shownAckAt).toBeInstanceOf(Date);
+      expect(args.update.lastShownAt).toBeUndefined();
+    });
+
+    it('ignored пишет shownAckAt, НЕ трогает lastShownAt', async () => {
+      const { ctrl, owner } = makeCtrl();
+      await ctrl.ignored('00000000-0000-0000-0000-000000000001', {}, makeReq({}, 'g-1'));
+      const args = owner.actorHintState.upsert.mock.calls[0][0];
+      expect(args.create.shownAckAt).toBeInstanceOf(Date);
+      expect(args.create.lastShownAt).toBeUndefined();
+      expect(args.update.shownAckAt).toBeInstanceOf(Date);
+      expect(args.update.lastShownAt).toBeUndefined();
+    });
+
+    it('shown с предыдущим lastShownAt → observe ack lag метрику', async () => {
+      const lastShownAt = new Date(Date.now() - 1500); // 1.5s назад
+      const owner = mkOwner(undefined, { lastShownAt });
+      const { ctrl, metrics } = makeCtrl({ owner });
+      await ctrl.shown('00000000-0000-0000-0000-000000000001', {}, makeReq({}, 'g-1'));
+      expect(metrics.shownAckLag.observe).toHaveBeenCalledTimes(1);
+      const [{ actor_type }, lag] = metrics.shownAckLag.observe.mock.calls[0];
+      expect(actor_type).toBe('guest');
+      expect(lag).toBeGreaterThanOrEqual(1.4);
+      expect(lag).toBeLessThan(3);
+    });
+
+    it('shown без предыдущего lastShownAt → ack lag НЕ observe', async () => {
+      const { ctrl, metrics } = makeCtrl(); // mkOwner default → preAck=null
+      await ctrl.shown('00000000-0000-0000-0000-000000000001', {}, makeReq({}, 'g-1'));
+      expect(metrics.shownAckLag.observe).not.toHaveBeenCalled();
+    });
   });
 });

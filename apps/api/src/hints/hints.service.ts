@@ -188,6 +188,102 @@ export class HintsService {
   }
 
   /**
+   * KS-4788 / ADR-151 §3. Реплей контекстной подсказки при WS-handshake.
+   *
+   * НЕ оценивает DSL, НЕ применяет canShow/markShown, НЕ правит state —
+   * чистая выборка из ActorHintState с фильтрами:
+   *   - `lastShownAt > now - replayWindowSec` (свежее окна);
+   *   - `dismissedAt IS NULL`, `actedAt IS NULL` (пользователь не закрыл);
+   *   - `shownAckAt IS NULL OR shownAckAt < lastShownAt` (нет client-ack
+   *     на последний emit);
+   *   - `hint.enabled = true AND deletedAt IS NULL` (правило не выключено
+   *     админом между emit и replay).
+   *
+   * Идемпотентен: при multi-tab / multi-handshake до первого ack клиента
+   * срабатывает каждый раз (frontend `<HintHost>` дедупит по hintId).
+   *
+   * Возвращает массив payload'ов (0 или 1). Caller — MessageGateway —
+   * эмитит их через `emitHintShow(userId, payload)`.
+   */
+  async replayPending(
+    actor: Actor,
+    locale: HintLocale = 'ru',
+  ): Promise<HintShowPayload[]> {
+    this.metrics.replayAttempts.inc({ actor_type: actor.type });
+
+    const { enabled, replayWindowSec } = this.limits.getLimits();
+    if (!enabled) {
+      this.metrics.replaySkipped.inc({ actor_type: actor.type, reason: 'killswitch_off' });
+      return [];
+    }
+    if (!replayWindowSec || replayWindowSec <= 0) {
+      this.metrics.replaySkipped.inc({ actor_type: actor.type, reason: 'replay_off' });
+      return [];
+    }
+
+    const owner = this.prismaSvc.getOwner();
+    if (!owner) return [];
+
+    const since = new Date(Date.now() - replayWindowSec * 1000);
+
+    try {
+      // `shownAckAt < lastShownAt` Prisma не выражает column-to-column,
+      // отбираем кандидатов по простым фильтрам + post-фильтр в коде.
+      // Per-actor строк мало (десятки max), цена post-фильтра нулевая.
+      const candidates = await owner.actorHintState.findMany({
+        where: {
+          actorId: actor.id,
+          actorType: actor.type,
+          lastShownAt: { gt: since },
+          dismissedAt: null,
+          actedAt: null,
+        },
+        include: {
+          hint: {
+            select: {
+              id: true,
+              key: true,
+              i18n: true,
+              cta: true,
+              anchor: true,
+              placement: true,
+              ttlSec: true,
+              enabled: true,
+              deletedAt: true,
+            },
+          },
+        },
+        orderBy: { lastShownAt: 'desc' },
+      });
+
+      if (candidates.length === 0) {
+        this.metrics.replaySkipped.inc({ actor_type: actor.type, reason: 'no_candidate' });
+        return [];
+      }
+
+      for (const s of candidates) {
+        if (!s.hint || !s.hint.enabled || s.hint.deletedAt) {
+          continue;
+        }
+        if (s.shownAckAt && s.lastShownAt && s.shownAckAt >= s.lastShownAt) {
+          continue;
+        }
+        const payload = toShowPayload(s.hint, locale);
+        this.metrics.replayEmitted.inc({ actor_type: actor.type });
+        return [payload];
+      }
+
+      // Все кандидаты отфильтрованы — самый частый кейс «уже ack-нул».
+      this.metrics.replaySkipped.inc({ actor_type: actor.type, reason: 'already_acked' });
+      return [];
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`replayPending ${actor.type}:${actor.id}: ${msg}`);
+      return [];
+    }
+  }
+
+  /**
    * Smart-dismiss observer (§5.1): когда приходит событие, тип которого
    * есть в `Hint.acceptedBy` любой активной (показанной, не actedAt)
    * подсказки этого actor'а — выставляем `actedAt=now`.

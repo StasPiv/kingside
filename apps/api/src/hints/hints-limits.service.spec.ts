@@ -31,6 +31,7 @@ describe('HintsLimitsService.getLimits', () => {
       globalThrottleSec: 600,
       sessionMaxShows: 5,
       smartDismissWindowH: 24,
+      replayWindowSec: 60, // KS-4788 / ADR-151
     });
   });
 
@@ -46,6 +47,7 @@ describe('HintsLimitsService.getLimits', () => {
       globalThrottleSec: 300,
       sessionMaxShows: 10,
       smartDismissWindowH: 48,
+      replayWindowSec: 60, // KS-4788 / ADR-151
     });
   });
 
@@ -54,7 +56,8 @@ describe('HintsLimitsService.getLimits', () => {
     const svc = new HintsLimitsService(cfg, mkRedis());
     svc.getLimits(1000);
     svc.getLimits(30_000);
-    expect(cfg.get).toHaveBeenCalledTimes(6); // 4 поля + HINTS_TEST_MODE + JSON override
+    // KS-4788: + HINTS_REPLAY_WINDOW_SEC = 5 полей + HINTS_TEST_MODE + JSON override = 7
+    expect(cfg.get).toHaveBeenCalledTimes(7);
   });
 
   // KS-4760 / ADR-150 T2.
@@ -70,6 +73,7 @@ describe('HintsLimitsService.getLimits', () => {
         globalThrottleSec: 0,
         sessionMaxShows: 1000,
         smartDismissWindowH: 24,
+        replayWindowSec: 60, // KS-4788 / ADR-151
       });
     });
 
