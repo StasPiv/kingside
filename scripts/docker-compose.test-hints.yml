@@ -312,6 +312,12 @@ services:
       # Браузер ходит на хост-side порт, а не на docker-internal hostname.
       VITE_API_URL: http://localhost:3101
       VITE_APP_ORIGIN: http://localhost:5174
+      # KS-4795. WS namespace `/game` живёт в apps/game-service (порт 3002
+      # внутри сети, 3102 на хосте). Без этой переменной vite читает
+      # корневой /project/.env, где VITE_GAME_URL=ws://localhost:3002 —
+      # dev-порт, в test-hints он не открыт, socket не получает game:state,
+      # GamePage висит в initial state (часы 5:00, статус waiting).
+      VITE_GAME_URL: ws://localhost:3102
       # broadcast/archive — не нужны в hints e2e, но vite модули падают на
       # undefined при загрузке. Указываем «куда-то», без реального трафика.
       VITE_ARCHIVE_URL: http://localhost:3101
