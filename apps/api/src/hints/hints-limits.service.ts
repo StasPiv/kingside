@@ -71,6 +71,17 @@ export class HintsLimitsService {
         HINTS_DEFAULTS.smartDismissWindowH,
       ),
     };
+    // KS-4785: при `HINTS_TEST_MODE=1` (test-hints стек, e2e) глобальный
+    // throttle и session-лимит мешают повторному checkFor после reload
+    // страницы — первый матч ставит throttle на 600с, второй вызов в
+    // том же тест-прогоне получает canShow=false → no-match. Подменяем
+    // лимиты на e2e-значения. На проде HINTS_TEST_MODE не выставляется,
+    // прод-семантика не меняется. Приоритет внутри test-mode: явный
+    // HINTS_DEFAULTS_OVERRIDE_JSON > эти подмены > отдельные env.
+    if (this.config.get<string>('HINTS_TEST_MODE') === '1') {
+      v.globalThrottleSec = 0;
+      v.sessionMaxShows = 10_000;
+    }
     // KS-4760 / ADR-150 T2: `HINTS_DEFAULTS_OVERRIDE_JSON` — JSON-объект
     // с любыми полями HintsLimits, который merge'ится поверх env-чтения.
     // Используется e2e test-окружением (docker-compose.test-hints.yml),

@@ -54,7 +54,7 @@ describe('HintsLimitsService.getLimits', () => {
     const svc = new HintsLimitsService(cfg, mkRedis());
     svc.getLimits(1000);
     svc.getLimits(30_000);
-    expect(cfg.get).toHaveBeenCalledTimes(5); // 4 поля + 1 override
+    expect(cfg.get).toHaveBeenCalledTimes(6); // 4 поля + HINTS_TEST_MODE + JSON override
   });
 
   // KS-4760 / ADR-150 T2.
@@ -111,6 +111,40 @@ describe('HintsLimitsService.getLimits', () => {
         HINTS_ENABLED: 'true',
         HINTS_DEFAULTS_OVERRIDE_JSON: '',
       }), mkRedis());
+      expect(svc.getLimits().sessionMaxShows).toBe(5);
+    });
+  });
+
+  // KS-4785: HINTS_TEST_MODE=1 → throttle=0, sessionMaxShows=10000
+  // (test-hints e2e стек, после reload страницы повторный checkFor
+  // не должен отбраковываться по throttle).
+  describe('HINTS_TEST_MODE', () => {
+    it('=1 → throttle=0 и sessionMaxShows=10000', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+        HINTS_TEST_MODE: '1',
+      }), mkRedis());
+      const v = svc.getLimits();
+      expect(v.globalThrottleSec).toBe(0);
+      expect(v.sessionMaxShows).toBe(10_000);
+    });
+
+    it('=1 + JSON override → JSON override побеждает', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+        HINTS_TEST_MODE: '1',
+        HINTS_DEFAULTS_OVERRIDE_JSON: '{"globalThrottleSec":5}',
+      }), mkRedis());
+      expect(svc.getLimits().globalThrottleSec).toBe(5);
+      // sessionMaxShows из test-mode сохранён (override его не задаёт)
+      expect(svc.getLimits().sessionMaxShows).toBe(10_000);
+    });
+
+    it('не выставлен → defaults сохраняются', () => {
+      const svc = new HintsLimitsService(mkConfig({
+        HINTS_ENABLED: 'true',
+      }), mkRedis());
+      expect(svc.getLimits().globalThrottleSec).toBe(600);
       expect(svc.getLimits().sessionMaxShows).toBe(5);
     });
   });
