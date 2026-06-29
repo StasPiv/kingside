@@ -26,10 +26,11 @@ describe('HintsLimitsService.getLimits', () => {
   it('дефолты при пустом env', () => {
     const svc = new HintsLimitsService(mkConfig({}), mkRedis());
     const l = svc.getLimits();
+    // KS-4810 follow-up: throttle/квота сняты в дефолтах.
     expect(l).toEqual({
       enabled: false,
-      globalThrottleSec: 600,
-      sessionMaxShows: 5,
+      globalThrottleSec: 0,
+      sessionMaxShows: 1_000_000,
       smartDismissWindowH: 24,
       replayWindowSec: 60, // KS-4788 / ADR-151
     });
@@ -91,7 +92,8 @@ describe('HintsLimitsService.getLimits', () => {
         HINTS_DEFAULTS_OVERRIDE_JSON: '{not-json',
       }), mkRedis());
       expect(svc.getLimits().enabled).toBe(true);
-      expect(svc.getLimits().sessionMaxShows).toBe(5);
+      // KS-4810 follow-up: defaults sessionMaxShows=1_000_000.
+      expect(svc.getLimits().sessionMaxShows).toBe(1_000_000);
     });
 
     it('JSON со unknown ключами игнорирует их', () => {
@@ -107,7 +109,8 @@ describe('HintsLimitsService.getLimits', () => {
         HINTS_ENABLED: 'true',
         HINTS_DEFAULTS_OVERRIDE_JSON: '{"globalThrottleSec":-5}',
       }), mkRedis());
-      expect(svc.getLimits().globalThrottleSec).toBe(600); // default
+      // KS-4810 follow-up: default стал 0 (throttle отключён по умолчанию).
+      expect(svc.getLimits().globalThrottleSec).toBe(0);
     });
 
     it('пустой env → defaults без вмешательства', () => {
@@ -115,7 +118,8 @@ describe('HintsLimitsService.getLimits', () => {
         HINTS_ENABLED: 'true',
         HINTS_DEFAULTS_OVERRIDE_JSON: '',
       }), mkRedis());
-      expect(svc.getLimits().sessionMaxShows).toBe(5);
+      // KS-4810 follow-up: sessionMaxShows default 1_000_000 (квота снята).
+      expect(svc.getLimits().sessionMaxShows).toBe(1_000_000);
     });
   });
 
@@ -148,8 +152,9 @@ describe('HintsLimitsService.getLimits', () => {
       const svc = new HintsLimitsService(mkConfig({
         HINTS_ENABLED: 'true',
       }), mkRedis());
-      expect(svc.getLimits().globalThrottleSec).toBe(600);
-      expect(svc.getLimits().sessionMaxShows).toBe(5);
+      // KS-4810 follow-up: defaults — throttle и квота сняты.
+      expect(svc.getLimits().globalThrottleSec).toBe(0);
+      expect(svc.getLimits().sessionMaxShows).toBe(1_000_000);
     });
   });
 });
@@ -176,16 +181,27 @@ describe('HintsLimitsService.canShow', () => {
     expect(await svc.canShow(ACTOR)).toBe(false);
   });
 
-  it('всё чисто → true и ставит throttle', async () => {
+  it('всё чисто + throttle env задан → true и ставит throttle', async () => {
     const redis = mkRedis();
     const svc = new HintsLimitsService(
-      mkConfig({ HINTS_ENABLED: 'true' }),
+      // Default throttle стал 0 (KS-4810 follow-up), задаём явно для теста.
+      mkConfig({ HINTS_ENABLED: 'true', HINTS_GLOBAL_THROTTLE_SEC: '600' }),
       redis,
     );
     expect(await svc.canShow(ACTOR)).toBe(true);
     expect(redis.set).toHaveBeenCalledWith(
       'hints:throttle:u1', '1', 'EX', 600, 'NX',
     );
+  });
+
+  it('всё чисто + throttle env НЕ задан (default=0) → true и НЕ ставит throttle', async () => {
+    const redis = mkRedis();
+    const svc = new HintsLimitsService(
+      mkConfig({ HINTS_ENABLED: 'true' }),
+      redis,
+    );
+    expect(await svc.canShow(ACTOR)).toBe(true);
+    expect(redis.set).not.toHaveBeenCalled();
   });
 
   it('Redis-ошибка → false (fail-closed)', async () => {

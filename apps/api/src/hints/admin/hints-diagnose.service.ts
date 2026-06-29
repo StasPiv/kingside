@@ -82,6 +82,44 @@ export class HintsDiagnoseService {
   }
 
   /**
+   * KS-4810 follow-up. Снять текущий throttle (10-мин блок) и
+   * session-counter (квота показов в сутки) для конкретного actor'а.
+   * Не трогает `events.actor_hint_states` (per-hint maxShows/cooldown
+   * остаются), не трогает `events.actor_events`. Возвращает число
+   * удалённых ключей (0..2 + session-патитиции по разным дням).
+   */
+  async resetLimits(actor: Actor): Promise<{ keys_deleted: number }> {
+    let deleted = 0;
+    // throttle — один ключ.
+    try {
+      deleted += await this.redis.del(`hints:throttle:${actor.id}`);
+    } catch (err) {
+      this.logger.warn(
+        `resetLimits DEL throttle failed for ${actor.type}:${actor.id}: ${(err as Error).message}`,
+      );
+    }
+    // session-counter — SCAN по pattern hints:session:<actor>:*
+    // (на случай, если есть запись за прошлые сутки UTC).
+    try {
+      const pattern = `hints:session:${actor.id}:*`;
+      let cursor = '0';
+      do {
+        const reply = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+        cursor = String(reply[0]);
+        const keys = reply[1] as string[];
+        if (keys.length > 0) {
+          deleted += await this.redis.del(...keys);
+        }
+      } while (cursor !== '0');
+    } catch (err) {
+      this.logger.warn(
+        `resetLimits SCAN/DEL session failed for ${actor.type}:${actor.id}: ${(err as Error).message}`,
+      );
+    }
+    return { keys_deleted: deleted };
+  }
+
+  /**
    * Читает `events.actor_hint_states` через owner-Prisma. Если
    * `EVENTS_DATABASE_URL` не сконфигурирован (dev без events-infra) —
    * возвращает пустой массив, симметрично `analytics-data.service.ts`.

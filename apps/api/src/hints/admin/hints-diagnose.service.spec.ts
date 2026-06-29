@@ -196,3 +196,55 @@ describe('HintsDiagnoseService.diagnose', () => {
     expect(findManyStates.mock.calls[0][0].where.actorType).toBe('guest');
   });
 });
+
+describe('HintsDiagnoseService.resetLimits — KS-4810 follow-up', () => {
+  it('DEL throttle + SCAN+DEL session-ключей всех суток', async () => {
+    const del = jest.fn()
+      .mockResolvedValueOnce(1)          // DEL hints:throttle:u-1
+      .mockResolvedValueOnce(2);         // DEL session-ключи (2 шт)
+    const scan = jest.fn()
+      .mockResolvedValueOnce(['0', ['hints:session:u-1:2026-06-29', 'hints:session:u-1:2026-06-28']]);
+    const redis = makeRedis({ del, scan });
+    const svc = new HintsDiagnoseService(makePrismaSvc(null), redis, makeLimits());
+
+    const r = await svc.resetLimits({ type: 'user', id: 'u-1' });
+
+    expect(r.keys_deleted).toBe(3);
+    expect(del).toHaveBeenNthCalledWith(1, 'hints:throttle:u-1');
+    expect(del).toHaveBeenNthCalledWith(2, 'hints:session:u-1:2026-06-29', 'hints:session:u-1:2026-06-28');
+  });
+
+  it('ключей нет → keys_deleted=0 (idempotent)', async () => {
+    const del = jest.fn().mockResolvedValue(0);
+    const scan = jest.fn().mockResolvedValue(['0', []]);
+    const redis = makeRedis({ del, scan });
+    const svc = new HintsDiagnoseService(makePrismaSvc(null), redis, makeLimits());
+
+    const r = await svc.resetLimits({ type: 'user', id: 'u-1' });
+    expect(r.keys_deleted).toBe(0);
+  });
+
+  it('ошибка DEL throttle → fail-soft, session-цикл всё равно выполняется', async () => {
+    const del = jest.fn()
+      .mockRejectedValueOnce(new Error('redis down'))
+      .mockResolvedValueOnce(1); // SCAN-DEL ok
+    const scan = jest.fn()
+      .mockResolvedValueOnce(['0', ['hints:session:u-1:2026-06-29']]);
+    const redis = makeRedis({ del, scan });
+    const svc = new HintsDiagnoseService(makePrismaSvc(null), redis, makeLimits());
+
+    const r = await svc.resetLimits({ type: 'user', id: 'u-1' });
+    expect(r.keys_deleted).toBe(1);
+  });
+
+  it('actor.type=guest пробрасывается в ключи (id префикс одинаковый)', async () => {
+    const del = jest.fn().mockResolvedValue(0);
+    const scan = jest.fn().mockResolvedValue(['0', []]);
+    const redis = makeRedis({ del, scan });
+    const svc = new HintsDiagnoseService(makePrismaSvc(null), redis, makeLimits());
+
+    await svc.resetLimits({ type: 'guest', id: 'g-1' });
+    expect(del).toHaveBeenCalledWith('hints:throttle:g-1');
+    expect(scan.mock.calls[0]).toContain('hints:session:g-1:*');
+  });
+});

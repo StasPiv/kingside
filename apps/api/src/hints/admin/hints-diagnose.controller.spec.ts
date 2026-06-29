@@ -41,3 +41,27 @@ describe('HintsDiagnoseController.run', () => {
     expect(r).toBe(result);
   });
 });
+
+describe('HintsDiagnoseController.reset — KS-4810 follow-up', () => {
+  function makeCtrlReset(stub: { resetLimits: jest.Mock }) {
+    return new HintsDiagnoseController({
+      resetLimits: stub.resetLimits,
+      diagnose: jest.fn(),
+    } as any);
+  }
+
+  it('actorType=user по умолчанию, id пробрасывается', async () => {
+    const resetLimits = jest.fn().mockResolvedValue({ keys_deleted: 2 });
+    const ctrl = makeCtrlReset({ resetLimits });
+    const r = await ctrl.reset({ actorId: 'u-1' } as never);
+    expect(resetLimits).toHaveBeenCalledWith({ type: 'user', id: 'u-1' });
+    expect(r).toEqual({ keys_deleted: 2 });
+  });
+
+  it('actorType=guest пробрасывается', async () => {
+    const resetLimits = jest.fn().mockResolvedValue({ keys_deleted: 0 });
+    const ctrl = makeCtrlReset({ resetLimits });
+    await ctrl.reset({ actorId: 'g-1', actorType: 'guest' } as never);
+    expect(resetLimits).toHaveBeenCalledWith({ type: 'guest', id: 'g-1' });
+  });
+});

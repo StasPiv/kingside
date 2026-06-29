@@ -13,6 +13,8 @@
 import {
   Controller,
   Get,
+  HttpCode,
+  Post,
   Query,
   UseGuards,
   UsePipes,
@@ -44,5 +46,24 @@ export class HintsDiagnoseController {
       { type: query.actorType ?? 'user', id: query.actorId },
       query.hintId,
     );
+  }
+
+  /**
+   * KS-4810 follow-up. `POST /admin/hints-diagnose/reset` — снять
+   * `hints:throttle:<actor>` и все `hints:session:<actor>:<date>`.
+   * `events.actor_hint_states` НЕ трогается (per-hint maxShows /
+   * cooldown сохраняются — это история, не runtime). Idempotent.
+   */
+  @Post('reset')
+  @RequiredScope(SCOPES.HINTS_READ)
+  @HttpCode(200)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: false }))
+  async reset(
+    @Query() query: HintsDiagnoseQueryDto,
+  ): Promise<{ keys_deleted: number }> {
+    return this.diagnose.resetLimits({
+      type: query.actorType ?? 'user',
+      id: query.actorId,
+    });
   }
 }
