@@ -28,6 +28,7 @@ import { ChatWidget } from '../components/ChatWidget';
 import { CookieBanner } from '../components/cookie-banner/CookieBanner';
 import { EventsBootstrap } from '../lib/eventsBootstrap';
 import { HintHost } from '../components/hints/HintHost';
+import { InfoBar, InfoBarProvider } from '../components/info-bar/InfoBar';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -156,6 +157,7 @@ export function MainLayout() {
     location.pathname.startsWith('/play/local-bot');
 
   return (
+    <InfoBarProvider>
     <div
       className={`app${focusModeActive ? ' focus-mode-active' : ''}`}
       data-focus-mode={focusModeActive ? 'true' : 'false'}
@@ -421,6 +423,11 @@ export function MainLayout() {
           </div>
         </nav>
       </header>
+      {/* KS-4815. Узкая информационная полоса под основным header'ом.
+          Канал для контекстных подсказок (HintHost) и будущих системных
+          уведомлений. Рендерится только при наличии активного entry —
+          иначе `<InfoBar />` возвращает `null`. */}
+      <InfoBar />
       <div className="app-body">
         {/* KS-4128 / ADR-128 §4: Sidebar рендерим и гостям. Сам
             Sidebar отфильтрует authOnly-пункты (Profile/Friends/
@@ -457,10 +464,12 @@ export function MainLayout() {
           consent не выставлен; для гостя — пока пользователь не закрыл
           его на 30 дней). */}
       <CookieBanner />
-      {/* KS-4703 / ADR-147 §4. Хост контекстных подсказок — слушает WS
-          для user / поллит pending для гостя; рендерит popover (desktop)
-          либо bottom-sheet (mobile) по data-hint-anchor. */}
+      {/* KS-4703 / ADR-147 §4 + KS-4815. Хост контекстных подсказок —
+          слушает WS для user / поллит pending для гостя; пушит активную
+          подсказку в общую `<InfoBar />` (под header'ом). Anchor-привязки
+          и floating-ui popover больше не используются. */}
       <HintHost />
     </div>
+    </InfoBarProvider>
   );
 }

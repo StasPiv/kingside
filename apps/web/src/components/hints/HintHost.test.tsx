@@ -7,6 +7,7 @@ import { I18nextProvider } from 'react-i18next';
 import i18n from '../../i18n/index';
 import { AuthContext } from '../../context/AuthContext';
 import type { User, HintShowPayload } from '@kingside/shared';
+import { InfoBar, InfoBarProvider } from '../info-bar/InfoBar';
 
 // Замокаем socket-модуль ДО импорта HintHost. socket.io-client `emit` шлёт
 // событие на сервер, не вызывает локальные listeners. Подменяем минимальной
@@ -49,8 +50,6 @@ vi.mock('../../socket', () => {
 
 import { HintHost } from './HintHost';
 
-const API_BASE = 'http://localhost:3001';
-
 function makeUser(): User {
   // KS-4718: isAnalyticsConsentGiven(user) требует analyticsConsent=true
   // — иначе HintHost корректно «выключен» (по ADR-147 §6.2).
@@ -78,7 +77,9 @@ function makePayload(overrides: Partial<HintShowPayload> = {}): HintShowPayload 
     ctaLabel: 'Analyse',
     ctaHref: '/analyse',
     ctaEvent: null,
-    anchor: 'game-end-analysis-button',
+    // KS-4815: anchor сохранён в payload (для бэк-аналитики), но фронт
+    // его не использует — все подсказки рендерятся в общую InfoBar.
+    anchor: 'legacy',
     placement: 'bottom',
     ttlSec: 0,
     ...overrides,
@@ -105,7 +106,10 @@ function wrap(
             refreshUser: async () => undefined,
           }}
         >
-          {ui}
+          <InfoBarProvider>
+            <InfoBar />
+            {ui}
+          </InfoBarProvider>
         </AuthContext.Provider>
       </MemoryRouter>
     </I18nextProvider>,
@@ -128,15 +132,7 @@ function NavTo({ to }: { to: string }) {
   );
 }
 
-function setupAnchor(anchor: string) {
-  const el = document.createElement('button');
-  el.setAttribute('data-hint-anchor', anchor);
-  el.textContent = 'anchor';
-  document.body.appendChild(el);
-  return el;
-}
-
-describe('HintHost (KS-4703)', () => {
+describe('HintHost (KS-4703 / KS-4815)', () => {
   beforeEach(() => {
     document.cookie = 'analytics_consent=; Max-Age=0; path=/';
     Object.defineProperty(window, 'innerWidth', {
@@ -152,25 +148,21 @@ describe('HintHost (KS-4703)', () => {
   });
 
   afterEach(() => {
-    document.querySelectorAll('[data-hint-anchor]').forEach((n) => n.remove());
     listeners.clear();
     vi.restoreAllMocks();
   });
 
-  it('user + WS hint:show → popover, POST shown', async () => {
-    setupAnchor('game-end-analysis-button');
+  it('user + WS hint:show → рендер в InfoBar, POST shown', async () => {
     wrap(<HintHost />, makeUser());
 
     await act(async () => {
       fireWs('hint:show', makePayload());
     });
 
-    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+    expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument();
     expect(screen.getByText('Analyse this game')).toBeInTheDocument();
-    // KS-4720: стрелка к anchor.
-    const arrow = screen.getByTestId('hint-popover-arrow');
-    expect(arrow).toBeInTheDocument();
-    expect(arrow.getAttribute('data-placement')).toBeTruthy();
+    expect(screen.getByText('Tap Analyse to start.')).toBeInTheDocument();
+    expect(screen.getByTestId('info-bar-cta')).toHaveTextContent('Analyse');
 
     await waitFor(() => {
       const shown = vi.mocked(fetch).mock.calls.find(
@@ -180,20 +172,19 @@ describe('HintHost (KS-4703)', () => {
     });
   });
 
-  it('click close → POST dismissed + поповер исчезает', async () => {
-    setupAnchor('game-end-analysis-button');
+  it('клик по крестику → POST dismissed + InfoBar исчезает', async () => {
     wrap(<HintHost />, makeUser());
 
     await act(async () => {
       fireWs('hint:show', makePayload());
     });
-    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+    expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('hint-popover-close'));
+      fireEvent.click(screen.getByTestId('info-bar-close'));
     });
 
-    expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('hint-info-bar')).not.toBeInTheDocument();
     const dismissed = vi.mocked(fetch).mock.calls.find(
       ([url]) => typeof url === 'string' && url.endsWith('/dismissed'),
     );
@@ -203,8 +194,7 @@ describe('HintHost (KS-4703)', () => {
     ).toEqual({ reason: 'close_button' });
   });
 
-  it('CTA click → POST acted + dispatch CustomEvent при ctaEvent', async () => {
-    setupAnchor('board-settings-icon');
+  it('клик по CTA → POST acted + dispatch CustomEvent при ctaEvent', async () => {
     wrap(<HintHost />, makeUser());
 
     const onEvent = vi.fn();
@@ -214,16 +204,15 @@ describe('HintHost (KS-4703)', () => {
       fireWs(
         'hint:show',
         makePayload({
-          anchor: 'board-settings-icon',
           ctaHref: null,
           ctaEvent: 'open_board_settings',
         }),
       );
     });
-    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+    expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('hint-popover-cta'));
+      fireEvent.click(screen.getByTestId('info-bar-cta'));
     });
 
     const acted = vi.mocked(fetch).mock.calls.find(
@@ -234,85 +223,9 @@ describe('HintHost (KS-4703)', () => {
     window.removeEventListener('kingside:hint-cta', onEvent);
   });
 
-  it('anchor так и не появился за окно ожидания → POST ignored reason=no_anchor, no-render', async () => {
-    // KS-4790: HintHost теперь не шлёт ignored сразу — он ждёт появления
-    // anchor через MutationObserver до ANCHOR_WAIT_MS. Если за это время
-    // элемент не появился, лайфсайкл = ignored{no_anchor}.
-    vi.useFakeTimers();
-    try {
-      wrap(<HintHost />, makeUser());
-      await act(async () => {
-        fireWs(
-          'hint:show',
-          makePayload({ anchor: 'home-puzzles-tile' }),
-        );
-      });
-
-      // Сразу после hint:show ignored ещё НЕ отправлен.
-      const earlyIgnored = vi.mocked(fetch).mock.calls.find(
-        ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
-      );
-      expect(earlyIgnored).toBeUndefined();
-
-      // Прокрутили окно ожидания.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(30_000);
-      });
-
-      const ignored = vi.mocked(fetch).mock.calls.find(
-        ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
-      );
-      expect(ignored).toBeDefined();
-      const body = JSON.parse((ignored?.[1] as RequestInit).body as string);
-      expect(body).toEqual({ reason: 'no_anchor' });
-      expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('anchor появляется уже после hint:show → popover рендерится, POST shown', async () => {
-    // KS-4790: правило `bridge-promo-after-3-wasm` триггерится на
-    // ws_connected, но `[data-hint-anchor="analysis-bridge-promo"]`
-    // рендерится только когда `activeSource === 'wasm'` — после действий
-    // пользователя. HintHost должен дождаться появления якоря через
-    // MutationObserver и показать popover.
-    wrap(<HintHost />, makeUser());
-    await act(async () => {
-      fireWs(
-        'hint:show',
-        makePayload({ anchor: 'analysis-bridge-promo' }),
-      );
-    });
-
-    // Сразу popover'а нет: якоря в DOM ещё нет.
-    expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
-
-    // Якорь появляется позже (имитация условного рендера блока).
-    await act(async () => {
-      setupAnchor('analysis-bridge-promo');
-    });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('hint-popover')).toBeInTheDocument(),
-    );
-    await waitFor(() => {
-      const shown = vi.mocked(fetch).mock.calls.find(
-        ([url]) => typeof url === 'string' && url.endsWith('/shown'),
-      );
-      expect(shown).toBeDefined();
-    });
-    // ignored по no_anchor не отправлен.
-    const ignored = vi.mocked(fetch).mock.calls.find(
-      ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
-    );
-    expect(ignored).toBeUndefined();
-  });
-
   it('ttl истёк → POST ignored reason=ttl_expired', async () => {
     vi.useFakeTimers();
     try {
-      setupAnchor('game-end-analysis-button');
       wrap(<HintHost />, makeUser());
 
       await act(async () => {
@@ -322,13 +235,13 @@ describe('HintHost (KS-4703)', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+      expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_000);
       });
 
-      expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('hint-info-bar')).not.toBeInTheDocument();
       const ignored = vi.mocked(fetch).mock.calls.find(
         ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
       );
@@ -341,8 +254,7 @@ describe('HintHost (KS-4703)', () => {
     }
   });
 
-  it('guest без consent — pull не идёт', async () => {
-    setupAnchor('landing-signup-button');
+  it('гость без consent — pull не идёт, InfoBar пуст', async () => {
     wrap(<HintHost />, null);
 
     await act(async () => {
@@ -352,11 +264,11 @@ describe('HintHost (KS-4703)', () => {
       ([url]) => typeof url === 'string' && url.endsWith('/hints/pending'),
     );
     expect(pendingCall).toBeUndefined();
+    expect(screen.queryByTestId('hint-info-bar')).not.toBeInTheDocument();
   });
 
-  it('guest с consent — pull стартует и применяет первый payload', async () => {
+  it('гость с consent — pull стартует и применяет первый payload в InfoBar', async () => {
     document.cookie = 'analytics_consent=1; path=/';
-    setupAnchor('landing-signup-button');
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : (input as Request).url;
       if (url.endsWith('/hints/pending')) {
@@ -364,7 +276,6 @@ describe('HintHost (KS-4703)', () => {
           JSON.stringify([
             makePayload({
               hintId: '22222222-2222-2222-2222-222222222222',
-              anchor: 'landing-signup-button',
               ctaHref: '/register',
             }),
           ]),
@@ -377,7 +288,7 @@ describe('HintHost (KS-4703)', () => {
     wrap(<HintHost />, null);
 
     await waitFor(() =>
-      expect(screen.getByTestId('hint-popover')).toBeInTheDocument(),
+      expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument(),
     );
     // Лайфсайкл shown отправлен для guest (без Authorization).
     await waitFor(() => {
@@ -393,107 +304,8 @@ describe('HintHost (KS-4703)', () => {
     });
   });
 
-  it('SPA navigation на quiet-page при активном hint → POST ignored{quiet_page} + popover исчезает', async () => {
-    // KS-4813 / ADR-153 §2.4. Сценарий: hint показан на /play, пользователь
-    // переходит на /live/round1 — popover должен сразу исчезнуть с
-    // lifecycle ignored{quiet_page}, не дожидаясь 30-секундного
-    // MutationObserver-fallback'а KS-4790.
-    setupAnchor('game-end-analysis-button');
-    wrap(
-      <>
-        <HintHost />
-        <NavTo to="/live/round1" />
-      </>,
-      makeUser(),
-      ['/play'],
-    );
-
-    await act(async () => {
-      fireWs('hint:show', makePayload());
-    });
-    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('nav-trigger'));
-    });
-
-    expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
-    await waitFor(() => {
-      const ignored = vi.mocked(fetch).mock.calls.find(
-        ([url], i) => {
-          // Берём именно ignored с reason=quiet_page (могут быть и другие
-          // ignored из других сценариев — фильтруем по body).
-          if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
-          const body = JSON.parse(
-            (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
-          );
-          return body?.reason === 'quiet_page';
-        },
-      );
-      expect(ignored).toBeDefined();
-    });
-  });
-
-  it('hint:show приходит когда уже на quiet-page → ignored{quiet_page} немедленно, popover не рендерится', async () => {
-    // KS-4813. Edge: user уже на /admin к моменту прихода hint'а
-    // (например, через WS replay после reconnect). useEffect срабатывает
-    // на смене hint (depsы [pathname, hint, token]) — отбрасываем сразу.
-    setupAnchor('admin-some-anchor');
-    wrap(<HintHost />, makeUser(), ['/admin/hints']);
-
-    await act(async () => {
-      fireWs('hint:show', makePayload({ anchor: 'admin-some-anchor' }));
-    });
-
-    await waitFor(() => {
-      const ignored = vi.mocked(fetch).mock.calls.find(([url], i) => {
-        if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
-        const body = JSON.parse(
-          (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
-        );
-        return body?.reason === 'quiet_page';
-      });
-      expect(ignored).toBeDefined();
-    });
-    expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
-  });
-
-  it('SPA navigation на нормальную страницу не отменяет hint', async () => {
-    // KS-4813. Регрессия: переход на /lessons (не quiet) — popover
-    // продолжает жить, ignored{quiet_page} не шлётся.
-    setupAnchor('game-end-analysis-button');
-    wrap(
-      <>
-        <HintHost />
-        <NavTo to="/lessons" />
-      </>,
-      makeUser(),
-      ['/play'],
-    );
-
-    await act(async () => {
-      fireWs('hint:show', makePayload());
-    });
-    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('nav-trigger'));
-    });
-
-    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
-    const quietIgnored = vi.mocked(fetch).mock.calls.find(([url], i) => {
-      if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
-      const body = JSON.parse(
-        (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
-      );
-      return body?.reason === 'quiet_page';
-    });
-    expect(quietIgnored).toBeUndefined();
-  });
-
-  it('переход guest→user — pending перестаёт зваться, WS работает', async () => {
+  it('переход guest→user — pending перестаёт зваться, WS работает, рендер в InfoBar', async () => {
     document.cookie = 'analytics_consent=1; path=/';
-    setupAnchor('landing-signup-button');
     let pendingCalls = 0;
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : (input as Request).url;
@@ -521,7 +333,10 @@ describe('HintHost (KS-4703)', () => {
               refreshUser: async () => undefined,
             }}
           >
-            <HintHost />
+            <InfoBarProvider>
+              <InfoBar />
+              <HintHost />
+            </InfoBarProvider>
           </AuthContext.Provider>
         </MemoryRouter>
       </I18nextProvider>,
@@ -544,7 +359,10 @@ describe('HintHost (KS-4703)', () => {
               refreshUser: async () => undefined,
             }}
           >
-            <HintHost />
+            <InfoBarProvider>
+              <InfoBar />
+              <HintHost />
+            </InfoBarProvider>
           </AuthContext.Provider>
         </MemoryRouter>
       </I18nextProvider>,
@@ -557,14 +375,93 @@ describe('HintHost (KS-4703)', () => {
 
     // WS теперь работает.
     await act(async () => {
-      fireWs(
-        'hint:show',
-        makePayload({ anchor: 'landing-signup-button' }),
-      );
+      fireWs('hint:show', makePayload());
     });
-    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+    expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument();
+  });
+
+  it('SPA navigation на quiet-page при активном hint → POST ignored{quiet_page} + InfoBar исчезает', async () => {
+    // KS-4813 / ADR-153 §2.4. Сценарий: hint показан на /play, пользователь
+    // переходит на /live/round1 — InfoBar должен сразу исчезнуть с
+    // lifecycle ignored{quiet_page}.
+    wrap(
+      <>
+        <HintHost />
+        <NavTo to="/live/round1" />
+      </>,
+      makeUser(),
+      ['/play'],
+    );
+
+    await act(async () => {
+      fireWs('hint:show', makePayload());
+    });
+    expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('nav-trigger'));
+    });
+
+    expect(screen.queryByTestId('hint-info-bar')).not.toBeInTheDocument();
+    await waitFor(() => {
+      const ignored = vi.mocked(fetch).mock.calls.find(([url], i) => {
+        if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
+        const body = JSON.parse(
+          (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
+        );
+        return body?.reason === 'quiet_page';
+      });
+      expect(ignored).toBeDefined();
+    });
+  });
+
+  it('hint:show приходит когда уже на quiet-page → ignored{quiet_page} немедленно, InfoBar не рендерится', async () => {
+    wrap(<HintHost />, makeUser(), ['/admin/hints']);
+
+    await act(async () => {
+      fireWs('hint:show', makePayload());
+    });
+
+    await waitFor(() => {
+      const ignored = vi.mocked(fetch).mock.calls.find(([url], i) => {
+        if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
+        const body = JSON.parse(
+          (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
+        );
+        return body?.reason === 'quiet_page';
+      });
+      expect(ignored).toBeDefined();
+    });
+    expect(screen.queryByTestId('hint-info-bar')).not.toBeInTheDocument();
+  });
+
+  it('SPA navigation на нормальную страницу не отменяет hint', async () => {
+    wrap(
+      <>
+        <HintHost />
+        <NavTo to="/lessons" />
+      </>,
+      makeUser(),
+      ['/play'],
+    );
+
+    await act(async () => {
+      fireWs('hint:show', makePayload());
+    });
+    expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('nav-trigger'));
+    });
+
+    expect(screen.getByTestId('hint-info-bar')).toBeInTheDocument();
+    const quietIgnored = vi.mocked(fetch).mock.calls.find(([url], i) => {
+      if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
+      const body = JSON.parse(
+        (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
+      );
+      return body?.reason === 'quiet_page';
+    });
+    expect(quietIgnored).toBeUndefined();
   });
 });
-
-// Удалим неиспользованный API_BASE (только URL endpoint'ов проверяем через .endsWith).
-void API_BASE;
