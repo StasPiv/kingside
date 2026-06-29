@@ -191,6 +191,18 @@ describe('HintsLimitsService.canShow', () => {
     );
     expect(await svc.canShow(ACTOR)).toBe(false);
   });
+
+  // KS-4785: throttleSec=0 (test-mode) → SET с EX 0 Redis отвергает,
+  // SET вообще не должен вызываться. canShow всё равно возвращает true.
+  it('throttleSec=0 → true и НЕ ставит throttle (Redis SET EX 0 invalid)', async () => {
+    const redis = mkRedis();
+    const svc = new HintsLimitsService(
+      mkConfig({ HINTS_ENABLED: 'true', HINTS_TEST_MODE: '1' }),
+      redis,
+    );
+    expect(await svc.canShow(ACTOR)).toBe(true);
+    expect(redis.set).not.toHaveBeenCalled();
+  });
 });
 
 describe('HintsLimitsService.markShown', () => {

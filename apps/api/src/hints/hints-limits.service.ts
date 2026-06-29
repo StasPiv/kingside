@@ -148,7 +148,13 @@ export class HintsLimitsService {
       // Превентивно ставим throttle сразу же — это «pessimistic lock»,
       // защита от параллельных HintsService.checkFor для одного actor'а
       // (например, реактивный check + cron-tick одновременно).
-      await this.redis.set(tKey, '1', 'EX', globalThrottleSec, 'NX');
+      // KS-4785: при `globalThrottleSec=0` (test-mode) Redis `SET … EX 0`
+      // отвечает `ERR invalid expire time in 'set' command` — Redis
+      // отвергает нулевой TTL. В этом режиме throttle отключён по
+      // определению, SET не нужен.
+      if (globalThrottleSec > 0) {
+        await this.redis.set(tKey, '1', 'EX', globalThrottleSec, 'NX');
+      }
       return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
