@@ -15,7 +15,7 @@ import { I18nService } from 'nestjs-i18n';
 import { MatchmakingService, MATCHMAKER_NO_OPPONENTS_CHANNEL } from './matchmaking.service';
 import { JoinQueueDto } from './dto/join-queue.dto';
 import { JwtPayload } from '../auth/jwt.strategy';
-import { RedisService } from '../redis/redis.service';
+import { RedisService, buildRedisClient } from '../redis/redis.service';
 import {
   classifyTimeControl,
   MatchmakingEvents,
@@ -47,9 +47,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const redisHost = process.env.REDIS_HOST || 'localhost';
-    const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
-    this.subRedis = new Redis({ host: redisHost, port: redisPort });
+    this.subRedis = buildRedisClient();
 
     // KS-2197: подписка на оба канала (`found` — нашли пару, `no_opponents`
     // — таймаут пустой очереди). Один subscriber-инстанс используется и

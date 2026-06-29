@@ -13,7 +13,7 @@ import Redis from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { ArenaService } from './arena.service';
-import { RedisService } from '../redis/redis.service';
+import { RedisService, buildRedisClient } from '../redis/redis.service';
 import { MatchmakerWorkerService } from '../matchmaker-worker/matchmaker-worker.service';
 
 /** Redis pub/sub channel from matchmaker worker */
@@ -62,9 +62,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     }
 
     try {
-      const redisHost = process.env.REDIS_HOST || 'localhost';
-      const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
-      this.subRedis = new Redis({ host: redisHost, port: redisPort });
+      this.subRedis = buildRedisClient();
 
       await this.subRedis.subscribe(MATCHMAKER_PAIRED_CHANNEL);
 
