@@ -104,25 +104,33 @@ export function configureEvents(next: EventsClientConfig): void {
 }
 
 /**
- * Снимает листенеры и останавливает таймер. Буфер сбрасывается.
- * Нужно для тестов и для повторной инициализации.
+ * Снимает листенеры и останавливает таймер. По умолчанию буфер
+ * СОХРАНЯЕТСЯ — React 19 StrictMode в dev симулирует mount/unmount/remount
+ * сразу после первого рендера, при сбросе буфера терялись бы события,
+ * накопленные между mount и unmount (KS-4787). При повторной инициализации
+ * (reconfigure при смене token/consent в проде) логика та же: накопленные
+ * события должны улететь после restart таймера, а не пропасть.
+ *
+ * Для тестов и явного полного сброса передавай `{ resetBuffer: true }`
+ * (см. `__resetEventsForTests`).
  */
-export function teardownEvents(): void {
-  // KS-4787 diag: ключевой лог — сюда упирается потеря событий между
-  // BUFFERED и flush'ем. Печатаем размер буфера и его содержимое ДО
-  // обнуления, плюс stack — увидим инициатора вызова (cleanup useEffect /
-  // тест / явный reset).
+export function teardownEvents(opts: { resetBuffer?: boolean } = {}): void {
+  // KS-4787 diag: ключевой лог — фиксирует, что было в буфере на момент
+  // teardown и сбрасываем ли мы его. Stack показывает инициатора.
   // eslint-disable-next-line no-console
   console.log(
     `[ks-diag teardown] bufBefore=${buffer.length} ` +
       `types=[${buffer.map((e) => e.type).join(',')}] ` +
-      `configured=${config !== null} timerActive=${flushTimer !== null}`,
+      `configured=${config !== null} timerActive=${flushTimer !== null} ` +
+      `resetBuffer=${opts.resetBuffer === true}`,
   );
   // eslint-disable-next-line no-console
   console.log(`[ks-diag teardown] stack=\n${new Error().stack ?? ''}`);
   stopFlushTimer();
   detachUnloadListeners();
-  buffer = [];
+  if (opts.resetBuffer === true) {
+    buffer = [];
+  }
   config = null;
 }
 
@@ -439,7 +447,7 @@ export function __peekBufferForTests(): BufferedEvent[] {
   return buffer.slice();
 }
 
-/** Только для тестов: полный сброс модульного состояния. */
+/** Только для тестов: полный сброс модульного состояния (с очисткой буфера). */
 export function __resetEventsForTests(): void {
-  teardownEvents();
+  teardownEvents({ resetBuffer: true });
 }

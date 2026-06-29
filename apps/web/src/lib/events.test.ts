@@ -338,7 +338,11 @@ describe('events client (KS-4684)', () => {
   });
 
   describe('teardown', () => {
-    it('teardownEvents сбрасывает буфер и снимает таймер', async () => {
+    it('teardownEvents по умолчанию сохраняет буфер и снимает таймер', async () => {
+      // KS-4787: React 19 StrictMode симулирует mount/unmount/remount, и при
+      // обнулении буфера здесь терялись бы события первого рендера
+      // (page_view). Дефолт — сохранить буфер; явный сброс — через
+      // { resetBuffer: true }.
       configureEvents({
         isConsented: () => true,
         getAuthToken: () => null,
@@ -346,11 +350,48 @@ describe('events client (KS-4684)', () => {
       });
       track('page_view', { path: '/' });
       teardownEvents();
-      expect(__getBufferSizeForTests()).toBe(0);
+      expect(__getBufferSizeForTests()).toBe(1);
 
-      // Таймер должен быть снят — flush через 5 сек не должен вызвать fetch.
+      // Таймер снят — flush через 5 сек не должен вызвать fetch.
       await vi.advanceTimersByTimeAsync(10_000);
       expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    });
+
+    it('teardownEvents({resetBuffer:true}) сбрасывает буфер', async () => {
+      configureEvents({
+        isConsented: () => true,
+        getAuthToken: () => null,
+        apiBase: API_BASE,
+      });
+      track('page_view', { path: '/' });
+      teardownEvents({ resetBuffer: true });
+      expect(__getBufferSizeForTests()).toBe(0);
+    });
+
+    it('после reconfigure накопленный буфер уходит на следующем flush', async () => {
+      // Полный сценарий React 19 StrictMode: mount → track → unmount
+      // (teardown без resetBuffer) → remount (configure) → flush через
+      // FLUSH_INTERVAL_MS должен отправить page_view из старого буфера.
+      configureEvents({
+        isConsented: () => true,
+        getAuthToken: () => null,
+        apiBase: API_BASE,
+      });
+      track('page_view', { path: '/' });
+      teardownEvents();
+      configureEvents({
+        isConsented: () => true,
+        getAuthToken: () => null,
+        apiBase: API_BASE,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(
+        (vi.mocked(fetch).mock.calls[0][1]?.body as string) ?? '{}',
+      );
+      expect(body.events).toEqual([
+        expect.objectContaining({ type: 'page_view' }),
+      ]);
     });
   });
 });
