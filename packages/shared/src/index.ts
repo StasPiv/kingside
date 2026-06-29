@@ -48,6 +48,10 @@ export * from './constants/archive.js';
 export * from './types/hint-anchors.js';
 export * from './types/hint-payload.js';
 export * from './constants/hint-quiet-pages.js';
+// KS-4798 / ADR-152 §2.3: каталог UI-меты событий + SYSTEM_EVENT_TYPES
+// (frontend — рендер `/me/actions`, backend — серверный фильтр в
+// `GET /me/events`).
+export * from './types/event-catalog.js';
 export * from './utils/time-control.js';
 export * from './utils/fen-key.js';
 export * from './utils/archive-name-normalize.js';
