@@ -21,6 +21,9 @@ export const SCOPES = {
   REPERTOIRE_WRITE: 'repertoire:write',
   /** KS-4702 / ADR-147 §3.3. CRUD контекстных подсказок (`Hint` в schema events). */
   HINTS_WRITE: 'hints:write',
+  /** KS-4801 / ADR-152. Read-доступ к `events.actor_events` произвольного
+   *  actor для диагностики (симметричный `GET /me/events`). */
+  EVENTS_READ: 'events:read',
 } as const;
 
 export type ScopeString = (typeof SCOPES)[keyof typeof SCOPES];

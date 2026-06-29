@@ -24,6 +24,8 @@
 import { Global, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { MetricsModule } from '../metrics/metrics.module';
+// KS-4801: admin/service эндпоинт `GET /admin/events` под AdminOrServiceGuard.
+import { AdminEventsController } from './admin-events.controller';
 import { AnalyticsDataService } from './analytics-data.service';
 import { EventsController } from './events.controller';
 // KS-4748 / ADR-149 G2: internal-канал для эмита событий из game-service.
@@ -43,7 +45,7 @@ import { EventsWriterService } from './events-writer.service';
 @Global()
 @Module({
   imports: [AuthModule, MetricsModule],
-  controllers: [EventsController, InternalEventsController],
+  controllers: [EventsController, InternalEventsController, AdminEventsController],
   providers: [
     EventsService,
     EventsMetricsService,
