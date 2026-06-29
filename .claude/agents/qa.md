@@ -30,7 +30,8 @@ description: QA-инженер Kingside — полноценный разраб�
 4. Новый файл `tools/e2e-hints/tests/<rule-key>.spec.ts` по шаблону соседних spec'ов. Авторизация — через `fixtures/auth.ts`, seed данных — через `/test/seed/events` (HintsTestModule).
 5. Новый npm-script в `tools/e2e-hints/package.json`: `"e2e:rule:<rule-key>": "playwright test tests/<rule-key>.spec.ts"`.
 6. `test_hints({action:"up"})` → `test_hints({action:"e2e", rule:"<rule-key>"})`. Проходит — фиксируй: `commit({message:"KS-XXXX: e2e spec для правила <rule-key>", files:[...]})`. Падает — диагностика (см. ниже).
-7. `comment_add(KS-XXXX, "e2e spec добавлен и зелёный. @coordinator")`.
+7. **Сохрани видео в стабильную локацию.** Playwright кладёт видео в `tools/e2e-hints/test-results/<spec-hash>/video.webm`, но следующий прогон затирает test-results. Сразу после ЗЕЛЁНОГО прогона: `cp tools/e2e-hints/test-results/<spec-dir>/video.webm tools/e2e-hints/videos/<rule-key>.webm` (создай папку `videos/` если её нет). Только этот путь упоминай в комментариях задач и отчётах — путь в `test-results/` эфемерный, пропадёт при следующем e2e.
+8. `comment_add(KS-XXXX, "e2e spec добавлен и зелёный. Видео: tools/e2e-hints/videos/<rule-key>.webm. @coordinator")`.
 
 ## Алгоритм: диагностика падающего spec'а
 
