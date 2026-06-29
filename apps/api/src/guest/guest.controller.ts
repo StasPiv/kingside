@@ -73,7 +73,7 @@ export class GuestController {
     });
     expireCookies(res, this.cookieDomain);
     this.logger.log(
-      `/guest/analytics-data DELETE guest=${guestId} eventsDeleted=${result.eventsDeleted} aggKeysDeleted=${result.aggKeysDeleted}`,
+      `/guest/analytics-data DELETE guest=${guestId} eventsDeleted=${result.eventsDeleted} aggKeysDeleted=${result.aggKeysDeleted} hintsKeysDeleted=${result.hintsKeysDeleted}`,
     );
     res.status(HttpStatus.OK).json(result);
   }

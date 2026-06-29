@@ -88,7 +88,7 @@ export class MeController {
   @HttpCode(HttpStatus.OK)
   async deleteAnalytics(
     @Req() req: AuthenticatedRequest,
-  ): Promise<{ eventsDeleted: number; aggKeysDeleted: number }> {
+  ): Promise<{ eventsDeleted: number; aggKeysDeleted: number; hintsKeysDeleted: number }> {
     const userId = req.user.id;
     const res = await this.analyticsData.deleteActorData({
       type: 'user',
@@ -96,7 +96,7 @@ export class MeController {
     });
     this.events.invalidateConsentCache(userId);
     this.logger.log(
-      `/me/analytics-data DELETE user=${userId} eventsDeleted=${res.eventsDeleted} aggKeysDeleted=${res.aggKeysDeleted}`,
+      `/me/analytics-data DELETE user=${userId} eventsDeleted=${res.eventsDeleted} aggKeysDeleted=${res.aggKeysDeleted} hintsKeysDeleted=${res.hintsKeysDeleted}`,
     );
     return res;
   }

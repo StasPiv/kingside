@@ -86,6 +86,14 @@ interface DeleteResult {
   eventsDeleted: number;
   /** Сколько Redis agg-ключей удалено. */
   aggKeysDeleted: number;
+  /**
+   * KS-4802. Сколько Redis hints-runtime-ключей удалено
+   * (throttle/session/last-page/pending). Эти ключи не относятся к
+   * аналитическим агрегатам, но являются приватным runtime-состоянием
+   * пользователя для HintsEngine — снимать вместе по тому же
+   * GDPR-DELETE.
+   */
+  hintsKeysDeleted: number;
 }
 
 interface MergeResult {
@@ -131,7 +139,13 @@ export class AnalyticsDataService {
     }
 
     const aggKeysDeleted = await this.deleteAggKeys(actor.id);
-    return { eventsDeleted, aggKeysDeleted };
+    // KS-4802: runtime-состояние hints (throttle/session/last-page/pending)
+    // — приватные данные actor'а, должны зачищаться той же операцией.
+    // Иначе после `DELETE /me/analytics-data` глобальная квота показов
+    // hints за сегодняшние сутки UTC остаётся и блокирует popover'ы,
+    // даже когда `actor_events` уже пустой.
+    const hintsKeysDeleted = await this.deleteHintsRuntimeKeys(actor.id);
+    return { eventsDeleted, aggKeysDeleted, hintsKeysDeleted };
   }
 
   /* ─── LIST (Art. 15 — UI «Мои действия», KS-4799 / ADR-152 §2.1) ─ */
@@ -379,6 +393,58 @@ export class AnalyticsDataService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(`deleteAggKeys SCAN/DEL failed for ${actorId}: ${msg}`);
+    }
+    return deleted;
+  }
+
+  /**
+   * KS-4802. Чистка приватного runtime-состояния hints для actor'а:
+   *   - `hints:throttle:<actor>`     — глобальный 10-минутный lock;
+   *   - `hints:session:<actor>:*`    — счётчики показов в сутки UTC;
+   *   - `hints:last-page:<actor>`    — кэш последней страницы для DSL;
+   *   - `hints:pending:<actor>`      — pending popover'ы (для гостя).
+   *
+   * Симметрично `deleteAggKeys`: SCAN+DEL для wildcard-пар, прямые DEL
+   * для одиночных. Идемпотентно — повторный вызов удалит 0.
+   *
+   * Ключи захардкожены здесь, а не импортированы из hints.types, чтобы
+   * избежать кольцевой зависимости `events → hints`. Сменится префикс —
+   * правится в обоих местах (всего 4 строки).
+   */
+  private async deleteHintsRuntimeKeys(actorId: string): Promise<number> {
+    let deleted = 0;
+    // Wildcard: hints:session:<actor>:<YYYY-MM-DD> — за каждый день
+    // отдельный ключ, удалить надо все.
+    try {
+      const pattern = `hints:session:${actorId}:*`;
+      let cursor = '0';
+      do {
+        const reply = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+        cursor = String(reply[0]);
+        const keys = reply[1] as string[];
+        if (keys.length > 0) {
+          deleted += await this.redis.del(...keys);
+        }
+      } while (cursor !== '0');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`deleteHintsRuntimeKeys SCAN/DEL failed for ${actorId}: ${msg}`);
+    }
+    // Одиночные ключи. Каждый отдельным `redis.del` чтобы один невалидный
+    // не убил остальные. Игнорируем фактическое число — главное чтобы
+    // прошло без throw.
+    const singleKeys = [
+      `hints:throttle:${actorId}`,
+      `hints:last-page:${actorId}`,
+      `hints:pending:${actorId}`,
+    ];
+    for (const key of singleKeys) {
+      try {
+        deleted += await this.redis.del(key);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`deleteHintsRuntimeKeys DEL ${key} failed: ${msg}`);
+      }
     }
     return deleted;
   }

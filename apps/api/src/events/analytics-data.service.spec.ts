@@ -34,7 +34,7 @@ describe('AnalyticsDataService.deleteActorData', () => {
   it('owner=null → eventsDeleted=0, no throw', async () => {
     const svc = new AnalyticsDataService(makeRedis(), makePrismaSvc(null));
     const r = await svc.deleteActorData({ type: 'user', id: 'u1' });
-    expect(r).toEqual({ eventsDeleted: 0, aggKeysDeleted: 0 });
+    expect(r).toEqual({ eventsDeleted: 0, aggKeysDeleted: 0, hintsKeysDeleted: 0 });
   });
 
   it('owner есть → вызывает deleteMany с правильным where', async () => {
@@ -52,6 +52,54 @@ describe('AnalyticsDataService.deleteActorData', () => {
     });
     expect(r.eventsDeleted).toBe(7);
     expect(r.aggKeysDeleted).toBe(1);
+  });
+
+  it('hints runtime-ключи: SCAN+DEL для hints:session:* + DEL throttle/last-page/pending', async () => {
+    const deleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    const owner = { actorEvent: { deleteMany }, actorHintState: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) } };
+    let scanCallIdx = 0;
+    const scan = jest.fn().mockImplementation((cursor, ...rest) => {
+      // первый scan — agg:*, второй — hints:session:*
+      scanCallIdx += 1;
+      if (scanCallIdx === 1) return Promise.resolve(['0', []]);
+      if (scanCallIdx === 2) {
+        return Promise.resolve(['0', [`hints:session:u1:2026-06-29`, `hints:session:u1:2026-06-28`]]);
+      }
+      return Promise.resolve(['0', []]);
+    });
+    const del = jest.fn()
+      // первый вызов — на пачку session-ключей (2)
+      .mockResolvedValueOnce(2)
+      // потом по одному для throttle/last-page/pending — все возвращают 1
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
+    const redis = makeRedis({ scan, del });
+    const svc = new AnalyticsDataService(redis, makePrismaSvc(owner));
+    const r = await svc.deleteActorData({ type: 'user', id: 'u1' });
+    expect(r.hintsKeysDeleted).toBe(5); // 2 session + throttle + last-page + pending
+    expect(del).toHaveBeenCalledWith('hints:session:u1:2026-06-29', 'hints:session:u1:2026-06-28');
+    expect(del).toHaveBeenCalledWith('hints:throttle:u1');
+    expect(del).toHaveBeenCalledWith('hints:last-page:u1');
+    expect(del).toHaveBeenCalledWith('hints:pending:u1');
+  });
+
+  it('hints runtime-ключи: ошибки одиночных DEL не блокируют остальные', async () => {
+    const deleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    const owner = { actorEvent: { deleteMany }, actorHintState: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) } };
+    let scanCallIdx = 0;
+    const scan = jest.fn().mockImplementation(() => {
+      scanCallIdx += 1;
+      return Promise.resolve(['0', []]); // SCAN agg + SCAN hints:session — оба пустые
+    });
+    const del = jest.fn()
+      .mockRejectedValueOnce(new Error('throttle del failed'))
+      .mockResolvedValueOnce(1) // last-page OK
+      .mockResolvedValueOnce(1); // pending OK
+    const redis = makeRedis({ scan, del });
+    const svc = new AnalyticsDataService(redis, makePrismaSvc(owner));
+    const r = await svc.deleteActorData({ type: 'user', id: 'u1' });
+    expect(r.hintsKeysDeleted).toBe(2); // throttle упал, остальные ок
   });
 
   it('idempotent: повторный delete возвращает 0 без падения', async () => {
