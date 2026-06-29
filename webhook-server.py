@@ -1031,7 +1031,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_PACKAGE_LOCK", "ROLE_READ_TSCONFIG_BASE",
     ],
     "qa": [
-        "ROLE_GIT_READ", "ROLE_READ_PROJECT",
+        "ROLE_GIT_READ", "ROLE_READ_PROJECT", "ROLE_COMMIT",
         "ROLE_TEST_HINTS", "ROLE_WRITE_TEST_HINTS",
     ],
     "content": [
