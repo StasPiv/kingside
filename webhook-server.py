@@ -3315,7 +3315,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             # Допустимые действия:
             #   up   — поднять test-hints compose-стек (postgres 5434, redis 6381, api 3101, web 5174, game-service 3102)
             #   down — погасить стек и удалить volumes
-            #   e2e  — `npm run e2e:hints` (стек должен быть поднят)
+            #   e2e  — `npm run e2e:hints` (стек должен быть поднят); опциональный rule прогоняет одно правило
             if action not in {"up", "down", "e2e"}:
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
@@ -3329,8 +3329,22 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 cmd = ["bash", os.path.join(PROJECT_DIR, "scripts/test-hints-down.sh")]
                 timeout = 120
             else:  # e2e
-                cmd = ["npm", "run", "e2e:hints", "--workspace=@kingside/e2e-hints"]
-                timeout = 1800
+                rule = payload.get("rule", "")
+                if rule:
+                    # rule-key: только [a-z0-9-]+ — мапится на npm-script
+                    # e2e:rule:<rule-key> в tools/e2e-hints/package.json (по одному
+                    # на spec-файл). Защита от injection в npm-аргумент.
+                    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", rule):
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"error": "rule must match [a-z0-9-]+"}).encode())
+                        return
+                    cmd = ["npm", "run", f"e2e:rule:{rule}", "--workspace=@kingside/e2e-hints"]
+                    timeout = 600
+                else:
+                    cmd = ["npm", "run", "e2e:hints", "--workspace=@kingside/e2e-hints"]
+                    timeout = 1800
             log(f"test-hints {action}: {' '.join(cmd)} (timeout {timeout}s)")
             try:
                 result = subprocess.run(

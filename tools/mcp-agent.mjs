@@ -91,9 +91,10 @@ const TOOLS = [
       script: { type: 'string', enum: ['build', 'test', 'lint', 'prisma:generate', 'prisma:migrate'] },
       workspace: { type: 'string', description: 'Опционально: имя workspace, например "@kingside/archive-service"' },
     }, required: ['script'] } },
-  { name: 'test_hints', description: 'Изолированный compose-стек для e2e-прогонов hints (ADR-150). action: "up" — поднять стек (postgres 5434, redis 6381, api 3101, game-service 3102, web 5174); "down" — погасить + удалить volumes; "e2e" — `npm run e2e:hints` (стек должен быть поднят, иначе тесты упадут). Скрипты — scripts/test-hints-{up,down}.sh, compose — scripts/docker-compose.test-hints.yml, тесты — tools/e2e-hints/. При падении правь эти файлы сам.',
+  { name: 'test_hints', description: 'Изолированный compose-стек для e2e-прогонов hints (ADR-150). action: "up" — поднять стек (postgres 5434, redis 6381, api 3101, game-service 3102, web 5174); "down" — погасить + удалить volumes; "e2e" — прогнать playwright-тесты (стек должен быть поднят). По умолчанию e2e гоняет все правила; с rule="<rule-key>" — только один spec через `npm run e2e:rule:<rule-key>` (список правил — в scripts блоке tools/e2e-hints/package.json). Скрипты — scripts/test-hints-{up,down}.sh, compose — scripts/docker-compose.test-hints.yml, тесты — tools/e2e-hints/. При падении правь эти файлы сам.',
     inputSchema: { type: 'object', properties: {
       action: { type: 'string', enum: ['up', 'down', 'e2e'] },
+      rule: { type: 'string', description: 'Опционально, только для action=e2e: ключ правила (kebab-case, напр. "analyze-after-loss"). Прогоняет один spec вместо всего набора.' },
     }, required: ['action'] } },
 
   // --- Playwright ---
@@ -265,7 +266,7 @@ async function call(name, args) {
     case 'npm_run':
       return webhookPost('/npm-run', { script: args.script, workspace: args.workspace || '' });
     case 'test_hints':
-      return webhookPost('/test-hints', { action: args.action });
+      return webhookPost('/test-hints', { action: args.action, rule: args.rule || '' });
 
     case 'screenshot': {
       if (!args.task || !args.path || !args.name) return { error: 'task, path, name required' };
