@@ -24,7 +24,7 @@
  * Возврат null при любой ошибке — fail-soft. Метрика длительности
  * пишется всегда.
  */
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
 import type { PrismaClient as EventsPrismaClient, Prisma } from '@kingside/events-db';
 import {
   HINT_QUIET_PAGES,
@@ -53,7 +53,16 @@ export class HintsService {
     private readonly metrics: HintsMetricsService,
     // KS-4701: WS-emit hint:show для user-actor. `@Optional` — spec-
     // фикстуры конструируют service без MessageGateway.
-    @Optional() private readonly gateway?: MessageGateway,
+    // KS-4785: forwardRef обязателен — циклический DI HintsService ⇄
+    // MessageGateway. MessageModule импортирует HintsModule через
+    // `forwardRef`, и тут на параметре тоже нужен `@Inject(forwardRef(…))`,
+    // иначе Nest резолвит токен MessageGateway в момент конструирования
+    // HintsService — а на этой стадии MessageModule ещё не дореализовался,
+    // и `@Optional()` подставляет undefined (gateway=no в логах). Без
+    // gateway emitHintShow никогда не вызывается → popover не доходит
+    // даже до пустой room.
+    @Optional() @Inject(forwardRef(() => MessageGateway))
+    private readonly gateway?: MessageGateway,
   ) {}
 
   /**
