@@ -14,6 +14,7 @@
  * пользователя.
  */
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -23,9 +24,12 @@ import {
   HttpStatus,
   Logger,
   Patch,
+  Query,
   Req,
   Res,
   UseGuards,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import { IsBoolean } from 'class-validator';
 import type { Request, Response } from 'express';
@@ -33,8 +37,13 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthenticatedRequest } from '../common/authenticated-request';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { AnalyticsDataService } from '../events/analytics-data.service';
+import {
+  AnalyticsDataService,
+  decodeCursor,
+  type ListEventsResult,
+} from '../events/analytics-data.service';
 import { EventsService } from '../events/events.service';
+import { ListEventsQueryDto } from './dto/list-events.dto';
 
 export class UpdateConsentDto {
   @IsBoolean()
@@ -90,6 +99,44 @@ export class MeController {
       `/me/analytics-data DELETE user=${userId} eventsDeleted=${res.eventsDeleted} aggKeysDeleted=${res.aggKeysDeleted}`,
     );
     return res;
+  }
+
+  /**
+   * KS-4799 / ADR-152 §2.1. `GET /me/events` — страница «Мои действия».
+   *
+   * Фильтр `actorId = req.user.id AND actorType = 'user'` зашит на
+   * сервере; параметра `actorId` в DTO нет, клиент не может попросить
+   * чужие события. По смыслу симметрично `streamExport` /
+   * `deleteActorData` — единая модель доступа в `MeController`.
+   *
+   * Парсинг `cursor` — здесь, до сервиса. Service принимает уже
+   * типизированный `ListEventsCursor`, чтобы не подмешивать base64-
+   * декодирование к доменной логике.
+   */
+  @Get('events')
+  // KS-4799: @Transform / @Type в DTO работают только если pipe в
+  // режиме transform — глобально у нас `whitelist: true` без transform
+  // (см. main.ts:86). Локальный override.
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: false }))
+  async listEvents(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: ListEventsQueryDto,
+  ): Promise<ListEventsResult> {
+    let cursor: ReturnType<typeof decodeCursor>;
+    try {
+      cursor = decodeCursor(query.cursor);
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+    return this.analyticsData.listEvents(
+      { type: 'user', id: req.user.id },
+      {
+        cursor: cursor ?? undefined,
+        limit: query.limit ?? 50,
+        types: query.types,
+        showSystem: query.showSystem ?? false,
+      },
+    );
   }
 
   @Get('analytics-export')

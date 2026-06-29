@@ -28,9 +28,58 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import type { PrismaClient as EventsPrismaClient } from '@kingside/events-db';
+import { SYSTEM_EVENT_TYPES } from '@kingside/shared';
 import { RedisService } from '../redis/redis.service';
 import { EventsPrismaService } from './events-prisma.service';
 import { AGG_KEY_PREFIX, Actor } from './events.types';
+
+/**
+ * KS-4799 / ADR-152 §6.4. Retention окна `events.actor_events`
+ * (pg_partman, заявленные 90 дней). Дублируется в response
+ * `GET /me/events`, чтобы фронт показал плашку «история за N дней»
+ * и менять retention в коде сервера, не на клиенте.
+ */
+export const EVENTS_RETENTION_DAYS = 90;
+
+/**
+ * KS-4799 / ADR-152 §2.1. Параметры выборки для `listEvents`.
+ *
+ * `cursor` — уже распарсенный наружу токен (бинарный `(createdAt, id)`).
+ * Контроллер обязан валидировать opaque-строку до сервиса; сервис
+ * принимает только строго типизированный объект. `id` — `bigint`,
+ * соответствует типу PK в `events.actor_events`.
+ */
+export interface ListEventsCursor {
+  createdAt: Date;
+  id: bigint;
+}
+
+export interface ListEventsOptions {
+  cursor?: ListEventsCursor;
+  /** 1..100. Контроллер уже привёл к диапазону через DTO + default. */
+  limit: number;
+  /** Whitelist типов; пусто → все. */
+  types?: string[];
+  /**
+   * `false` (default) — отрезать `SYSTEM_EVENT_TYPES` всегда, даже
+   * если `types` явно содержит системный тип. `true` — не отрезать.
+   */
+  showSystem: boolean;
+}
+
+export interface ListEventsItem {
+  id: string;            // BigInt → string для JSON-safe сериализации
+  type: string;
+  payload: unknown;
+  created_at: string;    // ISO-8601
+}
+
+export interface ListEventsResult {
+  items: ListEventsItem[];
+  next_cursor: string | null;
+  has_more: boolean;
+  retention_days: number;
+}
 
 interface DeleteResult {
   /** Сколько строк events.actor_events удалено. */
@@ -83,6 +132,95 @@ export class AnalyticsDataService {
 
     const aggKeysDeleted = await this.deleteAggKeys(actor.id);
     return { eventsDeleted, aggKeysDeleted };
+  }
+
+  /* ─── LIST (Art. 15 — UI «Мои действия», KS-4799 / ADR-152 §2.1) ─ */
+
+  /**
+   * Чтение страницы событий actor'а для UI `/me/actions`.
+   *
+   * Поведение под `EventsPrismaService.getOwner() === null` (dev без
+   * events-infra) — пустой ответ, как и `streamExport` / `deleteActorData`:
+   * приложение работает, страница просто без данных.
+   *
+   * Cursor — opaque base64, парсится контроллером ДО сервиса.
+   * `items.length > limit` означает «есть следующая страница» —
+   * берём `limit+1` и обрезаем последний, чтобы вычислить `has_more`
+   * без второго запроса.
+   *
+   * Использование индекса `(actor_id, type, created_at desc)` из
+   * ADR-147 §2.3 — см. ADR-152 §2.1 для разбора planner'ом.
+   */
+  async listEvents(actor: Actor, opts: ListEventsOptions): Promise<ListEventsResult> {
+    const owner = this.prismaSvc.getOwner();
+    const empty: ListEventsResult = {
+      items: [],
+      next_cursor: null,
+      has_more: false,
+      retention_days: EVENTS_RETENTION_DAYS,
+    };
+    if (!owner) {
+      this.logger.warn(
+        `listEvents: EVENTS owner-Prisma не сконфигурирован — пустой ответ (no-op для локали).`,
+      );
+      return empty;
+    }
+
+    const typeFilter = buildTypeFilter(opts.types, opts.showSystem);
+    const where: Record<string, unknown> = {
+      actorId: actor.id,
+      actorType: actor.type,
+      ...(typeFilter ? { type: typeFilter } : {}),
+      ...(opts.cursor
+        ? {
+            OR: [
+              { createdAt: { lt: opts.cursor.createdAt } },
+              { createdAt: opts.cursor.createdAt, id: { lt: opts.cursor.id } },
+            ],
+          }
+        : {}),
+    };
+
+    const rows: Array<{
+      id: bigint;
+      type: string;
+      payload: unknown;
+      createdAt: Date;
+    }> = await owner.actorEvent.findMany({
+      where: where as never,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: opts.limit + 1,
+      select: {
+        id: true,
+        type: true,
+        payload: true,
+        createdAt: true,
+      },
+    });
+
+    const hasMore = rows.length > opts.limit;
+    const visible = hasMore ? rows.slice(0, opts.limit) : rows;
+
+    const items: ListEventsItem[] = visible.map((r) => ({
+      id: r.id.toString(),
+      type: r.type,
+      payload: r.payload,
+      created_at: r.createdAt.toISOString(),
+    }));
+
+    const nextCursor = hasMore && visible.length > 0
+      ? encodeCursor({
+          createdAt: visible[visible.length - 1].createdAt,
+          id: visible[visible.length - 1].id,
+        })
+      : null;
+
+    return {
+      items,
+      next_cursor: nextCursor,
+      has_more: hasMore,
+      retention_days: EVENTS_RETENTION_DAYS,
+    };
   }
 
   /* ─── EXPORT (Art. 20) ─────────────────────────────────────── */
@@ -292,4 +430,84 @@ export class AnalyticsDataService {
     }
     return migrated;
   }
+}
+
+/* ─── KS-4799 cursor + filter helpers (exported для unit-тестов) ─── */
+
+/**
+ * Кодирует `(createdAt, id)` пары в opaque base64url-токен. Не
+ * подписывается: фильтр `actor_id = req.user.id` зашит на сервере,
+ * клиент не может «прыгнуть» в чужие события подменой cursor'а.
+ */
+export function encodeCursor(c: ListEventsCursor): string {
+  const json = JSON.stringify({
+    createdAtIso: c.createdAt.toISOString(),
+    id: c.id.toString(),
+  });
+  return Buffer.from(json, 'utf8').toString('base64url');
+}
+
+/**
+ * Парсит cursor. Возвращает `null` если входит null/undefined.
+ * Бросает `Error` с понятным message, если строка не парсится — контроллер
+ * превратит в 400 BadRequest.
+ */
+export function decodeCursor(raw: string | undefined | null): ListEventsCursor | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  let parsed: unknown;
+  try {
+    const json = Buffer.from(raw, 'base64url').toString('utf8');
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error('cursor: invalid base64/JSON');
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('cursor: expected JSON object');
+  }
+  const obj = parsed as Record<string, unknown>;
+  const iso = obj.createdAtIso;
+  const idRaw = obj.id;
+  if (typeof iso !== 'string' || typeof idRaw !== 'string') {
+    throw new Error('cursor: missing createdAtIso/id');
+  }
+  const createdAt = new Date(iso);
+  if (Number.isNaN(createdAt.getTime())) {
+    throw new Error('cursor: createdAtIso is not a valid ISO date');
+  }
+  let id: bigint;
+  try {
+    id = BigInt(idRaw);
+  } catch {
+    throw new Error('cursor: id is not a valid BigInt');
+  }
+  return { createdAt, id };
+}
+
+/**
+ * Собирает Prisma-условие для `type` из (types whitelist, showSystem).
+ * Логика:
+ *   - showSystem=false  + types пуст        → `notIn: SYSTEM_EVENT_TYPES`
+ *   - showSystem=false  + types непустой    → `in: types \ SYSTEM_EVENT_TYPES`
+ *   - showSystem=true   + types пуст        → undefined (нет фильтра)
+ *   - showSystem=true   + types непустой    → `in: types`
+ *
+ * Пересечение `types ∩ SYSTEM_EVENT_TYPES` при `showSystem=false`
+ * сознательно выбрасываем — иначе UI-флаг «скрыть системные» давал
+ * бы непредсказуемый результат при ручном указании `types=page_view`.
+ *
+ * Если после вычитания массив пуст — возвращаем условие, которое
+ * заведомо не вернёт строк (`in: []`), а не undefined: иначе мы бы
+ * вернули ВСЕ события, что хуже чем «ничего по фильтру».
+ */
+export function buildTypeFilter(
+  types: string[] | undefined,
+  showSystem: boolean,
+): { in: string[] } | { notIn: readonly string[] } | undefined {
+  if (!types || types.length === 0) {
+    return showSystem ? undefined : { notIn: SYSTEM_EVENT_TYPES };
+  }
+  const filtered = showSystem
+    ? types
+    : types.filter((t) => !SYSTEM_EVENT_TYPES.includes(t));
+  return { in: filtered };
 }
