@@ -17,6 +17,9 @@ export const HINT_LIFECYCLE_REASONS = [
   'cta_clicked',
   'accepted_by',
   'ttl_expired',
+  // KS-4806 / ADR-153 §2.4. Клиент уведомляет о cancel pending hint
+  // при SPA-переходе на «тихую» страницу до резолва anchor'а.
+  'quiet_page',
 ] as const;
 
 export type HintLifecycleReason = typeof HINT_LIFECYCLE_REASONS[number];

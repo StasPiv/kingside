@@ -84,3 +84,56 @@ export const HINT_QUIET_PAGE_PATTERNS_ALWAYS: readonly string[] =
   HINT_QUIET_PAGES.filter((p) => p.condition === 'always').map(
     (p) => p.pattern,
   );
+
+/**
+ * KS-4806 / ADR-153 §2.4. Чистая функция-предикат: попадает ли
+ * `pathname` под список «всегда тихих» страниц.
+ *
+ * Используется одновременно:
+ *   - frontend `<HintHost>` — при смене `location.pathname` через
+ *     React Router отменяет pending hint c reason='quiet_page', если
+ *     новая страница тихая (не ждёт 30s MutationObserver-timeout).
+ *   - backend `HintsService.checkFor` — текущий gate `isQuietPage(ctx)`
+ *     проверяет тот же список, через тот же matcher. Single source of
+ *     truth: pattern'ы не разойдутся между фронтом и бэком.
+ *
+ * Семантика pattern'ов:
+ *   - `*` в pattern'е → `.+` в regex (greedy, через любые `/`).
+ *     `/live/*` совпадает с `/live/round1` и с `/live/round1/game1`.
+ *   - `:name` → `[^/]+` (один path-сегмент без вложенных `/`).
+ *     `/lecture/:id` совпадает с `/lecture/abc`, не совпадает с
+ *     `/lecture/abc/def`.
+ *   - Остальные символы — литеральные. Regex-specials escape'аются.
+ *
+ * Чистая функция: ни I/O, ни кэша. `pathname` — то, что обычно лежит
+ * в `location.pathname` (без query/hash). Если приходит query — каждый
+ * caller должен очистить (`pathname.split('?')[0]`) до вызова.
+ */
+export function isQuietPage(pathname: string): boolean {
+  if (typeof pathname !== 'string' || pathname.length === 0) return false;
+  for (const pattern of HINT_QUIET_PAGE_PATTERNS_ALWAYS) {
+    if (quietPagePatternToRegex(pattern).test(pathname)) return true;
+  }
+  return false;
+}
+
+/**
+ * Конвертер path-glob → RegExp по семантике HINT_QUIET_PAGES (см.
+ * шапку файла и `isQuietPage` выше). Экспорт публичный — может
+ * пригодиться backend HintsEngine для общего matcher'а (T6 потенциально
+ * переносит свою копию `globMatch` на этот шаринг).
+ *
+ * Захарденная семантика: `*` → `.+`, `:name` → `[^/]+`. Эта пара
+ * покрывает все текущие pattern'ы из `HINT_QUIET_PAGES`. Расширение —
+ * редкий случай (новый pattern в const'е), синхронно обновляется
+ * и regex здесь.
+ */
+export function quietPagePatternToRegex(pattern: string): RegExp {
+  // Escape всех regex-special символов КРОМЕ `*` и `:` (они имеют
+  // нашу собственную семантику в pattern'ах).
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const re = escaped
+    .replace(/\*/g, '.+')                          // `*` → `.+`
+    .replace(/:[a-zA-Z][a-zA-Z0-9_]*/g, '[^/]+');  // `:name` → `[^/]+`
+  return new RegExp(`^${re}$`);
+}

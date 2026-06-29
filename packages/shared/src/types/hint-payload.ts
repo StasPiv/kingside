@@ -108,15 +108,25 @@ export type HintLifecycleKind = 'shown' | 'dismissed' | 'acted' | 'ignored';
  *                       различия «явно кликнул» vs «smart-dismiss».
  *   - `accepted_by`   — smart-dismiss: после показа произошло событие
  *                       из `Hint.acceptedBy` (`kind='acted'`).
+
  *   - `ttl_expired`   — для `kind='ignored'` (избыточно, оставлено
  *                       для симметрии форматов лога).
+ *   - `quiet_page`    — KS-4806 / ADR-153 §2.4. SPA-навигация увела
+ *                       пользователя на «тихую» страницу
+ *                       (`isQuietPage(pathname) === true`) до того,
+ *                       как `<HintHost>` нашёл anchor. Клиент шлёт
+ *                       `kind='ignored', reason='quiet_page'` вместо
+ *                       ожидания 30-секундного MutationObserver-таймаута:
+ *                       быстрее освобождает session-quota и снижает шум
+ *                       метрик `no_anchor`.
  */
 export type HintLifecycleReason =
   | 'no_anchor'
   | 'close_button'
   | 'cta_clicked'
   | 'accepted_by'
-  | 'ttl_expired';
+  | 'ttl_expired'
+  | 'quiet_page';
 
 /**
  * Payload, который клиент шлёт серверу при изменении состояния
