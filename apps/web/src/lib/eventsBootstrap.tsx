@@ -48,6 +48,13 @@ export function EventsBootstrap(): null {
   }, []);
 
   useEffect(() => {
+    // KS-4787 diag: каждый запуск этого useEffect = новый configureEvents.
+    // eslint-disable-next-line no-console
+    console.log(
+      `[ks-diag bootstrap] configure-effect run: user.id=${user?.id ?? 'null'} ` +
+        `consent=${(user as UserWithConsent | null)?.analyticsConsent} ` +
+        `token=${token ? 'set' : 'null'} consentBump=${consentBump}`,
+    );
     configureEvents({
       isConsented: () =>
         isAnalyticsConsentGiven(user as UserWithConsent | null),
@@ -55,6 +62,11 @@ export function EventsBootstrap(): null {
     });
     return () => {
       // Только при полном unmount (тесты/HMR) сбрасываем модуль.
+      // KS-4787 diag: фиксируем причину — deps-change rerun или реальный unmount.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[ks-diag bootstrap] configure-effect cleanup (deps changed OR unmount)`,
+      );
       teardownEvents();
     };
     // user объект может пересоздаваться — реагируем на стабильные поля.

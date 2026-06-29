@@ -92,6 +92,12 @@ function stopFlushTimer() {
  * unload-листенеры.
  */
 export function configureEvents(next: EventsClientConfig): void {
+  // KS-4787 diag: фиксируем переход — был ли модуль до этого настроен,
+  // что было в буфере на момент пересборки клиента.
+  // eslint-disable-next-line no-console
+  console.log(
+    `[ks-diag configure] prevConfigured=${config !== null} bufBefore=${buffer.length}`,
+  );
   config = next;
   attachUnloadListeners();
   startFlushTimer();
@@ -102,6 +108,18 @@ export function configureEvents(next: EventsClientConfig): void {
  * Нужно для тестов и для повторной инициализации.
  */
 export function teardownEvents(): void {
+  // KS-4787 diag: ключевой лог — сюда упирается потеря событий между
+  // BUFFERED и flush'ем. Печатаем размер буфера и его содержимое ДО
+  // обнуления, плюс stack — увидим инициатора вызова (cleanup useEffect /
+  // тест / явный reset).
+  // eslint-disable-next-line no-console
+  console.log(
+    `[ks-diag teardown] bufBefore=${buffer.length} ` +
+      `types=[${buffer.map((e) => e.type).join(',')}] ` +
+      `configured=${config !== null} timerActive=${flushTimer !== null}`,
+  );
+  // eslint-disable-next-line no-console
+  console.log(`[ks-diag teardown] stack=\n${new Error().stack ?? ''}`);
   stopFlushTimer();
   detachUnloadListeners();
   buffer = [];
