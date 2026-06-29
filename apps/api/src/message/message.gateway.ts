@@ -1,4 +1,4 @@
-import { Logger, Inject, forwardRef } from '@nestjs/common';
+import { Logger, Inject, Optional, forwardRef } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -25,6 +25,7 @@ import {
 import { randomUUID } from 'crypto';
 import { NotificationService } from '../notification/notification.service';
 import { HintsService } from '../hints/hints.service';
+import { HintsMetricsService } from '../hints/hints-metrics.service';
 
 const CHALLENGE_TTL_SEC = 60;
 const ONLINE_SET_KEY = 'online_users';
@@ -46,6 +47,10 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @Inject(forwardRef(() => NotificationService)) private readonly notifications: NotificationService,
     // KS-4786: replay контекстных подсказок на handleConnection.
     @Inject(forwardRef(() => HintsService)) private readonly hints: HintsService,
+    // KS-4807 / ADR-153 §2.2. Метрики наблюдаемости emit hint:show:
+    // room-size + empty-counter. `@Optional` — unit-spec'и могут
+    // конструировать gateway без HintsModule.
+    @Optional() private readonly hintsMetrics?: HintsMetricsService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -185,13 +190,40 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   /**
-   * KS-4701 / ADR-147 §4.1. Push контекстной подсказки авторизованному
-   * пользователю. Event-name `hint:show`, payload — `HintShowPayload`
-   * из shared (T7). Эмитится HintsService.checkFor после `markShown`
-   * для actor.type === 'user'.
+   * KS-4701 / ADR-147 §4.1 + KS-4807 / ADR-153 §2.2. Push контекстной
+   * подсказки авторизованному пользователю. Event-name `hint:show`,
+   * payload — `HintShowPayload` из shared (T7). Эмитится из
+   * `HintsService.checkFor` после `upsert lastShownAt + markShown` для
+   * `actor.type === 'user'`, а также из `handleConnection` (replay
+   * по ADR-151).
+   *
+   * Перед `emit` снимаем размер Socket.IO room `user:<id>`. Если room
+   * пуста — payload всё равно дроп, fail-soft. `lastShownAt` уже
+   * записан выше → replay-on-connect (ADR-151) подхватит на следующем
+   * handshake. Метрики `hints_emit_room_empty_total` /
+   * `hints_emit_room_size` делают факт наблюдаемым на Prometheus.
+   *
+   * Возвращает `{ delivered }` для будущего callers'а (если кому-то
+   * нужен явный сигнал — пока никто не использует, метрики важнее).
    */
-  emitHintShow(userId: string, payload: unknown): void {
-    this.server.to(`user:${userId}`).emit('hint:show', payload);
+  emitHintShow(
+    userId: string,
+    payload: unknown,
+    actorType: 'user' | 'guest' = 'user',
+  ): { delivered: boolean } {
+    const room = `user:${userId}`;
+    const size = this.server?.sockets?.adapter?.rooms?.get(room)?.size ?? 0;
+    this.hintsMetrics?.emitRoomSize.observe({ actor_type: actorType }, size);
+    if (size === 0) {
+      this.hintsMetrics?.emitRoomEmpty.inc({ actor_type: actorType });
+      this.logger.warn(
+        `emitHintShow: room ${room} empty (actor_type=${actorType}), payload dropped — `
+          + `replay-on-connect (ADR-151) will pick it up on next handshake.`,
+      );
+      return { delivered: false };
+    }
+    this.server.to(room).emit('hint:show', payload);
+    return { delivered: true };
   }
 
   // ─── Challenge ─────────────────────────────────────────────────────

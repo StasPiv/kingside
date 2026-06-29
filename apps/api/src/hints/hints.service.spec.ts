@@ -191,3 +191,137 @@ describe('HintsService.replayPending — матрица фильтров', () =>
     expect(out).toEqual([]);
   });
 });
+
+/**
+ * KS-4809 / ADR-153 §2.2. Регрессионный тест: в `HintsService.checkFor`
+ * запись `actor_hint_states.lastShownAt` обязательно идёт ДО
+ * `MessageGateway.emitHintShow`. Если кто-то переставит порядок, ADR-151
+ * replay-on-connect сломается: handshake пришёл бы между emit
+ * (room пустая → drop) и upsert (`lastShownAt`) → `replayPending`
+ * увидел бы пустой результат → hint потерян до следующего триггера.
+ */
+describe('HintsService.checkFor — порядок upsert→emit (KS-4809 / ADR-153 §2.2)', () => {
+  it('actorHintState.upsert вызван ДО gateway.emitHintShow', async () => {
+    const calls: string[] = [];
+
+    const winnerHint = {
+      ...HINT_OK,
+      // Пустой `all: []` → evaluateRule вернёт true без обращений к БД.
+      rule: { all: [] },
+      maxShows: 5,
+      cooldownSec: 0,
+      priority: 100,
+      targetActorTypes: ['user'],
+    };
+
+    const owner = {
+      hint: {
+        findMany: jest.fn().mockResolvedValue([winnerHint]),
+      },
+      actorHintState: {
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn().mockImplementation(async () => {
+          calls.push('upsert');
+          return {};
+        }),
+      },
+    };
+
+    const limits = {
+      getLimits: () => ({
+        enabled: true,
+        globalThrottleSec: 600,
+        sessionMaxShows: 5,
+        smartDismissWindowH: 24,
+        replayWindowSec: 60,
+      }),
+      canShow: jest.fn().mockResolvedValue(true),
+      markShown: jest.fn().mockImplementation(async () => {
+        calls.push('markShown');
+      }),
+    } as any;
+
+    const gateway = {
+      emitHintShow: jest.fn().mockImplementation(() => {
+        calls.push('emitHintShow');
+        return { delivered: true };
+      }),
+    } as any;
+
+    const svc = new HintsService(
+      mkPrismaSvc(owner),
+      mkEvents(),
+      limits,
+      mkMetrics(),
+      gateway,
+    );
+
+    const payload = await svc.checkFor(
+      { type: 'user', id: 'u-test' },
+      { page: '/play/abc', triggerEventType: 'game_end' },
+    );
+
+    // Payload вернулся — significaant что pipeline дошёл до конца.
+    expect(payload).not.toBeNull();
+    // Обе функции дёрнуты.
+    expect(owner.actorHintState.upsert).toHaveBeenCalledTimes(1);
+    expect(gateway.emitHintShow).toHaveBeenCalledTimes(1);
+    // Главная проверка: upsert строго ДО emitHintShow.
+    expect(calls.indexOf('upsert')).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf('emitHintShow')).toBeGreaterThan(calls.indexOf('upsert'));
+    // markShown (Redis incr session counter) тоже до emit — в текущем
+    // потоке это order: upsert → markShown → emit. Зафиксируем и его.
+    expect(calls.indexOf('markShown')).toBeGreaterThan(calls.indexOf('upsert'));
+    expect(calls.indexOf('emitHintShow')).toBeGreaterThan(calls.indexOf('markShown'));
+  });
+
+  it('canShow=false → upsert НЕ вызван, emit НЕ вызван (gate работает до записи)', async () => {
+    const calls: string[] = [];
+    const owner = {
+      hint: {
+        findMany: jest.fn().mockResolvedValue([
+          { ...HINT_OK, rule: { all: [] }, maxShows: 5, cooldownSec: 0, priority: 100, targetActorTypes: ['user'] },
+        ]),
+      },
+      actorHintState: {
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn().mockImplementation(async () => {
+          calls.push('upsert');
+          return {};
+        }),
+      },
+    };
+    const limits = {
+      getLimits: () => ({
+        enabled: true,
+        globalThrottleSec: 600,
+        sessionMaxShows: 5,
+        smartDismissWindowH: 24,
+        replayWindowSec: 60,
+      }),
+      canShow: jest.fn().mockResolvedValue(false),
+      markShown: jest.fn(),
+    } as any;
+    const gateway = {
+      emitHintShow: jest.fn().mockImplementation(() => {
+        calls.push('emitHintShow');
+        return { delivered: true };
+      }),
+    } as any;
+    const svc = new HintsService(
+      mkPrismaSvc(owner),
+      mkEvents(),
+      limits,
+      mkMetrics(),
+      gateway,
+    );
+    const payload = await svc.checkFor(
+      { type: 'user', id: 'u-test' },
+      { page: '/play/abc', triggerEventType: 'game_end' },
+    );
+    expect(payload).toBeNull();
+    expect(owner.actorHintState.upsert).not.toHaveBeenCalled();
+    expect(gateway.emitHintShow).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+});

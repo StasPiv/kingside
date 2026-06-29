@@ -21,6 +21,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventsService } from '../events/events.service';
 import { RedisService } from '../redis/redis.service';
 import { HintsService } from './hints.service';
+import { HintsMetricsService } from './hints-metrics.service';
 import type { Actor } from '../events/events.types';
 
 /** События, на которые реактивно дёргаем HintsService.checkFor. */
@@ -50,6 +51,9 @@ export class HintsListener implements OnModuleInit {
     private readonly events: EventsService,
     private readonly hints: HintsService,
     private readonly redis: RedisService,
+    // KS-4808 / ADR-153 §2.3. Латентность реактивного emit (от входа в
+    // handle до возврата из checkFor → emitHintShow).
+    private readonly metrics: HintsMetricsService,
   ) {}
 
   onModuleInit(): void {
@@ -92,6 +96,11 @@ export class HintsListener implements OnModuleInit {
       } catch { /* no-op */ }
     }
 
+    // KS-4808 / ADR-153 §2.3. Замеряем end-to-end латентность реактивной
+    // ветки. Hist метрика `hints_reactive_emit_duration_seconds` —
+    // SLO p95 ≤ 0.5s, p99 ≤ 1s. Превышение → сигнал оптимизировать
+    // DSL queries (matview / Redis hot counter).
+    const startNs = process.hrtime.bigint();
     let result;
     try {
       result = await this.hints.checkFor(actor, {
@@ -101,6 +110,12 @@ export class HintsListener implements OnModuleInit {
     } catch (err) {
       this.logger.warn(`handle checkFor failed actor=${actor.type}:${actor.id} type=${type}: ${(err as Error).message}`);
       return;
+    } finally {
+      const elapsedSec = Number(process.hrtime.bigint() - startNs) / 1e9;
+      this.metrics.reactiveEmitDuration.observe(
+        { trigger_type: type },
+        elapsedSec,
+      );
     }
     // KS-4719: диагностический лог. Тип события + actor + page +
     // результат (key выбранного hint либо 'no-match'). На проде это

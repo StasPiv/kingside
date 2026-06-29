@@ -26,6 +26,25 @@ export class HintsMetricsService implements OnModuleInit {
   readonly replaySkipped: Counter<'actor_type' | 'reason'>;
   /** KS-4788. Лаг между server-emit (`lastShownAt`) и client-ack (`shownAckAt`). */
   readonly shownAckLag: Histogram<'actor_type'>;
+  /**
+   * KS-4807 / ADR-153 §2.2. `emitHintShow` вызван, но Socket.IO room
+   * `user:<id>` пуста (0 живых сокетов). payload дропнут, `lastShownAt`
+   * уже записан выше → replay-on-connect (ADR-151) подхватит на
+   * следующем handshake. Метрика — наблюдаемость, не блокировка.
+   */
+  readonly emitRoomEmpty: Counter<'actor_type'>;
+  /**
+   * KS-4807 / ADR-153 §2.2. Распределение размеров room `user:<id>` в
+   * момент `emitHintShow`. Здоровое значение ≥1; нули → потери
+   * live-доставки.
+   */
+  readonly emitRoomSize: Histogram<'actor_type'>;
+  /**
+   * KS-4808 / ADR-153 §2.3. Латентность от входа в `HintsListener.handle`
+   * до возврата из `emitHintShow`. SLO: p95 ≤ 0.5s, p99 ≤ 1s. Превышение
+   * — сигнал оптимизировать DSL (matview / Redis-counter, ADR-147 §2.4).
+   */
+  readonly reactiveEmitDuration: Histogram<'trigger_type'>;
 
   constructor(private readonly metrics: MetricsService) {
     const registers = [this.metrics.registry];
@@ -96,6 +115,36 @@ export class HintsMetricsService implements OnModuleInit {
         + 'Хвост >5s означает частый race на handshake.',
       labelNames: ['actor_type'] as const,
       buckets: [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60],
+      registers,
+    });
+    this.emitRoomEmpty = new Counter({
+      name: 'hints_emit_room_empty_total',
+      help: 'KS-4807 / ADR-153 §2.2. emitHintShow вызван, но в Socket.IO '
+        + 'room user:<id> 0 живых сокетов. payload дропнут, lastShownAt '
+        + 'уже записан выше — replay-on-connect (ADR-151) подхватит на '
+        + 'следующем handshake. Здоровое значение — стабильно <1% от '
+        + 'общего числа emit\'ов.',
+      labelNames: ['actor_type'] as const,
+      registers,
+    });
+    this.emitRoomSize = new Histogram({
+      name: 'hints_emit_room_size',
+      help: 'KS-4807 / ADR-153 §2.2. Распределение размеров Socket.IO '
+        + 'room user:<id> в момент emitHintShow. Здоровое значение ≥1; '
+        + 'нули = потери live-доставки.',
+      labelNames: ['actor_type'] as const,
+      // Дискретные ёмкости: чаще всего 1 (одна вкладка), реже 2–3 (multi-tab).
+      buckets: [0, 1, 2, 3, 5, 10],
+      registers,
+    });
+    this.reactiveEmitDuration = new Histogram({
+      name: 'hints_reactive_emit_duration_seconds',
+      help: 'KS-4808 / ADR-153 §2.3. Латентность от HintsListener.handle '
+        + '(входное событие) до возврата из emitHintShow. SLO: p95 ≤ 0.5s, '
+        + 'p99 ≤ 1s. Превышение — сигнал оптимизировать DSL.',
+      labelNames: ['trigger_type'] as const,
+      // Согласно ADR §2.3.
+      buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5],
       registers,
     });
   }
