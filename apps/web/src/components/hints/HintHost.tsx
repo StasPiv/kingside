@@ -23,6 +23,7 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { isAnalyticsConsentGiven } from '../../lib/events';
 import { messagesSocket } from '../../socket';
 import { useHintPull } from '../../hooks/useHintPull';
+import { useLazySocket } from '../../hooks/useLazySocket';
 import { sendHintLifecycle } from './hintsApi';
 import type { UserWithConsent } from '../cookie-banner/consentTypes';
 
@@ -71,44 +72,27 @@ export function HintHost(): ReactElement | null {
   });
 
   // WS для авторизованного.
-  // KS-4737. messagesSocket — глобальный, шарится с MessagesPage,
-  // PlayPage, GamePage, FriendsPage через useLazySocket. Когда любой
-  // из них unmount'ится, useLazySocket вызывает s.disconnect() →
-  // HintHost остаётся подписан на 'hint:show', но socket disconnected
-  // и backend emit в room user:<id> уходит в пустоту. Фиксим: на
-  // событие 'disconnect' переподключаемся (с тем же handshake-auth),
-  // чтобы room user:<id> заново join'нулся на серверной стороне.
+  // KS-4805 / ADR-153 §2.1. HintHost — perm-owner messagesSocket в
+  // течение всей авторизованной сессии. useLazySocket с refcount
+  // гарантирует, что socket остаётся connected, даже когда
+  // PlayPage/MessagesPage/FriendsPage/GamePage mount/unmount — их ref
+  // меняет refcount, но никогда не достигает нуля, пока HintHost
+  // держит ref. Room `user:<id>` непрерывно жива → backend
+  // `emitHintShow` доставляется live. Ручной reconnect-on-disconnect
+  // больше не нужен (handshake — забота Socket.IO при настоящем
+  // transport drop'е, refcount убирает наш собственный disconnect).
+  useLazySocket(messagesSocket);
+
   useEffect(() => {
     if (!isAuthorized || !token) return;
-    messagesSocket.auth = { token };
-    const ensureConnected = () => {
-      if (!messagesSocket.connected) messagesSocket.connect();
-    };
-    ensureConnected();
-    const onConnect = () => {
-      // eslint-disable-next-line no-console
-      console.warn('[HintHost] WS /messages connected, room user:<id> joined');
-    };
-    const onDisconnect = (reason: string) => {
-      // eslint-disable-next-line no-console
-      console.warn('[HintHost] WS /messages disconnected:', reason, '— reconnecting');
-      // Небольшая задержка чтобы не толкать reconnect сразу после
-      // намеренного disconnect от useLazySocket cleanup.
-      setTimeout(ensureConnected, 100);
-    };
     const onShow = (payload: HintShowPayload) => {
       // eslint-disable-next-line no-console
       console.warn('[HintHost] hint:show received', payload);
       setHint(payload);
     };
-    messagesSocket.on('connect', onConnect);
-    messagesSocket.on('disconnect', onDisconnect);
     messagesSocket.on('hint:show', onShow);
     return () => {
-      messagesSocket.off('connect', onConnect);
-      messagesSocket.off('disconnect', onDisconnect);
       messagesSocket.off('hint:show', onShow);
-      // Не дисконнектим — сокет может быть нужен другим страницам.
     };
   }, [isAuthorized, token]);
 
