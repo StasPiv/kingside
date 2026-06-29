@@ -3352,16 +3352,38 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 )
                 ok = result.returncode == 0
                 log(f"test-hints {action} завершён: rc={result.returncode}")
-                self.send_response(200 if ok else 500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({
+                # Для e2e подтягиваем хвост логов api + game-service контейнеров,
+                # чтобы агент видел вывод evaluator'а (`evaluateExists/Count log.info`)
+                # без отдельного запроса к devops. docker_compose MCP не пускает -p
+                # для проекта kingside-test-hints, поэтому ставим докачку здесь.
+                container_logs: dict[str, str] = {}
+                if action == "e2e":
+                    for svc in ("api", "game-service"):
+                        cname = f"kingside-test-hints-{svc}-1"
+                        try:
+                            lp = subprocess.run(
+                                ["docker", "logs", "--tail", "200", "--since", "15m", cname],
+                                capture_output=True, text=True, timeout=15,
+                            )
+                            # docker logs пишет stdout контейнера в stdout, stderr — в stderr.
+                            # Склеиваем для удобства (NestJS пишет в оба).
+                            joined = (lp.stdout or "") + (lp.stderr or "")
+                            container_logs[svc] = joined[-5000:]
+                        except Exception as e:
+                            container_logs[svc] = f"<docker logs error: {e}>"
+                payload_out: dict[str, object] = {
                     "status": "success" if ok else "failed",
                     "action": action,
                     "returncode": result.returncode,
                     "stdout": result.stdout[-4000:],
                     "stderr": result.stderr[-4000:],
-                }).encode())
+                }
+                if container_logs:
+                    payload_out["container_logs"] = container_logs
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(payload_out).encode())
             except subprocess.TimeoutExpired:
                 self.send_response(504)
                 self.send_header("Content-Type", "application/json")
