@@ -32,6 +32,8 @@ import {
   HintAnchor,
   HintPlacement,
   HintLocale,
+  isQuietPage as sharedIsAlwaysQuietPage,
+  quietPagePatternToRegex,
 } from '@kingside/shared';
 import type { Actor } from '../events/events.types';
 import { EventsService } from '../events/events.service';
@@ -39,7 +41,7 @@ import { EventsPrismaService } from '../events/events-prisma.service';
 import { MessageGateway } from '../message/message.gateway';
 import { HintsLimitsService } from './hints-limits.service';
 import { HintsMetricsService } from './hints-metrics.service';
-import { evaluateRule, globMatch } from './hints-dsl.evaluator';
+import { evaluateRule } from './hints-dsl.evaluator';
 import type { HintCheckContext, HintI18nEntry, HintCtaPayload } from './hints.types';
 
 @Injectable()
@@ -328,12 +330,32 @@ export class HintsService {
 
 /* ─── helpers ─────────────────────────────────────────────────── */
 
-function isQuietPage(ctx: HintCheckContext): boolean {
+/**
+ * KS-4810 / ADR-153 §2.4. Бэк опирается на общий с фронтом matcher
+ * `quietPagePatternToRegex` из `@kingside/shared`, чтобы pattern'ы
+ * (`/live/*`, `/lecture/:id`, ...) трактовались одинаково на обеих
+ * сторонах. Локальный backend-`globMatch` для этой ветки больше не
+ * нужен (`*` → `.+`, `:name` → `[^/]+`, а не один сегмент без `:`).
+ *
+ * Ветка `low-time-focus` остаётся backend-локальной: фронт не знает про
+ * `ctx.clockLowTimeFocus`, поэтому shared `isQuietPage(pathname)`
+ * покрывает только `condition='always'`. Здесь мы доп. шагом проверяем
+ * pattern'ы с `condition='low-time-focus'` через общий matcher.
+ *
+ * Export сделан для юнит-теста; внутри модуля используется как
+ * локальная функция в `checkFor`.
+ */
+export function isQuietPage(ctx: HintCheckContext): boolean {
   if (!ctx.page) return false;
-  for (const q of HINT_QUIET_PAGES) {
-    if (!globMatch(q.pattern, ctx.page)) continue;
-    if (q.condition === 'always') return true;
-    if (q.condition === 'low-time-focus' && ctx.clockLowTimeFocus) return true;
+  // Hot-path: always-quiet — один вызов общего предиката.
+  if (sharedIsAlwaysQuietPage(ctx.page)) return true;
+  // Slow-path: pattern'ы с condition='low-time-focus' — только если
+  // активен соответствующий сигнал из game/clock.
+  if (ctx.clockLowTimeFocus) {
+    for (const q of HINT_QUIET_PAGES) {
+      if (q.condition !== 'low-time-focus') continue;
+      if (quietPagePatternToRegex(q.pattern).test(ctx.page)) return true;
+    }
   }
   return false;
 }

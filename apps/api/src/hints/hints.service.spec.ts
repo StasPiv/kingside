@@ -6,7 +6,7 @@
  * новый путь replay, который не дёргает DSL/canShow/markShown.
  */
 import 'reflect-metadata';
-import { HintsService } from './hints.service';
+import { HintsService, isQuietPage } from './hints.service';
 
 type Actor = { type: 'user' | 'guest'; id: string };
 const ACTOR: Actor = { type: 'user', id: 'u-1' };
@@ -275,6 +275,30 @@ describe('HintsService.checkFor — порядок upsert→emit (KS-4809 / ADR-
     expect(calls.indexOf('emitHintShow')).toBeGreaterThan(calls.indexOf('markShown'));
   });
 
+  it('shared isQuietPage интегрирован: ctx.page=/live/round-1 → checkFor=null до DSL', async () => {
+    // Если бы quiet-page-gate сломался, dummy DSL (`all:[]`) → matched → винер.
+    // Раз ctx.page тихая — checkFor возвращает null до hint.findMany.
+    const findMany = jest.fn().mockResolvedValue([
+      { ...HINT_OK, rule: { all: [] }, maxShows: 5, cooldownSec: 0, priority: 100, targetActorTypes: ['user'] },
+    ]);
+    const owner = {
+      hint: { findMany },
+      actorHintState: { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() },
+    };
+    const limits = {
+      getLimits: () => ({ enabled: true, globalThrottleSec: 600, sessionMaxShows: 5, smartDismissWindowH: 24, replayWindowSec: 60 }),
+      canShow: jest.fn().mockResolvedValue(true),
+      markShown: jest.fn(),
+    } as any;
+    const svc = new HintsService(mkPrismaSvc(owner), mkEvents(), limits, mkMetrics());
+    const payload = await svc.checkFor(
+      { type: 'user', id: 'u-1' },
+      { page: '/live/round-1', triggerEventType: 'game_end' },
+    );
+    expect(payload).toBeNull();
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
   it('canShow=false → upsert НЕ вызван, emit НЕ вызван (gate работает до записи)', async () => {
     const calls: string[] = [];
     const owner = {
@@ -323,5 +347,57 @@ describe('HintsService.checkFor — порядок upsert→emit (KS-4809 / ADR-
     expect(owner.actorHintState.upsert).not.toHaveBeenCalled();
     expect(gateway.emitHintShow).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
+  });
+});
+
+/**
+ * KS-4810 / ADR-153 §2.4 + B4. Локальный isQuietPage опирается на
+ * shared matcher + добавляет ветку low-time-focus.
+ */
+describe('isQuietPage (backend) — KS-4810', () => {
+  it('always-quiet: /live/round-1 → true (через shared)', () => {
+    expect(isQuietPage({ page: '/live/round-1' })).toBe(true);
+  });
+
+  it('always-quiet greedy: /live/round-1/game-1 → true (новый matcher)', () => {
+    // Под старым backend-globMatch `*` был один сегмент → false.
+    // С shared `quietPagePatternToRegex` `*` → `.+` → true.
+    expect(isQuietPage({ page: '/live/round-1/game-1' })).toBe(true);
+  });
+
+  it('lecture с одним сегментом /lecture/abc → true', () => {
+    expect(isQuietPage({ page: '/lecture/abc' })).toBe(true);
+  });
+
+  it('lecture с вложенным /lecture/abc/def → false (`:id` — один сегмент)', () => {
+    expect(isQuietPage({ page: '/lecture/abc/def' })).toBe(false);
+  });
+
+  it('admin: /admin/users → true', () => {
+    expect(isQuietPage({ page: '/admin/users' })).toBe(true);
+  });
+
+  it('обычные страницы: /, /play/abc, /game/uuid, /settings → false', () => {
+    expect(isQuietPage({ page: '/' })).toBe(false);
+    expect(isQuietPage({ page: '/play/abc' })).toBe(false);
+    expect(isQuietPage({ page: '/game/uuid' })).toBe(false);
+    expect(isQuietPage({ page: '/settings' })).toBe(false);
+  });
+
+  it('low-time-focus: /play/abc + clockLowTimeFocus=true → true', () => {
+    expect(isQuietPage({ page: '/play/abc', clockLowTimeFocus: true })).toBe(true);
+  });
+
+  it('low-time-focus: /play/abc + clockLowTimeFocus=false → false', () => {
+    expect(isQuietPage({ page: '/play/abc', clockLowTimeFocus: false })).toBe(false);
+  });
+
+  it('low-time-focus: сигнал без подходящего pattern → false (/, /lobby)', () => {
+    expect(isQuietPage({ page: '/', clockLowTimeFocus: true })).toBe(false);
+    expect(isQuietPage({ page: '/lobby', clockLowTimeFocus: true })).toBe(false);
+  });
+
+  it('ctx.page отсутствует → false', () => {
+    expect(isQuietPage({})).toBe(false);
   });
 });
