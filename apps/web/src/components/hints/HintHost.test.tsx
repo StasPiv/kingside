@@ -316,41 +316,100 @@ describe('HintHost (KS-4703)', () => {
     expect(pathSeen).toBe('/game/abc-game-id/review');
   });
 
-  it('anchor так и не появился за окно ожидания → POST ignored reason=no_anchor, no-render', async () => {
-    // KS-4820: окно ожидания anchor сокращено до 2 с (было 30 с в
-    // KS-4790). Если за это время `[data-hint-anchor="…"]` не появился —
-    // тихо пропускаем с lifecycle `ignored{no_anchor}`.
+  it('KS-4822: anchor пустой → popover рендерится в fallback-позиции (data-fallback=true)', async () => {
+    wrap(<HintHost />, makeUser());
+
+    await act(async () => {
+      fireWs('hint:show', makePayload({ anchor: '' }));
+    });
+
+    const popover = await screen.findByTestId('hint-popover');
+    expect(popover.getAttribute('data-fallback')).toBe('true');
+    expect(screen.getByText('Analyse this game')).toBeInTheDocument();
+    // POST shown для fallback тоже отправляется.
+    await waitFor(() => {
+      const shown = vi.mocked(fetch).mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/shown'),
+      );
+      expect(shown).toBeDefined();
+    });
+  });
+
+  it('KS-4822: anchor не появился за окно ожидания → popover в fallback-позиции (не silent skip)', async () => {
     vi.useFakeTimers();
     try {
       wrap(<HintHost />, makeUser());
       await act(async () => {
-        fireWs(
-          'hint:show',
-          makePayload({ anchor: 'home-puzzles-tile' }),
-        );
+        fireWs('hint:show', makePayload({ anchor: 'never-mounted' }));
       });
 
-      // Сразу после hint:show ignored ещё НЕ отправлен.
-      const earlyIgnored = vi.mocked(fetch).mock.calls.find(
-        ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
-      );
-      expect(earlyIgnored).toBeUndefined();
+      // Сразу после hint:show ни popover, ни ignored — ждём таймер.
+      expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
 
-      // Прокрутили окно ожидания (2 секунды + запас).
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2_000);
       });
 
-      const ignored = vi.mocked(fetch).mock.calls.find(
-        ([url]) => typeof url === 'string' && url.endsWith('/ignored'),
-      );
-      expect(ignored).toBeDefined();
-      const body = JSON.parse((ignored?.[1] as RequestInit).body as string);
-      expect(body).toEqual({ reason: 'no_anchor' });
-      expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
+      // Fallback popover появился.
+      const popover = screen.getByTestId('hint-popover');
+      expect(popover.getAttribute('data-fallback')).toBe('true');
+
+      // ignored{no_anchor} НЕ отправляется (KS-4822 заменил silent skip).
+      const ignored = vi.mocked(fetch).mock.calls.find(([url], i) => {
+        if (typeof url !== 'string' || !url.endsWith('/ignored')) return false;
+        const body = JSON.parse(
+          (vi.mocked(fetch).mock.calls[i][1] as RequestInit).body as string,
+        );
+        return body?.reason === 'no_anchor';
+      });
+      expect(ignored).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('KS-4822: payload с instructionBody → кнопка «Подробнее», клик раскрывает блок', async () => {
+    setupAnchor('game-end-analysis-button');
+    wrap(<HintHost />, makeUser());
+
+    await act(async () => {
+      fireWs(
+        'hint:show',
+        // instructionBody — поле, которое появится в shared payload позже;
+        // фронт читает через cast, тест моделирует наличие поля.
+        {
+          ...makePayload(),
+          instructionBody: 'Откройте Stockfish и пройдитесь по ошибкам.',
+        } as unknown as HintShowPayload,
+      );
+    });
+
+    const toggle = screen.getByTestId('hint-popover-instruction-toggle');
+    expect(toggle).toHaveTextContent('Подробнее');
+    expect(
+      screen.queryByTestId('hint-popover-instruction-body'),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(toggle);
+    });
+
+    expect(toggle).toHaveTextContent('Свернуть');
+    expect(
+      screen.getByTestId('hint-popover-instruction-body'),
+    ).toHaveTextContent('Откройте Stockfish и пройдитесь по ошибкам.');
+  });
+
+  it('KS-4822: payload без instructionBody → кнопка «Подробнее» НЕ рендерится', async () => {
+    setupAnchor('game-end-analysis-button');
+    wrap(<HintHost />, makeUser());
+    await act(async () => {
+      fireWs('hint:show', makePayload());
+    });
+    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('hint-popover-instruction-toggle'),
+    ).not.toBeInTheDocument();
   });
 
   it('anchor появляется уже после hint:show → popover рендерится, POST shown', async () => {

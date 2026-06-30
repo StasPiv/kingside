@@ -26,6 +26,13 @@ export interface HintI18nEntry {
   title: string;
   body: string;
   ctaLabel?: string;
+  /**
+   * KS-4822. Опциональный расширенный текст инструкции. Если задан,
+   * popover показывает кнопку «Подробнее» — по клику разворачивается
+   * блок с этим текстом. Backend пока поле не сохраняет — добавление
+   * в БД-схему / shared-payload идёт отдельной подзадачей.
+   */
+  instructionBody?: string;
 }
 
 export interface HintI18n {

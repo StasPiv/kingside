@@ -63,7 +63,7 @@ interface FormState {
 }
 
 function emptyEntry(): HintI18nEntry {
-  return { title: '', body: '', ctaLabel: undefined };
+  return { title: '', body: '', ctaLabel: undefined, instructionBody: undefined };
 }
 
 function defaultForm(): FormState {
@@ -301,23 +301,24 @@ export function AdminHintEditPage(): ReactElement {
             )}
           </label>
           <label>
-            {t('adminHints.form.anchor', 'Anchor')}
+            {t('adminHints.form.anchor', 'Anchor (optional)')}
             {/* KS-4727/KS-4731: anchor — свободная строка, не shared-enum.
                 Pattern совпадает с backend-валидацией. Сама точка
                 привязки в DOM ставится через data-hint-anchor=<строка>
                 в коде фронта; здесь только метка, на которую правило
-                будет нацелено. KS-4820: после возврата якорного рендера
-                поле снова редактируемое. */}
+                будет нацелено. KS-4822: anchor стал опциональным — если
+                пуст, popover рендерится в fallback-позиции под
+                header'ом. Required снято. */}
             <input
               type="text"
-              required
               pattern="^[a-z][a-z0-9-]*$"
               maxLength={64}
               value={form.anchor}
-              onChange={(e) =>
-                setForm((s) => ({ ...s, anchor: e.currentTarget.value }))
-              }
-              placeholder="analysis-bridge-promo"
+              onChange={(e) => {
+                const v = e.currentTarget.value;
+                setForm((s) => ({ ...s, anchor: v }));
+              }}
+              placeholder="analysis-bridge-promo (leave empty for fallback popover)"
               data-testid="admin-hint-form-anchor"
             />
           </label>
@@ -511,6 +512,34 @@ export function AdminHintEditPage(): ReactElement {
                 data-testid={`admin-hint-form-${activeLocale}-cta-label`}
               />
             </label>
+            <label>
+              {/* KS-4822: расширенный текст инструкции. Если непустой, в
+                  popover'е появляется кнопка «Подробнее» с разворотом
+                  этого блока. Текст хранится per-locale. */}
+              {t(
+                'adminHints.form.i18nInstructionBody',
+                'Instruction body (optional, expandable)',
+              )}
+              <textarea
+                rows={4}
+                maxLength={2000}
+                value={form.i18n[activeLocale]?.instructionBody ?? ''}
+                onChange={(e) => {
+                  const v = e.currentTarget.value;
+                  setForm((s) => ({
+                    ...s,
+                    i18n: {
+                      ...s.i18n,
+                      [activeLocale]: {
+                        ...(s.i18n[activeLocale] ?? emptyEntry()),
+                        instructionBody: v || undefined,
+                      },
+                    },
+                  }));
+                }}
+                data-testid={`admin-hint-form-${activeLocale}-instruction-body`}
+              />
+            </label>
           </div>
           <label>
             {t('adminHints.form.ctaHref', 'CTA URL (optional)')}
@@ -616,5 +645,8 @@ function stripEmpty(e: HintI18nEntry): HintI18nEntry {
     title: e.title.trim(),
     body: e.body.trim(),
     ...(e.ctaLabel && e.ctaLabel.trim() ? { ctaLabel: e.ctaLabel.trim() } : {}),
+    ...(e.instructionBody && e.instructionBody.trim()
+      ? { instructionBody: e.instructionBody.trim() }
+      : {}),
   };
 }

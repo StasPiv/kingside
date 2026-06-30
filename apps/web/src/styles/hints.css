@@ -119,6 +119,54 @@
   transform: scale(0.98);
 }
 
+/* ── KS-4822: разворачиваемая инструкция ───────────────────── */
+
+.hint-popover__instruction,
+.hint-bottom-sheet__instruction {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft, rgba(0, 0, 0, 0.08));
+}
+
+.hint-popover__instruction-toggle,
+.hint-bottom-sheet__instruction-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--accent-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.hint-popover__instruction-toggle:hover,
+.hint-bottom-sheet__instruction-toggle:hover {
+  color: var(--accent-primary-hover, var(--accent-primary));
+}
+
+.hint-popover__instruction-body,
+.hint-bottom-sheet__instruction-body {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary, var(--text-primary));
+  white-space: pre-wrap;
+}
+
+/* ── KS-4822: fallback popover (без anchor) ────────────────── */
+
+.hint-popover--fallback {
+  /* Никаких floating-ui подсчётов; sticky-style в верхнем правом
+     углу контента, чтобы не перекрывать sidebar. position/top/right
+     заданы inline-style (динамичные значения). Стрелка не нужна. */
+  box-shadow: 0 8px 24px var(--ov-black-50, rgba(0, 0, 0, 0.25));
+}
+
+.hint-popover--fallback .hint-popover__arrow {
+  display: none;
+}
+
 /* ── Mobile bottom-sheet ───────────────────────────────────── */
 
 .hint-bottom-sheet {

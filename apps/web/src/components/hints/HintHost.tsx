@@ -163,27 +163,50 @@ interface RendererProps {
 }
 
 /**
- * KS-4820. Короткое окно ожидания anchor в DOM. До KS-4815 здесь стояло
- * 30 секунд (KS-4790) — но это давало эффект «зависшей» подсказки и
- * блокировало session-quota; пользователь жаловался. После возврата
- * якорного рендера держим минимальное окно для асинхронного рендера
- * блока (анимация / lazy-render / следующий React commit) — если за
- * это время `[data-hint-anchor="…"]` не появился, тихо пропускаем с
- * `ignored{no_anchor}`. Без длинного MutationObserver-ожидания.
+ * KS-4820 / KS-4822. Короткое окно ожидания anchor в DOM. До KS-4815 здесь
+ * стояло 30 секунд (KS-4790). KS-4820 уменьшил до 2 секунд + silent skip.
+ * KS-4822 заменил silent skip на fallback-режим: если anchor не найден
+ * (или payload пришёл с пустым anchor) — popover рендерится в
+ * фиксированной позиции под header'ом, не пропадает.
  */
 const ANCHOR_WAIT_MS = 2_000;
+
+/**
+ * KS-4822. Извлекаем опциональное поле `instructionBody` из payload
+ * (расширенное описание, разворачиваемое по «Подробнее»). Поля пока
+ * нет в shared-схеме `HintShowPayload` — добавление через backend
+ * подзадачу. До того фронт читает его через cast, чтобы не ломать
+ * TS-проверку существующего контракта.
+ */
+function extractInstructionBody(hint: HintShowPayload): string | null {
+  const raw = (hint as unknown as { instructionBody?: unknown }).instructionBody;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
 function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | null {
   const isMobile = useIsMobile();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
-  const noAnchorFiredRef = useRef(false);
+  // KS-4822: если anchor пуст ИЛИ не нашёлся за окно ANCHOR_WAIT_MS —
+  // включаем fallback-режим (popover в фиксированной позиции).
+  const [fallback, setFallback] = useState<boolean>(false);
   const shownFiredRef = useRef(false);
 
-  // Поиск anchor в DOM. KS-4790: если на момент рендера якоря ещё нет,
-  // подписываемся через MutationObserver и ждём его появления до
-  // ANCHOR_WAIT_MS. По таймауту отправляем ignored{no_anchor}.
+  // Поиск anchor в DOM. KS-4790/KS-4820: MutationObserver ждёт появления
+  // элемента до ANCHOR_WAIT_MS. KS-4822: при пустом anchor сразу fallback;
+  // по таймауту — fallback (раньше был silent-skip).
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return;
+
+    // KS-4822: пустая строка / null / undefined → сразу fallback.
+    if (!hint.anchor || hint.anchor.trim() === '') {
+      // eslint-disable-next-line no-console
+      console.warn('[HintHost] empty anchor in payload — using fallback position');
+      setFallback(true);
+      return;
+    }
+
     const selector = `[data-hint-anchor="${hint.anchor}"]`;
 
     const initial = document.querySelector<HTMLElement>(selector);
@@ -195,27 +218,20 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
     }
 
     let resolved = false;
-    const finishIgnored = () => {
+    const finishFallback = () => {
       if (resolved) return;
       resolved = true;
       observer.disconnect();
       clearTimeout(timeoutId);
-      if (noAnchorFiredRef.current) return;
-      noAnchorFiredRef.current = true;
       // eslint-disable-next-line no-console
       console.warn(
         '[HintHost] anchor did not appear within',
         ANCHOR_WAIT_MS,
         'ms for hint:',
         hint.anchor,
-        '— sending ignored{no_anchor}',
+        '— falling back to fixed-position popover (KS-4822)',
       );
-      void sendHintLifecycle({
-        hintId: hint.hintId,
-        kind: 'ignored',
-        reason: 'no_anchor',
-        token,
-      });
+      setFallback(true);
     };
 
     const observer = new MutationObserver(() => {
@@ -237,7 +253,7 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
       attributeFilter: ['data-hint-anchor'],
     });
 
-    const timeoutId = setTimeout(finishIgnored, ANCHOR_WAIT_MS);
+    const timeoutId = setTimeout(finishFallback, ANCHOR_WAIT_MS);
 
     return () => {
       observer.disconnect();
@@ -245,9 +261,10 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
     };
   }, [hint.anchor, hint.hintId, token]);
 
-  // POST shown — один раз после успешного render.
+  // POST shown — один раз после успешного render (anchor найден ИЛИ
+  // включился fallback-режим).
   useEffect(() => {
-    if (!anchorEl) return;
+    if (!anchorEl && !fallback) return;
     if (shownFiredRef.current) return;
     shownFiredRef.current = true;
     void sendHintLifecycle({
@@ -256,17 +273,17 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
       reason: null,
       token,
     });
-  }, [anchorEl, hint.hintId, token]);
+  }, [anchorEl, fallback, hint.hintId, token]);
 
   // Auto-close по ttlSec.
   useEffect(() => {
-    if (!anchorEl) return;
+    if (!anchorEl && !fallback) return;
     if (!hint.ttlSec || hint.ttlSec <= 0) return;
     const id = setTimeout(() => {
       onClose('ignored', 'ttl_expired');
     }, hint.ttlSec * 1000);
     return () => clearTimeout(id);
-  }, [anchorEl, hint.ttlSec, onClose]);
+  }, [anchorEl, fallback, hint.ttlSec, onClose]);
 
   const handleDismiss = useCallback(() => {
     onClose('dismissed', 'close_button');
@@ -299,7 +316,7 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
     onClose('acted', 'cta_clicked');
   }, [hint.ctaHref, hint.ctaEvent, hint.hintId, onClose, navigate]);
 
-  if (!anchorEl) return null;
+  if (!anchorEl && !fallback) return null;
 
   if (isMobile) {
     return (
@@ -311,10 +328,19 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
       />
     );
   }
+  if (fallback) {
+    return (
+      <HintFallbackPopover
+        hint={hint}
+        onDismiss={handleDismiss}
+        onCta={handleCta}
+      />
+    );
+  }
   return (
     <HintPopover
       hint={hint}
-      anchorEl={anchorEl}
+      anchorEl={anchorEl!}
       onDismiss={handleDismiss}
       onCta={handleCta}
     />
@@ -330,6 +356,119 @@ interface PaneProps {
   anchorEl: HTMLElement;
   onDismiss: () => void;
   onCta: () => void;
+}
+
+interface FallbackPaneProps {
+  hint: HintShowPayload;
+  onDismiss: () => void;
+  onCta: () => void;
+}
+
+interface MobileSheetProps {
+  hint: HintShowPayload;
+  anchorEl: HTMLElement | null;
+  onDismiss: () => void;
+  onCta: () => void;
+}
+
+/**
+ * KS-4822. Разворачиваемая «инструкция» — кнопка «Подробнее»/«Свернуть»
+ * + блок с расширенным текстом. Используется и в обычном popover'е, и
+ * в fallback'е, и в bottom-sheet'е. Не рендерится, если `body` пуст.
+ */
+function InstructionBlock({
+  body,
+  variant,
+}: {
+  body: string | null;
+  variant: 'popover' | 'sheet';
+}): ReactElement | null {
+  const [expanded, setExpanded] = useState(false);
+  if (!body) return null;
+  const baseClass = variant === 'sheet' ? 'hint-bottom-sheet' : 'hint-popover';
+  return (
+    <div className={`${baseClass}__instruction`}>
+      <button
+        type="button"
+        className={`${baseClass}__instruction-toggle`}
+        onClick={() => setExpanded((v) => !v)}
+        data-testid={`hint-${variant}-instruction-toggle`}
+        aria-expanded={expanded}
+      >
+        {expanded ? 'Свернуть' : 'Подробнее'}
+      </button>
+      {expanded && (
+        <div
+          className={`${baseClass}__instruction-body`}
+          data-testid={`hint-${variant}-instruction-body`}
+        >
+          {body}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * KS-4822. Popover в фиксированной позиции (под header'ом, у правого
+ * края контента) — используется, когда anchor пуст или не найден в DOM
+ * за 2 секунды. Не плавающий поверх контента, не InfoBar — это тот же
+ * визуальный popover, что и якорный, только без `@floating-ui` и без
+ * стрелки к anchor.
+ */
+function HintFallbackPopover({
+  hint,
+  onDismiss,
+  onCta,
+}: FallbackPaneProps): ReactElement {
+  const instructionBody = extractInstructionBody(hint);
+  return ReactDOM.createPortal(
+    <div
+      className="hint-popover hint-popover--fallback"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby={`hint-${hint.hintId}-title`}
+      data-testid="hint-popover"
+      data-hint-popover
+      data-hint-key={hint.key}
+      data-fallback="true"
+      style={{
+        position: 'fixed',
+        top: 72,
+        right: 16,
+        maxWidth: 360,
+        zIndex: 9999,
+      }}
+    >
+      <div className="hint-popover__header">
+        <h3 id={`hint-${hint.hintId}-title`} className="hint-popover__title">
+          {hint.title}
+        </h3>
+        <button
+          type="button"
+          aria-label="Close"
+          className="hint-popover__close"
+          onClick={onDismiss}
+          data-testid="hint-popover-close"
+        >
+          ×
+        </button>
+      </div>
+      <p className="hint-popover__body">{hint.body}</p>
+      {hint.ctaLabel && (
+        <button
+          type="button"
+          className="hint-popover__cta"
+          onClick={onCta}
+          data-testid="hint-popover-cta"
+        >
+          {hint.ctaLabel}
+        </button>
+      )}
+      <InstructionBlock body={instructionBody} variant="popover" />
+    </div>,
+    document.body,
+  );
 }
 
 // KS-4720. Сторона popover'а, противоположная placement — там
@@ -425,6 +564,7 @@ function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElem
           {hint.ctaLabel}
         </button>
       )}
+      <InstructionBlock body={extractInstructionBody(hint)} variant="popover" />
       {/* KS-4720: треугольная стрелка к anchor. Координаты от
           @floating-ui/arrow(); background: inherit, чтобы цвет совпал с
           popover'ом; layout (hints.css) при желании может уточнить
@@ -446,12 +586,19 @@ function HintPopover({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElem
 /* Mobile bottom-sheet + anchor highlight                              */
 /* ------------------------------------------------------------------ */
 
-function HintBottomSheet({ hint, anchorEl, onDismiss, onCta }: PaneProps): ReactElement {
+function HintBottomSheet({
+  hint,
+  anchorEl,
+  onDismiss,
+  onCta,
+}: MobileSheetProps): ReactElement {
   // Подсветка anchor: накладываем абсолютно позиционированный outline
   // поверх anchor. Координаты подтягиваем на каждом скролле/ресайзе.
+  // KS-4822: при отсутствии anchor (fallback) подсветку не рисуем.
   const [rect, setRect] = useState<DOMRect | null>(null);
 
   useEffect(() => {
+    if (!anchorEl) return;
     const update = () => setRect(anchorEl.getBoundingClientRect());
     update();
     window.addEventListener('resize', update);
@@ -529,6 +676,7 @@ function HintBottomSheet({ hint, anchorEl, onDismiss, onCta }: PaneProps): React
               {hint.ctaLabel}
             </button>
           )}
+          <InstructionBlock body={extractInstructionBody(hint)} variant="sheet" />
         </div>
       </div>
     </>,
