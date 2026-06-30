@@ -614,7 +614,7 @@ export function AdminHintEditPage(): ReactElement {
           <div
             className="rule-editor__mode"
             data-testid="admin-hint-form-rule-mode"
-            style={{ display: 'flex', gap: 8, marginBottom: 8 }}
+            role="tablist"
           >
             <button
               type="button"
@@ -649,9 +649,6 @@ export function AdminHintEditPage(): ReactElement {
                 }
                 setRuleMode('builder');
               }}
-              style={{
-                fontWeight: ruleMode === 'builder' ? 600 : 400,
-              }}
             >
               {t('adminHints.form.ruleModeBuilder', 'Конструктор')}
             </button>
@@ -669,9 +666,6 @@ export function AdminHintEditPage(): ReactElement {
                   }));
                 }
                 setRuleMode('raw');
-              }}
-              style={{
-                fontWeight: ruleMode === 'raw' ? 600 : 400,
               }}
             >
               {t('adminHints.form.ruleModeRaw', 'Raw JSON')}
