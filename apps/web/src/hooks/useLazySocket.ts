@@ -54,21 +54,44 @@ export function useLazySocket(s: Socket, requireAuth = true) {
   const token = ctx?.token ?? null;
 
   useEffect(() => {
-    if (requireAuth && !token) return;
+    if (requireAuth && !token) {
+      // KS-4818: видимый в DevTools лог. Если у пользователя на проде в
+      // момент жалобы в консоли висит «skip (no token)» — значит причина
+      // race с AuthContext (что уже не должно быть после fix'а, но для
+      // регрессии и доказательства корня нужно зафиксировать).
+      // eslint-disable-next-line no-console
+      console.warn('[useLazySocket] skip mount — no token in AuthContext', {
+        ns: (s as { nsp?: string }).nsp,
+      });
+      return;
+    }
     s.auth = token ? { token } : {};
 
-    refCounts.set(s, (refCounts.get(s) ?? 0) + 1);
+    const next = (refCounts.get(s) ?? 0) + 1;
+    refCounts.set(s, next);
+    // eslint-disable-next-line no-console
+    console.warn('[useLazySocket] mount ref+1', {
+      ns: (s as { nsp?: string }).nsp,
+      refcount: next,
+      connected: s.connected,
+    });
     if (!s.connected) {
       s.connect();
     }
 
     return () => {
-      const next = (refCounts.get(s) ?? 1) - 1;
-      if (next <= 0) {
+      const after = (refCounts.get(s) ?? 1) - 1;
+      // eslint-disable-next-line no-console
+      console.warn('[useLazySocket] cleanup ref-1', {
+        ns: (s as { nsp?: string }).nsp,
+        refcount: after,
+        willDisconnect: after <= 0,
+      });
+      if (after <= 0) {
         refCounts.delete(s);
         s.disconnect();
       } else {
-        refCounts.set(s, next);
+        refCounts.set(s, after);
       }
     };
   }, [s, requireAuth, token]);
