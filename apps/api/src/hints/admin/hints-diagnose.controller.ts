@@ -66,4 +66,28 @@ export class HintsDiagnoseController {
       id: query.actorId,
     });
   }
+
+  /**
+   * KS-4818 diag. `POST /admin/hints-diagnose/test-emit?actorId=` —
+   * принудительный синтетический `hint:show` в room `user:<actorId>`,
+   * без DSL/canShow/upsert. Используется для проверки доставки WS:
+   * если на клиенте виден фрейм `42["hint:show", …]` — WS-канал
+   * рабочий, обрыв в обработке на стороне `<HintHost>`. Если фрейма
+   * нет — обрыв на транспорте/доставке.
+   *
+   * Не трогает `actor_hint_states`, реальные popover'ы не
+   * затрагиваются.
+   */
+  @Post('test-emit')
+  @RequiredScope(SCOPES.HINTS_READ)
+  @HttpCode(200)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: false }))
+  async testEmit(
+    @Query() query: HintsDiagnoseQueryDto,
+  ): Promise<{ delivered: boolean; room: string; size: number; payload: unknown }> {
+    return this.diagnose.testEmit({
+      type: query.actorType ?? 'user',
+      id: query.actorId,
+    });
+  }
 }

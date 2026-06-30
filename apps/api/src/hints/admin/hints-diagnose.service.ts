@@ -120,6 +120,43 @@ export class HintsDiagnoseService {
    * остаются), не трогает `events.actor_events`. Возвращает число
    * удалённых ключей (0..2 + session-патитиции по разным дням).
    */
+  /**
+   * KS-4818 diag. Синтетический `hint:show` в room `user:<actor.id>`
+   * через `MessageGateway.emitHintShow`. Полностью изолирован: DSL не
+   * вызывается, `actor_hint_states` не правится, throttle/session не
+   * меняются. Возвращает `delivered` (был ли локально живой сокет в
+   * этой room в момент вызова) и сам synthetic payload — чтобы клиент
+   * мог сопоставить значения в DevTools.
+   */
+  async testEmit(actor: Actor): Promise<{
+    delivered: boolean;
+    room: string;
+    size: number;
+    payload: unknown;
+  }> {
+    const room = `user:${actor.id}`;
+    const payload = {
+      hintId: 'diag-test',
+      key: 'diag-test',
+      locale: 'ru',
+      title: 'Diagnostic ping',
+      body: 'KS-4818 synthetic hint:show — если виден, WS-канал рабочий',
+      ctaLabel: null,
+      ctaHref: null,
+      ctaEvent: null,
+      anchor: 'diag-test',
+      placement: 'top',
+      ttlSec: 5,
+    };
+    if (!this.gateway) {
+      return { delivered: false, room, size: 0, payload };
+    }
+    const inspect = await this.gateway.inspectRoom(actor.id);
+    const size = inspect.direct_adapter_room_size ?? 0;
+    const result = this.gateway.emitHintShow(actor.id, payload, actor.type);
+    return { delivered: !!result?.delivered || size > 0, room, size, payload };
+  }
+
   async resetLimits(actor: Actor): Promise<{ keys_deleted: number }> {
     let deleted = 0;
     // throttle — один ключ.
