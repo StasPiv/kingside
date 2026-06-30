@@ -336,9 +336,11 @@ const FOOTER_NAV: NavItem[] = [
     match: ['/settings'],
     authOnly: true,
   },
-  // KS-2109: пункт «Админка» — только для админов (env `KS_ADMIN_USERS`).
+  // KS-2109 / KS-4829: пункт «Админка» — только для админов
+  // (env `KS_ADMIN_USERS`). С KS-4829 ведёт на лобби `/admin`, оттуда —
+  // на конкретные разделы (feature-flags, hints, blog).
   {
-    path: '/admin/feature-flags',
+    path: '/admin',
     icon: '🛡',
     i18nKey: 'nav.admin',
     match: ['/admin'],

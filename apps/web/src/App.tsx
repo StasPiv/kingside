@@ -163,6 +163,7 @@ import { AdminBlogAuthorsPage } from './pages/admin/AdminBlogAuthorsPage';
 import { AdminBlogAuthorEditPage } from './pages/admin/AdminBlogAuthorEditPage';
 // KS-4706 / ADR-147 §3.3. Админ-CRUD контекстных подсказок.
 import { AdminHintsListPage } from './pages/admin/AdminHintsListPage';
+import { AdminLobbyPage } from './pages/admin/AdminLobbyPage';
 import { AdminHintEditPage } from './pages/admin/AdminHintEditPage';
 import {
   consumeAuthReturnUrl,
@@ -686,6 +687,12 @@ export function App() {
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/game/:gameId/review" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+        {/* KS-4829. Лобби админки — общий вход во все разделы. Иконка
+            сайдбара ведёт сюда; отсюда — на конкретный раздел. */}
+        <Route
+          path="/admin"
+          element={<AdminRoute><AdminLobbyPage /></AdminRoute>}
+        />
         {/* KS-2109: админ-страница feature-flags. Только для админов
             (whitelist `KS_ADMIN_USERS` на бэке). */}
         <Route
