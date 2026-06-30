@@ -340,7 +340,20 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     actorType: 'user' | 'guest' = 'user',
   ): { delivered: boolean } {
     const room = `user:${userId}`;
-    const size = this.server?.sockets?.adapter?.rooms?.get(room)?.size ?? 0;
+    // KS-4818 fix. `this.server` через `@WebSocketServer()` в Nest gateway
+    // c `namespace:'/messages'` — это объект Namespace, а не root Server.
+    // У Namespace adapter лежит прямо в `.adapter`. `this.server.sockets`
+    // для Namespace это `Map<sid,Socket>` — у этой Map поля `.adapter`
+    // нет, и прежнее выражение `this.server.sockets.adapter.rooms.get(...)`
+    // возвращало `undefined`. Fallback `?? 0` превращал size в `0` всегда
+    // → гард `if (size===0) return without emit` блокировал ВСЕ эмиты
+    // с момента KS-4807. Подтверждено QA: на одной и той же room
+    // `/admin/hints-diagnose` показывал `direct_adapter_room_size=1`
+    // (через `this.server.adapter`), а лог содержал
+    // `WARN emitHintShow: room empty payload dropped` и фрейм не уходил.
+    //
+    // Правка — читаем размер room через корректный `this.server.adapter`.
+    const size = (this.server as any)?.adapter?.rooms?.get(room)?.size ?? 0;
     this.hintsMetrics?.emitRoomSize.observe({ actor_type: actorType }, size);
     if (size === 0) {
       this.hintsMetrics?.emitRoomEmpty.inc({ actor_type: actorType });

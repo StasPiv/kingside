@@ -19,12 +19,12 @@ function makeGateway(opts: {
   const emit = jest.fn();
   const toFn = jest.fn().mockReturnValue({ emit });
   const adapterRooms = opts.rooms ?? new Map<string, Set<string>>();
+  // KS-4818: `this.server` для namespace-gateway — это Namespace, у
+  // которого adapter лежит на `.adapter` (не `.sockets.adapter`).
   const server: any = {
     to: toFn,
-    sockets: {
-      adapter: {
-        rooms: adapterRooms,
-      },
+    adapter: {
+      rooms: adapterRooms,
     },
   };
   const hintsMetrics = {
@@ -96,7 +96,7 @@ describe('MessageGateway.emitHintShow — KS-4807 / ADR-153 §2.2', () => {
     const emit = jest.fn();
     const server: any = {
       to: jest.fn().mockReturnValue({ emit }),
-      sockets: { adapter: { rooms } },
+      adapter: { rooms },
     };
     const gw = new MessageGateway({} as any, {} as any, {} as any, {} as any, {} as any, {} as any /* hintsMetrics undefined */);
     (gw as unknown as { server: typeof server }).server = server;
