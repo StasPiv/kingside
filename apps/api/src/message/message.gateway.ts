@@ -70,29 +70,58 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     messages_size: number;
     root_total_rooms: number;
     messages_total_rooms: number;
+    /** KS-4814: число сокетов в namespace `/messages` (включая ещё
+     *  не успевшие `client.join`). Если total_rooms=0, а sockets>0 —
+     *  handleConnection не делает join (или падает до него). */
+    messages_ns_sockets: number;
+    /** Число WS-подключений на уровне engine.io (любой namespace). */
+    engine_clients_total: number;
   } {
     const room = `user:${userId}`;
-    const rootNs = this.server?.sockets?.adapter;
-    const msgNs = (this.server as any)?.of?.('/messages')?.adapter;
+    const server: any = this.server as any;
+    const rootNs = server?.sockets?.adapter;
+    const msgNs = server?.of?.('/messages')?.adapter;
+    const msgNsSocketsMap = server?.of?.('/messages')?.sockets;
     return {
       room,
       root_size: rootNs?.rooms?.get(room)?.size ?? 0,
       messages_size: msgNs?.rooms?.get(room)?.size ?? 0,
       root_total_rooms: rootNs?.rooms?.size ?? 0,
       messages_total_rooms: msgNs?.rooms?.size ?? 0,
+      messages_ns_sockets: typeof msgNsSocketsMap?.size === 'number'
+        ? msgNsSocketsMap.size
+        : 0,
+      engine_clients_total: server?.engine?.clientsCount ?? 0,
     };
   }
 
   async handleConnection(client: Socket) {
+    // KS-4814: подробный лог каждого attempt'а. По нему в CloudWatch
+    // видно: дошёл ли token в handshake, какой namespace, успешен ли
+    // verify, дошли ли до client.join, итоговые rooms.
+    const hasAuthToken = !!(client.handshake?.auth as any)?.token;
+    const hasQueryToken = !!(client.handshake?.query as any)?.token;
+    const nspName = (client.nsp as any)?.name ?? '?';
+    this.logger.log(
+      `[KS-4814] handleConnection enter: sid=${client.id} nsp=${nspName} `
+        + `authToken=${hasAuthToken} queryToken=${hasQueryToken}`,
+    );
     try {
       const token = client.handshake.auth?.token || client.handshake.query?.token;
       if (!token) {
+        this.logger.warn(
+          `[KS-4814] handleConnection: no token, disconnect sid=${client.id} nsp=${nspName}`,
+        );
         client.disconnect();
         return;
       }
       const payload = this.jwtService.verify<JwtPayload>(String(token));
       client.data.user = { id: payload.sub, username: payload.username };
       await client.join(`user:${payload.sub}`);
+      this.logger.log(
+        `[KS-4814] handleConnection joined: sid=${client.id} nsp=${nspName} `
+          + `sub=${payload.sub} rooms=[${[...client.rooms].join(',')}]`,
+      );
 
       // KS-4788 / ADR-151. Replay контекстных подсказок, потерянных из-за
       // гонки primary-emit (DSL match) vs WS-handshake. Отдельный путь
@@ -131,7 +160,12 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       }
 
       this.logger.log(`Messages client connected: ${payload.username} (${client.id})`);
-    } catch {
+    } catch (err) {
+      // KS-4814: лог детали exception, чтобы было видно почему disconnect.
+      this.logger.warn(
+        `[KS-4814] handleConnection catch: sid=${client.id} nsp=${nspName} `
+          + `error=${(err as Error)?.message ?? err}`,
+      );
       client.disconnect();
     }
   }
