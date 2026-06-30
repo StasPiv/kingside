@@ -71,6 +71,10 @@ export interface RoomInspection {
   messages_size: number;
   root_total_rooms: number;
   messages_total_rooms: number;
+  messages_ns_sockets?: number;
+  engine_clients_total?: number;
+  messages_fetch_sockets_count?: number;
+  messages_fetch_socket_ids?: string[];
 }
 
 export interface HintsDiagnoseResult {
@@ -99,7 +103,7 @@ export class HintsDiagnoseService {
   async diagnose(actor: Actor, hintId?: string): Promise<HintsDiagnoseResult> {
     const states = await this.readStates(actor, hintId);
     const limits = await this.readLimitsState(actor);
-    const room = this.gateway?.inspectRoom(actor.id);
+    const room = this.gateway ? await this.gateway.inspectRoom(actor.id) : undefined;
     return { actor, states, limits, ...(room ? { room } : {}) };
   }
 

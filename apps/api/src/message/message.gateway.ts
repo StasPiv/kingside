@@ -64,24 +64,39 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
    * Также возвращает общее число rooms в каждом namespace — sanity для
    * понимания «вообще ли есть какие-то join'ы».
    */
-  inspectRoom(userId: string): {
+  async inspectRoom(userId: string): Promise<{
     room: string;
     root_size: number;
     messages_size: number;
     root_total_rooms: number;
     messages_total_rooms: number;
-    /** KS-4814: число сокетов в namespace `/messages` (включая ещё
-     *  не успевшие `client.join`). Если total_rooms=0, а sockets>0 —
-     *  handleConnection не делает join (или падает до него). */
     messages_ns_sockets: number;
-    /** Число WS-подключений на уровне engine.io (любой namespace). */
     engine_clients_total: number;
-  } {
+    /** KS-4814: `await server.of('/messages').in(room).fetchSockets()`
+     *  — глобальный список сокетов в room (через Redis-adapter
+     *  pub/sub при `WS_USE_REDIS_ADAPTER=true`). Авторитативный
+     *  источник по сравнению с локальной `adapter.rooms.get`. */
+    messages_fetch_sockets_count: number;
+    messages_fetch_socket_ids: string[];
+  }> {
     const room = `user:${userId}`;
     const server: any = this.server as any;
     const rootNs = server?.sockets?.adapter;
     const msgNs = server?.of?.('/messages')?.adapter;
     const msgNsSocketsMap = server?.of?.('/messages')?.sockets;
+
+    let fetchCount = 0;
+    let fetchIds: string[] = [];
+    try {
+      const sockets = await server?.of?.('/messages')?.in?.(room)?.fetchSockets?.();
+      if (Array.isArray(sockets)) {
+        fetchCount = sockets.length;
+        fetchIds = sockets.map((s: any) => String(s?.id ?? '?')).slice(0, 16);
+      }
+    } catch {
+      /* fetchSockets may throw if adapter not configured; treat as 0 */
+    }
+
     return {
       room,
       root_size: rootNs?.rooms?.get(room)?.size ?? 0,
@@ -92,6 +107,8 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
         ? msgNsSocketsMap.size
         : 0,
       engine_clients_total: server?.engine?.clientsCount ?? 0,
+      messages_fetch_sockets_count: fetchCount,
+      messages_fetch_socket_ids: fetchIds,
     };
   }
 
