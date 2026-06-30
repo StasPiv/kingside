@@ -24,15 +24,13 @@ import { HintsService } from './hints.service';
 import { HintsMetricsService } from './hints-metrics.service';
 import type { Actor } from '../events/events.types';
 
-/** События, на которые реактивно дёргаем HintsService.checkFor. */
-const REACTIVE_TYPES = new Set<string>([
-  'game_end',
-  'puzzle_failed',
-  'session_idle',
-  'page_view',
-  'guest_landing_viewed',
-  'guest_play_attempted',
-]);
+// KS-4828. Whitelist REACTIVE_TYPES убран: listener вызывает
+// `HintsService.checkFor` на КАЖДОМ event'е, проходящем через
+// `EventsService.onTrack`. Если правило сработало — подсказка эмитится
+// сразу, без необходимости отдельного reactive-триггера. Защита от
+// шумных событий (`session_idle`, `page_view`) — на стороне DSL
+// (правило не matches → no-op) и quiet-pages / throttle / maxShows
+// внутри `checkFor`.
 
 const PENDING_TTL_SEC = 60;
 /**
@@ -84,8 +82,6 @@ export class HintsListener implements OnModuleInit {
         this.logger.debug?.(`last-page cache set failed: ${(err as Error).message}`);
       }
     }
-
-    if (!REACTIVE_TYPES.has(type)) return;
 
     // Контекст — payload.page / payload.path → fallback на Redis last-page.
     let ctxPage = explicitPage;

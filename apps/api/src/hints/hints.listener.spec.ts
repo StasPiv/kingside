@@ -63,12 +63,21 @@ describe('HintsListener.handle — KS-4808 / ADR-153 §2.3 reactive latency', ()
     expect(observe.mock.calls[0][0]).toEqual({ trigger_type: 'puzzle_failed' });
   });
 
-  it('не-REACTIVE событие → checkFor НЕ зовётся, observe НЕ зовётся', async () => {
+  it('KS-4828: любой event-тип теперь триггерит checkFor (whitelist убран)', async () => {
     const { listener, hints, observe } = makeListener();
     // @ts-expect-error private
     await listener.handle({ type: 'user', id: 'u-1' }, 'feature_used', null);
-    expect(hints.checkFor).not.toHaveBeenCalled();
-    expect(observe).not.toHaveBeenCalled();
+    expect(hints.checkFor).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(observe.mock.calls[0][0]).toEqual({ trigger_type: 'feature_used' });
+  });
+
+  it('KS-4828: engine_started (раньше не-reactive) теперь тоже триггерит checkFor', async () => {
+    const { listener, hints, observe } = makeListener();
+    // @ts-expect-error private
+    await listener.handle({ type: 'user', id: 'u-1' }, 'engine_started', { source: 'wasm' });
+    expect(hints.checkFor).toHaveBeenCalledTimes(1);
+    expect(observe.mock.calls[0][0]).toEqual({ trigger_type: 'engine_started' });
   });
 
   it('замер аппроксимирует реальную задержку (≥10мс при checkFor=12мс)', async () => {
