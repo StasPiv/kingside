@@ -1,37 +1,59 @@
-import { useEffect } from 'react';
+import { useContext, useEffect } from 'react';
 import type { Socket } from 'socket.io-client';
+import { AuthContext } from '../context/AuthContext';
 
 /**
- * KS-4805 / ADR-153 §2.1. Refcount на shared-сокетах.
+ * KS-4805 / KS-4818 / ADR-153 §2.1. Refcount на shared-сокетах.
  *
- * До правки cleanup безусловно вызывал `s.disconnect()` — это создавало
- * гонку, когда страница, использующая `messagesSocket` (PlayPage,
- * MessagesPage, FriendsPage, GamePage), unmount'илась, а HintHost / другие
- * подписчики продолжали ожидать room `user:<id>` живой. В окно «disconnect
- * → handshake» backend-self-emit'ы (`hint:show` для `analyze-after-loss`)
- * уходили в пустую room и дропались Socket.IO.
+ * До KS-4805 cleanup безусловно вызывал `s.disconnect()` — каждая
+ * SPA-навигация рвала подключение. KS-4805 ввёл refcount, но смотрел
+ * на токен через `localStorage.getItem('token')` синхронно в effect'е
+ * с deps `[s, requireAuth]`. Если HintHost mount'ился раньше, чем
+ * `AuthContext.fetchMe` дочитает токен (race на первой загрузке/SSR
+ * hydrate/cold OAuth-callback), хук делал ранний выход без наложения
+ * ref'а. HintHost тогда НЕ держал perm-ref'а, refcount колебался от
+ * страницы к странице (Play unmount → 0 → disconnect → Game mount → 1
+ * → новый socket.id), и room `user:<id>` пересоздавалась на каждый
+ * SPA-переход — backend-self-emit `hint:show` уходил в пустоту на
+ * проде (`engine_clients_total=0` на момент эмита, KS-4818).
  *
- * Refcount хранится в module-level Map: ключ — сам socket-объект. Cleanup
- * вызывает `disconnect()` только когда счётчик достиг 0. `HintHost`
- * mount'ится в `MainLayout` один раз на всю авторизованную сессию и
- * держит +1 ref непрерывно — поэтому room никогда не пустеет.
+ * KS-4818: хук теперь подписан на `AuthContext.token`. Когда токен
+ * появился (логин / refresh / OAuth-callback подтянул) — useEffect
+ * пересчитывается и накладывает ref. Когда исчез (logout / sessions
+ * expired) — cleanup отпускает ref. HintHost действительно держит
+ * +1 ref на всю авторизованную сессию.
  *
- * При logout `<HintHost>` unmount → ref снят → другие страницы тоже
- * обычно unmount'ились (логаут редиректит) → счётчик 0 → disconnect.
+ * Refcount — module-level `Map`. `disconnect()` вызывается только при
+ * count → 0.
  */
 const refCounts = new Map<Socket, number>();
 
 /**
  * Lazily connect a socket.io socket on mount, disconnect on unmount —
- * с поддержкой shared-ownership через refcount.
+ * с поддержкой shared-ownership через refcount и реакцией на смену
+ * `AuthContext.token`.
  *
- * If requireAuth is true (default), skips connection when no JWT token is
- * available; в этом случае ref не накладывается (гость не должен
- * блокировать disconnect для других подписчиков).
+ * `requireAuth=true` (default) — без токена в `AuthContext` хук
+ * пропускает подключение и не накладывает ref. Когда токен появится,
+ * useEffect пересчитается и подсоединит. `requireAuth=false` — для
+ * гостевых сокетов (`/broadcast`, `/spectate`) — игнорирует токен,
+ * подключается сразу.
+ *
+ * Зависит от того, что вызывающий компонент находится внутри
+ * `<AuthProvider>` — иначе useAuth() контекст пустой. В проекте
+ * AuthProvider стоит в корне (`apps/web/src/main.tsx`), все
+ * use-sites useLazySocket — под ним.
  */
 export function useLazySocket(s: Socket, requireAuth = true) {
+  // KS-4818: токен через AuthContext, а не localStorage. Effect ниже
+  // включает `token` в deps — при смене токена хук перенакладывает ref
+  // и (при необходимости) реконнектит с новой авторизацией. Если
+  // компонент рендерится вне `<AuthProvider>` (теоретически), Context
+  // вернёт `null` — трактуем как guest (token=null).
+  const ctx = useContext(AuthContext);
+  const token = ctx?.token ?? null;
+
   useEffect(() => {
-    const token = localStorage.getItem('token');
     if (requireAuth && !token) return;
     s.auth = token ? { token } : {};
 
@@ -49,5 +71,5 @@ export function useLazySocket(s: Socket, requireAuth = true) {
         refCounts.set(s, next);
       }
     };
-  }, [s, requireAuth]);
+  }, [s, requireAuth, token]);
 }
