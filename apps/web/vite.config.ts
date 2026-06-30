@@ -2,6 +2,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
+import os from 'os';
 import { execSync } from 'child_process';
 import fs from 'fs';
 // KS-4418 / ADR-137 rev2 T10. Прежний `vitePluginBlog` парсил
@@ -66,15 +67,20 @@ for (const key of Object.keys(perAppEnv)) {
 }
 
 export default defineConfig({
-  // KS-4770: cacheDir настраиваемый через env. Дефолт vite
-  // (`node_modules/.vite`) сохраняется при отсутствии VITE_CACHE_DIR.
-  // Нужно когда `node_modules/.vite/deps` принадлежит другому
-  // пользователю и vite не может переоптимизировать deps —
-  // запуск с `VITE_CACHE_DIR=/tmp/.vite-<scope>` направляет кеш
-  // в writable-папку без правки прав на основной кеш.
+  // KS-4770 / KS-4831. Кеш vite по умолчанию в `os.tmpdir()`, не в
+  // `node_modules/.vite`. Причина: в этом monorepo `node_modules`
+  // монтируется RO для большинства агентов, а `.vite/deps` создаётся
+  // первым запускающим vite пользователем (его UID). Re-optimize при
+  // изменении workspace-зависимостей (`packages/shared`) пытается
+  // переписать чужие файлы → EACCES, dev-сервер не стартует.
+  // Решение: дефолт — `/tmp/.vite-kingside-web` (всегда writable).
+  // Override через `VITE_CACHE_DIR` остаётся для CI / кастомных
+  // сценариев. Прод-сборку это не задевает: vite не использует
+  // cacheDir в `vite build` под наш конфиг (PWA precache генерируется
+  // на лету).
   cacheDir: process.env.VITE_CACHE_DIR
     ? path.resolve(process.env.VITE_CACHE_DIR)
-    : undefined,
+    : path.join(os.tmpdir(), '.vite-kingside-web'),
   plugins: [
     versionPlugin(),
     react(),
