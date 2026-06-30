@@ -60,6 +60,13 @@ export interface HintShowPayload {
   /** Подпись CTA-кнопки. `null` — кнопки нет, подсказка
    *  информационная (закрывается крестиком/ttl). */
   ctaLabel: string | null;
+  /**
+   * KS-4823. Развёрнутый текст инструкции (показывается клиентом по
+   * кнопке «Подробнее» внутри popover). `null` — кнопка не появляется.
+   * Берётся из `Hint.i18n[locale].instructionBody`, max 2000 символов
+   * на стороне админ-DTO.
+   */
+  instructionBody: string | null;
   /** Относительный URL внутри SPA для перехода по CTA.
    *  Взаимоисключающее с `ctaEvent`. */
   ctaHref: string | null;

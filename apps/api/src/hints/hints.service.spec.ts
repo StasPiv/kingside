@@ -6,7 +6,7 @@
  * новый путь replay, который не дёргает DSL/canShow/markShown.
  */
 import 'reflect-metadata';
-import { HintsService, isQuietPage } from './hints.service';
+import { HintsService, isQuietPage, toShowPayload } from './hints.service';
 
 type Actor = { type: 'user' | 'guest'; id: string };
 const ACTOR: Actor = { type: 'user', id: 'u-1' };
@@ -399,5 +399,93 @@ describe('isQuietPage (backend) — KS-4810', () => {
 
   it('ctx.page отсутствует → false', () => {
     expect(isQuietPage({})).toBe(false);
+  });
+});
+
+/**
+ * KS-4823. `toShowPayload` маппер `Hint` row → `HintShowPayload`.
+ * Проверяем перенос полей в payload, дефолты и опциональный
+ * `instructionBody` (новое поле).
+ */
+describe('toShowPayload — KS-4823', () => {
+  const HINT_ROW = {
+    id: 'h-1',
+    key: 'analyze-after-loss',
+    anchor: 'game-end-analysis-button',
+    placement: 'top',
+    ttlSec: 30,
+    cta: null,
+  };
+
+  it('берёт title/body/ctaLabel из i18n[locale]', () => {
+    const hint = {
+      ...HINT_ROW,
+      i18n: { ru: { title: 'T-ru', body: 'B-ru', ctaLabel: 'Открыть' } },
+    } as any;
+    const p = toShowPayload(hint, 'ru');
+    expect(p.title).toBe('T-ru');
+    expect(p.body).toBe('B-ru');
+    expect(p.ctaLabel).toBe('Открыть');
+  });
+
+  it('fallback на `ru` если запрошена локаль en, а её нет', () => {
+    const hint = {
+      ...HINT_ROW,
+      i18n: { ru: { title: 'T-ru', body: 'B-ru' } },
+    } as any;
+    const p = toShowPayload(hint, 'en');
+    expect(p.title).toBe('T-ru');
+  });
+
+  it('instructionBody переносится из i18n[locale]', () => {
+    const hint = {
+      ...HINT_ROW,
+      i18n: {
+        ru: {
+          title: 'T-ru',
+          body: 'B-ru',
+          instructionBody: 'Подробная инструкция…',
+        },
+      },
+    } as any;
+    const p = toShowPayload(hint, 'ru');
+    expect(p.instructionBody).toBe('Подробная инструкция…');
+  });
+
+  it('instructionBody=null если поле в i18n не задано', () => {
+    const hint = {
+      ...HINT_ROW,
+      i18n: { ru: { title: 'T', body: 'B' } },
+    } as any;
+    const p = toShowPayload(hint, 'ru');
+    expect(p.instructionBody).toBeNull();
+  });
+
+  it('ctaHref / ctaEvent — из cta JSON; null если cta отсутствует', () => {
+    const noCta = toShowPayload(
+      { ...HINT_ROW, i18n: { ru: { title: 'T', body: 'B' } } } as any,
+      'ru',
+    );
+    expect(noCta.ctaHref).toBeNull();
+    expect(noCta.ctaEvent).toBeNull();
+
+    const withHref = toShowPayload(
+      {
+        ...HINT_ROW,
+        i18n: { ru: { title: 'T', body: 'B' } },
+        cta: { href: '/game/abc/review' },
+      } as any,
+      'ru',
+    );
+    expect(withHref.ctaHref).toBe('/game/abc/review');
+  });
+
+  it('пустой i18n → title/body пустые, instructionBody=null', () => {
+    const hint = { ...HINT_ROW, i18n: {} } as any;
+    const p = toShowPayload(hint, 'ru');
+    expect(p.title).toBe('');
+    expect(p.body).toBe('');
+    expect(p.instructionBody).toBeNull();
+    expect(p.ctaLabel).toBeNull();
   });
 });

@@ -360,7 +360,9 @@ export function isQuietPage(ctx: HintCheckContext): boolean {
   return false;
 }
 
-function toShowPayload(
+// Экспорт для unit-тестов (см. `hints.service.spec.ts` — KS-4823).
+// Internal use из `HintsService.checkFor` сохраняется.
+export function toShowPayload(
   hint: {
     id: string;
     key: string;
@@ -384,6 +386,9 @@ function toShowPayload(
     title: entry.title ?? '',
     body: entry.body ?? '',
     ctaLabel: entry.ctaLabel ?? null,
+    // KS-4823. Опциональный расширенный блок инструкции (popover
+    // «Подробнее»). `null` если в локали не задан.
+    instructionBody: entry.instructionBody ?? null,
     ctaHref: cta?.href ?? null,
     ctaEvent: cta?.event ?? null,
     anchor: hint.anchor as HintAnchor,

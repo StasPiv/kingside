@@ -50,6 +50,16 @@ export class HintI18nEntryDto {
   @IsString()
   @Length(1, 80)
   ctaLabel?: string;
+
+  /**
+   * KS-4823. Расширенный текст инструкции для popover'а «Подробнее».
+   * Опционален. Максимум 2000 символов (запас для нескольких абзацев
+   * markdown-like текста; рендерится на стороне `<HintHost>`).
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 2000)
+  instructionBody?: string;
 }
 
 export class HintI18nDto {

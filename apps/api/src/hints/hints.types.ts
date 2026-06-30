@@ -24,6 +24,11 @@ export interface HintI18nEntry {
   title: string;
   body: string;
   ctaLabel?: string | null;
+  /**
+   * KS-4823. Расширенный текст инструкции (popover «Подробнее»).
+   * Опционален в JSON; парсер safe-приведёт к `string|null`.
+   */
+  instructionBody?: string | null;
 }
 
 /** Tuple для `Hint.cta`. */
