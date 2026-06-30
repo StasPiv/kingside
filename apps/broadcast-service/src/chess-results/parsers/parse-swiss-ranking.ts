@@ -88,7 +88,35 @@ export function parseSwissRanking(
   }
 
   // TB-колонки: всё что после `Pts.` и имеет лейбл `TB\d+` (case-insensitive).
-  const tbInfo = pickTiebreaks(headerCells, $);
+  let tbInfo = pickTiebreaks(headerCells, $);
+
+  // KS-4817: bug-fix для турниров без отдельной колонки `Pts.`
+  // (chess-results позволяет такую настройку: см. tnr1375699 — KCF
+  // Friendship Festival 2026, заголовки в `table.CRs1` — только
+  // `Rk SNo Name Typ FED Rtg TB1 TB2 TB3`, без `Pts.`). Annotation
+  // турнира при этом явно сообщает `Tie Break1: points (game-points)`.
+  // Без правки `extractPlayer` всем игрокам ставил `points=0`, а ТВ
+  // показывал реальные значения — пользователю это видно как «очки=0,
+  // ТВ ненулевые».
+  //
+  // Если `pointsIdx` НЕ найден парсером (колонки `Pts.` нет) и первый
+  // TB по аннотации — game-points, переиспользуем колонку первого TB
+  // как pointsIdx и убираем её из tbInfo (чтобы points не дублировался
+  // как tiebreak).
+  const tbAnnotations = extractTiebreakAnnotations($);
+  if (cols.pointsIdx === null && tbInfo.length > 0) {
+    const firstTbLabel = tbInfo[0].label; // 'tb1'
+    const m = /^tb(\d+)$/i.exec(firstTbLabel);
+    const tbNum = m ? Number.parseInt(m[1], 10) : NaN;
+    const ann = Number.isFinite(tbNum)
+      ? (tbAnnotations.get(tbNum) ?? '')
+      : '';
+    if (/(?:^|\W)(?:game-?\s*)?points(?:\W|$)/i.test(ann)) {
+      // Переключаем: первый TB становится points, остальные TB остаются.
+      cols.pointsIdx = tbInfo[0].colIdx;
+      tbInfo = tbInfo.slice(1);
+    }
+  }
 
   const dataRows = findDataRows($, table);
   const players: CrosstablePlayer[] = [];
@@ -155,4 +183,35 @@ export function extractRoundCountFromH2(h2Text: string): number | null {
   if (!m) return null;
   const n = parseIntLoose(m[1]);
   return n;
+}
+
+/**
+ * KS-4817. Парсит footer-аннотации `Tie BreakN: <description>` со
+ * страницы chess-results. Возвращает map `N -> description`.
+ *
+ * chess-results кладёт строки вида
+ *   `Tie Break1: points (game-points)`
+ *   `Tie Break2: Direct Encounter (DE)`
+ *   `Tie Break3: Buchholz Tie-Break Variable (2023) (Gamepoints, Cut1)`
+ *
+ * в div'е c классом `CR` или просто как inline-текст внизу страницы.
+ * Точный родительский элемент непостоянен, поэтому работаем с
+ * `body.text()` + regex.
+ *
+ * Public — может пригодиться другим парсерам chess-results (например,
+ * team standings), которые тоже могут опираться на разъяснение TB.
+ */
+export function extractTiebreakAnnotations($: CheerioRoot): Map<number, string> {
+  const out = new Map<number, string>();
+  const text = $('body').text().replace(/\s+/g, ' ');
+  // Жадный match до следующего `Tie BreakN:` или конца строки.
+  const re = /Tie\s*Break(\d+):\s*(.+?)(?=Tie\s*Break\d+:|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const n = Number.parseInt(m[1], 10);
+    if (Number.isFinite(n)) {
+      out.set(n, m[2].trim());
+    }
+  }
+  return out;
 }
