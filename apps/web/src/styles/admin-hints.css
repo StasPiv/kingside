@@ -630,3 +630,101 @@
   font-size: 0.88rem;
   line-height: 1.4;
 }
+
+/* ── KS-4830: визуальный конструктор правил ────────────────── */
+
+.rule-builder {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: var(--bg-surface);
+}
+
+.rule-node {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-soft, var(--border-subtle));
+  border-radius: 6px;
+  background: var(--ov-white-05, transparent);
+}
+
+.rule-node--all,
+.rule-node--any,
+.rule-node--not {
+  border-left: 3px solid var(--accent-primary);
+}
+
+.rule-node__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.rule-node__header select {
+  font-weight: 600;
+}
+
+.rule-node__remove {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.rule-node__children {
+  padding-left: 0.5rem;
+  border-left: 2px dashed var(--border-soft, var(--border-subtle));
+}
+
+.rule-node__add {
+  margin-top: 0.4rem;
+  background: transparent;
+  border: 1px dashed var(--accent-primary);
+  color: var(--accent-primary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.rule-node__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.35rem 0;
+  font-size: 0.9rem;
+}
+
+.rule-node__field--inline {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.rule-node__where {
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border-soft, var(--border-subtle));
+  border-radius: 4px;
+}
+
+.rule-node__where-label {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.rule-node__where-row {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.2rem 0;
+}
+
+.rule-node__where-row input {
+  flex: 1;
+}

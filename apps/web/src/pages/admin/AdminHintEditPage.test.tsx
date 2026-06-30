@@ -56,6 +56,11 @@ describe('AdminHintEditPage (KS-4706)', () => {
 
   it('невалидный JSON — preview-button disabled, ruleError на blur', async () => {
     renderPage();
+    // KS-4830: по умолчанию открывается конструктор; переключаемся в Raw
+    // для проверки behaviour textarea blur'а.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-hint-form-rule-mode-raw'));
+    });
     const ta = screen.getByTestId('admin-hint-form-rule') as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(ta, { target: { value: '{not-json' } });
@@ -66,6 +71,22 @@ describe('AdminHintEditPage (KS-4706)', () => {
       (screen.getByTestId('admin-hint-form-preview-btn') as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+
+  it('KS-4830: по умолчанию открывается конструктор; кнопка переключения на Raw JSON работает', async () => {
+    renderPage();
+    expect(screen.getByTestId('rule-builder')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('admin-hint-form-rule'),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('admin-hint-form-rule-mode-raw'));
+    });
+
+    expect(screen.queryByTestId('rule-builder')).not.toBeInTheDocument();
+    const ta = screen.getByTestId('admin-hint-form-rule') as HTMLTextAreaElement;
+    expect(ta.value).toContain('"all"');
   });
 
   it('submit POST /admin/hints, при 409 показывает keyDuplicate', async () => {

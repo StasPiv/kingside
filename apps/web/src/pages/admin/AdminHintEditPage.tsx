@@ -31,6 +31,14 @@ import {
   type HintPlacement,
   type PreviewTriggerResponse,
 } from '../../api/api-hints-admin';
+import { RuleBuilder } from './hints/RuleBuilder';
+import {
+  decode,
+  encode,
+  emptyNode,
+  validate,
+  type RuleNode,
+} from './hints/ruleBuilderModel';
 
 const PLACEMENTS: HintPlacement[] = [
   'top',
@@ -124,6 +132,12 @@ export function AdminHintEditPage(): ReactElement {
   const [preview, setPreview] = useState<PreviewTriggerResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // KS-4830: визуальный конструктор. По умолчанию начинаем с пустого
+  // `all`. При загрузке детальной подсказки (isEdit) пробуем декодировать
+  // существующий rule — если получилось, остаёмся в builder; иначе
+  // автоматически переключаемся в Raw JSON.
+  const [ruleMode, setRuleMode] = useState<'builder' | 'raw'>('builder');
+  const [ruleNode, setRuleNode] = useState<RuleNode>(emptyNode('all'));
 
   useEffect(() => {
     if (!isEdit || !id) return;
@@ -133,7 +147,21 @@ export function AdminHintEditPage(): ReactElement {
     hintsAdminApi
       .getOne(id)
       .then((d) => {
-        if (!cancelled) setForm(detailToForm(d));
+        if (!cancelled) {
+          setForm(detailToForm(d));
+          // KS-4830: пытаемся переключить редактор в режим конструктора.
+          try {
+            const decoded = d.rule ? decode(d.rule) : null;
+            if (decoded) {
+              setRuleNode(decoded);
+              setRuleMode('builder');
+            } else {
+              setRuleMode('raw');
+            }
+          } catch {
+            setRuleMode('raw');
+          }
+        }
       })
       .catch((e) => {
         if (!cancelled) {
@@ -147,6 +175,12 @@ export function AdminHintEditPage(): ReactElement {
       cancelled = true;
     };
   }, [id, isEdit]);
+
+  // KS-4830: список ошибок построения правила в builder-режиме.
+  const builderErrors = useMemo(
+    () => (ruleMode === 'builder' ? validate(ruleNode) : []),
+    [ruleMode, ruleNode],
+  );
 
   const parsedRule = useMemo<Record<string, unknown> | null>(() => {
     try {
@@ -571,19 +605,120 @@ export function AdminHintEditPage(): ReactElement {
 
         {/* ── DSL editor ────────────────────────────────────── */}
         <fieldset>
-          <legend>{t('adminHints.form.rule', 'Trigger rule (DSL, JSON)')}</legend>
-          <textarea
-            rows={12}
-            value={form.ruleText}
-            onChange={(e) => setForm((s) => ({ ...s, ruleText: e.currentTarget.value }))}
-            onBlur={() => validateRuleSyntax()}
-            data-testid="admin-hint-form-rule"
-            style={{ fontFamily: 'monospace', width: '100%' }}
-          />
+          <legend>{t('adminHints.form.rule', 'Trigger rule (DSL)')}</legend>
+          {/* KS-4830: переключатель «Конструктор / Raw JSON». По
+              умолчанию конструктор. При входе в Raw — текущий node
+              сериализуется в textarea; при выходе из Raw — пробуем
+              распарсить обратно (decode != null), иначе остаёмся в Raw
+              с предупреждением. */}
+          <div
+            className="rule-editor__mode"
+            data-testid="admin-hint-form-rule-mode"
+            style={{ display: 'flex', gap: 8, marginBottom: 8 }}
+          >
+            <button
+              type="button"
+              data-testid="admin-hint-form-rule-mode-builder"
+              aria-pressed={ruleMode === 'builder'}
+              onClick={() => {
+                if (ruleMode === 'raw') {
+                  // Попытка перейти из Raw в Builder.
+                  try {
+                    const parsed = JSON.parse(form.ruleText);
+                    const node = decode(parsed);
+                    if (!node) {
+                      setRuleError(
+                        t(
+                          'adminHints.form.ruleNotDecodable',
+                          'Это правило содержит конструкции, не поддерживаемые конструктором — оставляем Raw JSON.',
+                        ),
+                      );
+                      return;
+                    }
+                    setRuleNode(node);
+                    setRuleError(null);
+                  } catch {
+                    setRuleError(
+                      t(
+                        'adminHints.form.ruleInvalidJson',
+                        'JSON невалиден — исправьте и повторите.',
+                      ),
+                    );
+                    return;
+                  }
+                }
+                setRuleMode('builder');
+              }}
+              style={{
+                fontWeight: ruleMode === 'builder' ? 600 : 400,
+              }}
+            >
+              {t('adminHints.form.ruleModeBuilder', 'Конструктор')}
+            </button>
+            <button
+              type="button"
+              data-testid="admin-hint-form-rule-mode-raw"
+              aria-pressed={ruleMode === 'raw'}
+              onClick={() => {
+                if (ruleMode === 'builder') {
+                  // Сериализуем текущее дерево в textarea для тонкой
+                  // правки.
+                  setForm((s) => ({
+                    ...s,
+                    ruleText: JSON.stringify(encode(ruleNode), null, 2),
+                  }));
+                }
+                setRuleMode('raw');
+              }}
+              style={{
+                fontWeight: ruleMode === 'raw' ? 600 : 400,
+              }}
+            >
+              {t('adminHints.form.ruleModeRaw', 'Raw JSON')}
+            </button>
+          </div>
+
+          {ruleMode === 'builder' ? (
+            <RuleBuilder
+              value={ruleNode}
+              onChange={(next) => {
+                setRuleNode(next);
+                setRuleError(null);
+                // Синхронизируем ruleText, чтобы submit использовал
+                // существующий путь parsedRule.
+                setForm((s) => ({
+                  ...s,
+                  ruleText: JSON.stringify(encode(next), null, 2),
+                }));
+              }}
+            />
+          ) : (
+            <textarea
+              rows={12}
+              value={form.ruleText}
+              onChange={(e) => {
+                const v = e.currentTarget.value;
+                setForm((s) => ({ ...s, ruleText: v }));
+              }}
+              onBlur={() => validateRuleSyntax()}
+              data-testid="admin-hint-form-rule"
+              style={{ fontFamily: 'monospace', width: '100%' }}
+            />
+          )}
           {ruleError && (
             <p className="admin-page__error" data-testid="admin-hint-form-rule-error">
               {ruleError}
             </p>
+          )}
+          {ruleMode === 'builder' && builderErrors.length > 0 && (
+            <ul
+              className="admin-page__error"
+              data-testid="admin-hint-form-rule-builder-errors"
+            >
+              {builderErrors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
           )}
           <button
             type="button"
@@ -622,7 +757,16 @@ export function AdminHintEditPage(): ReactElement {
         )}
 
         <div className="admin-page__actions">
-          <button type="submit" disabled={saving} data-testid="admin-hint-form-submit">
+          {/* KS-4830: в режиме конструктора блокируем save при наличии
+              builder-ошибок. В Raw-режиме поведение прежнее (parsedRule
+              null → submit отдаёт rule={} и backend вернёт 400). */}
+          <button
+            type="submit"
+            disabled={
+              saving || (ruleMode === 'builder' && builderErrors.length > 0)
+            }
+            data-testid="admin-hint-form-submit"
+          >
             {saving
               ? t('adminHints.form.saving', 'Saving…')
               : t('adminHints.form.save', 'Save')}
