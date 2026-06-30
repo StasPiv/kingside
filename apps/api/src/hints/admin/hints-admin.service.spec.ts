@@ -112,6 +112,111 @@ describe('HintsAdminService.create', () => {
     expect(args.data.i18n.ru.body).toBe('Bold');
   });
 
+  // KS-4825 / ADR-154 §2.8: валидация шаблонов
+  describe('validateTemplates (KS-4825)', () => {
+    const ruleWithGameEnd = {
+      all: [
+        { actorType: { equals: 'user' } },
+        { count: { event: 'game_end', where: { result: 'loss' }, gte: 3, windowDays: 7 } },
+      ],
+    };
+    const rulePuzzleFailed = {
+      count: { event: 'puzzle_failed', gte: 1, windowDays: 1 },
+    };
+    const noEventRule = { actorType: { equals: 'guest' } };
+
+    it('cta.href c {{game_id}} + rule с game_end → ок', async () => {
+      const owner = mkOwner();
+      const svc = mkSvc(owner);
+      await svc.create({
+        key: 'k',
+        i18n: VALID_I18N,
+        cta: { href: '/game/{{game_id}}/review' },
+        anchor: 'a',
+        placement: 'top',
+        rule: ruleWithGameEnd as any,
+      });
+      expect(owner.hint.create).toHaveBeenCalled();
+    });
+
+    it('cta.href с {{user_email}} (не в whitelist) → 400', async () => {
+      const svc = mkSvc(mkOwner());
+      await expect(svc.create({
+        key: 'k',
+        i18n: VALID_I18N,
+        cta: { href: '/{{user_email}}' },
+        anchor: 'a',
+        placement: 'top',
+        rule: ruleWithGameEnd as any,
+      })).rejects.toThrow(/user_email/);
+    });
+
+    it('{{game_id}} в i18n.ru.ctaLabel при rule puzzle_failed → 400 (var не в этом whitelist)', async () => {
+      const svc = mkSvc(mkOwner());
+      await expect(svc.create({
+        key: 'k',
+        i18n: { ru: { title: 'T', body: 'B', ctaLabel: 'Открыть {{game_id}}' } },
+        anchor: 'a',
+        placement: 'top',
+        rule: rulePuzzleFailed as any,
+      })).rejects.toThrow(/game_id/);
+    });
+
+    it('{{puzzle_id}} в i18n.en.instructionBody при rule puzzle_failed → ок', async () => {
+      const owner = mkOwner();
+      const svc = mkSvc(owner);
+      await svc.create({
+        key: 'k',
+        i18n: {
+          ru: { title: 'T', body: 'B' },
+          en: { title: 'T', body: 'B', instructionBody: 'Open puzzle {{puzzle_id}}' },
+        },
+        anchor: 'a',
+        placement: 'top',
+        rule: rulePuzzleFailed as any,
+      });
+      expect(owner.hint.create).toHaveBeenCalled();
+    });
+
+    it('rule БЕЗ event-имени (только actorType) + {{game_id}} в любом шаблоне → 400', async () => {
+      const svc = mkSvc(mkOwner());
+      await expect(svc.create({
+        key: 'k',
+        i18n: VALID_I18N,
+        cta: { href: '/g/{{game_id}}' },
+        anchor: 'a',
+        placement: 'top',
+        rule: noEventRule as any,
+      })).rejects.toThrow(/game_id|no event triggers/);
+    });
+
+    it('fallbackHref тоже проверяется', async () => {
+      const svc = mkSvc(mkOwner());
+      await expect(svc.create({
+        key: 'k',
+        i18n: VALID_I18N,
+        cta: { href: '/static', fallbackHref: '/{{nope}}' },
+        anchor: 'a',
+        placement: 'top',
+        rule: ruleWithGameEnd as any,
+      })).rejects.toThrow(/nope/);
+    });
+
+    it('шаблонов нет → ничего не проверяется, ок даже с пустым rule-events', async () => {
+      const owner = mkOwner();
+      const svc = mkSvc(owner);
+      await svc.create({
+        key: 'k',
+        i18n: VALID_I18N,
+        cta: { href: '/static' },
+        anchor: 'a',
+        placement: 'top',
+        rule: noEventRule as any,
+      });
+      expect(owner.hint.create).toHaveBeenCalled();
+    });
+  });
+
   it('дубль key → Conflict через Prisma P2002', async () => {
     const owner = mkOwner({
       hint: {

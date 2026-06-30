@@ -34,6 +34,7 @@ import {
   HintLocale,
   isQuietPage as sharedIsAlwaysQuietPage,
   quietPagePatternToRegex,
+  applyTemplate,
 } from '@kingside/shared';
 import type { Actor } from '../events/events.types';
 import { EventsService } from '../events/events.service';
@@ -145,7 +146,25 @@ export class HintsService {
       // 5. Глобальные лимиты — pessimistic lock (throttle ставится сразу).
       if (!(await this.limits.canShow(actor))) return null;
 
-      // 6. Upsert state.
+      // 6.1 Payload — собираем СНАЧАЛА, чтобы записать готовый snapshot
+      // в `actor_hint_states.last_shown_payload` (KS-4825 / ADR-154 §2.2).
+      // KS-4825 / ADR-154 §2.1: server-side подстановка `{{var}}` в
+      // `ctaHref` / `ctaLabel` / `instructionBody` из payload триггера.
+      // Клиент шаблонов не знает — получает готовые значения.
+      const rawPayload = toShowPayload(winner, locale);
+      const cta = (winner.cta ?? null) as { fallbackHref?: string | null } | null;
+      const payload = applyTemplate(
+        rawPayload,
+        {
+          triggerEventType: ctx.triggerEventType,
+          triggerEventPayload: ctx.triggerEventPayload ?? undefined,
+        },
+        cta?.fallbackHref ?? null,
+      );
+
+      // 6.2 Upsert state. KS-4825 / ADR-154 §2.2: snapshot готового
+      // payload для корректного replay-on-connect (ADR-151) — клиент
+      // на reconnect получит ТОТ ЖЕ payload, что упустил.
       await owner.actorHintState.upsert({
         where: { actorId_hintId: { actorId: actor.id, hintId: winner.id } },
         create: {
@@ -154,20 +173,19 @@ export class HintsService {
           hintId: winner.id,
           shownCount: 1,
           lastShownAt: now,
+          lastShownPayload: payload as unknown as Prisma.JsonObject,
         },
         update: {
           shownCount: { increment: 1 },
           lastShownAt: now,
+          lastShownPayload: payload as unknown as Prisma.JsonObject,
         },
       });
       await this.limits.markShown(actor);
 
-      // 7. Payload.
-      const payload = toShowPayload(winner, locale);
-
-      // KS-4701 / ADR-147 §4.1: WS-emit для авторизованных. Для guest
-      // payload уже лёг в `hints:pending:<guest_id>` (HintsListener) —
-      // здесь дублировать не нужно.
+      // 7. WS-emit для авторизованных. Для guest payload уже лёг в
+      // `hints:pending:<guest_id>` через `HintsListener` — дублировать
+      // не нужно.
       if (actor.type === 'user' && this.gateway) {
         try {
           this.gateway.emitHintShow(actor.id, payload);
@@ -270,7 +288,14 @@ export class HintsService {
         if (s.shownAckAt && s.lastShownAt && s.shownAckAt >= s.lastShownAt) {
           continue;
         }
-        const payload = toShowPayload(s.hint, locale);
+        // KS-4825 / ADR-154 §2.2: snapshot готового payload имеет
+        // приоритет — он содержит уже подставленные `{{var}}` из
+        // триггерующего события. Без snapshot'а (строки до миграции,
+        // или primary emit прошёл на pre-ADR-154 коде) — fallback на
+        // пересборку из `Hint` без подстановки. На практике такие
+        // строки старше `replayWindowSec` и сюда не доходят.
+        const snapshot = s.lastShownPayload as HintShowPayload | null | undefined;
+        const payload = snapshot ?? toShowPayload(s.hint, locale);
         this.metrics.replayEmitted.inc({ actor_type: actor.type });
         return [payload];
       }

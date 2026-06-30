@@ -26,6 +26,7 @@ import { Prisma } from '@kingside/events-db';
 import { stripHtml } from '../../blog/comment-sanitize';
 import { EventsPrismaService } from '../../events/events-prisma.service';
 import { validateRule } from '../hints-dsl.evaluator';
+import { getTriggerVars, parseTemplateVars } from '@kingside/shared';
 import type {
   CreateHintDto,
   HintCtaDto,
@@ -116,6 +117,10 @@ export class HintsAdminService {
 
   async create(dto: CreateHintDto): Promise<AdminHintDetail> {
     this.validateInput(dto.anchor, dto.rule);
+    // KS-4825 / ADR-154 §2.8: проверить, что все `{{var}}` в
+    // ctaHref/fallbackHref/ctaLabel/instructionBody разрешены
+    // whitelist'ом по событиям из rule.
+    validateTemplates(dto.cta, dto.i18n, dto.rule);
     const i18n = sanitizeI18n(dto.i18n);
     const owner = this.requireOwner();
     try {
@@ -156,6 +161,13 @@ export class HintsAdminService {
         throw new BadRequestException((e as Error).message);
       }
     }
+    // KS-4825 / ADR-154 §2.8: при update сверяем шаблоны с rule.
+    // При частичном PATCH допустимые vars берём от effective-rule
+    // (новое правило либо существующее).
+    const effectiveRule = (dto.rule ?? (existing.rule as unknown)) as
+      | Record<string, unknown>
+      | undefined;
+    validateTemplates(dto.cta ?? undefined, dto.i18n, effectiveRule);
     const i18n = dto.i18n ? sanitizeI18n(dto.i18n) : undefined;
 
     try {
@@ -314,7 +326,80 @@ function sanitizeEntry(e: HintI18nEntryDto): HintI18nEntryDto {
     title: stripHtml(e.title ?? ''),
     body: stripHtml(e.body ?? ''),
     ...(e.ctaLabel !== undefined ? { ctaLabel: stripHtml(e.ctaLabel) } : {}),
+    // KS-4823: расширенный текст инструкции тоже sanitize'им.
+    ...(e.instructionBody !== undefined
+      ? { instructionBody: stripHtml(e.instructionBody) }
+      : {}),
   };
+}
+
+/**
+ * KS-4825 / ADR-154 §2.8. Проверяет, что все `{{var}}` в полях,
+ * подлежащих шаблонизации, разрешены whitelist'ом для упомянутых в
+ * `rule` event-имён. Бросает 400 на неизвестную переменную.
+ */
+function validateTemplates(
+  cta: { href?: string; fallbackHref?: string } | null | undefined,
+  i18n: { ru?: HintI18nEntryDto; en?: HintI18nEntryDto } | undefined,
+  rule: Record<string, unknown> | undefined,
+): void {
+  const checks: Array<{ field: string; value: string | undefined }> = [
+    { field: 'cta.href', value: cta?.href },
+    { field: 'cta.fallbackHref', value: cta?.fallbackHref },
+    { field: 'i18n.ru.ctaLabel', value: i18n?.ru?.ctaLabel },
+    { field: 'i18n.en.ctaLabel', value: i18n?.en?.ctaLabel },
+    { field: 'i18n.ru.instructionBody', value: i18n?.ru?.instructionBody },
+    { field: 'i18n.en.instructionBody', value: i18n?.en?.instructionBody },
+  ];
+  // Все упомянутые в шаблонах vars (с привязкой к полю для понятной ошибки).
+  const usages: Array<{ field: string; varName: string }> = [];
+  for (const { field, value } of checks) {
+    for (const v of parseTemplateVars(value)) {
+      usages.push({ field, varName: v });
+    }
+  }
+  if (usages.length === 0) return;
+
+  const events = rule ? extractRuleEvents(rule) : [];
+  const allowed = new Set<string>();
+  for (const ev of events) {
+    for (const spec of getTriggerVars(ev)) allowed.add(spec.name);
+  }
+
+  const offending = usages.filter((u) => !allowed.has(u.varName));
+  if (offending.length === 0) return;
+
+  const sample = offending[0];
+  const eventList = events.length > 0 ? events.join(', ') : '(no event triggers in rule)';
+  throw new BadRequestException(
+    `template var "{{${sample.varName}}}" in ${sample.field} is not allowed for `
+      + `triggers: ${eventList}. See ADR-154 TRIGGER_VAR_WHITELIST.`,
+  );
+}
+
+/**
+ * Извлечь все упомянутые в DSL-правиле event-имена. Обходит
+ * `count.event` / `exists.event` / `timeSince.event` рекурсивно
+ * через `all` / `any` / `not`. Дубликаты убираются.
+ */
+function extractRuleEvents(rule: unknown): string[] {
+  const acc = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (node === null || typeof node !== 'object') return;
+    const r = node as Record<string, unknown>;
+    if (Array.isArray(r.all)) for (const sub of r.all) walk(sub);
+    if (Array.isArray(r.any)) for (const sub of r.any) walk(sub);
+    if (r.not !== undefined) walk(r.not);
+    for (const op of ['count', 'exists', 'timeSince'] as const) {
+      const inner = r[op];
+      if (inner && typeof inner === 'object') {
+        const ev = (inner as Record<string, unknown>).event;
+        if (typeof ev === 'string' && ev.length > 0) acc.add(ev);
+      }
+    }
+  };
+  walk(rule);
+  return [...acc];
 }
 
 function toSummary(row: any): AdminHintSummary {

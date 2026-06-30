@@ -106,6 +106,9 @@ export class HintsListener implements OnModuleInit {
       result = await this.hints.checkFor(actor, {
         page: ctxPage,
         triggerEventType: type,
+        // KS-4825 / ADR-154 §2.1. payload триггера нужен `applyTemplate`
+        // для подстановки `{{var}}` в `ctaHref`/`ctaLabel`/`instructionBody`.
+        triggerEventPayload: isPlainObject(payload) ? payload : null,
       });
     } catch (err) {
       this.logger.warn(`handle checkFor failed actor=${actor.type}:${actor.id} type=${type}: ${(err as Error).message}`);
@@ -147,4 +150,10 @@ function readPayloadPage(payload: unknown): string | undefined {
   if (typeof p.page === 'string' && p.page.length > 0) return p.page;
   if (typeof p.path === 'string' && p.path.length > 0) return p.path;
   return undefined;
+}
+
+/** Узкое сужение: object + не-массив + не-null. Прокидывается как
+ *  `triggerEventPayload` в `HintCheckContext` (KS-4825). */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }

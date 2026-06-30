@@ -82,6 +82,18 @@ export class HintCtaDto {
   @IsString()
   @Length(1, 64)
   event?: string;
+
+  /**
+   * KS-4825 / ADR-154 §2.7. Опциональный fallback для `ctaHref`, когда
+   * `{{var}}`-плейсхолдер в `href` не разрешается из triggerEvent
+   * payload. Если задан — `ctaHref = fallbackHref`, и `ctaLabel`
+   * сохраняется. Иначе ctaHref/ctaLabel принудительно `null`
+   * («битая» кнопка не показывается).
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 256)
+  fallbackHref?: string;
 }
 
 export const HINT_PLACEMENTS = [

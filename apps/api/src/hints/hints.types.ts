@@ -14,6 +14,14 @@ export interface HintCheckContext {
   page?: string;
   /** Тип события, которое спровоцировало check (`game_end`, ...). */
   triggerEventType?: string;
+  /**
+   * KS-4825 / ADR-154 §2.1. Payload триггерующего события — нужен
+   * `applyTemplate` для подстановки `{{var}}` в шаблонизируемые поля
+   * payload (`ctaHref`, `ctaLabel`, `instructionBody`). Прокидывается
+   * `HintsListener.handle` из `EventsService.onTrack`. Для cron-веток
+   * (`time-since`-правил) пустой.
+   */
+  triggerEventPayload?: Record<string, unknown> | null;
   /** Дополнительный сигнал для quiet-pages (например, для
    *  `/play/:gameId` при `clock_low_time_focus`). */
   clockLowTimeFocus?: boolean;
@@ -35,6 +43,14 @@ export interface HintI18nEntry {
 export interface HintCtaPayload {
   href?: string | null;
   event?: string | null;
+  /**
+   * KS-4825 / ADR-154 §2.7. Опциональный fallback для `ctaHref`, когда
+   * `{{var}}`-плейсхолдер в основном `href` не разрешается из
+   * `triggerEvent.payload`. Если задан — `ctaHref = fallbackHref` и
+   * `ctaLabel` сохраняется; иначе оба становятся `null` (битая кнопка
+   * не показывается).
+   */
+  fallbackHref?: string | null;
 }
 
 /** Имена ключей feature-flags для hints (§5.2). */

@@ -47,6 +47,9 @@ export * from './constants/archive.js';
 // список тихих страниц для `HintsEngine`.
 export * from './types/hint-anchors.js';
 export * from './types/hint-payload.js';
+// KS-4825 / ADR-154: server-side подстановка `{{var}}` в payload
+// контекстной подсказки + whitelist по trigger_event_type.
+export * from './types/hint-templating.js';
 export * from './constants/hint-quiet-pages.js';
 // KS-4798 / ADR-152 §2.3: каталог UI-меты событий + SYSTEM_EVENT_TYPES
 // (frontend — рендер `/me/actions`, backend — серверный фильтр в

@@ -129,6 +129,13 @@ model ActorHintState {
   dismissedAt     DateTime? @map("dismissed_at") @db.Timestamptz()
   actedAt         DateTime? @map("acted_at") @db.Timestamptz()
   suppressedUntil DateTime? @map("suppressed_until") @db.Timestamptz()
+  /// KS-4825 / ADR-154 §2.2. Снимок готового `HintShowPayload` после
+  /// серверной подстановки `{{var}}` в момент primary emit. Используется
+  /// `HintsService.replayPending` (ADR-151) — клиент на reconnect
+  /// получает ТОТ ЖЕ payload, что упустил, а не пересборку
+  /// `toShowPayload` (там нет триггера). NULL для строк, созданных
+  /// до миграции — fallback на `toShowPayload(hint, locale)` в коде.
+  lastShownPayload Json?    @map("last_shown_payload") @db.JsonB
 
   hint            Hint      @relation(fields: [hintId], references: [id], onDelete: Cascade)
 
