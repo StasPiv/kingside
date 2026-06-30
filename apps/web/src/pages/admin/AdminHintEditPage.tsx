@@ -518,7 +518,10 @@ export function AdminHintEditPage(): ReactElement {
               type="text"
               maxLength={256}
               value={form.ctaHref}
-              onChange={(e) => setForm((s) => ({ ...s, ctaHref: e.currentTarget.value }))}
+              onChange={(e) => {
+                const v = e.currentTarget.value;
+                setForm((s) => ({ ...s, ctaHref: v }));
+              }}
               data-testid="admin-hint-form-cta-href"
             />
           </label>
@@ -528,7 +531,10 @@ export function AdminHintEditPage(): ReactElement {
               type="text"
               maxLength={64}
               value={form.ctaEvent}
-              onChange={(e) => setForm((s) => ({ ...s, ctaEvent: e.currentTarget.value }))}
+              onChange={(e) => {
+                const v = e.currentTarget.value;
+                setForm((s) => ({ ...s, ctaEvent: v }));
+              }}
               data-testid="admin-hint-form-cta-event"
             />
           </label>

@@ -17,7 +17,7 @@ import {
   arrow,
 } from '@floating-ui/react';
 import type { Placement } from '@floating-ui/react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { isQuietPage, type HintShowPayload } from '@kingside/shared';
 import { useAuth } from '../../context/AuthContext';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -272,12 +272,22 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
     onClose('dismissed', 'close_button');
   }, [onClose]);
 
+  // KS-4821: SPA-переход через React Router при внутреннем `ctaHref`.
+  // Раньше `window.location.assign` делал hard navigation с
+  // перезагрузкой страницы и потерей WS-сессии. Внутренние ссылки
+  // (`/analysis/...`, `/game/...`) теперь идут через `navigate(href)`.
+  // Абсолютные URL (`http://`, `https://`) — по-прежнему через
+  // `window.location.assign` (внешний домен).
+  const navigate = useNavigate();
   const handleCta = useCallback(() => {
     if (hint.ctaHref) {
-      // Внутренний переход через history — у нас SPA. Простой
-      // window.location.assign — нечасто, но надёжнее: на этапе T9 не
-      // тянем `useNavigate` сюда (родитель — App).
-      window.location.assign(hint.ctaHref);
+      const href = hint.ctaHref;
+      const isExternal = /^https?:\/\//i.test(href);
+      if (isExternal) {
+        window.location.assign(href);
+      } else {
+        navigate(href);
+      }
     } else if (hint.ctaEvent) {
       // Кастомный DOM-event — слушатель в нужном компоненте.
       window.dispatchEvent(
@@ -287,7 +297,7 @@ function HintRenderer({ hint, token, onClose }: RendererProps): ReactElement | n
       );
     }
     onClose('acted', 'cta_clicked');
-  }, [hint.ctaHref, hint.ctaEvent, hint.hintId, onClose]);
+  }, [hint.ctaHref, hint.ctaEvent, hint.hintId, onClose, navigate]);
 
   if (!anchorEl) return null;
 

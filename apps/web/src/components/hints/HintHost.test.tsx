@@ -234,6 +234,88 @@ describe('HintHost (KS-4703)', () => {
     window.removeEventListener('kingside:hint-cta', onEvent);
   });
 
+  it('KS-4821: popover с непустым ctaLabel рендерит кнопку под текстом', async () => {
+    setupAnchor('game-end-analysis-button');
+    wrap(<HintHost />, makeUser());
+
+    await act(async () => {
+      fireWs(
+        'hint:show',
+        makePayload({
+          ctaLabel: 'Open analysis',
+          ctaHref: '/game/abc/review',
+        }),
+      );
+    });
+
+    const cta = screen.getByTestId('hint-popover-cta');
+    expect(cta).toBeInTheDocument();
+    expect(cta).toHaveTextContent('Open analysis');
+    expect(screen.getByTestId('hint-popover-close')).toBeInTheDocument();
+  });
+
+  it('KS-4821: подсказка без ctaLabel — CTA-кнопка не рендерится (текст + крестик)', async () => {
+    setupAnchor('game-end-analysis-button');
+    wrap(<HintHost />, makeUser());
+
+    await act(async () => {
+      fireWs(
+        'hint:show',
+        makePayload({ ctaLabel: null, ctaHref: null }),
+      );
+    });
+
+    expect(screen.queryByTestId('hint-popover-cta')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hint-popover-close')).toBeInTheDocument();
+  });
+
+  it('KS-4821: клик по CTA с внутренним ctaHref → SPA navigate, POST acted, popover закрывается', async () => {
+    // Внутренние URL (`/game/...`, `/analysis/...`) идут через React Router
+    // `navigate(href)`, не через `window.location.assign` — без перезагрузки,
+    // WS-сессия сохраняется.
+    setupAnchor('game-end-analysis-button');
+    let pathSeen = '/';
+    function PathProbe() {
+      const { pathname } = require('react-router-dom').useLocation() as {
+        pathname: string;
+      };
+      pathSeen = pathname;
+      return <div data-testid="probe" data-path={pathname} />;
+    }
+    wrap(
+      <>
+        <HintHost />
+        <PathProbe />
+      </>,
+      makeUser(),
+      ['/play'],
+    );
+
+    await act(async () => {
+      fireWs(
+        'hint:show',
+        makePayload({
+          ctaLabel: 'Open analysis',
+          ctaHref: '/game/abc-game-id/review',
+        }),
+      );
+    });
+    expect(screen.getByTestId('hint-popover')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('hint-popover-cta'));
+    });
+
+    expect(screen.queryByTestId('hint-popover')).not.toBeInTheDocument();
+    await waitFor(() => {
+      const acted = vi.mocked(fetch).mock.calls.find(
+        ([url]) => typeof url === 'string' && url.endsWith('/acted'),
+      );
+      expect(acted).toBeDefined();
+    });
+    expect(pathSeen).toBe('/game/abc-game-id/review');
+  });
+
   it('anchor так и не появился за окно ожидания → POST ignored reason=no_anchor, no-render', async () => {
     // KS-4820: окно ожидания anchor сокращено до 2 с (было 30 с в
     // KS-4790). Если за это время `[data-hint-anchor="…"]` не появился —

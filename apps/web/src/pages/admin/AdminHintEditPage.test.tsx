@@ -124,6 +124,34 @@ describe('AdminHintEditPage (KS-4706)', () => {
     );
   });
 
+  it('KS-4821: CTA-поля редактируются — ctaHref, ctaEvent, ctaLabel(i18n)', async () => {
+    renderPage();
+    const href = screen.getByTestId('admin-hint-form-cta-href') as HTMLInputElement;
+    const event = screen.getByTestId('admin-hint-form-cta-event') as HTMLInputElement;
+    const ruLabel = screen.getByTestId(
+      'admin-hint-form-ru-cta-label',
+    ) as HTMLInputElement;
+    expect(href.disabled).toBe(false);
+    expect(event.disabled).toBe(false);
+    expect(ruLabel.disabled).toBe(false);
+
+    // Отдельные fireEvent — React сбрасывает SyntheticEvent.currentTarget
+    // между обработчиками, поэтому в одном `act` подряд несколько change
+    // ломает onChange (currentTarget=null во втором setState callback).
+    await act(async () => {
+      fireEvent.change(href, { target: { value: '/game/abc/review' } });
+    });
+    await act(async () => {
+      fireEvent.change(event, { target: { value: 'open_analysis' } });
+    });
+    await act(async () => {
+      fireEvent.change(ruLabel, { target: { value: 'Открыть анализ' } });
+    });
+    expect(href.value).toBe('/game/abc/review');
+    expect(event.value).toBe('open_analysis');
+    expect(ruLabel.value).toBe('Открыть анализ');
+  });
+
   it('edit (по :id) — GET /admin/hints/:id и заполнение формы', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(
