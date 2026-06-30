@@ -75,6 +75,12 @@ export interface RoomInspection {
   engine_clients_total?: number;
   messages_fetch_sockets_count?: number;
   messages_fetch_socket_ids?: string[];
+  server_constructor_name?: string;
+  server_name?: string | null;
+  direct_adapter_rooms_size?: number;
+  direct_adapter_room_size?: number;
+  direct_fetch_sockets_count?: number;
+  direct_fetch_socket_ids?: string[];
 }
 
 export interface HintsDiagnoseResult {

@@ -78,6 +78,17 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
      *  источник по сравнению с локальной `adapter.rooms.get`. */
     messages_fetch_sockets_count: number;
     messages_fetch_socket_ids: string[];
+    /** KS-4818 diag: что Nest подсунул через `@WebSocketServer()`. */
+    server_constructor_name: string;
+    server_name: string | null;
+    /** KS-4818 diag: прямые показатели adapter на `this.server`
+     *  (без `.of('/messages')` и без `.sockets`). Если `this.server`
+     *  это namespace `/messages`, тогда это и есть его собственный
+     *  adapter. */
+    direct_adapter_rooms_size: number;
+    direct_adapter_room_size: number;
+    direct_fetch_sockets_count: number;
+    direct_fetch_socket_ids: string[];
   }> {
     const room = `user:${userId}`;
     const server: any = this.server as any;
@@ -97,6 +108,25 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       /* fetchSockets may throw if adapter not configured; treat as 0 */
     }
 
+    // KS-4818: прямой замер adapter на this.server — без .of('/messages')
+    // и без .sockets. Если this.server это Namespace, это даст истинные
+    // числа сокетов в /messages. Если this.server это root Server —
+    // это будет root-adapter.
+    const directAdapter = server?.adapter;
+    const directRoomsSize: number = directAdapter?.rooms?.size ?? 0;
+    const directRoomSize: number = directAdapter?.rooms?.get(room)?.size ?? 0;
+    let directFetchCount = 0;
+    let directFetchIds: string[] = [];
+    try {
+      const sockets = await server?.in?.(room)?.fetchSockets?.();
+      if (Array.isArray(sockets)) {
+        directFetchCount = sockets.length;
+        directFetchIds = sockets.map((s: any) => String(s?.id ?? '?')).slice(0, 16);
+      }
+    } catch {
+      /* ignore */
+    }
+
     return {
       room,
       root_size: rootNs?.rooms?.get(room)?.size ?? 0,
@@ -109,6 +139,12 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       engine_clients_total: server?.engine?.clientsCount ?? 0,
       messages_fetch_sockets_count: fetchCount,
       messages_fetch_socket_ids: fetchIds,
+      server_constructor_name: server?.constructor?.name ?? 'unknown',
+      server_name: typeof server?.name === 'string' ? server.name : null,
+      direct_adapter_rooms_size: directRoomsSize,
+      direct_adapter_room_size: directRoomSize,
+      direct_fetch_sockets_count: directFetchCount,
+      direct_fetch_socket_ids: directFetchIds,
     };
   }
 
@@ -135,9 +171,20 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       const payload = this.jwtService.verify<JwtPayload>(String(token));
       client.data.user = { id: payload.sub, username: payload.username };
       await client.join(`user:${payload.sub}`);
+      // KS-4818 diag: что именно за объект this.server, и видит ли его
+      // adapter этот join сразу после `client.join`.
+      const srv: any = this.server as any;
+      const srvCtor = srv?.constructor?.name ?? 'unknown';
+      const srvName = typeof srv?.name === 'string' ? srv.name : '?';
+      const directRoomSize = srv?.adapter?.rooms?.get(`user:${payload.sub}`)?.size ?? 0;
+      const directRoomsTotal = srv?.adapter?.rooms?.size ?? 0;
+      const ofMsgRoomSize = srv?.of?.('/messages')?.adapter?.rooms?.get(`user:${payload.sub}`)?.size ?? 0;
       this.logger.log(
         `[KS-4814] handleConnection joined: sid=${client.id} nsp=${nspName} `
-          + `sub=${payload.sub} rooms=[${[...client.rooms].join(',')}]`,
+          + `sub=${payload.sub} rooms=[${[...client.rooms].join(',')}] `
+          + `serverCtor=${srvCtor} serverName=${srvName} `
+          + `directAdapterRoomSize=${directRoomSize} directAdapterRoomsTotal=${directRoomsTotal} `
+          + `ofMessagesRoomSize=${ofMsgRoomSize}`,
       );
 
       // KS-4788 / ADR-151. Replay контекстных подсказок, потерянных из-за
