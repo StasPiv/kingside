@@ -208,10 +208,7 @@ export function AdminHintEditPage(): ReactElement {
         : undefined;
     return {
       key: form.key.trim(),
-      // KS-4815. anchor больше не влияет на рендер — заполняем плейсхолдером
-      // для прохождения backend-валидации pattern ^[a-z][a-z0-9-]*$ при
-      // создании новой подсказки. Для edit'а возвращаем то, что было.
-      anchor: form.anchor || 'legacy',
+      anchor: form.anchor,
       placement: form.placement,
       priority: form.priority,
       enabled: form.enabled,
@@ -304,27 +301,24 @@ export function AdminHintEditPage(): ReactElement {
             )}
           </label>
           <label>
-            {t('adminHints.form.anchor', 'Anchor (deprecated)')}
-            {/* KS-4815. Поле anchor сохранено в БД, но фронт его больше
-                не использует — все подсказки рендерятся в общую
-                информационную полосу под header'ом сайта независимо
-                от значения anchor. Делаем input read-only, чтобы
-                редактор не думал, что значение влияет на показ. Pattern
-                всё ещё применяется backend'ом — поэтому при создании
-                новой подсказки оставляем дефолт `legacy` (валиден). */}
+            {t('adminHints.form.anchor', 'Anchor')}
+            {/* KS-4727/KS-4731: anchor — свободная строка, не shared-enum.
+                Pattern совпадает с backend-валидацией. Сама точка
+                привязки в DOM ставится через data-hint-anchor=<строка>
+                в коде фронта; здесь только метка, на которую правило
+                будет нацелено. KS-4820: после возврата якорного рендера
+                поле снова редактируемое. */}
             <input
               type="text"
-              readOnly
-              disabled
+              required
               pattern="^[a-z][a-z0-9-]*$"
               maxLength={64}
-              value={form.anchor || 'legacy'}
-              placeholder="legacy"
+              value={form.anchor}
+              onChange={(e) =>
+                setForm((s) => ({ ...s, anchor: e.currentTarget.value }))
+              }
+              placeholder="analysis-bridge-promo"
               data-testid="admin-hint-form-anchor"
-              title={t(
-                'adminHints.form.anchorDeprecated',
-                'KS-4815: anchor no longer affects rendering — hints are shown in the top info bar regardless.',
-              )}
             />
           </label>
           <label>
