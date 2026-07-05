@@ -401,6 +401,72 @@ export function isStandardVariant(variant: string | null): boolean {
   return v === '' || v === 'standard' || v === 'chess' || v === 'classical';
 }
 
+/**
+ * KS-4836. Форматирование сетевой ошибки для лога — с раскрытием цепочки
+ * `err.cause` (undici/node:fetch кладут первичную причину сюда) и
+ * ключевых полей (`code`, `errno`, `syscall`, `hostname`, `address`, `port`).
+ *
+ * Node's `fetch` (undici) бросает `TypeError: fetch failed`, а реальная
+ * причина лежит в `.cause` — обычно это `Error` с `code=UND_ERR_*`,
+ * либо системная ошибка `code=EAI_AGAIN|ECONNRESET|ENOTFOUND|ETIMEDOUT`.
+ * Иногда причина — `AggregateError` (например, IPv4+IPv6 одновременно), тогда
+ * реальная первая ошибка в `.errors[0]`. Разворачиваем до 5 уровней глубины,
+ * чтобы не зациклиться на самоссылке.
+ *
+ * Формат:
+ *   `TypeError("fetch failed") → cause: Error("getaddrinfo EAI_AGAIN lichess.org")[code=EAI_AGAIN,errno=-3001,syscall=getaddrinfo,hostname=lichess.org]`
+ */
+export function formatFetchError(err: unknown): string {
+  if (!err) return 'unknown';
+  if (typeof err !== 'object') return String(err);
+
+  const parts: string[] = [];
+  let current: unknown = err;
+  let depth = 0;
+  const seen = new Set<unknown>();
+
+  while (current && depth < 5 && !seen.has(current)) {
+    seen.add(current);
+    const e = current as Error & {
+      cause?: unknown;
+      code?: string | number;
+      errno?: number | string;
+      syscall?: string;
+      hostname?: string;
+      address?: string;
+      port?: number;
+      errors?: unknown[];
+    };
+    const cls =
+      (e.constructor && e.constructor.name) ||
+      (e as { name?: string }).name ||
+      'Error';
+    const msg =
+      typeof e.message === 'string' && e.message.length > 0
+        ? e.message
+        : String(e);
+    const tail: string[] = [];
+    if (e.code !== undefined) tail.push(`code=${String(e.code)}`);
+    if (e.errno !== undefined) tail.push(`errno=${String(e.errno)}`);
+    if (e.syscall) tail.push(`syscall=${e.syscall}`);
+    if (e.hostname) tail.push(`hostname=${e.hostname}`);
+    if (e.address) tail.push(`address=${e.address}`);
+    if (e.port !== undefined) tail.push(`port=${String(e.port)}`);
+    parts.push(
+      `${cls}("${msg}")${tail.length ? '[' + tail.join(',') + ']' : ''}`,
+    );
+
+    // AggregateError или undici errors[] — первый элемент считается первичной причиной.
+    if (Array.isArray(e.errors) && e.errors.length > 0) {
+      current = e.errors[0];
+    } else {
+      current = e.cause;
+    }
+    depth++;
+  }
+  return parts.join(' → cause: ');
+}
+
 @Injectable()
 export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BroadcastSyncService.name);
@@ -499,9 +565,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         `[broadcast-sync] Lichess API reachable: ${testRes.status}`,
       );
     } catch (e: unknown) {
-      const err = e as Error & { cause?: Error };
+      // KS-4836. Раскрываем цепочку err.cause до системного code/syscall.
       this.logger.error(
-        `[broadcast-sync] Lichess API UNREACHABLE: ${err.message} cause=${err.cause?.message ?? 'none'}`,
+        `[broadcast-sync] Lichess API UNREACHABLE: ${formatFetchError(e)}`,
       );
     }
 
@@ -548,26 +614,32 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     // зацикливался на rollback. Стартовый sync теперь идёт в фоне после
     // того как процесс уже слушает порт; periodic sync — как и раньше.
     setImmediate(() => {
-      this.syncBroadcasts().catch((e: Error) =>
-        this.logger.error(`[broadcast-sync] Initial sync error: ${e.message}`),
+      this.syncBroadcasts().catch((e: unknown) =>
+        this.logger.error(
+          `[broadcast-sync] Initial sync error: ${formatFetchError(e)}`,
+        ),
       );
     });
     this.syncTimer = setInterval(() => {
-      this.syncBroadcasts().catch((e: Error) =>
-        this.logger.error(`[broadcast-sync] Sync error: ${e.message}`),
+      this.syncBroadcasts().catch((e: unknown) =>
+        this.logger.error(
+          `[broadcast-sync] Sync error: ${formatFetchError(e)}`,
+        ),
       );
     }, SYNC_INTERVAL_MS);
 
     setImmediate(() => {
-      this.syncPinnedBroadcasts().catch((e: Error) =>
+      this.syncPinnedBroadcasts().catch((e: unknown) =>
         this.logger.error(
-          `[broadcast-sync] Initial pinned poll error: ${e.message}`,
+          `[broadcast-sync] Initial pinned poll error: ${formatFetchError(e)}`,
         ),
       );
     });
     this.pinnedPollTimer = setInterval(() => {
-      this.syncPinnedBroadcasts().catch((e: Error) =>
-        this.logger.error(`[broadcast-sync] PGN poll error: ${e.message}`),
+      this.syncPinnedBroadcasts().catch((e: unknown) =>
+        this.logger.error(
+          `[broadcast-sync] PGN poll error: ${formatFetchError(e)}`,
+        ),
       );
     }, PINNED_POLL_INTERVAL_MS);
 
@@ -650,9 +722,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       }
       return res;
     } catch (e: unknown) {
-      const err = e as Error & { cause?: Error };
+      // KS-4836. Раскрываем цепочку err.cause до системного code/syscall.
       this.logger.error(
-        `[broadcast-sync] lichessFetch FAILED url=${url} error=${err.message} cause=${err.cause?.message ?? 'none'}`,
+        `[broadcast-sync] lichessFetch FAILED url=${url} error=${formatFetchError(e)}`,
       );
       throw e;
     }
@@ -925,9 +997,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       for (let i = 0; i < toFetch.length; i++) {
         if (i > 0) await this.rateLimitDelay();
         await this.fetchAndProcessRoundPgn(toFetch[i].lichessRoundId).catch(
-          (e: Error) =>
+          (e: unknown) =>
             this.logger.warn(
-              `[broadcast-sync] PGN poll failed for ${toFetch[i].lichessRoundId}: ${e.message}`,
+              `[broadcast-sync] PGN poll failed for ${toFetch[i].lichessRoundId}: ${formatFetchError(e)}`,
             ),
         );
       }
@@ -1096,7 +1168,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       } catch (e: unknown) {
         result = 'err';
         this.logger.warn(
-          `[broadcast-sync] pending-heal ${r.lichessRoundId} threw: ${(e as Error).message}`,
+          `[broadcast-sync] pending-heal ${r.lichessRoundId} threw: ${formatFetchError(e)}`,
         );
       }
 
@@ -1282,7 +1354,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         if (attempt < 2) {
           const delay = (attempt + 1) * 5000;
           this.logger.warn(
-            `[broadcast-sync] fetchActiveBroadcasts attempt ${attempt + 1} failed: ${(e as Error).message}. Retry in ${delay}ms`,
+            `[broadcast-sync] fetchActiveBroadcasts attempt ${attempt + 1} failed: ${formatFetchError(e)}. Retry in ${delay}ms`,
           );
           await new Promise((r) => setTimeout(r, delay));
         }
@@ -1707,7 +1779,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       } catch (e: unknown) {
         if (signal.aborted) break;
         this.logger.warn(
-          `[broadcast-sync] Stream ${roundId} disconnected: ${(e as Error).message}. Retry in ${retryDelay}ms`,
+          `[broadcast-sync] Stream ${roundId} disconnected: ${formatFetchError(e)}. Retry in ${retryDelay}ms`,
         );
         await this.sleep(retryDelay, signal);
         retryDelay = Math.min(retryDelay * 2, maxDelay);

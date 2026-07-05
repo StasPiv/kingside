@@ -18,6 +18,7 @@ import {
   detectLastMoveAt,
   fetchKey,
   computeBackoffTtlSec,
+  formatFetchError,
 } from './broadcast-sync.service';
 
 function game(result: string): { result: string } {
@@ -351,5 +352,68 @@ describe('KS-3334: per-endpoint backoff helpers', () => {
       expect(ttl).toBeGreaterThanOrEqual(420);
       expect(ttl).toBeLessThanOrEqual(780);
     });
+  });
+});
+
+/**
+ * KS-4836: раскрытие err.cause в логах.
+ */
+describe('formatFetchError — KS-4836', () => {
+  it('простая ошибка без cause → класс и сообщение', () => {
+    const err = new Error('boom');
+    expect(formatFetchError(err)).toBe('Error("boom")');
+  });
+
+  it('undici-style fetch failed с cause=Error{code=EAI_AGAIN,syscall,hostname}', () => {
+    // Воспроизводим то, что кладёт Node's fetch при DNS-таймауте.
+    const cause = Object.assign(new Error('getaddrinfo EAI_AGAIN lichess.org'), {
+      code: 'EAI_AGAIN',
+      errno: -3001,
+      syscall: 'getaddrinfo',
+      hostname: 'lichess.org',
+    });
+    const err = new TypeError('fetch failed', { cause });
+    const out = formatFetchError(err);
+    expect(out).toContain('TypeError("fetch failed")');
+    expect(out).toContain('cause: Error(');
+    expect(out).toContain('code=EAI_AGAIN');
+    expect(out).toContain('errno=-3001');
+    expect(out).toContain('syscall=getaddrinfo');
+    expect(out).toContain('hostname=lichess.org');
+  });
+
+  it('undici UND_ERR_CONNECT_TIMEOUT — код виден', () => {
+    const cause = Object.assign(new Error('Connect Timeout Error'), {
+      code: 'UND_ERR_CONNECT_TIMEOUT',
+    });
+    const err = new TypeError('fetch failed', { cause });
+    expect(formatFetchError(err)).toContain('code=UND_ERR_CONNECT_TIMEOUT');
+  });
+
+  it('AggregateError — берём первую под-ошибку из errors[]', () => {
+    const sub = Object.assign(new Error('ECONNREFUSED'), {
+      code: 'ECONNREFUSED',
+      address: '5.196.24.6',
+      port: 443,
+    });
+    const agg = new AggregateError([sub], 'All fetch attempts failed');
+    expect(formatFetchError(agg)).toContain('code=ECONNREFUSED');
+    expect(formatFetchError(agg)).toContain('address=5.196.24.6');
+    expect(formatFetchError(agg)).toContain('port=443');
+  });
+
+  it('глубина ≤ 5 уровней — самоссылка не зацикливает', () => {
+    const a: Error & { cause?: unknown } = new Error('a');
+    a.cause = a; // самоссылка
+    expect(() => formatFetchError(a)).not.toThrow();
+  });
+
+  it('null/undefined → "unknown"', () => {
+    expect(formatFetchError(undefined)).toBe('unknown');
+    expect(formatFetchError(null)).toBe('unknown');
+  });
+
+  it('строка вместо Error → возвращается как есть', () => {
+    expect(formatFetchError('boom')).toBe('boom');
   });
 });
