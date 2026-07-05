@@ -34,6 +34,20 @@ export class SyncMetricsService {
    * для будущих парсеров».
    */
   readonly crosstableUnsupportedSourceTotal: Counter<'host'>;
+  /**
+   * KS-4832 / ADR-155 §2.4.6. Исходы pending-heal-проверок: pinned-цикл
+   * запрашивает metadata раундов в `pending` окне и решает, промотать ли
+   * их в `ongoing`. `promoted` — раунд перешёл в ongoing; `still_pending`
+   * — Lichess подтверждает, что раунд ещё не идёт; `not_found` — 404 у
+   * Lichess (раунд удалён); `err` — сетевые/429/парсинг-ошибки.
+   */
+  readonly broadcastSyncPendingChecksTotal: Counter<'result'>;
+  /**
+   * KS-4832 / ADR-155 §2.4.6. Задержка между заявленным `startsAt` раунда
+   * и фактическим переводом в `ongoing` через pending-heal. Гистограмма
+   * показывает эффективность heal — время «застревания» раунда.
+   */
+  readonly broadcastSyncPendingPromotionDelaySeconds: Histogram<never>;
 
   constructor(metrics: MetricsService) {
     this.broadcastSyncCyclesTotal = new Counter({
@@ -75,6 +89,21 @@ export class SyncMetricsService {
       labelNames: ['host'] as const,
       registers: [metrics.registry],
     });
+
+    this.broadcastSyncPendingChecksTotal = new Counter({
+      name: 'broadcast_sync_pending_checks_total',
+      help: 'Исходы pending-heal проверок раундов в pinned-цикле (ADR-155).',
+      labelNames: ['result'] as const,
+      registers: [metrics.registry],
+    });
+
+    this.broadcastSyncPendingPromotionDelaySeconds = new Histogram({
+      name: 'broadcast_sync_pending_promotion_delay_seconds',
+      help: 'Задержка между startsAt раунда и его переводом в ongoing ' +
+        'через pending-heal (ADR-155).',
+      buckets: [30, 60, 120, 300, 600, 1800, 3600, 21600, 86400],
+      registers: [metrics.registry],
+    });
   }
 
   recordCycle(kind: 'full' | 'pinned', result: 'ok' | 'err' | 'skipped'): void {
@@ -102,5 +131,22 @@ export class SyncMetricsService {
     if (status === 'unsupported' && host) {
       this.crosstableUnsupportedSourceTotal.inc({ host });
     }
+  }
+
+  /** KS-4832 / ADR-155 §2.4.6. Инкремент по итогу одной pending-проверки. */
+  recordPendingCheck(
+    result: 'promoted' | 'still_pending' | 'not_found' | 'err',
+  ): void {
+    this.broadcastSyncPendingChecksTotal.inc({ result });
+  }
+
+  /**
+   * KS-4832 / ADR-155 §2.4.6. Наблюдение задержки промоушена. `delaySec`
+   * может быть отрицательным (промотили раньше объявленного startsAt) —
+   * в этом случае наблюдение пропускается, чтобы не портить гистограмму.
+   */
+  observePendingPromotionDelay(delaySec: number): void {
+    if (delaySec < 0) return;
+    this.broadcastSyncPendingPromotionDelaySeconds.observe(delaySec);
   }
 }

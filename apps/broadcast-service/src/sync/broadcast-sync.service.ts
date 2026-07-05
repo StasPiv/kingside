@@ -92,6 +92,25 @@ const RATE_LIMIT_429_BACKOFF_BASE_TTL_SEC = 60;
 const RATE_LIMIT_429_BACKOFF_LADDER_SEC = [60, 180, 600, 1800]; // 1м/3м/10м/30м
 const RATE_LIMIT_429_BACKOFF_MAX_TTL_SEC = 1800;
 const RATE_LIMIT_429_JITTER_PCT = 0.3; // ±30% jitter чтобы не синхронизировать retry'и реплик
+// KS-4832 / ADR-155 §2.4. Pending-heal — вторая фаза pinned-цикла.
+// Проверяет metadata раундов, застрявших в `pending`, чтобы переводить
+// их в `ongoing` без зависимости от главного full-sync (который может
+// систематически валиться, см. KS-4832). Только metadata, PGN — нет.
+const PENDING_HEAL_ENABLED = process.env.BROADCAST_PENDING_HEAL_ENABLED !== 'false';
+const MAX_PENDING_CHECKS_PER_CYCLE = parseInt(
+  process.env.BROADCAST_MAX_PENDING_CHECKS ?? '10',
+  10,
+);
+// ADR-155 §2.4.4. Cooldown между двумя проверками одного и того же
+// roundId в pending-heal. Один цикл = 60 сек. При малом числе pending
+// без cooldown round-robin молотит одни и те же 2-3 раунда каждые 60 сек.
+const PENDING_CHECK_COOLDOWN_TTL = 60;
+const PENDING_CHECK_COOLDOWN_KEY_PREFIX = 'broadcast:pending-check-cooldown:';
+// ADR-155 §2.4.2. Окно для отбора pending-кандидатов: раунд должен уже
+// «созреть» (startsAt в прошлом или в ближайшие 15 мин) и не быть
+// зомби (не старше 24 ч). Значения — в миллисекундах.
+const PENDING_WINDOW_UPPER_MS = 15 * 60 * 1000;
+const PENDING_WINDOW_LOWER_MS = 24 * 60 * 60 * 1000;
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -391,6 +410,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private pinnedPollTimer: NodeJS.Timeout | null = null;
   private readonly activeStreams = new Map<string, AbortController>();
   private pollOffset = 0;
+  // KS-4832 / ADR-155 §2.4.3. Round-robin индекс отдельно от `pollOffset`,
+  // чтобы pending-фаза не влияла на распределение PGN-опросов.
+  private pendingOffset = 0;
   // KS-3334: per-endpoint backoff (replaces глобальный rateLimitBackoffUntil
   // из KS-1219). Ключ — fetchKey(url) (hostname + pathname без query).
   private readonly endpointBackoffUntil = new Map<string, number>();
@@ -910,6 +932,19 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         );
       }
 
+      // KS-4832 / ADR-155 §2.4. Phase 2 — pending-heal. Идёт после PGN
+      // polls, чтобы не отбирать квоту у live-обновлений. Изолирован
+      // try/catch, ошибки внутри не валят весь pinned-цикл.
+      if (PENDING_HEAL_ENABLED) {
+        try {
+          await this.runPendingHealPhase();
+        } catch (e: unknown) {
+          this.logger.warn(
+            `[broadcast-sync] pending-heal phase failed: ${(e as Error).message}`,
+          );
+        }
+      }
+
       this.metrics.observeDuration('pinned', (Date.now() - startedAt) / 1000);
       this.metrics.recordCycle('pinned', 'ok');
     } catch (e: unknown) {
@@ -918,6 +953,169 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       this.metrics.observeDuration('pinned', (Date.now() - startedAt) / 1000);
       this.metrics.recordCycle('pinned', 'err');
       this.metrics.recordFailure('pinned', msg.slice(0, 64));
+    }
+  }
+
+  /**
+   * KS-4832 / ADR-155 §2.4. Pending-heal фаза pinned-цикла.
+   *
+   * Выборка pending-кандидатов, чей `startsAt` в окне [-24 ч, +15 мин].
+   * Round-robin по `pendingOffset`. Для каждого кандидата — cooldown-check
+   * (Redis-ключ), затем `GET /api/broadcast/-/-/{roundId}` (metadata, НЕ
+   * .pgn). При `round.ongoing === true` — UPDATE status='ongoing' и
+   * инкремент промоушен-метрики. Cooldown ставится всегда (даже при
+   * ошибке), TTL = `PENDING_CHECK_COOLDOWN_TTL`.
+   *
+   * НЕ запускает `runStream()` — стрим стартует со следующего pinned-цикла
+   * (когда раунд уже ongoing) или из `syncBroadcasts`. НЕ трогает `.pgn`.
+   * НЕ переписывает `startsAt` (это делает `syncBroadcasts` в общей ветке).
+   *
+   * public — для юнит-тестов (мок PrismaService/RedisService).
+   */
+  async runPendingHealPhase(): Promise<void> {
+    const now = new Date();
+    const upperBound = new Date(now.getTime() + PENDING_WINDOW_UPPER_MS);
+    const lowerBound = new Date(now.getTime() - PENDING_WINDOW_LOWER_MS);
+
+    const candidates = await this.prisma.broadcastRound.findMany({
+      where: {
+        status: 'pending',
+        startsAt: {
+          gte: lowerBound,
+          lte: upperBound,
+        },
+      },
+      select: {
+        id: true,
+        lichessRoundId: true,
+        startsAt: true,
+        broadcastId: true,
+      },
+      // Стабильный порядок для round-robin по pendingOffset.
+      orderBy: { id: 'asc' },
+    });
+
+    if (candidates.length === 0) {
+      this.logger.log(
+        '[broadcast-sync] pending-heal: no candidates in window',
+      );
+      return;
+    }
+
+    this.pendingOffset = this.pendingOffset % candidates.length;
+    const take = Math.min(MAX_PENDING_CHECKS_PER_CYCLE, candidates.length);
+    const picked: typeof candidates = [];
+    for (let i = 0; i < take; i++) {
+      picked.push(candidates[(this.pendingOffset + i) % candidates.length]);
+    }
+    this.pendingOffset = (this.pendingOffset + take) % candidates.length;
+
+    this.logger.log(
+      `[broadcast-sync] pending-heal: candidates=${candidates.length} ` +
+        `picked=${picked.length} pendingOffset=${this.pendingOffset}`,
+    );
+
+    for (let i = 0; i < picked.length; i++) {
+      const r = picked[i];
+      const cooldownKey = `${PENDING_CHECK_COOLDOWN_KEY_PREFIX}${r.lichessRoundId}`;
+      // Cooldown-check: если ключ есть — пропускаем этот раунд в этом цикле.
+      let cooldownActive = false;
+      try {
+        const existing = await this.redis.get(cooldownKey);
+        cooldownActive = existing !== null;
+      } catch (e: unknown) {
+        this.logger.warn(
+          `[broadcast-sync] pending-heal cooldown-read failed for ${r.lichessRoundId}: ${(e as Error).message}`,
+        );
+      }
+      if (cooldownActive) {
+        continue;
+      }
+
+      // Между запросами — общий rate-limit delay (у нас в pinned-цикле
+      // всегда была задержка между вызовами lichessFetch).
+      if (i > 0) await this.rateLimitDelay();
+
+      let result: 'promoted' | 'still_pending' | 'not_found' | 'err' = 'err';
+      try {
+        const url = `${LICHESS_API}/broadcast/-/-/${r.lichessRoundId}`;
+        const res = await this.lichessFetch(url, {
+          headers: {
+            'User-Agent': 'Kingside/1.0 (https://kingside.app)',
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (res.status === 404) {
+          result = 'not_found';
+          this.logger.warn(
+            `[broadcast-sync] pending-heal ${r.lichessRoundId}: 404 (round removed on Lichess)`,
+          );
+        } else if (!res.ok) {
+          result = 'err';
+          this.logger.warn(
+            `[broadcast-sync] pending-heal ${r.lichessRoundId}: HTTP ${res.status}`,
+          );
+        } else {
+          const body = (await res.json()) as {
+            round?: { finished?: boolean; ongoing?: boolean };
+          };
+          const ongoing = body.round?.ongoing === true;
+          const finished = body.round?.finished === true;
+          if (finished || ongoing) {
+            const newStatus = finished ? 'finished' : 'ongoing';
+            await this.prisma.broadcastRound.update({
+              where: { id: r.id },
+              data: { status: newStatus },
+            });
+            result = 'promoted';
+            this.logger.log(
+              `[broadcast-sync] pending-heal ${r.lichessRoundId}: pending → ${newStatus}`,
+            );
+            if (r.startsAt) {
+              const delaySec = (now.getTime() - r.startsAt.getTime()) / 1000;
+              this.metrics.observePendingPromotionDelay(delaySec);
+            }
+            // ADR-155 §2.4.5: НЕ стартуем стрим здесь. Следующий тик
+            // pinned-цикла подхватит раунд как ongoing (или `syncBroadcasts`
+            // запустит стрим). Постановка prerender для transition'а —
+            // как в `refreshNonTop20RoundStatuses`.
+            this.prerender.enqueueFireAndForget({
+              kind: 'broadcast',
+              tid: r.broadcastId,
+              rid: r.id,
+            });
+            this.prerender.enqueueFireAndForget({
+              kind: 'list',
+              route: '/broadcasts',
+            });
+          } else {
+            result = 'still_pending';
+          }
+        }
+      } catch (e: unknown) {
+        result = 'err';
+        this.logger.warn(
+          `[broadcast-sync] pending-heal ${r.lichessRoundId} threw: ${(e as Error).message}`,
+        );
+      }
+
+      this.metrics.recordPendingCheck(result);
+
+      // Cooldown ставится всегда, даже при ошибке — не долбить один и
+      // тот же раунд в каждом цикле. TTL=60 сек = один pinned-тик.
+      try {
+        await this.redis.set(
+          cooldownKey,
+          '1',
+          'EX',
+          PENDING_CHECK_COOLDOWN_TTL,
+        );
+      } catch (e: unknown) {
+        this.logger.warn(
+          `[broadcast-sync] pending-heal cooldown-set failed for ${r.lichessRoundId}: ${(e as Error).message}`,
+        );
+      }
     }
   }
 
