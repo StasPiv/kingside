@@ -77,7 +77,12 @@ const MAX_CONCURRENT_STREAMS = parseInt(
 const FETCH_TIMEOUT_MS = 30_000;
 const FETCH_COOLDOWN_TTL = 60 * 60;
 const SYNC_LOCK_KEY = 'broadcast:sync:lock';
-const SYNC_LOCK_TTL = 4 * 60;
+// KS-4832 / ADR-156 §2.2. Было 4 мин — цикл `syncBroadcasts` не влезал в
+// лок (~31 мин от старой полной прокрутки `refreshNonTop20`), лок истекал
+// и следующий тик стартовал параллельно → накопление 10 циклов, undici
+// pool exhaustion, ETIMEDOUT. С квотой §2.1 типовой цикл ≈4.5 мин, лок
+// 10 мин даёт запас 2.2×. Крах процесса — ждать 10 мин до перезахвата.
+const SYNC_LOCK_TTL = 10 * 60;
 const PINNED_LOCK_KEY = 'broadcast:pinned:lock';
 const PINNED_LOCK_TTL = 50;
 const PGN_HASH_TTL = 300;
@@ -92,6 +97,17 @@ const RATE_LIMIT_429_BACKOFF_BASE_TTL_SEC = 60;
 const RATE_LIMIT_429_BACKOFF_LADDER_SEC = [60, 180, 600, 1800]; // 1м/3м/10м/30м
 const RATE_LIMIT_429_BACKOFF_MAX_TTL_SEC = 1800;
 const RATE_LIMIT_429_JITTER_PCT = 0.3; // ±30% jitter чтобы не синхронизировать retry'и реплик
+// KS-4832 / ADR-156 §2.1. Квота на `refreshNonTop20RoundStatuses` за один
+// цикл `syncBroadcasts`. При 1234 non-top-20 раундах × 1.5 сек rate-limit
+// один прогон занимал ~31 мин, лок 4 мин истекал, циклы накладывались.
+// Default 50 → ~75 сек на фазу, 25 циклов на полный обход = ~2 часа.
+// Redis-cursor держит offset между циклами.
+const MAX_ROUND_METADATA_CHECKS_PER_CYCLE = parseInt(
+  process.env.BROADCAST_MAX_ROUND_METADATA_CHECKS ?? '50',
+  10,
+);
+const REFRESH_CURSOR_KEY = 'broadcast:refresh:cursor';
+const REFRESH_CURSOR_TTL = 60 * 60;
 // KS-4832 / ADR-155 §2.4. Pending-heal — вторая фаза pinned-цикла.
 // Проверяет metadata раундов, застрявших в `pending`, чтобы переводить
 // их в `ongoing` без зависимости от главного full-sync (который может
@@ -474,6 +490,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private pubRedis: Redis | null = null;
   private syncTimer: NodeJS.Timeout | null = null;
   private pinnedPollTimer: NodeJS.Timeout | null = null;
+  private streamsGaugeTimer: NodeJS.Timeout | null = null;
   private readonly activeStreams = new Map<string, AbortController>();
   private pollOffset = 0;
   // KS-4832 / ADR-155 §2.4.3. Round-robin индекс отдельно от `pollOffset`,
@@ -643,6 +660,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }, PINNED_POLL_INTERVAL_MS);
 
+    // KS-4832 / ADR-156 §2.3. Периодически публикуем размер activeStreams
+    // как Prometheus gauge — проще, чем инкрементировать во всех точках
+    // мутации Map.
+    this.metrics.setStreamsActive(this.activeStreams.size);
+    this.streamsGaugeTimer = setInterval(() => {
+      this.metrics.setStreamsActive(this.activeStreams.size);
+    }, 5000);
+
     this.logger.log(
       '[broadcast-sync] Running (initial syncs scheduled in background)',
     );
@@ -652,6 +677,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     this.stopped = true;
     if (this.syncTimer) clearInterval(this.syncTimer);
     if (this.pinnedPollTimer) clearInterval(this.pinnedPollTimer);
+    if (this.streamsGaugeTimer) clearInterval(this.streamsGaugeTimer);
 
     for (const [roundId, ctrl] of this.activeStreams) {
       ctrl.abort();
@@ -836,11 +862,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           }
           const effectiveActive = upserted?.status === 'ongoing';
           if (effectiveActive) {
-            if (!this.activeStreams.has(round.id)) {
-              if (this.activeStreams.size < MAX_CONCURRENT_STREAMS) {
-                this.startStream(round.id);
-              }
-            }
+            // ADR-156 §2.5. startStream идемпотентен и сам обрабатывает
+            // capacity_full/already_active — снаружи проверки не нужны.
+            this.startStream(round.id);
           }
           // Finished rounds: re-fetch if games have no result or starting FEN
           if (round.finished && fetchCount < MAX_PGN_POLLS_PER_CYCLE) {
@@ -995,6 +1019,15 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
 
       for (let i = 0; i < toFetch.length; i++) {
+        // KS-4832 / ADR-156 §2.5. Fallback запуск стрима для non-streamed
+        // ongoing раундов. Если стрим стартует ('ok') — PGN poll для этого
+        // раунда пропускается: стрим сам будет обновлять данные. При
+        // 'capacity_full' — прежний PGN poll как fallback. 'already_active'
+        // маловероятен (мы отфильтровали streamedRoundIds), но идемпотентен.
+        const startRes = this.startStream(toFetch[i].lichessRoundId);
+        if (startRes === 'ok' || startRes === 'already_active') {
+          continue;
+        }
         if (i > 0) await this.rateLimitDelay();
         await this.fetchAndProcessRoundPgn(toFetch[i].lichessRoundId).catch(
           (e: unknown) =>
@@ -1148,10 +1181,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
               const delaySec = (now.getTime() - r.startsAt.getTime()) / 1000;
               this.metrics.observePendingPromotionDelay(delaySec);
             }
-            // ADR-155 §2.4.5: НЕ стартуем стрим здесь. Следующий тик
-            // pinned-цикла подхватит раунд как ongoing (или `syncBroadcasts`
-            // запустит стрим). Постановка prerender для transition'а —
-            // как в `refreshNonTop20RoundStatuses`.
+            // KS-4832 / ADR-156 §2.4. Пересмотр ADR-155 §2.4.5:
+            // pending-heal сразу запускает стрим. `startStream()` идемпотентен
+            // и сам ловит capacity_full/already_active — снаружи проверки не
+            // нужны. Стрим стартует только при переходе в ongoing (для
+            // finished-раундов не имеет смысла).
+            if (newStatus === 'ongoing') {
+              this.startStream(r.lichessRoundId);
+            }
+            // Постановка prerender для transition'а — как в
+            // `refreshNonTop20RoundStatuses`.
             this.prerender.enqueueFireAndForget({
               kind: 'broadcast',
               tid: r.broadcastId,
@@ -1580,6 +1619,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private async refreshNonTop20RoundStatuses(
     upsertedRoundIds: Set<string>,
   ): Promise<void> {
+    // KS-4832 / ADR-156 §2.1. Полный обход non-top-20 раундов раскладывается
+    // на несколько циклов через квоту `MAX_ROUND_METADATA_CHECKS_PER_CYCLE`
+    // и Redis-cursor. Приоритет: ongoing → pending → finished; внутри
+    // группы — самые давно проверенные (updatedAt ASC).
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const candidates = await this.prisma.broadcastRound.findMany({
       where: {
@@ -1592,14 +1635,53 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       select: { id: true, lichessRoundId: true, status: true },
     });
 
-    const toFetch = candidates.filter(
+    const eligible = candidates.filter(
       (r) => !upsertedRoundIds.has(r.lichessRoundId),
     );
-    if (toFetch.length === 0) return;
+    if (eligible.length === 0) return;
+
+    // Приоритетная сортировка. Сортируем в JS — набор небольшой (≤ пары
+    // тысяч), Prisma не умеет ORDER BY по CASE напрямую без raw SQL.
+    const priority = (status: string): number =>
+      status === 'ongoing' ? 0 : status === 'pending' ? 1 : 2;
+    eligible.sort((a, b) => priority(a.status) - priority(b.status));
+
+    // Redis-cursor (integer offset) — TTL 1 ч. При смене общего количества
+    // раундов допустима лёгкая сдвижка выборки — следующий проход покроет.
+    let cursor = 0;
+    try {
+      const raw = await this.redis.get(REFRESH_CURSOR_KEY);
+      const parsed = raw ? parseInt(raw, 10) : 0;
+      cursor = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    } catch (e: unknown) {
+      this.logger.warn(
+        `[broadcast-sync] refreshNonTop20 cursor-read failed: ${(e as Error).message}`,
+      );
+    }
+    if (cursor >= eligible.length) cursor = 0;
+
+    const quota = MAX_ROUND_METADATA_CHECKS_PER_CYCLE;
+    const toFetch = eligible.slice(cursor, cursor + quota);
+    const nextCursor =
+      cursor + toFetch.length >= eligible.length ? 0 : cursor + toFetch.length;
 
     this.logger.log(
-      `[broadcast-sync] refreshNonTop20RoundStatuses: ${toFetch.length} rounds to check`,
+      `[broadcast-sync] refreshNonTop20RoundStatuses: pool=${eligible.length} ` +
+        `cursor=${cursor} quota=${quota} picked=${toFetch.length} nextCursor=${nextCursor}`,
     );
+
+    try {
+      await this.redis.set(
+        REFRESH_CURSOR_KEY,
+        String(nextCursor),
+        'EX',
+        REFRESH_CURSOR_TTL,
+      );
+    } catch (e: unknown) {
+      this.logger.warn(
+        `[broadcast-sync] refreshNonTop20 cursor-set failed: ${(e as Error).message}`,
+      );
+    }
 
     for (const r of toFetch) {
       try {
@@ -1728,19 +1810,55 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private startStream(roundId: string): void {
-    const ctrl = new AbortController();
-    this.activeStreams.set(roundId, ctrl);
-    this.runStream(roundId, ctrl.signal).then(() => {
-      // Stream ended (aborted or stopped) — clean up
-      this.activeStreams.delete(roundId);
-    });
+  /**
+   * KS-4832 / ADR-156 §2.3, §2.5. Синхронно решает, запустить ли новый
+   * стрим для раунда, и возвращает маркер результата. Собственно fetch
+   * идёт в фоне через `runStream()`.
+   *
+   *  - `already_active` — стрим уже был в `activeStreams` (идемпотентно).
+   *  - `capacity_full` — уперлись в `MAX_CONCURRENT_STREAMS`; вызывающая
+   *    сторона (pinned poll) сделает fallback PGN-poll.
+   *  - `ok` — стрим запущен, PGN-poll не нужен.
+   *  - `error` — исключение при постановке стрима (маловероятно).
+   */
+  startStream(
+    roundId: string,
+  ): 'ok' | 'capacity_full' | 'error' | 'already_active' {
+    if (this.activeStreams.has(roundId)) {
+      this.metrics.recordStreamStarted('already_active');
+      return 'already_active';
+    }
+    if (this.activeStreams.size >= MAX_CONCURRENT_STREAMS) {
+      this.metrics.recordStreamStarted('capacity_full');
+      return 'capacity_full';
+    }
+    try {
+      const ctrl = new AbortController();
+      this.activeStreams.set(roundId, ctrl);
+      const startedAt = Date.now();
+      this.runStream(roundId, ctrl.signal).then((reason) => {
+        // Stream ended — снимаем из Map и наблюдаем длительность.
+        this.activeStreams.delete(roundId);
+        this.metrics.observeStreamDuration(
+          (Date.now() - startedAt) / 1000,
+        );
+        this.metrics.recordStreamEnded(reason);
+      });
+      this.metrics.recordStreamStarted('ok');
+      return 'ok';
+    } catch (e: unknown) {
+      this.logger.error(
+        `[broadcast-sync] startStream ${roundId} failed: ${formatFetchError(e)}`,
+      );
+      this.metrics.recordStreamStarted('error');
+      return 'error';
+    }
   }
 
   private async runStream(
     roundId: string,
     signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<'round_finished' | 'aborted' | 'error' | 'rate_limit_429'> {
     const url = `${LICHESS_API}/stream/broadcast/round/${roundId}.pgn`;
     let retryDelay = 2000;
     const maxDelay = 300_000; // 5 minutes — let Lichess rate limit reset
@@ -1758,7 +1876,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(
             `[broadcast-sync] Stream ${roundId}: 429 rate limited, stopping stream (PGN poll will take over)`,
           );
-          return;
+          return 'rate_limit_429';
         }
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
         retryDelay = 2000;
@@ -1776,6 +1894,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             await this.processPgnUpdate(roundId, pgn);
           }
         }
+        // Штатное завершение — Lichess закрыл поток (round finished).
+        if (!signal.aborted) return 'round_finished';
       } catch (e: unknown) {
         if (signal.aborted) break;
         this.logger.warn(
@@ -1785,6 +1905,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         retryDelay = Math.min(retryDelay * 2, maxDelay);
       }
     }
+    return 'aborted';
   }
 
   private async processPgnUpdate(roundId: string, pgn: string): Promise<void> {

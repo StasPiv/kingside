@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Counter, Histogram } from 'prom-client';
+import { Counter, Gauge, Histogram } from 'prom-client';
 import { MetricsService } from '../metrics/metrics.service';
 
 /**
@@ -48,6 +48,30 @@ export class SyncMetricsService {
    * показывает эффективность heal — время «застревания» раунда.
    */
   readonly broadcastSyncPendingPromotionDelaySeconds: Histogram<never>;
+  /**
+   * KS-4832 / ADR-156 §2.3. Текущее число активных PGN-стримов
+   * (`activeStreams.size`). Обновляется периодически из `broadcast-sync`,
+   * gauge — снимок состояния, а не счётчик.
+   */
+  readonly broadcastStreamsActive: Gauge<never>;
+  /**
+   * KS-4832 / ADR-156 §2.3. Инкремент при каждом вызове `startStream()`.
+   * `ok` — стрим запущен; `capacity_full` — уперлись в MAX_CONCURRENT_STREAMS;
+   * `error` — исключение при старте; `already_active` — стрим уже был.
+   */
+  readonly broadcastStreamsStartedTotal: Counter<'result'>;
+  /**
+   * KS-4832 / ADR-156 §2.3. Инкремент при завершении стрима.
+   * `round_finished` — Lichess закрыл поток штатно; `aborted` — abort
+   * из-за перехода раунда в finished; `error` — сетевые/парсинг-ошибки
+   * прервали цикл; `rate_limit_429` — Lichess ответил 429, стрим остановлен.
+   */
+  readonly broadcastStreamsEndedTotal: Counter<'reason'>;
+  /**
+   * KS-4832 / ADR-156 §2.3. Длительность одной сессии стрима (сек). От
+   * `startStream()` до выхода из основного `while` цикла `runStream()`.
+   */
+  readonly broadcastStreamDurationSeconds: Histogram<never>;
 
   constructor(metrics: MetricsService) {
     this.broadcastSyncCyclesTotal = new Counter({
@@ -104,6 +128,33 @@ export class SyncMetricsService {
       buckets: [30, 60, 120, 300, 600, 1800, 3600, 21600, 86400],
       registers: [metrics.registry],
     });
+
+    this.broadcastStreamsActive = new Gauge({
+      name: 'broadcast_streams_active',
+      help: 'Число активных PGN-стримов (activeStreams.size).',
+      registers: [metrics.registry],
+    });
+
+    this.broadcastStreamsStartedTotal = new Counter({
+      name: 'broadcast_streams_started_total',
+      help: 'Количество попыток запуска PGN-стрима, по исходу (ADR-156).',
+      labelNames: ['result'] as const,
+      registers: [metrics.registry],
+    });
+
+    this.broadcastStreamsEndedTotal = new Counter({
+      name: 'broadcast_streams_ended_total',
+      help: 'Количество завершений PGN-стрима, по причине (ADR-156).',
+      labelNames: ['reason'] as const,
+      registers: [metrics.registry],
+    });
+
+    this.broadcastStreamDurationSeconds = new Histogram({
+      name: 'broadcast_stream_duration_seconds',
+      help: 'Длительность одной сессии PGN-стрима в секундах (ADR-156).',
+      buckets: [1, 5, 15, 60, 300, 900, 1800, 3600, 21600],
+      registers: [metrics.registry],
+    });
   }
 
   recordCycle(kind: 'full' | 'pinned', result: 'ok' | 'err' | 'skipped'): void {
@@ -148,5 +199,30 @@ export class SyncMetricsService {
   observePendingPromotionDelay(delaySec: number): void {
     if (delaySec < 0) return;
     this.broadcastSyncPendingPromotionDelaySeconds.observe(delaySec);
+  }
+
+  /** KS-4832 / ADR-156 §2.3. Установить текущее число активных стримов. */
+  setStreamsActive(count: number): void {
+    this.broadcastStreamsActive.set(count);
+  }
+
+  /** KS-4832 / ADR-156 §2.3. Инкремент по итогу вызова startStream(). */
+  recordStreamStarted(
+    result: 'ok' | 'capacity_full' | 'error' | 'already_active',
+  ): void {
+    this.broadcastStreamsStartedTotal.inc({ result });
+  }
+
+  /** KS-4832 / ADR-156 §2.3. Инкремент при завершении стрима. */
+  recordStreamEnded(
+    reason: 'round_finished' | 'aborted' | 'error' | 'rate_limit_429',
+  ): void {
+    this.broadcastStreamsEndedTotal.inc({ reason });
+  }
+
+  /** KS-4832 / ADR-156 §2.3. Наблюдение длительности сессии стрима. */
+  observeStreamDuration(durationSec: number): void {
+    if (durationSec < 0) return;
+    this.broadcastStreamDurationSeconds.observe(durationSec);
   }
 }
