@@ -2549,8 +2549,8 @@
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  background: var(--c-1a1a2e, #1a1a2e);
-  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  background: var(--bg-surface, #2a2a4e);
+  border: 1px solid var(--border-subtle, #333);
   border-radius: 8px;
 }
 
@@ -2561,36 +2561,38 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--c-7c83ff, #7c83ff);
-  background: var(--c-7c83ff-20, rgba(124, 131, 255, 0.15));
-  border: 1px solid var(--c-7c83ff-40, rgba(124, 131, 255, 0.4));
+  color: var(--accent-primary, #7c83ff);
+  background: var(--ov-accent-15, rgba(124, 131, 255, 0.15));
+  border: 1px solid var(--ov-accent-30, rgba(124, 131, 255, 0.4));
   border-radius: 999px;
 }
 
 .broadcast-countdown {
   font-size: 18px;
   font-weight: 500;
-  color: var(--c-eee, #eee);
+  color: var(--text-primary, #e0e0e0);
 }
 
 .broadcast-countdown--imminent {
-  color: var(--c-7c83ff, #7c83ff);
+  color: var(--accent-primary, #7c83ff);
   font-variant-numeric: tabular-nums;
 }
 
 .broadcast-countdown--overdue {
-  color: var(--c-fca, #f5b642);
+  color: var(--c-ffc107, #ffc107);
 }
 
 .broadcast-countdown--unknown {
-  color: var(--c-888, #888);
+  color: var(--text-muted, #888);
   font-style: italic;
 }
 
 .broadcast-pending-empty {
   padding: 20px;
   text-align: center;
-  border: 1px dashed var(--c-2a2a4e, #2a2a4e);
+  color: var(--text-secondary, #a0a0c0);
+  background: var(--bg-surface, #2a2a4e);
+  border: 1px dashed var(--border-mid, #444);
   border-radius: 8px;
 }
 
@@ -2605,11 +2607,11 @@
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  background: var(--c-1a1a2e, #1a1a2e);
-  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  background: var(--bg-surface, #2a2a4e);
+  border: 1px solid var(--border-subtle, #333);
   border-radius: 8px;
   font-size: 15px;
-  color: var(--c-eee, #eee);
+  color: var(--text-primary, #e0e0e0);
 }
 
 .broadcast-pairing-card--clickable {
@@ -2646,11 +2648,11 @@
 .broadcast-pairing-card__icon {
   font-size: 18px;
   line-height: 1;
-  color: var(--c-888, #888);
+  color: var(--text-muted, #888);
 }
 
 .broadcast-pairing-card__vs {
-  color: var(--c-888, #888);
+  color: var(--text-muted, #888);
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -2663,9 +2665,9 @@
   gap: 12px;
   margin-top: 24px;
   padding: 24px;
-  color: var(--c-eee, #eee);
-  background: var(--c-1a1a2e, #1a1a2e);
-  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+  color: var(--text-primary, #e0e0e0);
+  background: var(--bg-surface, #2a2a4e);
+  border: 1px solid var(--border-subtle, #333);
   border-radius: 8px;
 }
 
@@ -2673,8 +2675,8 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 2px solid var(--c-2a2a4e, #2a2a4e);
-  border-top-color: var(--c-7c83ff, #7c83ff);
+  border: 2px solid var(--border-subtle, #333);
+  border-top-color: var(--accent-primary, #7c83ff);
   animation: broadcast-awaiting-spinner 800ms linear infinite;
 }
 
@@ -2695,12 +2697,14 @@
   bottom: 8px;
   transform: translateX(-50%);
   padding: 4px 10px;
+  /* Плашка-оверлей поверх шахматной доски: всегда тёмная подложка
+     с белым текстом, независимо от темы (доска сама не меняет цвет). */
   background: rgba(26, 26, 46, 0.85);
-  color: var(--c-eee, #eee);
+  color: #fff;
   font-size: 12px;
   font-weight: 500;
   border-radius: 4px;
-  border: 1px solid var(--c-7c83ff-40, rgba(124, 131, 255, 0.4));
+  border: 1px solid var(--ov-accent-30, rgba(124, 131, 255, 0.4));
   pointer-events: none;
   white-space: nowrap;
 }
