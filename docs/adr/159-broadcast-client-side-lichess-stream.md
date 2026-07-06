@@ -433,9 +433,9 @@ flowchart LR
 Внедрение по частям, каждая фаза — отдельная задача с проверкой:
 
 1. **KS-X (backend):** вынос `pgn-parser` в общий пакет, добавление `lichessRoundId` в `BroadcastRoundSummary`. Без функциональных изменений.
-2. **KS-Y (frontend):** реализация `useLichessPgnStream` за feature-флагом `BROADCAST_DIRECT_STREAM_ENABLED` (default `false`). Тестирование на dev-стенде с включённым флагом.
-3. **KS-Z (backend + frontend):** релиз direct-stream за флагом `true` для 10% пользователей (простой A/B через локальный флаг на клиенте по `userId % 10 === 0`). Мониторинг 3-5 дней.
-4. **KS-W (backend):** удаление `runStream()` и связанных механизмов, перевод fast poll на роль основного канала БД. Опубликовать deprecation-note в комментариях кода.
+2. **KS-Y (frontend):** реализация `useLichessPgnStream` за feature-флагом `BROADCAST_DIRECT_STREAM_ENABLED` (default `false`). Проверка на dev-стенде с включённым флагом: dev-агент проходит по нескольким ongoing раундам, убеждается что direct-stream открывается, парсит PGN, доставляет ходы; проверяются все три уровня деградации (§2.4) — принудительным блоком fetch на `lichess.org` в devtools.
+3. **KS-Z (backend + frontend):** релиз direct-stream за флагом `true` для всех пользователей. Мониторинг метрик из §2.10 в первую неделю. Feature-флаг остаётся в коде как страховка отката (см. §6 п.11).
+4. **KS-W (backend):** через 2–4 недели стабильной работы после KS-Z — удаление `runStream()` и связанных механизмов, перевод fast poll на роль единственного канала записи БД. Публикация deprecation-note в комментариях кода. Feature-флаг из §6 п.11 удаляется вместе со старой веткой.
 5. **KS-V (backend, отложено):** telemetry endpoint для beacon от клиента (§2.10 п.2). Не обязателен для первого релиза.
 
 ## 8. Ссылки
