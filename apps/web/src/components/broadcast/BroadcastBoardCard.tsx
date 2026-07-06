@@ -231,6 +231,16 @@ export function BroadcastBoardCard({
   const whiteScore = resultToScore(game.result, 'white');
   const blackScore = resultToScore(game.result, 'black');
 
+  // KS-4848 / ADR-158 §2.4.3: партия существует в раунде, но ходы
+  // ещё не пришли (`pgn=null` и результата нет) — рисуем стартовую
+  // позицию с плашкой «Партия скоро начнётся». Не путать с
+  // ничьей (`result='1/2-1/2'`) и не путать с завершённой партией
+  // без сохранённого PGN (там `result` заполнен).
+  const isAwaitingStart =
+    (game.pgn === null || game.pgn === undefined || game.pgn === '') &&
+    (!game.result || game.result === '*') &&
+    (fen === INITIAL_FEN || !fen);
+
   // KS-2706. Таймеры обоих игроков. Side-to-move берём из текущего FEN.
   // `useBroadcastClock` сам вернёт `hasClocks=false` если у партии нет
   // полей KS-2699 — тогда pill не рендерим (без placeholder'ов).
@@ -332,6 +342,16 @@ export function BroadcastBoardCard({
               squareStyles,
             }}
           />
+          {isAwaitingStart && (
+            <div
+              className="broadcast-board-awaiting-start"
+              data-testid="broadcast-board-awaiting-start"
+            >
+              {t('broadcastRound.game.awaitingStart', {
+                defaultValue: 'Game starts soon',
+              })}
+            </div>
+          )}
         </div>
       </div>
       <div className="broadcast-board-players">

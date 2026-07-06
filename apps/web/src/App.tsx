@@ -25,6 +25,7 @@ import LectureAccessPreviewPage from './pages/dev/LectureAccessPreviewPage';
 import PublicLecturesPreviewPage from './pages/dev/PublicLecturesPreviewPage';
 // KS-4206 dev-only: песочница для приёмочных скриншотов состояний кнопки «Завершённые».
 import BroadcastsFinishedTogglePreviewPage from './pages/dev/BroadcastsFinishedTogglePreviewPage';
+import BroadcastPendingRoundPreviewPage from './pages/dev/BroadcastPendingRoundPreviewPage';
 // KS-4256 dev-only: песочница для приёмочных скриншотов layout страницы игры.
 import GameLayoutPreviewPage from './pages/dev/GameLayoutPreviewPage';
 // KS-4268 dev-only: песочница шести блоков нового гостевого лендинга.
@@ -608,6 +609,8 @@ export function App() {
         <Route path="/__dev/public-lectures" element={<PublicLecturesPreviewPage />} />
         {/* KS-4206 dev-only песочница состояний кнопки «Завершённые» на /broadcasts. */}
         <Route path="/__dev/broadcasts-finished-toggle" element={<BroadcastsFinishedTogglePreviewPage />} />
+        {/* KS-4848 / ADR-158 dev-only preview всех состояний pending раунда. */}
+        <Route path="/__dev/broadcast-pending-round" element={<BroadcastPendingRoundPreviewPage />} />
         {/* KS-4256 dev-only песочница layout страницы игры (player-bar + доска + sidebar + bot-banner). */}
         <Route path="/__dev/game-layout" element={<GameLayoutPreviewPage />} />
         {/* KS-4268 dev-only песочница шести блоков нового гостевого лендинга. */}

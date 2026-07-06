@@ -426,6 +426,25 @@
       "empty": "Waiting for the first move…",
       "summaryWithCount": "Live moves ({{count}})"
     },
+    "pending": {
+      "upcomingBadge": "Upcoming",
+      "pairingsNotAnnounced": "Pairings not announced yet"
+    },
+    "ongoing": {
+      "awaitingFirstMoves": "Round has started, waiting for the first moves…"
+    },
+    "game": {
+      "awaitingStart": "Game starts soon"
+    },
+    "countdown": {
+      "notScheduled": "Start time not announced",
+      "startsAt": "Starts: {{date}}",
+      "inHoursMinutes": "In {{hours}} h {{minutes}} min",
+      "inMinutes_one": "In {{count}} min",
+      "inMinutes_other": "In {{count}} min",
+      "inMmSs": "In {{mmss}}",
+      "overdue": "Round was scheduled for {{time}}. Awaiting start…"
+    },
     "lastMove": {
       "notStarted": "Game not started",
       "justNow": "just now",

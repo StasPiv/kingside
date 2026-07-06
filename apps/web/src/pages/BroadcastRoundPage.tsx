@@ -10,6 +10,8 @@ import { broadcastApi } from '../api/broadcastApi';
 import { openAnalysisFromPgn } from '../utils/openAnalysisFromPgn';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { BroadcastBoardCard } from '../components/broadcast/BroadcastBoardCard';
+import { RoundCountdown } from '../components/broadcast/RoundCountdown';
+import { PairingCard } from '../components/broadcast/PairingCard';
 import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
 import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 import { useBroadcastEvalQueue } from '../hooks/useBroadcastEvalQueue';
@@ -577,37 +579,146 @@ export function BroadcastRoundPage() {
         </select>
       </div>
 
-      {games.length === 0 ? (
-        <div className="broadcasts-empty">{t('broadcastRound.noGames', 'No games in this round')}</div>
-      ) : (
-        // KS-2795: layout одно-колоночный. Лента ходов убрана —
-        // последний ход теперь показывается под каждой мини-доской
-        // прямо в карточке. Wrapper-обёртка над карточкой (ранее ловила
-        // ref для scrollIntoView из ленты) больше не нужна.
-        <div className="broadcast-games-section">
-          <div className="broadcast-boards-grid">
-            {games.map((game) => {
-              const k = gameKey(game);
-              const lichessId = (game as { lichessGameId?: string }).lichessGameId;
-              return (
-                <BroadcastBoardCard
-                  key={game.id}
-                  game={game}
-                  onGameClick={handleGameClick}
-                  showLastMoveHighlight={
-                    lastMoveKey !== null && k === lastMoveKey
-                  }
-                  lastMoveUci={lastMoveUciMap[k] ?? null}
-                  evalSnap={evalsByKey[k] ?? null}
-                  inWorkshop={
-                    lichessId ? Boolean(inWorkshopMap[lichessId]) : false
-                  }
-                />
-              );
-            })}
-          </div>
+      {renderRoundBody({
+        status: currentRound?.status ?? '',
+        startsAt: currentRound?.startsAt ?? null,
+        games,
+        gameKey,
+        lastMoveKey,
+        lastMoveUciMap,
+        evalsByKey,
+        inWorkshopMap,
+        handleGameClick,
+        t,
+      })}
+    </div>
+  );
+}
+
+/**
+ * KS-4848 / ADR-158 §2.4: рендер тела страницы раунда с учётом
+ * трёх новых состояний:
+ *  - A: `status='pending'` — countdown + пары (или заглушка «Пары
+ *    ещё не объявлены»).
+ *  - B: `status='ongoing' AND games.length===0` — «Раунд начался,
+ *    ожидаем первые ходы…» + spinner.
+ *  - C: `status='ongoing' AND games.length>0` — обычная сетка досок.
+ *    В карточке партии с `pgn=null AND result=null` плашка «Партия
+ *    скоро начнётся» (см. `BroadcastBoardCard`).
+ *
+ * Legacy-fallback: `status='finished'` (или иное значение) — тот же
+ * сеточный рендер, что и раньше; пустой список даёт «No games…».
+ */
+function renderRoundBody({
+  status,
+  startsAt,
+  games,
+  gameKey,
+  lastMoveKey,
+  lastMoveUciMap,
+  evalsByKey,
+  inWorkshopMap,
+  handleGameClick,
+  t,
+}: {
+  status: string;
+  startsAt: string | null;
+  games: BroadcastGameSummary[];
+  gameKey: (g: BroadcastGameSummary) => string;
+  lastMoveKey: string | null;
+  lastMoveUciMap: Record<string, string>;
+  evalsByKey: Record<string, import('../hooks/useBroadcastEvalQueue').EvalSnapshot>;
+  inWorkshopMap: Record<string, boolean>;
+  handleGameClick: (g: BroadcastGameSummary) => void;
+  t: import('i18next').TFunction;
+}) {
+  // ─── Ветка A: раунд не начался. ─────────────────────────────────
+  if (status === 'pending') {
+    return (
+      <div
+        className="broadcast-pending-section"
+        data-testid="broadcast-pending-section"
+      >
+        <div className="broadcast-pending-header">
+          <span
+            className="broadcast-pending-badge"
+            data-testid="broadcast-pending-badge"
+          >
+            {t('broadcastRound.pending.upcomingBadge', 'Upcoming')}
+          </span>
+          <RoundCountdown startsAt={startsAt} />
         </div>
-      )}
+        {games.length === 0 ? (
+          <div
+            className="broadcasts-empty broadcast-pending-empty"
+            data-testid="broadcast-pending-empty"
+          >
+            {t(
+              'broadcastRound.pending.pairingsNotAnnounced',
+              'Pairings not announced yet',
+            )}
+          </div>
+        ) : (
+          <div
+            className="broadcast-pairings-grid"
+            data-testid="broadcast-pairings-grid"
+          >
+            {games.map((game) => (
+              <PairingCard key={game.id} game={game} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Ветка B: раунд начался, но пары/ходы ещё не пришли. ─────────
+  if (status === 'ongoing' && games.length === 0) {
+    return (
+      <div
+        className="broadcast-awaiting-first-moves"
+        data-testid="broadcast-awaiting-first-moves"
+      >
+        <span className="broadcast-awaiting-first-moves__spinner" aria-hidden />
+        <span className="broadcast-awaiting-first-moves__text">
+          {t(
+            'broadcastRound.ongoing.awaitingFirstMoves',
+            'Round has started, waiting for the first moves…',
+          )}
+        </span>
+      </div>
+    );
+  }
+
+  // ─── Ветка C и legacy: сетка досок. ─────────────────────────────
+  if (games.length === 0) {
+    return (
+      <div className="broadcasts-empty">
+        {t('broadcastRound.noGames', 'No games in this round')}
+      </div>
+    );
+  }
+  return (
+    <div className="broadcast-games-section">
+      <div className="broadcast-boards-grid">
+        {games.map((game) => {
+          const k = gameKey(game);
+          const lichessId = (game as { lichessGameId?: string }).lichessGameId;
+          return (
+            <BroadcastBoardCard
+              key={game.id}
+              game={game}
+              onGameClick={handleGameClick}
+              showLastMoveHighlight={lastMoveKey !== null && k === lastMoveKey}
+              lastMoveUci={lastMoveUciMap[k] ?? null}
+              evalSnap={evalsByKey[k] ?? null}
+              inWorkshop={
+                lichessId ? Boolean(inWorkshopMap[lichessId]) : false
+              }
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }

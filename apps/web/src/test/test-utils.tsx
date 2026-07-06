@@ -50,4 +50,4 @@ export function renderWithProviders(
 
 export { testI18n };
 export { default as userEvent } from '@testing-library/user-event';
-export { screen, waitFor, within } from '@testing-library/react';
+export { screen, waitFor, within, act } from '@testing-library/react';

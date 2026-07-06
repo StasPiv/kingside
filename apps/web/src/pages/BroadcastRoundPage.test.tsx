@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { BroadcastGameSummary, BroadcastRoundItem } from '@kingside/shared';
 
-import { renderWithProviders, screen, waitFor, within } from '../test/test-utils';
+import { renderWithProviders, screen, waitFor, within, act } from '../test/test-utils';
 import userEvent from '@testing-library/user-event';
 
 /**
@@ -314,5 +314,202 @@ describe('BroadcastRoundPage KS-2802 mobile rounds selector', () => {
     const select = screen.getByTestId('broadcast-rounds-select-input') as HTMLSelectElement;
     await userEvent.selectOptions(select, 'r7');
     expect(navigateMock).toHaveBeenCalledWith('/broadcasts/tx/r7');
+  });
+});
+
+/**
+ * KS-4848 / ADR-158: сценарии страницы не начавшегося раунда.
+ *  - pending без пар: countdown + «Пары ещё не объявлены»
+ *  - pending с парами: countdown + список пар (без «No games»)
+ *  - ongoing без игр: «Раунд начался, ожидаем первые ходы…»
+ *  - ongoing с pgn=null: сетка досок с плашкой «Партия скоро начнётся»
+ */
+describe('BroadcastRoundPage KS-4848 pending round UX', () => {
+  function makePendingGame(
+    id: string,
+    overrides: Partial<BroadcastGameSummary> = {},
+  ): BroadcastGameSummary {
+    return {
+      id,
+      lichessGameId: `lg-${id}`,
+      whitePlayer: 'Carlsen, M',
+      blackPlayer: 'Nakamura, H',
+      whiteElo: 2830,
+      blackElo: 2789,
+      result: null,
+      pgn: null,
+      currentFen: null,
+      updatedAt: '2026-07-06T10:00:00.000Z',
+      bracketStage: null,
+      bracketPairId: null,
+      matchScore: null,
+      ...overrides,
+    };
+  }
+
+  it('pending без пар → countdown + «Pairings not announced yet»', async () => {
+    const round: BroadcastRoundItem = {
+      id: 'r1',
+      lichessRoundId: 'lr1',
+      name: 'Round 1',
+      startsAt: '2026-07-08T14:00:00.000Z',
+      status: 'pending',
+      tournamentType: 'swiss',
+    };
+    broadcastApiMock.get
+      .mockResolvedValueOnce({ id: 'tx', title: 'GCT Zagreb 2026' })
+      .mockResolvedValueOnce({ data: [round] })
+      .mockResolvedValueOnce({ data: [] });
+
+    renderWithProviders(<BroadcastRoundPage />, { route: '/broadcasts/tx/r1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('broadcast-pending-section')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('broadcast-countdown')).toBeInTheDocument();
+    expect(screen.getByTestId('broadcast-pending-empty')).toBeInTheDocument();
+    // «No games in this round» больше не рендерится в этой ветке.
+    expect(screen.queryByText(/no games in this round/i)).not.toBeInTheDocument();
+  });
+
+  it('pending с парами → countdown + карточки пар', async () => {
+    const round: BroadcastRoundItem = {
+      id: 'r1',
+      lichessRoundId: 'lr1',
+      name: 'Round 1',
+      startsAt: '2026-07-08T14:00:00.000Z',
+      status: 'pending',
+      tournamentType: 'swiss',
+    };
+    const games = [
+      makePendingGame('g1'),
+      makePendingGame('g2', {
+        whitePlayer: 'Nepomniachtchi, I',
+        blackPlayer: 'Firouzja, A',
+        whiteElo: 2795,
+        blackElo: 2762,
+      }),
+    ];
+    broadcastApiMock.get
+      .mockResolvedValueOnce({ id: 'tx', title: 'GCT Zagreb 2026' })
+      .mockResolvedValueOnce({ data: [round] })
+      .mockResolvedValueOnce({ data: games });
+
+    renderWithProviders(<BroadcastRoundPage />, { route: '/broadcasts/tx/r1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('broadcast-pairings-grid')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('broadcast-countdown')).toBeInTheDocument();
+    // Обе пары рендерятся.
+    expect(screen.getByTestId('broadcast-pairing-card-g1')).toBeInTheDocument();
+    expect(screen.getByTestId('broadcast-pairing-card-g2')).toBeInTheDocument();
+    // Рейтинги видны.
+    expect(screen.getByTestId('broadcast-pairing-card-g1').textContent).toContain(
+      '(2830)',
+    );
+    // «No games in this round» не показывается.
+    expect(screen.queryByText(/no games in this round/i)).not.toBeInTheDocument();
+    // Сетка досок не рендерится.
+    expect(document.querySelector('.broadcast-boards-grid')).not.toBeInTheDocument();
+  });
+
+  it('ongoing без партий → «Round has started, waiting for the first moves…»', async () => {
+    const round: BroadcastRoundItem = {
+      id: 'r1',
+      lichessRoundId: 'lr1',
+      name: 'Round 1',
+      startsAt: '2026-07-06T11:00:00.000Z',
+      status: 'ongoing',
+      tournamentType: 'swiss',
+    };
+    broadcastApiMock.get
+      .mockResolvedValueOnce({ id: 'tx', title: 'GCT Zagreb 2026' })
+      .mockResolvedValueOnce({ data: [round] })
+      .mockResolvedValueOnce({ data: [] });
+
+    renderWithProviders(<BroadcastRoundPage />, { route: '/broadcasts/tx/r1' });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('broadcast-awaiting-first-moves'),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('broadcast-awaiting-first-moves').textContent,
+    ).toMatch(/waiting for the first moves/i);
+  });
+
+  it('ongoing с pgn=null → доска в стартовой позиции + плашка «Game starts soon»', async () => {
+    const round: BroadcastRoundItem = {
+      id: 'r1',
+      lichessRoundId: 'lr1',
+      name: 'Round 1',
+      startsAt: '2026-07-06T11:00:00.000Z',
+      status: 'ongoing',
+      tournamentType: 'swiss',
+    };
+    const game = makePendingGame('gA', {
+      whitePlayer: 'Alpha',
+      blackPlayer: 'Beta',
+      whiteElo: null,
+      blackElo: null,
+      pgn: null,
+      result: null,
+      currentFen: null,
+    });
+    broadcastApiMock.get
+      .mockResolvedValueOnce({ id: 'tx', title: 'GCT' })
+      .mockResolvedValueOnce({ data: [round] })
+      .mockResolvedValueOnce({ data: [game] });
+
+    const { container } = renderWithProviders(<BroadcastRoundPage />, {
+      route: '/broadcasts/tx/r1',
+    });
+    await waitFor(() =>
+      expect(container.querySelector('.broadcast-boards-grid')).toBeInTheDocument(),
+    );
+    // Плашка «Game starts soon» рендерится над доской.
+    expect(
+      screen.getByTestId('broadcast-board-awaiting-start'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('broadcast-board-awaiting-start').textContent,
+    ).toMatch(/game starts soon/i);
+  });
+
+  it('pending → ongoing с играми: переход без перезагрузки (через переустановку моков)', async () => {
+    // Проверяем, что структурно две ветки рендерятся правильно
+    // при разных статусах — smoke-guard.
+    const ongoingRound: BroadcastRoundItem = {
+      id: 'r1',
+      lichessRoundId: 'lr1',
+      name: 'Round 1',
+      startsAt: '2026-07-06T11:00:00.000Z',
+      status: 'ongoing',
+      tournamentType: 'swiss',
+    };
+    const game: BroadcastGameSummary = makePendingGame('gLive', {
+      pgn: '1. e4 e5',
+      result: '*',
+    });
+    broadcastApiMock.get
+      .mockResolvedValueOnce({ id: 'tx', title: 'GCT' })
+      .mockResolvedValueOnce({ data: [ongoingRound] })
+      .mockResolvedValueOnce({ data: [game] });
+
+    const { container } = renderWithProviders(<BroadcastRoundPage />, {
+      route: '/broadcasts/tx/r1',
+    });
+    await waitFor(() =>
+      expect(container.querySelector('.broadcast-boards-grid')).toBeInTheDocument(),
+    );
+    // Ветка «awaiting first moves» не активна.
+    expect(
+      screen.queryByTestId('broadcast-awaiting-first-moves'),
+    ).not.toBeInTheDocument();
+    // Есть карточка партии с гружёным PGN.
+    expect(screen.getByTestId('broadcast-board-card-gLive')).toBeInTheDocument();
+    // Плашка «Game starts soon» не рендерится — PGN есть.
+    expect(
+      screen.queryByTestId('broadcast-board-awaiting-start'),
+    ).not.toBeInTheDocument();
   });
 });

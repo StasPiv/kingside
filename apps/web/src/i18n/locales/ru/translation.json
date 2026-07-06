@@ -426,6 +426,27 @@
       "empty": "Жду первый ход…",
       "summaryWithCount": "Лента ходов ({{count}})"
     },
+    "pending": {
+      "upcomingBadge": "Скоро в эфире",
+      "pairingsNotAnnounced": "Пары ещё не объявлены"
+    },
+    "ongoing": {
+      "awaitingFirstMoves": "Раунд начался, ожидаем первые ходы…"
+    },
+    "game": {
+      "awaitingStart": "Партия скоро начнётся"
+    },
+    "countdown": {
+      "notScheduled": "Время старта не объявлено",
+      "startsAt": "Начало: {{date}}",
+      "inHoursMinutes": "Через {{hours}} ч {{minutes}} мин",
+      "inMinutes_one": "Через {{count}} минуту",
+      "inMinutes_few": "Через {{count}} минуты",
+      "inMinutes_many": "Через {{count}} минут",
+      "inMinutes_other": "Через {{count}} минут",
+      "inMmSs": "Через {{mmss}}",
+      "overdue": "Раунд должен был начаться в {{time}}. Ожидаем начало…"
+    },
     "lastMove": {
       "notStarted": "Партия не началась",
       "justNow": "только что",
