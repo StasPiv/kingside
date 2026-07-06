@@ -9,6 +9,11 @@ import { PrerenderEnqueueService } from '../prerender/prerender-enqueue.service'
 import { createHash } from 'crypto';
 import { Chess } from 'chess.js';
 import Redis from 'ioredis';
+// KS-4842. Собственный undici Agent для стримов: изолирует пул от
+// общего dispatcher'а (KS-4841) и включает TCP keep-alive, которого
+// нет в дефолтном Node fetch. TCP-зонды дают быстрый сигнал о разрыве,
+// если Lichess закрыл соединение молча.
+import { Agent as UndiciAgent } from 'undici';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { SyncMetricsService } from './sync-metrics';
@@ -108,6 +113,24 @@ const MAX_ROUND_METADATA_CHECKS_PER_CYCLE = parseInt(
 );
 const REFRESH_CURSOR_KEY = 'broadcast:refresh:cursor';
 const REFRESH_CURSOR_TTL = 60 * 60;
+// KS-4842. Сторожевой таймер для стримов: если очередной байт не пришёл
+// дольше порога — принудительно закрываем стрим. Порог 90 сек по
+// умолчанию (Lichess шлёт keep-alive-байты в стримах partition'а часто,
+// молчание >60 сек — уверенный сигнал зависшего соединения).
+const STREAM_WATCHDOG_TIMEOUT_SEC = parseInt(
+  process.env.BROADCAST_STREAM_WATCHDOG_TIMEOUT_SEC ?? '90',
+  10,
+);
+// Плановое пересоздание всех активных стримов раз в M минут — страхует
+// от накопленных «зависших» состояний, которые не поймал ни watchdog,
+// ни TCP-keepalive.
+const STREAM_ROTATION_INTERVAL_MIN = parseInt(
+  process.env.BROADCAST_STREAM_ROTATION_INTERVAL_MIN ?? '10',
+  10,
+);
+// Проверка watchdog — раз в 10 сек. Достаточно частая, чтобы среагировать
+// в пределах 100 сек после реального разрыва.
+const STREAM_WATCHDOG_CHECK_INTERVAL_MS = 10_000;
 // KS-4832 / ADR-155 §2.4. Pending-heal — вторая фаза pinned-цикла.
 // Проверяет metadata раундов, застрявших в `pending`, чтобы переводить
 // их в `ongoing` без зависимости от главного full-sync (который может
@@ -491,7 +514,25 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private syncTimer: NodeJS.Timeout | null = null;
   private pinnedPollTimer: NodeJS.Timeout | null = null;
   private streamsGaugeTimer: NodeJS.Timeout | null = null;
-  private readonly activeStreams = new Map<string, AbortController>();
+  // KS-4842. Watchdog и rotation-таймеры для стримов.
+  private streamsWatchdogTimer: NodeJS.Timeout | null = null;
+  private streamsRotationTimer: NodeJS.Timeout | null = null;
+  /**
+   * KS-4842. Собственный undici Agent для стримов — изолирует пул от
+   * глобального dispatcher'а (KS-4841 указывал на общее «загрязнение»
+   * при 429), включает TCP keep-alive для раннего сигнала о разрыве.
+   * Инициализируется при `onModuleInit`, живёт весь жизненный цикл сервиса.
+   */
+  private streamDispatcher: UndiciAgent | null = null;
+  /**
+   * KS-4842 §1. Метаданные активного стрима — timestamp последнего
+   * принятого байта. Заполняется в `runStream` при каждом chunk'е из тела,
+   * читается watchdog'ом.
+   */
+  private readonly activeStreams = new Map<
+    string,
+    { ctrl: AbortController; lastByteAt: number }
+  >();
   private pollOffset = 0;
   // KS-4832 / ADR-155 §2.4.3. Round-robin индекс отдельно от `pollOffset`,
   // чтобы pending-фаза не влияла на распределение PGN-опросов.
@@ -539,6 +580,20 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+
+    // KS-4842. Отдельный undici Agent для стримов. TCP keep-alive
+    // включён на уровне сокета — если Lichess «молча» разорвёт
+    // соединение, TCP-зонды дадут ошибку в пределах 60-120 сек,
+    // не полагаясь на 30-сек `AbortSignal.timeout`. Изолирует пул от
+    // глобального dispatcher'а (KS-4841).
+    this.streamDispatcher = new UndiciAgent({
+      keepAliveTimeout: 4_000,
+      keepAliveMaxTimeout: 600_000,
+      connect: {
+        keepAlive: true,
+        keepAliveInitialDelay: 60_000,
+      },
+    });
 
     const redisHost = process.env.REDIS_HOST || 'localhost';
     const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
@@ -666,11 +721,75 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     this.metrics.setStreamsActive(this.activeStreams.size);
     this.streamsGaugeTimer = setInterval(() => {
       this.metrics.setStreamsActive(this.activeStreams.size);
+      // KS-4842 §Метрики: максимум возраста последнего байта по всем
+      // активным стримам — сигнал живучести пула.
+      let maxAge = 0;
+      const now = Date.now();
+      for (const entry of this.activeStreams.values()) {
+        const age = (now - entry.lastByteAt) / 1000;
+        if (age > maxAge) maxAge = age;
+      }
+      this.metrics.setStreamsWatchdogMaxAge(maxAge);
     }, 5000);
+
+    // KS-4842 §1. Watchdog: при молчании стрима дольше порога — принудительно
+    // абортим соединение. Следующий pinned-тик подхватит раунд заново.
+    this.streamsWatchdogTimer = setInterval(() => {
+      this.checkStreamsWatchdog();
+    }, STREAM_WATCHDOG_CHECK_INTERVAL_MS);
+
+    // KS-4842 §3. Плановое пересоздание всех активных стримов раз в
+    // M минут — страхует от накопленных зависших состояний.
+    this.streamsRotationTimer = setInterval(
+      () => {
+        this.rotateActiveStreams();
+      },
+      STREAM_ROTATION_INTERVAL_MIN * 60_000,
+    );
 
     this.logger.log(
       '[broadcast-sync] Running (initial syncs scheduled in background)',
     );
+  }
+
+  /**
+   * KS-4842 §1. Сторожевой таймер: обход `activeStreams`, если
+   * `lastByteAt` старше `STREAM_WATCHDOG_TIMEOUT_SEC` — abort, метрика
+   * `watchdog_stale`. Само удаление из Map делает `.then()`-обёртка в
+   * `startStream()` при завершении `runStream()`.
+   */
+  private checkStreamsWatchdog(): void {
+    const now = Date.now();
+    const thresholdMs = STREAM_WATCHDOG_TIMEOUT_SEC * 1000;
+    for (const [roundId, entry] of this.activeStreams) {
+      const idleMs = now - entry.lastByteAt;
+      if (idleMs > thresholdMs) {
+        this.logger.warn(
+          `[broadcast-sync] Stream ${roundId} watchdog-stale: ${Math.round(idleMs / 1000)}s without bytes, aborting`,
+        );
+        // Помечаем причину для `runStream.then()` — счётчик поедет как
+        // `watchdog_stale` вместо дефолтного `aborted`.
+        (entry as { watchdogStale?: boolean }).watchdogStale = true;
+        entry.ctrl.abort();
+      }
+    }
+  }
+
+  /**
+   * KS-4842 §3. Плановая ротация: закрываем все активные стримы; следующий
+   * pinned-цикл поднимет их заново через `startStream()`. Метрика
+   * `rotation` считает ротированных.
+   */
+  private rotateActiveStreams(): void {
+    const count = this.activeStreams.size;
+    if (count === 0) return;
+    this.logger.log(
+      `[broadcast-sync] Stream rotation: aborting ${count} active streams`,
+    );
+    for (const [, entry] of this.activeStreams) {
+      (entry as { rotation?: boolean }).rotation = true;
+      entry.ctrl.abort();
+    }
   }
 
   async stop(): Promise<void> {
@@ -678,12 +797,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     if (this.syncTimer) clearInterval(this.syncTimer);
     if (this.pinnedPollTimer) clearInterval(this.pinnedPollTimer);
     if (this.streamsGaugeTimer) clearInterval(this.streamsGaugeTimer);
+    if (this.streamsWatchdogTimer) clearInterval(this.streamsWatchdogTimer);
+    if (this.streamsRotationTimer) clearInterval(this.streamsRotationTimer);
 
-    for (const [roundId, ctrl] of this.activeStreams) {
-      ctrl.abort();
+    for (const [roundId, entry] of this.activeStreams) {
+      entry.ctrl.abort();
       this.logger.log(`[broadcast-sync] Stream aborted for round ${roundId}`);
     }
     this.activeStreams.clear();
+
+    // KS-4842. Закрываем свой dispatcher, чтобы не оставлять открытых
+    // сокетов при остановке сервиса.
+    if (this.streamDispatcher) {
+      await this.streamDispatcher.close().catch(() => {});
+      this.streamDispatcher = null;
+    }
 
     await this.redis.del(SYNC_LOCK_KEY, PINNED_LOCK_KEY).catch(() => {});
     if (this.pubRedis) {
@@ -905,9 +1033,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const activeRoundIds = new Set(
         activeRoundsInDb.map((r) => r.lichessRoundId),
       );
-      for (const [roundId, ctrl] of this.activeStreams) {
+      for (const [roundId, entry] of this.activeStreams) {
         if (!activeRoundIds.has(roundId)) {
-          ctrl.abort();
+          entry.ctrl.abort();
           this.activeStreams.delete(roundId);
         }
       }
@@ -1834,15 +1962,36 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       const ctrl = new AbortController();
-      this.activeStreams.set(roundId, ctrl);
+      // KS-4842. Запись в activeStreams содержит и AbortController, и
+      // timestamp последнего принятого байта — обновляется в runStream'e
+      // при каждом chunk'е, читается watchdog'ом.
+      this.activeStreams.set(roundId, { ctrl, lastByteAt: Date.now() });
       const startedAt = Date.now();
       this.runStream(roundId, ctrl.signal).then((reason) => {
-        // Stream ended — снимаем из Map и наблюдаем длительность.
+        // KS-4842. Watchdog/rotation могли поставить метки на entry ДО
+        // abort() — читаем их перед удалением, чтобы правильно записать
+        // причину закрытия.
+        const entry = this.activeStreams.get(roundId) as
+          | {
+              ctrl: AbortController;
+              lastByteAt: number;
+              watchdogStale?: boolean;
+              rotation?: boolean;
+            }
+          | undefined;
         this.activeStreams.delete(roundId);
         this.metrics.observeStreamDuration(
           (Date.now() - startedAt) / 1000,
         );
-        this.metrics.recordStreamEnded(reason);
+        // Приоритет причин: watchdog > rotation > собственная причина из
+        // runStream ('round_finished' / 'rate_limit_429' / 'error' / 'aborted').
+        const effectiveReason: 'round_finished' | 'aborted' | 'error' | 'rate_limit_429' | 'watchdog_stale' | 'rotation' =
+          entry?.watchdogStale
+            ? 'watchdog_stale'
+            : entry?.rotation
+              ? 'rotation'
+              : reason;
+        this.metrics.recordStreamEnded(effectiveReason);
       });
       this.metrics.recordStreamStarted('ok');
       return 'ok';
@@ -1871,7 +2020,18 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           Accept: 'application/x-ndjson',
         };
         if (token) headers['Authorization'] = `Bearer ${token}`;
-        const res = await fetch(url, { headers, signal });
+        // KS-4842. Используем отдельный dispatcher со включённым TCP
+        // keep-alive — если Lichess молча закроет TCP, мы узнаём об этом
+        // через keep-alive-зонды, а не через 30-сек таймаут глобального
+        // dispatcher'а. Приведение к нужному типу — fetch RequestInit
+        // не описывает dispatcher, это Node/undici-расширение.
+        const res = await fetch(url, {
+          headers,
+          signal,
+          ...(this.streamDispatcher
+            ? { dispatcher: this.streamDispatcher }
+            : {}),
+        } as RequestInit);
         if (res.status === 429) {
           this.logger.warn(
             `[broadcast-sync] Stream ${roundId}: 429 rate limited, stopping stream (PGN poll will take over)`,
@@ -1884,6 +2044,11 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         let buffer = '';
         for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
           if (signal.aborted) break;
+          // KS-4842 §1. Обновляем timestamp последнего байта — watchdog
+          // сравнивает с текущим временем и при превышении порога
+          // самостоятельно вызывает `ctrl.abort()`.
+          const entry = this.activeStreams.get(roundId);
+          if (entry) entry.lastByteAt = Date.now();
           buffer += decoder.decode(chunk, { stream: true });
           // Lichess PGN stream separates full updates with triple newline
           const parts = buffer.split('\n\n\n');

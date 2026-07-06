@@ -61,12 +61,24 @@ export class SyncMetricsService {
    */
   readonly broadcastStreamsStartedTotal: Counter<'result'>;
   /**
-   * KS-4832 / ADR-156 §2.3. Инкремент при завершении стрима.
-   * `round_finished` — Lichess закрыл поток штатно; `aborted` — abort
-   * из-за перехода раунда в finished; `error` — сетевые/парсинг-ошибки
-   * прервали цикл; `rate_limit_429` — Lichess ответил 429, стрим остановлен.
+   * KS-4832 / ADR-156 §2.3, KS-4842 §1/§3. Инкремент при завершении стрима.
+   *  - `round_finished` — Lichess закрыл поток штатно.
+   *  - `aborted` — abort из-за перехода раунда в finished.
+   *  - `error` — сетевые/парсинг-ошибки прервали цикл.
+   *  - `rate_limit_429` — Lichess ответил 429, стрим остановлен.
+   *  - `watchdog_stale` (KS-4842 §1) — сторожевой таймер закрыл стрим
+   *    из-за молчания дольше `STREAM_WATCHDOG_TIMEOUT_SEC`.
+   *  - `rotation` (KS-4842 §3) — плановое пересоздание всех активных
+   *    стримов, следующий pinned-цикл поднимет их заново.
    */
   readonly broadcastStreamsEndedTotal: Counter<'reason'>;
+  /**
+   * KS-4842 §Метрики. Максимальный возраст последнего принятого байта
+   * среди активных стримов (в секундах). Обновляется каждые 5 сек рядом
+   * с `broadcast_streams_active`. Сигнал живучести пула: если пул
+   * «жив», gauge должен колебаться в пределах порога watchdog'а.
+   */
+  readonly broadcastStreamsWatchdogMaxAge: Gauge<never>;
   /**
    * KS-4832 / ADR-156 §2.3. Длительность одной сессии стрима (сек). От
    * `startStream()` до выхода из основного `while` цикла `runStream()`.
@@ -155,6 +167,13 @@ export class SyncMetricsService {
       buckets: [1, 5, 15, 60, 300, 900, 1800, 3600, 21600],
       registers: [metrics.registry],
     });
+
+    this.broadcastStreamsWatchdogMaxAge = new Gauge({
+      name: 'broadcast_streams_watchdog_last_byte_age_seconds',
+      help: 'Максимальный возраст последнего принятого байта среди ' +
+        'активных стримов (KS-4842). Показывает живучесть пула.',
+      registers: [metrics.registry],
+    });
   }
 
   recordCycle(kind: 'full' | 'pinned', result: 'ok' | 'err' | 'skipped'): void {
@@ -213,11 +232,26 @@ export class SyncMetricsService {
     this.broadcastStreamsStartedTotal.inc({ result });
   }
 
-  /** KS-4832 / ADR-156 §2.3. Инкремент при завершении стрима. */
+  /** KS-4832 / ADR-156 §2.3, KS-4842 §1/§3. Инкремент при завершении стрима. */
   recordStreamEnded(
-    reason: 'round_finished' | 'aborted' | 'error' | 'rate_limit_429',
+    reason:
+      | 'round_finished'
+      | 'aborted'
+      | 'error'
+      | 'rate_limit_429'
+      | 'watchdog_stale'
+      | 'rotation',
   ): void {
     this.broadcastStreamsEndedTotal.inc({ reason });
+  }
+
+  /**
+   * KS-4842 §Метрики. Установить максимум `Date.now() - lastByteAt` по
+   * активным стримам (в секундах). Вызывается каждые 5 сек рядом с
+   * `setStreamsActive`.
+   */
+  setStreamsWatchdogMaxAge(seconds: number): void {
+    this.broadcastStreamsWatchdogMaxAge.set(seconds);
   }
 
   /** KS-4832 / ADR-156 §2.3. Наблюдение длительности сессии стрима. */
