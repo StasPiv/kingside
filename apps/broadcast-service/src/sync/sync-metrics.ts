@@ -84,6 +84,47 @@ export class SyncMetricsService {
    * `startStream()` до выхода из основного `while` цикла `runStream()`.
    */
   readonly broadcastStreamDurationSeconds: Histogram<never>;
+  /**
+   * KS-4846 / ADR-157 §2.4.1. Счётчик исходящих запросов к Lichess,
+   * инкремент в единой точке `lichessFetch()` и на open в `runStream()`.
+   *  - `endpoint` ∈ {`broadcasts_list`, `round_metadata`, `round_pgn`,
+   *    `round_stream_open`, `pending_metadata`} — категоризация URL по
+   *    смыслу вызова, не по частоте.
+   *  - `status` ∈ {`200`, `400`, `401`, `404`, `429`, `5xx`, `timeout`,
+   *    `abort`, `err`} — низкая кардинальность.
+   */
+  readonly broadcastLichessRequestsTotal: Counter<'endpoint' | 'status'>;
+  /**
+   * KS-4846 / ADR-157 §2.4.2. Число активных WS-подписок на комнату
+   * `broadcast:<roundId>` (агрегировано по репликам через Redis-хеш
+   * `broadcast:ws-subs`). Обновляется периодически в `broadcast-sync`.
+   * Label `round` = `lichessRoundId`. Удаляется при переходе раунда в
+   * `finished` (или суточным сбросом).
+   */
+  readonly broadcastWsActiveSubscriptions: Gauge<'round'>;
+  /**
+   * KS-4846 / ADR-157 §2.4.3. Инкремент внутри цикла
+   * `evaluateStreamPriorities` — сколько раз приоритизация реально что-то
+   * поменяла и сколько раз хотела, но защита не пустила.
+   *  - `promoted` — раунд получил стрим (свободный слот или demotion).
+   *  - `demoted` — раунд потерял стрим ради более популярного.
+   *  - `blocked_by_hold` — кандидат хотел выбить, но у слабейшего был
+   *    активен hold TTL.
+   *  - `blocked_by_hysteresis` — кандидат хотел выбить, но не хватило
+   *    соотношения зрителей 1.5×.
+   *  - `no_slot` — кандидат хотел стрим, но 8 слотов заняты и нет цели
+   *    для demotion (все на hold / все с subs >= subs претендента / 1.5).
+   */
+  readonly broadcastStreamPriorityChangesTotal: Counter<'action'>;
+  /**
+   * KS-4846 / ADR-157 §2.4.4. Счётчик вызовов `evaluateStreamPriorities`.
+   */
+  readonly broadcastStreamEvaluationsTotal: Counter<never>;
+  /**
+   * KS-4846 / ADR-157 §2.4.4. Длительность одного вызова
+   * `evaluateStreamPriorities` — гистограмма для диагностики.
+   */
+  readonly broadcastStreamEvaluationDurationSeconds: Histogram<never>;
 
   constructor(metrics: MetricsService) {
     this.broadcastSyncCyclesTotal = new Counter({
@@ -174,6 +215,44 @@ export class SyncMetricsService {
         'активных стримов (KS-4842). Показывает живучесть пула.',
       registers: [metrics.registry],
     });
+
+    this.broadcastLichessRequestsTotal = new Counter({
+      name: 'broadcast_lichess_requests_total',
+      help: 'Количество исходящих запросов к Lichess по endpoint и HTTP-статусу ' +
+        '(ADR-157 §2.4.1). Единая точка инкремента в lichessFetch и на open в runStream.',
+      labelNames: ['endpoint', 'status'] as const,
+      registers: [metrics.registry],
+    });
+
+    this.broadcastWsActiveSubscriptions = new Gauge({
+      name: 'broadcast_ws_active_subscriptions',
+      help: 'Число активных WS-подписок на раунд (ADR-157 §2.4.2). ' +
+        'Агрегировано по репликам через Redis-хеш broadcast:ws-subs.',
+      labelNames: ['round'] as const,
+      registers: [metrics.registry],
+    });
+
+    this.broadcastStreamPriorityChangesTotal = new Counter({
+      name: 'broadcast_stream_priority_changes_total',
+      help: 'Исходы одного шага приоритизации стримов (ADR-157 §2.4.3). ' +
+        'promoted / demoted / blocked_by_hold / blocked_by_hysteresis / no_slot.',
+      labelNames: ['action'] as const,
+      registers: [metrics.registry],
+    });
+
+    this.broadcastStreamEvaluationsTotal = new Counter({
+      name: 'broadcast_stream_evaluations_total',
+      help: 'Количество тиков evaluateStreamPriorities (ADR-157 §2.4.4).',
+      registers: [metrics.registry],
+    });
+
+    this.broadcastStreamEvaluationDurationSeconds = new Histogram({
+      name: 'broadcast_stream_evaluation_duration_seconds',
+      help: 'Длительность одного тика evaluateStreamPriorities в секундах ' +
+        '(ADR-157 §2.4.4).',
+      buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5],
+      registers: [metrics.registry],
+    });
   }
 
   recordCycle(kind: 'full' | 'pinned', result: 'ok' | 'err' | 'skipped'): void {
@@ -232,7 +311,7 @@ export class SyncMetricsService {
     this.broadcastStreamsStartedTotal.inc({ result });
   }
 
-  /** KS-4832 / ADR-156 §2.3, KS-4842 §1/§3. Инкремент при завершении стрима. */
+  /** KS-4832 / ADR-156 §2.3, KS-4842 §1/§3, KS-4846 §2.4.3. Инкремент при завершении стрима. */
   recordStreamEnded(
     reason:
       | 'round_finished'
@@ -240,7 +319,8 @@ export class SyncMetricsService {
       | 'error'
       | 'rate_limit_429'
       | 'watchdog_stale'
-      | 'rotation',
+      | 'rotation'
+      | 'demoted',
   ): void {
     this.broadcastStreamsEndedTotal.inc({ reason });
   }
@@ -258,5 +338,57 @@ export class SyncMetricsService {
   observeStreamDuration(durationSec: number): void {
     if (durationSec < 0) return;
     this.broadcastStreamDurationSeconds.observe(durationSec);
+  }
+
+  /** KS-4846 / ADR-157 §2.4.1. Один исходящий запрос к Lichess. */
+  recordLichessRequest(
+    endpoint:
+      | 'broadcasts_list'
+      | 'round_metadata'
+      | 'round_pgn'
+      | 'round_stream_open'
+      | 'pending_metadata',
+    status:
+      | '200'
+      | '400'
+      | '401'
+      | '404'
+      | '429'
+      | '5xx'
+      | 'timeout'
+      | 'abort'
+      | 'err',
+  ): void {
+    this.broadcastLichessRequestsTotal.inc({ endpoint, status });
+  }
+
+  /** KS-4846 / ADR-157 §2.4.2. Установить gauge WS-подписок для раунда. */
+  setWsActiveSubscriptions(round: string, count: number): void {
+    this.broadcastWsActiveSubscriptions.set({ round }, count);
+  }
+
+  /** KS-4846 / ADR-157 §2.4.2. Удалить gauge WS-подписок (раунд завершён). */
+  removeWsActiveSubscription(round: string): void {
+    this.broadcastWsActiveSubscriptions.remove({ round });
+  }
+
+  /** KS-4846 / ADR-157 §2.4.3. Инкремент по одному шагу приоритизации. */
+  recordStreamPriorityChange(
+    action:
+      | 'promoted'
+      | 'demoted'
+      | 'blocked_by_hold'
+      | 'blocked_by_hysteresis'
+      | 'no_slot',
+  ): void {
+    this.broadcastStreamPriorityChangesTotal.inc({ action });
+  }
+
+  /** KS-4846 / ADR-157 §2.4.4. Один тик evaluateStreamPriorities. */
+  recordStreamEvaluation(durationSec: number): void {
+    this.broadcastStreamEvaluationsTotal.inc();
+    if (durationSec >= 0) {
+      this.broadcastStreamEvaluationDurationSeconds.observe(durationSec);
+    }
   }
 }

@@ -40,10 +40,30 @@ function makeService(mocks: Mocks): BroadcastSyncService {
 }
 
 function makeMocks(): Mocks {
+  // KS-4846. У сервиса добавились новые вызовы метрик (recordLichessRequest
+  // и compania) — держим stub всех методов, чтобы драйно тестам этого спека
+  // не приходилось знать всю поверхность SyncMetricsService.
   return {
     prisma: {},
     redis: {},
-    metrics: {},
+    metrics: {
+      recordCycle: jest.fn(),
+      observeDuration: jest.fn(),
+      recordFailure: jest.fn(),
+      recordCrosstableCoverage: jest.fn(),
+      recordPendingCheck: jest.fn(),
+      observePendingPromotionDelay: jest.fn(),
+      setStreamsActive: jest.fn(),
+      recordStreamStarted: jest.fn(),
+      recordStreamEnded: jest.fn(),
+      setStreamsWatchdogMaxAge: jest.fn(),
+      observeStreamDuration: jest.fn(),
+      recordLichessRequest: jest.fn(),
+      setWsActiveSubscriptions: jest.fn(),
+      removeWsActiveSubscription: jest.fn(),
+      recordStreamPriorityChange: jest.fn(),
+      recordStreamEvaluation: jest.fn(),
+    },
     standingsSync: {},
     prerender: {},
   };
@@ -107,13 +127,7 @@ describe('KS-4845 — дренаж res.body в error-ветках', () => {
 
   describe('runStream', () => {
     it('429 → res.body.cancel() вызван, вернулся rate_limit_429', async () => {
-      const mocks = {
-        ...makeMocks(),
-        metrics: {
-          recordStreamEnded: jest.fn(),
-          observeStreamDuration: jest.fn(),
-        },
-      };
+      const mocks = makeMocks();
       const svc = makeService(mocks);
       const { res, cancelSpy } = makeResponseWithBody(429);
       global.fetch = jest.fn().mockResolvedValue(res) as unknown as typeof fetch;

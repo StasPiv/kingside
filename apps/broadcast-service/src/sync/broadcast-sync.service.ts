@@ -75,10 +75,55 @@ const MAX_PGN_POLLS_PER_CYCLE = parseInt(
   10,
 );
 const REDIS_FEN_TTL = 60 * 60 * 12;
+// KS-4846 / ADR-157 §2.1. Физический потолок Lichess на broadcast-подписки
+// для user-аккаунта — 8 (см. Lichess changelog апрель 2026). Раньше 50 —
+// избыточно, лишний расход на undici + гарантированные 429 после 8-го.
+// Env `BROADCAST_MAX_STREAMS` оставлен для локального тестирования; в prod
+// поднимать выше 8 бессмысленно.
 const MAX_CONCURRENT_STREAMS = parseInt(
-  process.env.BROADCAST_MAX_STREAMS ?? '50',
+  process.env.BROADCAST_MAX_STREAMS ?? '8',
   10,
 );
+// KS-4846 / ADR-157 §2.5. Кандидат вытесняет существующий стрим только
+// при соотношении зрителей >= 1.5× (защита от «трепания» при колебаниях).
+const STREAM_HYSTERESIS_RATIO = parseFloat(
+  process.env.BROADCAST_STREAM_HYSTERESIS_RATIO ?? '1.5',
+);
+// KS-4846 / ADR-157 §2.5. Минимум подписок у кандидата, чтобы вообще
+// рассматривать вытеснение (защита от «выбить пустой ради почти-пустого»).
+const STREAM_CANDIDATE_MIN_SUBS = 3;
+// KS-4846 / ADR-157 §2.6. Каждый новый стрим удерживается не менее 10 мин
+// после старта — защита от переключений при стартовом шуме зрителей.
+const STREAM_HOLD_TTL_SEC = parseInt(
+  process.env.BROADCAST_STREAM_HOLD_SECONDS ?? '600',
+  10,
+);
+const STREAM_HOLD_KEY_PREFIX = 'broadcast:stream-hold:';
+// KS-4846 / ADR-157 §2.7. Учащённый PGN-опрос для «выпавших с зрителями»:
+// раундов ongoing, не имеющих стрима, но с subs >= 1. Тик 30 сек — на
+// порядок быстрее slow round-robin (5 мин).
+const FAST_POLL_INTERVAL_MS = parseInt(
+  process.env.BROADCAST_FAST_POLL_INTERVAL_MS ?? '30000',
+  10,
+);
+const MAX_FAST_POLLS_PER_TICK = parseInt(
+  process.env.BROADCAST_MAX_FAST_POLLS ?? '20',
+  10,
+);
+const FAST_POLL_LOCK_KEY = 'broadcast:fast-poll:lock';
+const FAST_POLL_LOCK_TTL_SEC = 25;
+const FAST_POLL_COOLDOWN_TTL_SEC = 25;
+const FAST_POLL_COOLDOWN_KEY_PREFIX = 'broadcast:fast-poll-cooldown:';
+// KS-4846 / ADR-157 §2.9. Цикл приоритизации стримов — тик 30 сек,
+// совпадает с fast poll (чтобы решения о перестановках были согласованы).
+const PRIORITY_EVALUATE_INTERVAL_MS = 30_000;
+const PRIORITY_LOCK_KEY = 'broadcast:stream-priority:lock';
+const PRIORITY_LOCK_TTL_SEC = 25;
+// KS-4846 / ADR-157 §2.3. Redis-хеш активных WS-подписок per round
+// (агрегировано по репликам через события subscribe/unsubscribe/disconnect).
+const WS_SUBS_HASH_KEY = 'broadcast:ws-subs';
+// KS-4846 / ADR-157 §2.4.2. Публикация gauge из Redis-хеша — раз в 30 сек.
+const WS_SUBS_GAUGE_INTERVAL_MS = 30_000;
 const FETCH_TIMEOUT_MS = 30_000;
 const FETCH_COOLDOWN_TTL = 60 * 60;
 const SYNC_LOCK_KEY = 'broadcast:sync:lock';
@@ -152,6 +197,26 @@ const PENDING_WINDOW_UPPER_MS = 15 * 60 * 1000;
 const PENDING_WINDOW_LOWER_MS = 24 * 60 * 60 * 1000;
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+// KS-4846 / ADR-157 §2.4.1. Метки для counter
+// `broadcast_lichess_requests_total`. Строго ограничены — расширять только
+// вместе с sync-metrics.ts.
+type LichessEndpointLabel =
+  | 'broadcasts_list'
+  | 'round_metadata'
+  | 'round_pgn'
+  | 'round_stream_open'
+  | 'pending_metadata';
+type LichessStatusLabel =
+  | '200'
+  | '400'
+  | '401'
+  | '404'
+  | '429'
+  | '5xx'
+  | 'timeout'
+  | 'abort'
+  | 'err';
 
 interface LichessBroadcast {
   tour: {
@@ -517,6 +582,12 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   // KS-4842. Watchdog и rotation-таймеры для стримов.
   private streamsWatchdogTimer: NodeJS.Timeout | null = null;
   private streamsRotationTimer: NodeJS.Timeout | null = null;
+  // KS-4846 / ADR-157 §2.9. Единый тик приоритизации + fast poll (30 сек).
+  private priorityTickTimer: NodeJS.Timeout | null = null;
+  // KS-4846 / ADR-157 §2.4.2. Список раундов, для которых мы уже выставили
+  // gauge — нужен, чтобы при уходе раунда из active-выборки убрать метку
+  // (иначе gauge живёт как «замороженный» с прошлым значением).
+  private readonly wsSubsGaugeRounds = new Set<string>();
   /**
    * KS-4842. Собственный undici Agent для стримов — изолирует пул от
    * глобального dispatcher'а (KS-4841 указывал на общее «загрязнение»
@@ -751,6 +822,24 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       STREAM_ROTATION_INTERVAL_MIN * 60_000,
     );
 
+    // KS-4846 / ADR-157 §2.9. Единый тик приоритизации + fast poll.
+    // Первый запуск отложен на 5 сек — startup даёт time для warm-up
+    // Redis/gateway и первых WS-подписок.
+    setTimeout(() => {
+      this.runPriorityAndFastPollTick().catch((e: unknown) =>
+        this.logger.error(
+          `[broadcast-sync] Initial priority tick failed: ${formatFetchError(e)}`,
+        ),
+      );
+    }, 5000);
+    this.priorityTickTimer = setInterval(() => {
+      this.runPriorityAndFastPollTick().catch((e: unknown) =>
+        this.logger.error(
+          `[broadcast-sync] Priority tick failed: ${formatFetchError(e)}`,
+        ),
+      );
+    }, PRIORITY_EVALUATE_INTERVAL_MS);
+
     this.logger.log(
       '[broadcast-sync] Running (initial syncs scheduled in background)',
     );
@@ -796,6 +885,231 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * KS-4846 / ADR-157 §2.9. Единый 30-сек тик:
+   *   phase 0 — `evaluateStreamPriorities`: под собственным Redis-локом
+   *     решает, кого стримить, кого выбить, а также публикует gauge
+   *     `broadcast_ws_active_subscriptions` (§2.4.2).
+   *   phase 1 — `runFastPollTick`: под отдельным локом опрашивает раунды
+   *     с subs >= 1, не имеющие стрима.
+   *
+   * Оба лока — Redis SET NX EX (multi-instance safe). При провале лока
+   * — no-op, следующая реплика возьмёт своё окно.
+   */
+  private async runPriorityAndFastPollTick(): Promise<void> {
+    await this.evaluateStreamPriorities().catch((e: unknown) =>
+      this.logger.warn(
+        `[broadcast-sync] evaluateStreamPriorities failed: ${(e as Error).message}`,
+      ),
+    );
+    await this.runFastPollTick().catch((e: unknown) =>
+      this.logger.warn(
+        `[broadcast-sync] runFastPollTick failed: ${(e as Error).message}`,
+      ),
+    );
+  }
+
+  /**
+   * KS-4846 / ADR-157 §2.9. Пересчитать топ-8 раундов по WS-подпискам,
+   * при необходимости — переставить стримы с учётом hold TTL и
+   * гистерезиса 1.5×. Также обновляет gauge `broadcast_ws_active_subscriptions`.
+   *
+   * Возвращает результат (для тестов) — но публичный API — `void`.
+   */
+  async evaluateStreamPriorities(): Promise<void> {
+    if (!(await this.acquireLock(PRIORITY_LOCK_KEY, PRIORITY_LOCK_TTL_SEC))) {
+      return;
+    }
+    const startedAt = Date.now();
+    try {
+      const subs = await this.readWsSubs();
+
+      // §2.4.2. Публикуем gauge для всех известных раундов, для ушедших
+      // — снимаем метку.
+      const seenNow = new Set<string>();
+      for (const [roundId, count] of subs) {
+        if (count <= 0) continue;
+        this.metrics.setWsActiveSubscriptions(roundId, count);
+        this.wsSubsGaugeRounds.add(roundId);
+        seenNow.add(roundId);
+      }
+      for (const roundId of Array.from(this.wsSubsGaugeRounds)) {
+        if (!seenNow.has(roundId)) {
+          this.metrics.removeWsActiveSubscription(roundId);
+          this.wsSubsGaugeRounds.delete(roundId);
+        }
+      }
+
+      const ongoingRounds = await this.prisma.broadcastRound.findMany({
+        where: { status: 'ongoing' },
+        select: { lichessRoundId: true },
+      });
+
+      const scored = ongoingRounds
+        .map((r) => ({
+          roundId: r.lichessRoundId,
+          score: subs.get(r.lichessRoundId) ?? 0,
+        }))
+        .sort((a, b) => b.score - a.score);
+
+      // §2.9 п.5. targetTop8 — только со score > 0. Свободные слоты не
+      // форсим (нет интереса — нет стрима).
+      const targetTop8 = scored
+        .filter((s) => s.score > 0)
+        .slice(0, MAX_CONCURRENT_STREAMS);
+      const targetSet = new Set(targetTop8.map((s) => s.roundId));
+      const currentSet = new Set(this.activeStreams.keys());
+
+      // §2.9 п.7. Для каждого претендента из targetTop8 — либо старт на
+      // свободный слот, либо попытка вытеснения слабейшего.
+      for (const candidate of targetTop8) {
+        if (currentSet.has(candidate.roundId)) continue;
+        if (this.activeStreams.size < MAX_CONCURRENT_STREAMS) {
+          // Свободный слот — просто стартовать. Метрика promoted.
+          const res = this.startStream(candidate.roundId);
+          if (res === 'ok') {
+            this.metrics.recordStreamPriorityChange('promoted');
+            currentSet.add(candidate.roundId);
+            this.logger.log(
+              `[broadcast-sync] priority: promoted ${candidate.roundId} to stream (subs=${candidate.score})`,
+            );
+          }
+          continue;
+        }
+
+        // Слоты заняты — ищем слабейшего среди текущих, чей score <
+        // score(candidate)/1.5 и мин 3 subs у кандидата.
+        if (candidate.score < STREAM_CANDIDATE_MIN_SUBS) {
+          this.metrics.recordStreamPriorityChange('no_slot');
+          continue;
+        }
+        let weakest: { roundId: string; score: number } | null = null;
+        for (const roundId of currentSet) {
+          const s = subs.get(roundId) ?? 0;
+          if (weakest === null || s < weakest.score) {
+            weakest = { roundId, score: s };
+          }
+        }
+        if (!weakest) {
+          this.metrics.recordStreamPriorityChange('no_slot');
+          continue;
+        }
+        if (candidate.score < STREAM_HYSTERESIS_RATIO * weakest.score) {
+          this.metrics.recordStreamPriorityChange('blocked_by_hysteresis');
+          continue;
+        }
+        const holdKey = `${STREAM_HOLD_KEY_PREFIX}${weakest.roundId}`;
+        const holdActive = await this.redis.exists(holdKey).catch(() => 0);
+        if (holdActive) {
+          this.metrics.recordStreamPriorityChange('blocked_by_hold');
+          continue;
+        }
+        // Все проверки пройдены — выбиваем weakest, стартуем candidate.
+        this.abortStream(weakest.roundId);
+        currentSet.delete(weakest.roundId);
+        this.metrics.recordStreamPriorityChange('demoted');
+        this.logger.log(
+          `[broadcast-sync] priority: demoted ${weakest.roundId} (subs=${weakest.score}) for ${candidate.roundId} (subs=${candidate.score})`,
+        );
+        const res = this.startStream(candidate.roundId);
+        if (res === 'ok') {
+          this.metrics.recordStreamPriorityChange('promoted');
+          currentSet.add(candidate.roundId);
+        }
+      }
+      // §2.9. Раунды из currentSet вне targetTop8 — не трогаем: hold
+      // защищает, а если появится претендент — обработается выше.
+      void targetSet;
+    } finally {
+      await this.redis.del(PRIORITY_LOCK_KEY).catch(() => {});
+      this.metrics.recordStreamEvaluation((Date.now() - startedAt) / 1000);
+    }
+  }
+
+  /**
+   * KS-4846 / ADR-157 §2.3. Прочитать Redis-хеш `broadcast:ws-subs`
+   * в Map<roundId, count>. Записи с count <= 0 отбрасываются (защита от
+   * дрейфа — уборка их отдельным периодическим тиком в gateway).
+   */
+  private async readWsSubs(): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    try {
+      const raw = await this.redis.hgetall(WS_SUBS_HASH_KEY);
+      for (const [roundId, value] of Object.entries(raw)) {
+        const n = parseInt(value, 10);
+        if (Number.isFinite(n) && n > 0) out.set(roundId, n);
+      }
+    } catch (e: unknown) {
+      this.logger.warn(
+        `[broadcast-sync] readWsSubs failed: ${(e as Error).message}`,
+      );
+    }
+    return out;
+  }
+
+  /**
+   * KS-4846 / ADR-157 §2.7. Тик учащённого PGN-опроса для раундов
+   * `ongoing`, не имеющих стрима, но с subs >= 1.
+   *  - Redis-lock TTL 25 сек (§2.7).
+   *  - SELECT + сортировка `subs DESC, updatedAt ASC`.
+   *  - Cap 20, cooldown 25 сек per roundId (`broadcast:fast-poll-cooldown:<id>`).
+   *  - Между запросами — общий rateLimitDelay(1500 ms).
+   */
+  async runFastPollTick(): Promise<void> {
+    if (!(await this.acquireLock(FAST_POLL_LOCK_KEY, FAST_POLL_LOCK_TTL_SEC))) {
+      return;
+    }
+    try {
+      const subs = await this.readWsSubs();
+      if (subs.size === 0) return;
+
+      const ongoing = await this.prisma.broadcastRound.findMany({
+        where: { status: 'ongoing' },
+        select: { lichessRoundId: true, updatedAt: true },
+      });
+      const streamed = new Set(this.activeStreams.keys());
+      const candidates = ongoing
+        .map((r) => ({
+          roundId: r.lichessRoundId,
+          subs: subs.get(r.lichessRoundId) ?? 0,
+          updatedAt: r.updatedAt,
+        }))
+        .filter((r) => r.subs >= 1 && !streamed.has(r.roundId))
+        .sort((a, b) => {
+          if (b.subs !== a.subs) return b.subs - a.subs;
+          return a.updatedAt.getTime() - b.updatedAt.getTime();
+        })
+        .slice(0, MAX_FAST_POLLS_PER_TICK);
+
+      if (candidates.length === 0) return;
+
+      this.logger.log(
+        `[broadcast-sync] fast-poll tick: ${candidates.length} rounds (cap ${MAX_FAST_POLLS_PER_TICK})`,
+      );
+
+      for (let i = 0; i < candidates.length; i++) {
+        const c = candidates[i];
+        const cooldownKey = `${FAST_POLL_COOLDOWN_KEY_PREFIX}${c.roundId}`;
+        const cooldown = await this.redis.get(cooldownKey).catch(() => null);
+        if (cooldown) continue;
+
+        if (i > 0) await this.rateLimitDelay();
+        try {
+          await this.fetchAndProcessRoundPgn(c.roundId);
+        } catch (e: unknown) {
+          this.logger.warn(
+            `[broadcast-sync] fast-poll ${c.roundId} failed: ${formatFetchError(e)}`,
+          );
+        }
+        await this.redis
+          .set(cooldownKey, '1', 'EX', FAST_POLL_COOLDOWN_TTL_SEC)
+          .catch(() => {});
+      }
+    } finally {
+      await this.redis.del(FAST_POLL_LOCK_KEY).catch(() => {});
+    }
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.syncTimer) clearInterval(this.syncTimer);
@@ -803,6 +1117,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     if (this.streamsGaugeTimer) clearInterval(this.streamsGaugeTimer);
     if (this.streamsWatchdogTimer) clearInterval(this.streamsWatchdogTimer);
     if (this.streamsRotationTimer) clearInterval(this.streamsRotationTimer);
+    if (this.priorityTickTimer) clearInterval(this.priorityTickTimer);
 
     for (const [roundId, entry] of this.activeStreams) {
       entry.ctrl.abort();
@@ -837,13 +1152,74 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     return computeBackoffTtlSec(failures);
   }
 
-  private async lichessFetch(url: string, init?: RequestInit): Promise<Response> {
+  /**
+   * KS-4846 / ADR-157 §2.4.1. Классификация URL Lichess для метрики
+   * `broadcast_lichess_requests_total`. Если endpoint неизвестен —
+   * возвращаем null, инкрементировать не будем (защита от кардинальности).
+   * `hint` — явное указание вызывающей стороны (для случаев, когда
+   * `/broadcast/-/-/<id>` может быть вызван и как round_metadata, и как
+   * pending_metadata).
+   */
+  private classifyLichessEndpoint(
+    url: string,
+    hint?: LichessEndpointLabel,
+  ): LichessEndpointLabel | null {
+    if (hint) return hint;
+    // Стрим-open идёт напрямую через fetch(), не через lichessFetch —
+    // сюда попадаем только для не-стримовых запросов, но проверим на
+    // всякий.
+    if (url.includes('/stream/broadcast/round/')) return 'round_stream_open';
+    if (/\/broadcast\/round\/[^/?]+\.pgn/.test(url)) return 'round_pgn';
+    if (/\/broadcast\/-\/-\//.test(url)) return 'round_metadata';
+    if (/\/broadcast(\?|$)/.test(url)) return 'broadcasts_list';
+    return null;
+  }
+
+  /**
+   * KS-4846 / ADR-157 §2.4.1. Классификация HTTP-статуса или ошибки для
+   * метрики `broadcast_lichess_requests_total`.
+   */
+  private classifyLichessStatus(status: number): LichessStatusLabel {
+    if (status >= 200 && status < 300) return '200';
+    if (status === 400) return '400';
+    if (status === 401) return '401';
+    if (status === 404) return '404';
+    if (status === 429) return '429';
+    if (status >= 500 && status < 600) return '5xx';
+    return 'err';
+  }
+
+  private classifyLichessError(err: unknown): LichessStatusLabel {
+    if (err instanceof Error) {
+      // AbortError c reason=TimeoutError → timeout, иначе abort.
+      if (err.name === 'TimeoutError') return 'timeout';
+      if (err.name === 'AbortError') {
+        const cause = (err as Error & { cause?: unknown }).cause;
+        if (
+          cause &&
+          typeof cause === 'object' &&
+          (cause as { name?: string }).name === 'TimeoutError'
+        ) {
+          return 'timeout';
+        }
+        return 'abort';
+      }
+    }
+    return 'err';
+  }
+
+  private async lichessFetch(
+    url: string,
+    init?: RequestInit,
+    endpointHint?: LichessEndpointLabel,
+  ): Promise<Response> {
     const key = this.fetchKey(url);
     const until = this.endpointBackoffUntil.get(key) ?? 0;
     if (Date.now() < until) {
       const secsLeft = Math.ceil((until - Date.now()) / 1000);
       throw new Error(`Lichess 429 backoff active for ${key} (${secsLeft}s left)`);
     }
+    const endpoint = this.classifyLichessEndpoint(url, endpointHint);
     try {
       // KS-3334: опциональный bearer-токен для повышенных rate-лимитов
       // (Lichess: ~8000 req/h authenticated vs ~800 anonymous). Токен
@@ -860,6 +1236,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         headers,
         signal: init?.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
+      // KS-4846 §2.4.1. Единая точка инкремента — единственная зависимая
+      // от endpoint-классификации метрика.
+      if (endpoint) {
+        this.metrics.recordLichessRequest(
+          endpoint,
+          this.classifyLichessStatus(res.status),
+        );
+      }
       if (res.status === 429) {
         const failures = (this.endpointBackoffFails.get(key) ?? 0) + 1;
         this.endpointBackoffFails.set(key, failures);
@@ -885,6 +1269,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       }
       return res;
     } catch (e: unknown) {
+      // KS-4846 §2.4.1. Инкремент по типу ошибки. Не путать с 429 —
+      // 429 идёт через `res.status === 429`, а сюда падают сетевые сбои.
+      if (endpoint) {
+        this.metrics.recordLichessRequest(
+          endpoint,
+          this.classifyLichessError(e),
+        );
+      }
       // KS-4836. Раскрываем цепочку err.cause до системного code/syscall.
       this.logger.error(
         `[broadcast-sync] lichessFetch FAILED url=${url} error=${formatFetchError(e)}`,
@@ -1126,11 +1518,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         select: { lichessRoundId: true },
       });
 
-      // Exclude rounds that already have an active stream — they get data via
-      // streaming, no need to poll
+      // KS-4846 / ADR-157 §2.8. Slow pinned poll обслуживает раундов
+      // без зрителей — на них никто не смотрит, обновлять чаще 5 мин
+      // расход квоты Lichess без пользы. Раунды с subs >= 1 попадают в
+      // fast poll (30 сек, §2.7).
+      const subsMap = await this.readWsSubs();
       const streamedRoundIds = new Set(this.activeStreams.keys());
       const nonStreamedRounds = ongoingRounds.filter(
-        (r) => !streamedRoundIds.has(r.lichessRoundId),
+        (r) =>
+          !streamedRoundIds.has(r.lichessRoundId) &&
+          (subsMap.get(r.lichessRoundId) ?? 0) === 0,
       );
 
       const toFetch: typeof nonStreamedRounds = [];
@@ -1281,13 +1678,19 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       let result: 'promoted' | 'still_pending' | 'not_found' | 'err' = 'err';
       try {
         const url = `${LICHESS_API}/broadcast/-/-/${r.lichessRoundId}`;
-        const res = await this.lichessFetch(url, {
-          headers: {
-            'User-Agent': 'Kingside/1.0 (https://kingside.app)',
-            Accept: 'application/json',
+        // KS-4846 §2.4.1. Endpoint-hint `pending_metadata` — тот же URL
+        // используется и в refresh-loop как `round_metadata`.
+        const res = await this.lichessFetch(
+          url,
+          {
+            headers: {
+              'User-Agent': 'Kingside/1.0 (https://kingside.app)',
+              Accept: 'application/json',
+            },
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           },
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        });
+          'pending_metadata',
+        );
         if (res.status === 404) {
           result = 'not_found';
           this.logger.warn(
@@ -1496,11 +1899,11 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     // предел Lichess /api/broadcast). Конфигурируется ENV
     // `LICHESS_BROADCAST_NB` для оперативной подстройки без deploy.
     //
-    // NB: `MAX_CONCURRENT_STREAMS=50` ограничивает одновременные PGN-
-    // стримы — если live-турниров > 50, они стримятся «по очереди»
-    // через PGN-poll (5 циклов в минуту). Это не теряет данные, но
-    // отдельные раунды могут отставать на несколько минут. Если
-    // станет узким местом — поднять MAX_CONCURRENT_STREAMS отдельно.
+    // KS-4846 / ADR-157 §2.1. `MAX_CONCURRENT_STREAMS=8` — физический
+    // потолок Lichess на broadcast-подписки для user-аккаунта. Оставшимся
+    // ongoing раундам стрим недоступен: с subs >= 1 — обслуживает fast poll
+    // (30 сек, §2.7), с subs = 0 — обычный round-robin через phase 1
+    // pinned poll (5 циклов в минуту, §2.8).
     const nb = parseInt(process.env.LICHESS_BROADCAST_NB ?? '100', 10);
     const url = `${LICHESS_API}/broadcast?nb=${nb}`;
     let lastError: Error | null = null;
@@ -1990,29 +2393,53 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       // при каждом chunk'е, читается watchdog'ом.
       this.activeStreams.set(roundId, { ctrl, lastByteAt: Date.now() });
       const startedAt = Date.now();
+      // KS-4846 / ADR-157 §2.6. Минимум 10 мин удержания стрима после
+      // старта — защита от переключений на стартовом шуме зрителей.
+      // Ключ проверяется в evaluateStreamPriorities перед demotion.
+      this.redis
+        .set(
+          `${STREAM_HOLD_KEY_PREFIX}${roundId}`,
+          '1',
+          'EX',
+          STREAM_HOLD_TTL_SEC,
+        )
+        .catch(() => {
+          /* Redis-сбой не должен ломать старт стрима */
+        });
       this.runStream(roundId, ctrl.signal).then((reason) => {
         // KS-4842. Watchdog/rotation могли поставить метки на entry ДО
         // abort() — читаем их перед удалением, чтобы правильно записать
-        // причину закрытия.
+        // причину закрытия. KS-4846: сюда добавляется `demoted` из
+        // `abortStream()`.
         const entry = this.activeStreams.get(roundId) as
           | {
               ctrl: AbortController;
               lastByteAt: number;
               watchdogStale?: boolean;
               rotation?: boolean;
+              demoted?: boolean;
             }
           | undefined;
         this.activeStreams.delete(roundId);
         this.metrics.observeStreamDuration(
           (Date.now() - startedAt) / 1000,
         );
-        // Приоритет причин: watchdog > rotation > собственная причина из
-        // runStream ('round_finished' / 'rate_limit_429' / 'error' / 'aborted').
-        const effectiveReason: 'round_finished' | 'aborted' | 'error' | 'rate_limit_429' | 'watchdog_stale' | 'rotation' =
-          entry?.watchdogStale
-            ? 'watchdog_stale'
-            : entry?.rotation
-              ? 'rotation'
+        // Приоритет причин: watchdog > rotation > demoted > собственная
+        // причина из runStream ('round_finished' / 'rate_limit_429' /
+        // 'error' / 'aborted').
+        const effectiveReason:
+          | 'round_finished'
+          | 'aborted'
+          | 'error'
+          | 'rate_limit_429'
+          | 'watchdog_stale'
+          | 'rotation'
+          | 'demoted' = entry?.watchdogStale
+          ? 'watchdog_stale'
+          : entry?.rotation
+            ? 'rotation'
+            : entry?.demoted
+              ? 'demoted'
               : reason;
         this.metrics.recordStreamEnded(effectiveReason);
       });
@@ -2025,6 +2452,33 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       this.metrics.recordStreamStarted('error');
       return 'error';
     }
+  }
+
+  /**
+   * KS-4846 / ADR-157 §2.9. Принудительная остановка стрима с меткой
+   * причины `demoted` — используется циклом приоритизации при вытеснении
+   * менее популярного раунда более популярным. Также сбрасывает hold TTL
+   * (у раунда уже нет активного стрима — держать замок бессмысленно).
+   * Возвращает `true`, если стрим был активен и abort послан.
+   */
+  abortStream(roundId: string): boolean {
+    const entry = this.activeStreams.get(roundId) as
+      | {
+          ctrl: AbortController;
+          lastByteAt: number;
+          watchdogStale?: boolean;
+          rotation?: boolean;
+          demoted?: boolean;
+        }
+      | undefined;
+    if (!entry) return false;
+    entry.demoted = true;
+    entry.ctrl.abort();
+    // Hold-ключ можно оставить в Redis до истечения TTL — он всё равно
+    // проверяется только если стрим есть. Но при перезапуске раунда
+    // старый hold мешал бы новому старту, поэтому чистим явно.
+    this.redis.del(`${STREAM_HOLD_KEY_PREFIX}${roundId}`).catch(() => {});
+    return true;
   }
 
   private async runStream(
@@ -2055,6 +2509,12 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             ? { dispatcher: this.streamDispatcher }
             : {}),
         } as RequestInit);
+        // KS-4846 §2.4.1. Один инкремент на open по HTTP-статусу —
+        // дальше stream-события не считаем (стрим — не единичный запрос).
+        this.metrics.recordLichessRequest(
+          'round_stream_open',
+          this.classifyLichessStatus(res.status),
+        );
         if (res.status === 429) {
           this.logger.warn(
             `[broadcast-sync] Stream ${roundId}: 429 rate limited, stopping stream (PGN poll will take over)`,
@@ -2092,6 +2552,13 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         if (!signal.aborted) return 'round_finished';
       } catch (e: unknown) {
         if (signal.aborted) break;
+        // KS-4846 §2.4.1. Считаем сетевой сбой на open как отдельный
+        // исход. Если ошибка возникла уже во время чтения тела — это
+        // тоже считается «попыткой», перезаписи по одному open здесь нет.
+        this.metrics.recordLichessRequest(
+          'round_stream_open',
+          this.classifyLichessError(e),
+        );
         this.logger.warn(
           `[broadcast-sync] Stream ${roundId} disconnected: ${formatFetchError(e)}. Retry in ${retryDelay}ms`,
         );
