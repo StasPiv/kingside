@@ -142,6 +142,19 @@ export class BroadcastGateway
 
     this.logger.log('Subscribed to Redis broadcast channels');
 
+    // KS-4850. Одноразовая уборка хеша от «мусора» KS-4846: раньше
+    // ключами были UUID нашей БД, а сервис читает по `lichessRoundId`
+    // (ADR-157 §2.4.2). После этого фикса writer и reader используют
+    // единый ключ `lichessRoundId`; накопленные UUID'ы не будут читаться
+    // ни fast poll'ом, ни evaluateStreamPriorities и висят до суточного
+    // reset'а. Явный DEL при старте pod'а мгновенно приводит хеш в
+    // консистентное состояние. Идемпотентно между репликами.
+    await this.redis
+      .del(WS_SUBS_HASH_KEY)
+      .catch((e: Error) =>
+        this.logger.warn(`ws-subs initial reset failed: ${e.message}`),
+      );
+
     // KS-4846 / ADR-157 §2.3. Периодическая уборка Redis-хеша от
     // «мусорных» записей и суточный полный сброс.
     this.wsSubsCleanupTimer = setInterval(() => {
@@ -173,25 +186,45 @@ export class BroadcastGateway
 
   handleDisconnect(client: Socket): void {
     this.metrics.decWsConnection();
-    // KS-4846 / ADR-157 §2.3. При разрыве соединения декрементируем
-    // счётчик для КАЖДОЙ комнаты `broadcast:*`, в которой клиент был.
-    // handleUnsubscribe в этом сценарии не вызывается — socket.io просто
-    // рвёт соединение, поэтому подсчёт должен идти прямо здесь.
+    // KS-4846 / ADR-157 §2.3 + KS-4850 fix. При разрыве соединения
+    // декрементируем счётчик по `lichessRoundId` — сервис (fast poll и
+    // evaluateStreamPriorities) читает хеш именно по нему. Mapping
+    // «наш UUID → lichessRoundId» держим в `client.data.broadcastLichessIds`,
+    // наполняется в `handleSubscribe`. Комнаты `broadcast:<UUID>`
+    // остаются идентификатором нашей БД (это то, чем клиент оперирует).
+    const mapping = this.getLichessIdMap(client);
     for (const room of client.rooms) {
       if (typeof room === 'string' && room.startsWith(WS_ROOM_PREFIX)) {
-        const roundId = room.slice(WS_ROOM_PREFIX.length);
-        if (roundId) {
-          this.redis
-            .hincrby(WS_SUBS_HASH_KEY, roundId, -1)
-            .catch((e: Error) =>
-              this.logger.warn(
-                `ws-subs hincrby(disconnect ${roundId}) failed: ${e.message}`,
-              ),
-            );
-        }
+        const uuid = room.slice(WS_ROOM_PREFIX.length);
+        if (!uuid) continue;
+        const lichessId = mapping.get(uuid);
+        if (!lichessId) continue; // не было handleSubscribe → hincrby и не делали
+        this.redis
+          .hincrby(WS_SUBS_HASH_KEY, lichessId, -1)
+          .catch((e: Error) =>
+            this.logger.warn(
+              `ws-subs hincrby(disconnect ${lichessId}) failed: ${e.message}`,
+            ),
+          );
       }
     }
+    mapping.clear();
     this.logger.log(`Broadcast client disconnected: ${client.id}`);
+  }
+
+  /**
+   * KS-4850. Достаём или создаём Map<UUID, lichessRoundId> в
+   * `client.data`. Нужен для симметричного декремента при
+   * unsubscribe/disconnect по тому же ключу, что использовал HINCRBY +1.
+   */
+  private getLichessIdMap(client: Socket): Map<string, string> {
+    const data = client.data as {
+      broadcastLichessIds?: Map<string, string>;
+    };
+    if (!data.broadcastLichessIds) {
+      data.broadcastLichessIds = new Map<string, string>();
+    }
+    return data.broadcastLichessIds;
   }
 
   @SubscribeMessage(BroadcastEvents.SUBSCRIBE)
@@ -202,15 +235,6 @@ export class BroadcastGateway
     const { roundId } = data;
     await client.join(`broadcast:${roundId}`);
     this.metrics.incSubscribe(roundId);
-    // KS-4846 / ADR-157 §2.3. Инкремент агрегированного счётчика
-    // Redis-хеша broadcast:ws-subs — вход в приоритизацию стримов.
-    await this.redis
-      .hincrby(WS_SUBS_HASH_KEY, roundId, 1)
-      .catch((e: Error) =>
-        this.logger.warn(
-          `ws-subs hincrby(sub ${roundId}) failed: ${e.message}`,
-        ),
-      );
     this.logger.log(`Client ${client.id} subscribed to round ${roundId}`);
 
     const round = await this.prisma.broadcastRound.findUnique({
@@ -218,6 +242,21 @@ export class BroadcastGateway
       include: { games: true },
     });
     if (!round) return;
+
+    // KS-4846 / ADR-157 §2.3 + KS-4850 fix. Инкремент по `lichessRoundId` —
+    // именно этот ключ читает `evaluateStreamPriorities` /
+    // `runFastPollTick`. Раньше HINCRBY шёл по UUID нашей БД, из-за чего
+    // весь механизм приоритизации / fast poll не подхватывал реальные
+    // подписки (KS-4850). Mapping держим в `client.data`, чтобы при
+    // unsubscribe / disconnect декрементировать симметрично.
+    this.getLichessIdMap(client).set(roundId, round.lichessRoundId);
+    await this.redis
+      .hincrby(WS_SUBS_HASH_KEY, round.lichessRoundId, 1)
+      .catch((e: Error) =>
+        this.logger.warn(
+          `ws-subs hincrby(sub ${round.lichessRoundId}) failed: ${e.message}`,
+        ),
+      );
 
     const syncPayload = {
       roundId,
@@ -266,14 +305,23 @@ export class BroadcastGateway
   ): Promise<void> {
     const { roundId } = data;
     await client.leave(`broadcast:${roundId}`);
-    // KS-4846 / ADR-157 §2.3. Декремент счётчика — симметрично subscribe.
-    await this.redis
-      .hincrby(WS_SUBS_HASH_KEY, roundId, -1)
-      .catch((e: Error) =>
-        this.logger.warn(
-          `ws-subs hincrby(unsub ${roundId}) failed: ${e.message}`,
-        ),
-      );
+    // KS-4846 / ADR-157 §2.3 + KS-4850 fix. Декремент по `lichessRoundId`
+    // — симметрично subscribe. Если mapping'а нет (клиент шлёт
+    // unsubscribe без предыдущего subscribe — маловероятно) — тихо
+    // пропускаем: fallback-декремент по чужому ключу может увести
+    // счётчик в отрицательное значение.
+    const mapping = this.getLichessIdMap(client);
+    const lichessId = mapping.get(roundId);
+    if (lichessId) {
+      mapping.delete(roundId);
+      await this.redis
+        .hincrby(WS_SUBS_HASH_KEY, lichessId, -1)
+        .catch((e: Error) =>
+          this.logger.warn(
+            `ws-subs hincrby(unsub ${lichessId}) failed: ${e.message}`,
+          ),
+        );
+    }
     this.logger.log(`Client ${client.id} unsubscribed from round ${roundId}`);
   }
 

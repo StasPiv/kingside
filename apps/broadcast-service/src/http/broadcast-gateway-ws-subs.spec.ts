@@ -1,19 +1,29 @@
 /**
- * KS-4846 / ADR-157 §2.3. Юнит-тесты трекинга WS-подписок в
- * `BroadcastGateway`. Проверяем что subscribe/unsubscribe/disconnect
- * инкрементируют / декрементируют Redis-хеш `broadcast:ws-subs`, и что
- * периодическая уборка удаляет ключи с count <= 0.
+ * KS-4846 / ADR-157 §2.3 + KS-4850 fix. Юнит-тесты трекинга WS-подписок
+ * в `BroadcastGateway`.
+ *
+ * KS-4850: клиент подписывается по нашему UUID (из URL), а сервис
+ * (fast poll / evaluateStreamPriorities) читает `broadcast:ws-subs` по
+ * `lichessRoundId`. Ключ в хеше — ВСЕГДА `lichessRoundId`; gateway
+ * резолвит UUID → lichessRoundId через БД и держит mapping в `client.data`.
  */
 import { BroadcastGateway } from './broadcast.gateway';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { MetricsService } from '../metrics/metrics.service';
 import type { RedisService } from '../redis/redis.service';
 
-function makeMocks() {
+function makeMocks(overrides?: {
+  round?: { lichessRoundId: string } | null;
+}) {
   const prisma = {
     broadcastRound: {
-      // findUnique используется в handleSubscribe (после инкремента).
-      findUnique: jest.fn().mockResolvedValue(null),
+      findUnique: jest.fn().mockResolvedValue(
+        overrides?.round === undefined
+          ? { lichessRoundId: 'lrid-42', games: [] }
+          : overrides.round === null
+            ? null
+            : { ...overrides.round, games: [] },
+      ),
     },
   };
   const metrics = {
@@ -42,6 +52,7 @@ function makeGateway(mocks: ReturnType<typeof makeMocks>): BroadcastGateway {
 function makeSocket(rooms: string[] = []): {
   id: string;
   rooms: Set<string>;
+  data: Record<string, unknown>;
   join: jest.Mock;
   leave: jest.Mock;
   emit: jest.Mock;
@@ -49,68 +60,117 @@ function makeSocket(rooms: string[] = []): {
   return {
     id: 'sock-1',
     rooms: new Set(rooms),
+    data: {},
     join: jest.fn(),
     leave: jest.fn(),
     emit: jest.fn(),
   };
 }
 
-describe('KS-4846 / ADR-157 §2.3 — трекинг WS-подписок в BroadcastGateway', () => {
-  it('handleSubscribe → hincrby(broadcast:ws-subs, roundId, +1)', async () => {
-    const mocks = makeMocks();
+describe('KS-4846 / ADR-157 §2.3 + KS-4850 — трекинг WS-подписок в BroadcastGateway', () => {
+  it('handleSubscribe → hincrby по lichessRoundId (резолв UUID → lichessRoundId)', async () => {
+    const mocks = makeMocks({ round: { lichessRoundId: 'lrid-42' } });
     const gw = makeGateway(mocks);
     const sock = makeSocket();
 
-    await gw.handleSubscribe(sock as never, { roundId: 'r-42' });
+    await gw.handleSubscribe(sock as never, { roundId: 'uuid-42' });
 
     expect(mocks.redis.hincrby).toHaveBeenCalledWith(
       'broadcast:ws-subs',
-      'r-42',
+      'lrid-42',
       1,
     );
-    expect(sock.join).toHaveBeenCalledWith('broadcast:r-42');
-    expect(mocks.metrics.incSubscribe).toHaveBeenCalledWith('r-42');
+    expect(sock.join).toHaveBeenCalledWith('broadcast:uuid-42');
+    expect(mocks.metrics.incSubscribe).toHaveBeenCalledWith('uuid-42');
+    // Mapping сохранён в client.data
+    const map = (sock.data as { broadcastLichessIds: Map<string, string> })
+      .broadcastLichessIds;
+    expect(map.get('uuid-42')).toBe('lrid-42');
   });
 
-  it('handleUnsubscribe → hincrby(broadcast:ws-subs, roundId, -1)', async () => {
+  it('handleSubscribe — раунд не найден в БД → hincrby НЕ вызывается', async () => {
+    const mocks = makeMocks({ round: null });
+    const gw = makeGateway(mocks);
+    const sock = makeSocket();
+
+    await gw.handleSubscribe(sock as never, { roundId: 'uuid-missing' });
+
+    expect(mocks.redis.hincrby).not.toHaveBeenCalled();
+    expect(sock.join).toHaveBeenCalled(); // room-подписка всё равно работает
+  });
+
+  it('handleUnsubscribe → hincrby -1 по lichessRoundId из mapping', async () => {
+    const mocks = makeMocks({ round: { lichessRoundId: 'lrid-42' } });
+    const gw = makeGateway(mocks);
+    const sock = makeSocket();
+
+    await gw.handleSubscribe(sock as never, { roundId: 'uuid-42' });
+    mocks.redis.hincrby.mockClear();
+    await gw.handleUnsubscribe(sock as never, { roundId: 'uuid-42' });
+
+    expect(mocks.redis.hincrby).toHaveBeenCalledWith(
+      'broadcast:ws-subs',
+      'lrid-42',
+      -1,
+    );
+    expect(sock.leave).toHaveBeenCalledWith('broadcast:uuid-42');
+  });
+
+  it('handleUnsubscribe без предшествующего subscribe → hincrby НЕ вызывается', async () => {
     const mocks = makeMocks();
     const gw = makeGateway(mocks);
     const sock = makeSocket();
 
-    await gw.handleUnsubscribe(sock as never, { roundId: 'r-42' });
+    await gw.handleUnsubscribe(sock as never, { roundId: 'uuid-42' });
 
-    expect(mocks.redis.hincrby).toHaveBeenCalledWith(
-      'broadcast:ws-subs',
-      'r-42',
-      -1,
-    );
-    expect(sock.leave).toHaveBeenCalledWith('broadcast:r-42');
+    expect(mocks.redis.hincrby).not.toHaveBeenCalled();
   });
 
-  it('handleDisconnect → decrement для каждой broadcast:* комнаты клиента', () => {
+  it('handleDisconnect → decrement по lichessRoundId для каждой broadcast:* комнаты', async () => {
+    // Наполняем mapping вручную, чтобы протестировать чистый disconnect.
     const mocks = makeMocks();
     const gw = makeGateway(mocks);
-    const sock = makeSocket(['broadcast:r-1', 'broadcast:r-2', 'sock-1']);
+    const sock = makeSocket([
+      'broadcast:uuid-1',
+      'broadcast:uuid-2',
+      'sock-1',
+    ]);
+    sock.data.broadcastLichessIds = new Map<string, string>([
+      ['uuid-1', 'lrid-1'],
+      ['uuid-2', 'lrid-2'],
+    ]);
 
     gw.handleDisconnect(sock as never);
 
     expect(mocks.redis.hincrby).toHaveBeenCalledWith(
       'broadcast:ws-subs',
-      'r-1',
+      'lrid-1',
       -1,
     );
     expect(mocks.redis.hincrby).toHaveBeenCalledWith(
       'broadcast:ws-subs',
-      'r-2',
+      'lrid-2',
       -1,
     );
-    // не-broadcast комнаты (sock-1 — собственная room клиента) не трогаем
+    // не-broadcast комнаты (sock-1 — собственная room клиента) не трогаем.
     expect(mocks.redis.hincrby).not.toHaveBeenCalledWith(
       'broadcast:ws-subs',
       'sock-1',
       -1,
     );
+    // Ключи без mapping не декрементируются (защита от промаха ключа).
     expect(mocks.metrics.decWsConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleDisconnect — комната без записи в mapping → hincrby НЕ вызывается', () => {
+    const mocks = makeMocks();
+    const gw = makeGateway(mocks);
+    const sock = makeSocket(['broadcast:uuid-unknown']);
+    // mapping пуст
+
+    gw.handleDisconnect(sock as never);
+
+    expect(mocks.redis.hincrby).not.toHaveBeenCalled();
   });
 
   it('cleanupWsSubs — HDEL ключей с count <= 0 (в т.ч. отрицательные)', async () => {
@@ -128,7 +188,6 @@ describe('KS-4846 / ADR-157 §2.3 — трекинг WS-подписок в Broa
     expect(mocks.redis.hdel).toHaveBeenCalledTimes(1);
     const [key, ...rest] = mocks.redis.hdel.mock.calls[0];
     expect(key).toBe('broadcast:ws-subs');
-    // порядок ключей может отличаться — проверяем содержимое как множество.
     expect(new Set(rest)).toEqual(new Set(['zero', 'neg', 'broken']));
   });
 
