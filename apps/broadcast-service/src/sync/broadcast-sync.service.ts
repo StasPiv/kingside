@@ -636,6 +636,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `[broadcast-sync] Lichess API reachable: ${testRes.status}`,
       );
+      // KS-4845. Тело не читаем, значит undici держит соединение
+      // waiting-for-body. Дренируем, чтобы вернуть сокет в keep-alive
+      // pool.
+      await testRes.body?.cancel().catch(() => {});
     } catch (e: unknown) {
       // KS-4836. Раскрываем цепочку err.cause до системного code/syscall.
       this.logger.error(
@@ -865,6 +869,11 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           `[broadcast-sync] Lichess 429 on ${url}. ` +
             `Per-endpoint backoff: key=${key} failures=${failures} ttl=${ttlSec}s`,
         );
+        // KS-4845. Дренаж тела до throw — иначе undici держит TCP
+        // waiting-for-body, слот в keep-alive-pool не освобождается, и
+        // через ~сотни утечек новые connect() висят до 30-сек таймаута
+        // → массовые ETIMEDOUT (см. разбор в KS-4841).
+        await res.body?.cancel().catch(() => {});
         throw new Error('Lichess 429 Too Many Requests');
       }
       // KS-3334: успех → сбрасываем failures-счётчик (но не до 0 сразу —
@@ -1284,11 +1293,15 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(
             `[broadcast-sync] pending-heal ${r.lichessRoundId}: 404 (round removed on Lichess)`,
           );
+          // KS-4845. Тело не читаем — дренируем, иначе socket leak.
+          await res.body?.cancel().catch(() => {});
         } else if (!res.ok) {
           result = 'err';
           this.logger.warn(
             `[broadcast-sync] pending-heal ${r.lichessRoundId}: HTTP ${res.status}`,
           );
+          // KS-4845. Тело не читаем — дренируем, иначе socket leak.
+          await res.body?.cancel().catch(() => {});
         } else {
           const body = (await res.json()) as {
             round?: { finished?: boolean; ongoing?: boolean };
@@ -1430,6 +1443,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         `[broadcast-sync] PGN poll ${lichessRoundId} HTTP ${res.status}`,
       );
+      // KS-4845. Тело не читаем — дренируем, иначе socket leak.
+      await res.body?.cancel().catch(() => {});
       return;
     }
     const pgn = await res.text();
@@ -1500,7 +1515,11 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           },
           signal,
         });
-        if (!res.ok) throw new Error(`Lichess API error: ${res.status}`);
+        if (!res.ok) {
+          // KS-4845. Тело не читаем — дренируем перед throw.
+          await res.body?.cancel().catch(() => {});
+          throw new Error(`Lichess API error: ${res.status}`);
+        }
         const text = await res.text(); // signal aborts body read too
         const broadcasts: LichessBroadcast[] = [];
         for (const line of text.split('\n')) {
@@ -1833,6 +1852,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
               `[broadcast-sync] round-metadata fetch ${r.lichessRoundId} failed: HTTP ${res.status}`,
             );
           }
+          // KS-4845. Тело не читаем — дренируем перед continue.
+          await res.body?.cancel().catch(() => {});
           continue;
         }
         const body = (await res.json()) as {
@@ -1916,6 +1937,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         await this.redis
           .set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL)
           .catch(() => {});
+        // KS-4845. Тело не читаем — дренируем перед return.
+        await res.body?.cancel().catch(() => {});
         return true;
       }
       const pgn = await res.text();
@@ -2036,9 +2059,15 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(
             `[broadcast-sync] Stream ${roundId}: 429 rate limited, stopping stream (PGN poll will take over)`,
           );
+          // KS-4845. Дренаж тела до return — см. lichessFetch выше.
+          await res.body?.cancel().catch(() => {});
           return 'rate_limit_429';
         }
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok || !res.body) {
+          // KS-4845. Если body есть, но !res.ok — дренируем перед throw.
+          await res.body?.cancel().catch(() => {});
+          throw new Error(`HTTP ${res.status}`);
+        }
         retryDelay = 2000;
         const decoder = new TextDecoder();
         let buffer = '';
