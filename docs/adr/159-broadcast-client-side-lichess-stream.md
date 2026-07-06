@@ -266,12 +266,12 @@ while (true) {
 2. **`broadcast_direct_stream_clients_total{result}`** (новая, `result ∈ {opened, closed_ok, closed_error, fallback_used}`) — считать на бэкенде через новый REST endpoint `POST /broadcasts/telemetry/direct-stream` (клиент шлёт beacon при open/close). Опциональная метрика, поднимает наблюдение за успешностью direct-stream в клиентской среде. Реализация — отдельной задачей после внедрения, чтобы не блокировать основной переход.
 3. **Frontend метрика `broadcast_client_stream_lag_ms`** (клиентская, если у проекта есть web-vitals endpoint) — разница между `lastMoveAt` из stream и `now()` на клиенте. Показывает end-to-end latency direct-stream.
 
-Что смотреть в первую неделю:
+Индикаторы работоспособности:
 - `broadcast_lichess_requests_total{endpoint="round_stream_open"}` → 0.
-- `broadcast_lichess_requests_total{endpoint="round_pgn"}` → рост ~5× (был fallback poll, стал основной).
+- `broadcast_lichess_requests_total{endpoint="round_pgn"}` → рост (был fallback poll, стал основной).
 - `broadcast_lichess_requests_total{status="429"}` → не должен расти. При росте: снизить `BROADCAST_MAX_FAST_POLLS` с 25.
 - `broadcast_sync_cycles_total{kind=full,result=ok}` → без просадки (~12/ч).
-- Опросить нескольких пользователей: работает ли direct-stream (F12 → Network → фильтр `lichess.org`).
+- Разовая проверка вручную: работает ли direct-stream (F12 → Network → фильтр `lichess.org`).
 
 ## 3. Что делают backend и frontend по этому ADR
 
@@ -426,16 +426,16 @@ flowchart LR
 
 10. **Автотесты Playwright с direct-stream:** e2e-сценарии, где qa открывает страницу и ждёт хода — сейчас через WS `broadcast:sync`. После перехода они увидят ход из direct-stream быстрее. Тесты не сломаются, но их таймауты можно ужесточить. Отдельная задача qa, не блокирует переход.
 
-11. **Rollback plan:** Возврат на `runStream()` — вернуть код (git revert соответствующих коммитов) + перевесить env-флаг feature-toggle. Ввести `BROADCAST_DIRECT_STREAM_ENABLED` (default `true` после релиза, `false` — старая логика с серверными стримами). Клиент: если сервер вернул флаг `false` в `/rounds` ответе или в WS handshake — не открывает direct fetch, полагается на WS `broadcast:sync` как раньше. Держим этот флаг в коде минимум 4 недели после стабилизации.
+11. **Rollback plan:** Возврат на `runStream()` — вернуть код (git revert соответствующих коммитов) + перевесить env-флаг feature-toggle. Ввести `BROADCAST_DIRECT_STREAM_ENABLED` (default `true` после релиза, `false` — старая логика с серверными стримами). Клиент: если сервер вернул флаг `false` в `/rounds` ответе или в WS handshake — не открывает direct fetch, полагается на WS `broadcast:sync` как раньше. Флаг живёт в коде до фазы KS-W (удаление старой ветки, §7 п.4).
 
 ## 7. План поэтапного внедрения
 
-Внедрение по частям, каждая фаза — отдельная задача с проверкой:
+Последовательность шагов, каждый — отдельная задача с проверкой:
 
 1. **KS-X (backend):** вынос `pgn-parser` в общий пакет, добавление `lichessRoundId` в `BroadcastRoundSummary`. Без функциональных изменений.
 2. **KS-Y (frontend):** реализация `useLichessPgnStream` за feature-флагом `BROADCAST_DIRECT_STREAM_ENABLED` (default `false`). Проверка на dev-стенде с включённым флагом: dev-агент проходит по нескольким ongoing раундам, убеждается что direct-stream открывается, парсит PGN, доставляет ходы; проверяются все три уровня деградации (§2.4) — принудительным блоком fetch на `lichess.org` в devtools.
-3. **KS-Z (backend + frontend):** релиз direct-stream за флагом `true` для всех пользователей. Мониторинг метрик из §2.10 в первую неделю. Feature-флаг остаётся в коде как страховка отката (см. §6 п.11).
-4. **KS-W (backend):** через 2–4 недели стабильной работы после KS-Z — удаление `runStream()` и связанных механизмов, перевод fast poll на роль единственного канала записи БД. Публикация deprecation-note в комментариях кода. Feature-флаг из §6 п.11 удаляется вместе со старой веткой.
+3. **KS-Z (backend + frontend):** развёртывание direct-stream за флагом `true` для всех пользователей. Feature-флаг остаётся в коде как механизм отката (см. §6 п.11).
+4. **KS-W (backend):** удаление `runStream()` и связанных механизмов, перевод fast poll на роль единственного канала записи БД. Публикация deprecation-note в комментариях кода. Feature-флаг из §6 п.11 удаляется вместе со старой веткой.
 5. **KS-V (backend, отложено):** telemetry endpoint для beacon от клиента (§2.10 п.2). Не обязателен для первого релиза.
 
 ## 8. Ссылки
