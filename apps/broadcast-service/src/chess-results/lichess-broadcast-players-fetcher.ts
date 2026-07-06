@@ -103,6 +103,10 @@ export class LichessBroadcastPlayersFetcher {
       this.logger.warn(
         `[lichess-players] HTTP ${res.status} for ${tourId}`,
       );
+      // KS-4845. Тело не читаем — освобождаем поток, иначе undici
+      // держит TCP-соединение в состоянии waiting-for-body и оно не
+      // возвращается в keep-alive-пул (разбор в KS-4841).
+      await res.body?.cancel().catch(() => {});
       return [];
     }
 
