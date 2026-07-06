@@ -252,6 +252,31 @@ interface LichessRound {
   startsAt?: number;
   ongoing?: boolean;
   finished?: boolean;
+  /**
+   * KS-4847 / ADR-158 §2.1. Массив пар, если Lichess их создал до старта
+   * раунда. Может отсутствовать (если TDs не завели сетку заранее) или
+   * приходить пустым.
+   */
+  games?: LichessRoundGame[];
+}
+
+/**
+ * KS-4847 / ADR-158 §2.1. Одна пара в metadata-ответе Lichess
+ * `/api/broadcast/-/-/{roundId}` или в общем listing.
+ */
+interface LichessRoundGame {
+  id?: string;
+  name?: string;
+  fen?: string;
+  players?: LichessRoundGamePlayer[];
+  status?: string;
+}
+
+interface LichessRoundGamePlayer {
+  name?: string;
+  title?: string;
+  rating?: number;
+  fed?: string;
 }
 
 // KS-3230: ParsedGame теперь экспортируется из ./pgn-parser.
@@ -1048,12 +1073,15 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * KS-4846 / ADR-157 §2.7. Тик учащённого PGN-опроса для раундов
-   * `ongoing`, не имеющих стрима, но с subs >= 1.
-   *  - Redis-lock TTL 25 сек (§2.7).
-   *  - SELECT + сортировка `subs DESC, updatedAt ASC`.
-   *  - Cap 20, cooldown 25 сек per roundId (`broadcast:fast-poll-cooldown:<id>`).
-   *  - Между запросами — общий rateLimitDelay(1500 ms).
+   * KS-4846 / ADR-157 §2.7 + KS-4847 / ADR-158 §2.6. Тик учащённого
+   * опроса для раундов, за которыми зрители следят в реальном времени.
+   *  - `ongoing` без стрима, subs >= 1 → PGN-опрос (`fetchAndProcessRoundPgn`).
+   *  - `pending` с subs >= 1 и `startsAt <= NOW + 15 мин` — metadata-опрос
+   *    (`refreshOneRoundMetadata`, endpoint `pending_metadata`): обновит
+   *    пары и подхватит промоушен в ongoing.
+   *  - Redis-lock TTL 25 сек, сортировка `subs DESC, updatedAt ASC`,
+   *    cap `MAX_FAST_POLLS_PER_TICK` (по умолчанию 20), cooldown 25 сек
+   *    per roundId, общий rateLimitDelay(1500 ms) между вызовами.
    */
   async runFastPollTick(): Promise<void> {
     if (!(await this.acquireLock(FAST_POLL_LOCK_KEY, FAST_POLL_LOCK_TTL_SEC))) {
@@ -1063,19 +1091,40 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const subs = await this.readWsSubs();
       if (subs.size === 0) return;
 
-      const ongoing = await this.prisma.broadcastRound.findMany({
-        where: { status: 'ongoing' },
-        select: { lichessRoundId: true, updatedAt: true },
+      // KS-4847 §2.6. Окно pending — startsAt <= NOW + 15 мин (симметрично
+      // pending-heal §2.4.2 ADR-155).
+      const pendingUpper = new Date(Date.now() + 15 * 60 * 1000);
+      const rounds = await this.prisma.broadcastRound.findMany({
+        where: {
+          OR: [
+            { status: 'ongoing' },
+            {
+              status: 'pending',
+              startsAt: { not: null, lte: pendingUpper },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          lichessRoundId: true,
+          status: true,
+          updatedAt: true,
+        },
       });
       const streamed = new Set(this.activeStreams.keys());
-      const candidates = ongoing
+      const candidates = rounds
         .map((r) => ({
+          id: r.id,
           roundId: r.lichessRoundId,
+          status: r.status,
           subs: subs.get(r.lichessRoundId) ?? 0,
           updatedAt: r.updatedAt,
         }))
         .filter((r) => r.subs >= 1 && !streamed.has(r.roundId))
         .sort((a, b) => {
+          // §2.6: сначала ongoing, потом pending; внутри — subs DESC,
+          // затем updatedAt ASC (стагнирующие обновляем в первую очередь).
+          if (a.status !== b.status) return a.status === 'ongoing' ? -1 : 1;
           if (b.subs !== a.subs) return b.subs - a.subs;
           return a.updatedAt.getTime() - b.updatedAt.getTime();
         })
@@ -1095,10 +1144,23 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
         if (i > 0) await this.rateLimitDelay();
         try {
-          await this.fetchAndProcessRoundPgn(c.roundId);
+          if (c.status === 'pending') {
+            // KS-4847 §2.6. Для pending — metadata-опрос: обновит status
+            // (при промоушене на Lichess) и подтянет пары из body.games[].
+            await this.refreshOneRoundMetadata(
+              {
+                id: c.id,
+                lichessRoundId: c.roundId,
+                status: c.status,
+              },
+              'pending_metadata',
+            );
+          } else {
+            await this.fetchAndProcessRoundPgn(c.roundId);
+          }
         } catch (e: unknown) {
           this.logger.warn(
-            `[broadcast-sync] fast-poll ${c.roundId} failed: ${formatFetchError(e)}`,
+            `[broadcast-sync] fast-poll ${c.roundId} (${c.status}) failed: ${formatFetchError(e)}`,
           );
         }
         await this.redis
@@ -2124,6 +2186,30 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    // KS-4847 / ADR-158 §2.1. Если Lichess в общем listing отдал `games[]`
+    // для этого раунда (обычно только для top-20 бродкастов) — подхватить
+    // пары сразу, без ожидания refreshNonTop20-цикла. Правило «pgn NOT NULL
+    // → не трогать» соблюдено в `upsertPairingsFromMetadata`.
+    if (Array.isArray(round.games) && round.games.length > 0) {
+      try {
+        const changed = await this.upsertPairingsFromMetadata(
+          upserted.id,
+          round.games,
+        );
+        if (changed > 0) {
+          this.prerender.enqueueFireAndForget({
+            kind: 'broadcast',
+            tid: broadcast.id,
+            rid: upserted.id,
+          });
+        }
+      } catch (e: unknown) {
+        this.logger.warn(
+          `[broadcast-sync] upsertPairingsFromMetadata(upsertRound) failed for round=${upserted.id.slice(0, 8)}: ${(e as Error).message}`,
+        );
+      }
+    }
+
     // KS-1819: прогон `classifyRoundBrackets` при каждом sync-цикле раунда —
     // не только после PGN-update. Раньше существующие партии
     // переклассифицировались только когда приходило PGN-обновление, из-за
@@ -2236,71 +2322,205 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     for (const r of toFetch) {
       try {
         await this.rateLimitDelay();
-        const url = `${LICHESS_API}/broadcast/-/-/${r.lichessRoundId}`;
-        const res = await this.lichessFetch(url, {
-          headers: {
-            'User-Agent': 'Kingside/1.0 (https://kingside.app)',
-            Accept: 'application/json',
-          },
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        });
-        if (!res.ok) {
-          if (res.status === 404) {
-            // Lichess удалил round — оставляем как есть, но логируем.
-            this.logger.warn(
-              `[broadcast-sync] round ${r.lichessRoundId} not found on Lichess (404)`,
-            );
-          } else {
-            this.logger.warn(
-              `[broadcast-sync] round-metadata fetch ${r.lichessRoundId} failed: HTTP ${res.status}`,
-            );
-          }
-          // KS-4845. Тело не читаем — дренируем перед continue.
-          await res.body?.cancel().catch(() => {});
-          continue;
-        }
-        const body = (await res.json()) as {
-          round?: { finished?: boolean; ongoing?: boolean };
-        };
-        const finished = body.round?.finished === true;
-        const ongoing = body.round?.ongoing === true;
-        const newStatus = finished ? 'finished' : ongoing ? 'ongoing' : 'pending';
-        if (newStatus !== r.status) {
-          this.logger.log(
-            `[broadcast-sync] round ${r.lichessRoundId} status mirror: ${r.status} → ${newStatus}`,
-          );
-          await this.prisma.broadcastRound.update({
-            where: { id: r.id },
-            data: { status: newStatus },
-          });
-          // KS-4205 §10 #11. Transition'ы в metadata-fetch mirror-loop
-          // для broadcast'ов вне top-20. Нужны те же два triggera —
-          // ongoing/finished. Чтобы добыть `broadcast.id` (tid),
-          // делаем lookup на уже-известный rid.
-          if (newStatus === 'ongoing' || newStatus === 'finished') {
-            const round = await this.prisma.broadcastRound.findUnique({
-              where: { id: r.id },
-              select: { broadcastId: true },
-            });
-            if (round) {
-              this.prerender.enqueueFireAndForget({
-                kind: 'broadcast',
-                tid: round.broadcastId,
-                rid: r.id,
-              });
-              this.prerender.enqueueFireAndForget({
-                kind: 'list',
-                route: '/broadcasts',
-              });
-            }
-          }
-        }
+        await this.refreshOneRoundMetadata(r, 'round_metadata');
       } catch (e: unknown) {
         this.logger.warn(
           `[broadcast-sync] round-metadata fetch ${r.lichessRoundId} threw: ${(e as Error).message}`,
         );
       }
     }
+  }
+
+  /**
+   * KS-4847 / ADR-158 §2.1. Одна проверка metadata раунда:
+   *   - fetch `/api/broadcast/-/-/{lichessRoundId}`
+   *   - mirror `status` в БД (pending / ongoing / finished)
+   *   - upsert пар из `body.games?[]` (см. `upsertPairingsFromMetadata`)
+   *   - при перехода status → ongoing / finished — enqueue prerender
+   *
+   * Вызывается из `refreshNonTop20RoundStatuses` (батч) и из
+   * `runFastPollTick` (одиночный вызов для pending раундов с зрителями,
+   * §2.6). `endpointHint` — для метки endpoint в счётчике исходящих
+   * запросов (round_metadata vs pending_metadata).
+   */
+  private async refreshOneRoundMetadata(
+    r: { id: string; lichessRoundId: string; status: string },
+    endpointHint: LichessEndpointLabel,
+  ): Promise<{ statusChanged: boolean; pairingsUpserted: number }> {
+    const url = `${LICHESS_API}/broadcast/-/-/${r.lichessRoundId}`;
+    const res = await this.lichessFetch(
+      url,
+      {
+        headers: {
+          'User-Agent': 'Kingside/1.0 (https://kingside.app)',
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      },
+      endpointHint,
+    );
+    if (!res.ok) {
+      if (res.status === 404) {
+        this.logger.warn(
+          `[broadcast-sync] round ${r.lichessRoundId} not found on Lichess (404)`,
+        );
+      } else {
+        this.logger.warn(
+          `[broadcast-sync] round-metadata fetch ${r.lichessRoundId} failed: HTTP ${res.status}`,
+        );
+      }
+      // KS-4845. Тело не читаем — дренируем.
+      await res.body?.cancel().catch(() => {});
+      return { statusChanged: false, pairingsUpserted: 0 };
+    }
+    const body = (await res.json()) as {
+      round?: { finished?: boolean; ongoing?: boolean };
+      games?: LichessRoundGame[];
+    };
+    const finished = body.round?.finished === true;
+    const ongoing = body.round?.ongoing === true;
+    const newStatus = finished ? 'finished' : ongoing ? 'ongoing' : 'pending';
+    let statusChanged = false;
+    if (newStatus !== r.status) {
+      statusChanged = true;
+      this.logger.log(
+        `[broadcast-sync] round ${r.lichessRoundId} status mirror: ${r.status} → ${newStatus}`,
+      );
+      await this.prisma.broadcastRound.update({
+        where: { id: r.id },
+        data: { status: newStatus },
+      });
+      // KS-4205 §10 #11. Transition'ы в metadata-fetch mirror-loop.
+      if (newStatus === 'ongoing' || newStatus === 'finished') {
+        const round = await this.prisma.broadcastRound.findUnique({
+          where: { id: r.id },
+          select: { broadcastId: true },
+        });
+        if (round) {
+          this.prerender.enqueueFireAndForget({
+            kind: 'broadcast',
+            tid: round.broadcastId,
+            rid: r.id,
+          });
+          this.prerender.enqueueFireAndForget({
+            kind: 'list',
+            route: '/broadcasts',
+          });
+        }
+      }
+    }
+
+    // KS-4847 / ADR-158 §2.1. Upsert пар из metadata — работает для всех
+    // статусов, но особенно важен для pending (без стрима/PGN пары
+    // приходят только отсюда).
+    const pairingsUpserted = await this.upsertPairingsFromMetadata(
+      r.id,
+      body.games,
+    );
+    if (pairingsUpserted > 0 && !statusChanged) {
+      // KS-4847 §3.3 (тг. инвалидации). Если пары изменились без смены
+      // статуса — тоже надо пересобрать HTML раунда, чтобы SEO-снимок
+      // отражал актуальные пары.
+      const round = await this.prisma.broadcastRound.findUnique({
+        where: { id: r.id },
+        select: { broadcastId: true },
+      });
+      if (round) {
+        this.prerender.enqueueFireAndForget({
+          kind: 'broadcast',
+          tid: round.broadcastId,
+          rid: r.id,
+        });
+      }
+    }
+    return { statusChanged, pairingsUpserted };
+  }
+
+  /**
+   * KS-4847 / ADR-158 §2.1 / §2.2. Upsert пар из ответа Lichess metadata
+   * в `BroadcastGame`. Правило (§2.1):
+   *  - Если существующая запись найдена по `(roundId, lichessGameId)` и у
+   *    неё `pgn IS NOT NULL` — не трогаем (PGN — источник истины после
+   *    старта).
+   *  - Если существующая запись с `pgn IS NULL` — обновляем players/fen/
+   *    ratings (Lichess может поправить состав до старта).
+   *  - Если записи нет — создаём с `pgn=null`, `result=null`.
+   *
+   * Возвращает число upserted / created записей (для метрик и триггера
+   * prerender-инвалидации).
+   */
+  private async upsertPairingsFromMetadata(
+    roundDbId: string,
+    games: LichessRoundGame[] | undefined,
+  ): Promise<number> {
+    if (!games || games.length === 0) return 0;
+    let changed = 0;
+    for (const g of games) {
+      if (!g.id) continue; // без id мы не сможем дедуплицировать
+      const players = Array.isArray(g.players) ? g.players : [];
+      const whitePlayer = players[0]?.name?.trim() || null;
+      const blackPlayer = players[1]?.name?.trim() || null;
+      const whiteElo =
+        typeof players[0]?.rating === 'number' &&
+        Number.isFinite(players[0].rating)
+          ? players[0].rating!
+          : null;
+      const blackElo =
+        typeof players[1]?.rating === 'number' &&
+        Number.isFinite(players[1].rating)
+          ? players[1].rating!
+          : null;
+      const currentFen =
+        typeof g.fen === 'string' && g.fen.length > 0 ? g.fen : STARTING_FEN;
+
+      const existing = await this.prisma.broadcastGame.findFirst({
+        where: { roundId: roundDbId, lichessGameId: g.id },
+        select: { id: true, pgn: true, whitePlayer: true, blackPlayer: true, whiteElo: true, blackElo: true, currentFen: true },
+      });
+      if (existing) {
+        if (existing.pgn !== null && existing.pgn !== undefined) {
+          // §2.1 п.3: PGN уже пришёл — источник истины, metadata не
+          // перезаписывает.
+          continue;
+        }
+        // Обновляем только если что-то реально поменялось (сохраняет
+        // updatedAt актуальным только для настоящих изменений).
+        const differs =
+          existing.whitePlayer !== whitePlayer ||
+          existing.blackPlayer !== blackPlayer ||
+          existing.whiteElo !== whiteElo ||
+          existing.blackElo !== blackElo ||
+          existing.currentFen !== currentFen;
+        if (!differs) continue;
+        await this.prisma.broadcastGame.update({
+          where: { id: existing.id },
+          data: {
+            whitePlayer,
+            blackPlayer,
+            whiteElo,
+            blackElo,
+            currentFen,
+          },
+        });
+        changed += 1;
+      } else {
+        await this.prisma.broadcastGame.create({
+          data: {
+            roundId: roundDbId,
+            lichessGameId: g.id,
+            whitePlayer,
+            blackPlayer,
+            whiteElo,
+            blackElo,
+            currentFen,
+            pgn: null,
+            result: null,
+          },
+        });
+        changed += 1;
+      }
+    }
+    return changed;
   }
 
   /** Returns true if an actual Lichess fetch was performed */
@@ -2892,6 +3112,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             fen: g.currentFen ?? STARTING_FEN,
             whitePlayer: g.whitePlayer ?? 'Unknown',
             blackPlayer: g.blackPlayer ?? 'Unknown',
+            // KS-4847 / ADR-158 §2.3. Рейтинги нужны фронту для рендера
+            // карточек пар (в т.ч. на pending раундах до старта партий).
+            whiteElo: g.whiteElo ?? null,
+            blackElo: g.blackElo ?? null,
             result: g.result ?? null,
             pgn: g.pgn ?? null,
             // KS-2699: clocks для live-таймера на фронте.

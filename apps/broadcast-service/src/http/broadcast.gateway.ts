@@ -232,6 +232,11 @@ export class BroadcastGateway
           'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
         whitePlayer: g.whitePlayer ?? 'Unknown',
         blackPlayer: g.blackPlayer ?? 'Unknown',
+        // KS-4847 / ADR-158 §2.3. Рейтинги нужны фронту для рендера пар
+        // на pending-раундах (до старта партий). Могут быть null, если
+        // Lichess не отдал.
+        whiteElo: g.whiteElo ?? null,
+        blackElo: g.blackElo ?? null,
         result: g.result ?? null,
         pgn: g.pgn ?? null,
         // KS-2699: clocks для live-таймера на фронте.

@@ -150,6 +150,11 @@ model BroadcastGame {
 
   @@index([roundId])
   @@index([roundId, bracketPairId], map: "broadcast_games_round_id_bracket_pair_id_idx")
+  /// KS-4847 / ADR-158 §2.2. Уникальность (roundId, lichessGameId) — нужна
+  /// для дедупликации upsert'ов пары из metadata /api/broadcast/-/-/{id}
+  /// (§2.1) и из PGN-парсинга. NULL'ы в `lichess_game_id` не участвуют в
+  /// constraint (стандарт SQL) — старые записи без id не блокируют миграцию.
+  @@unique([roundId, lichessGameId], map: "broadcast_games_round_id_lichess_game_id_key")
   @@map("broadcast_games")
 }
 
