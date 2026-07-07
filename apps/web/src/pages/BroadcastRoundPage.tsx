@@ -72,35 +72,73 @@ function stripPgnComments(pgn: string): string {
 }
 
 /**
- * KS-4856 / ADR-159 §3.2 п.2: merge клиентского snapshot'а из direct-stream
- * с серверным.
+ * KS-4856 / ADR-159 §3.2 п.2 + KS-4861: merge клиентского snapshot'а из
+ * direct-stream с серверным.
+ *
  *  - Серверный список — авторитет по составу партий и bracket-полям
  *    (`id` UUID из БД, `bracketStage`, `bracketPairId`, `matchScore`).
  *  - Клиентский snapshot — авторитет по свежести: fen, clocks, pgn,
- *    result, lastMoveAt (последнее не гарантированно, но
- *    `clockUpdatedAt` от клиента ставится на момент парсинга).
+ *    result, lastMoveAt.
  *  - Партии из stream, которых нет в server (ещё не занесены при
  *    переходе pending → ongoing) — добавляем как есть.
+ *
+ * KS-4861: fallback-матч по паре игроков `(whitePlayer, blackPlayer)`
+ * — если у серверной записи `lichessGameId=null` (партии до KS-3229),
+ * либо WS-payload `broadcast:sync` пришёл без `lichessGameId`, либо
+ * server и client получили id по разным путям
+ * (`GameURL` vs `Site` vs `round:X.Y`) — stream и server всё равно
+ * сматчатся по одному и тому же поединку. До KS-4861 из-за одиночного
+ * матча по `lichessGameId` тот же поединок попадал в extras → пользователь
+ * видел две карточки одной партии на странице ongoing раунда.
  */
 export function mergeStreamedGames(
   serverGames: readonly BroadcastGameSummary[],
   streamedGames: readonly BroadcastGameSummary[],
 ): BroadcastGameSummary[] {
+  const norm = (s: string | null | undefined) =>
+    (s ?? '').trim().toLowerCase();
+  const pairKey = (
+    w: string | null | undefined,
+    b: string | null | undefined,
+  ) => {
+    const wk = norm(w);
+    const bk = norm(b);
+    if (!wk || !bk) return null;
+    return `pair:${wk}|${bk}`;
+  };
+
   const merged = new Map<string, BroadcastGameSummary>();
   const serverOrder: string[] = [];
+  const idIndex = new Map<string, string>(); // lichessGameId → merged-key
+  const pairIndex = new Map<string, string>(); // pair-key → merged-key
+
   for (const s of serverGames) {
-    const key = s.lichessGameId ?? `srv:${s.id}`;
+    const key = s.lichessGameId ?? `srv:${s.id || Math.random().toString(36).slice(2)}`;
     merged.set(key, s);
     serverOrder.push(key);
+    if (s.lichessGameId) idIndex.set(s.lichessGameId, key);
+    const pk = pairKey(s.whitePlayer, s.blackPlayer);
+    if (pk) pairIndex.set(pk, key);
   }
+
   const extraStreamKeys: string[] = [];
   for (const c of streamedGames) {
-    const key = c.lichessGameId;
-    if (!key) continue;
-    const srv = merged.get(key);
-    if (srv) {
-      merged.set(key, {
+    // Ищем совпадение сначала по идентификатору партии Lichess,
+    // потом — по паре игроков (KS-4861 fallback).
+    const lookupKey =
+      (c.lichessGameId && idIndex.get(c.lichessGameId)) ||
+      pairIndex.get(pairKey(c.whitePlayer, c.blackPlayer) ?? '__none__');
+    if (lookupKey) {
+      const srv = merged.get(lookupKey);
+      if (!srv) continue;
+      merged.set(lookupKey, {
         ...srv,
+        // KS-4861: если у server-записи `lichessGameId=null`, а stream
+        // его знает — сохраняем в merged, чтобы последующие round-trip'ы
+        // WS/REST уже находили её по id и не создавали дубль.
+        lichessGameId: srv.lichessGameId ?? c.lichessGameId ?? null,
+        whiteElo: srv.whiteElo ?? c.whiteElo ?? null,
+        blackElo: srv.blackElo ?? c.blackElo ?? null,
         pgn: c.pgn ?? srv.pgn,
         currentFen: c.currentFen ?? srv.currentFen,
         result:
@@ -112,11 +150,19 @@ export function mergeStreamedGames(
         clockUpdatedAt: c.clockUpdatedAt ?? srv.clockUpdatedAt ?? null,
         lastMoveAt: c.lastMoveAt ?? srv.lastMoveAt ?? null,
       });
-    } else {
-      merged.set(key, c);
-      extraStreamKeys.push(key);
+      continue;
     }
+    // Партия из stream без совпадения в server — добавляем как есть,
+    // регистрируя в обоих индексах, чтобы следующий tick того же stream'а
+    // не породил ещё одну копию.
+    const extraKey = c.lichessGameId ?? `stream:${extraStreamKeys.length}`;
+    merged.set(extraKey, c);
+    extraStreamKeys.push(extraKey);
+    if (c.lichessGameId) idIndex.set(c.lichessGameId, extraKey);
+    const pk = pairKey(c.whitePlayer, c.blackPlayer);
+    if (pk) pairIndex.set(pk, extraKey);
   }
+
   const out: BroadcastGameSummary[] = [];
   for (const k of serverOrder) {
     const g = merged.get(k);
@@ -789,7 +835,14 @@ function renderRoundBody({
             data-testid="broadcast-pairings-grid"
           >
             {games.map((game) => (
-              <PairingCard key={game.id} game={game} />
+              <PairingCard
+                key={
+                  game.id ||
+                  game.lichessGameId ||
+                  `${game.whitePlayer ?? '?'}|${game.blackPlayer ?? '?'}`
+                }
+                game={game}
+              />
             ))}
           </div>
         )}
@@ -829,9 +882,18 @@ function renderRoundBody({
         {games.map((game) => {
           const k = gameKey(game);
           const lichessId = (game as { lichessGameId?: string }).lichessGameId;
+          // KS-4861: карточки из direct-stream, ещё не сматченные с
+          // серверным snapshot'ом, имеют `game.id=''` (см.
+          // `parseLichessBroadcastPgn`). Используем lichessGameId или
+          // пару игроков как fallback-ключ, чтобы React не ругался на
+          // дублирующиеся пустые ключи и не переиспользовал состояние.
+          const reactKey =
+            game.id ||
+            game.lichessGameId ||
+            `${game.whitePlayer ?? '?'}|${game.blackPlayer ?? '?'}`;
           return (
             <BroadcastBoardCard
-              key={game.id}
+              key={reactKey}
               game={game}
               onGameClick={handleGameClick}
               showLastMoveHighlight={lastMoveKey !== null && k === lastMoveKey}

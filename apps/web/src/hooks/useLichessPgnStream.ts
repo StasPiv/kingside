@@ -228,9 +228,15 @@ export function useLichessPgnStream({
  *  - `clockUpdatedAt` → `new Date().toISOString()` в момент парсинга,
  *    только если у партии реально есть `whiteClockMs` или
  *    `blackClockMs`. Клоки без времени применения бесполезны.
- *  - `id` — оставляем `lichessGameId`; серверный UUID (`BroadcastGame.id`)
- *    подтягивается при merge для полной совместимости с REST-путём
- *    (deep-link в `/analysis/...`).
+ *  - `id` — оставляем ПУСТЫМ (KS-4861). `BroadcastGameSummary.id` — это
+ *    UUID нашей БД (`BroadcastGame.id`), а не идентификатор Lichess.
+ *    Клик по карточке строит URL `/broadcasts/.../{game.id}/live`, и
+ *    если туда попадёт `lichessGameId` из PGN — сервер вернёт «Game
+ *    not found». Поэтому пока partial-снимок не сматчен с серверным
+ *    (см. `mergeStreamedGames`), `id` намеренно пуст: карточка не
+ *    кликабельна, `handleGameClick` игнорирует такой click. После
+ *    первого mergeStreamedGames с серверным snapshot'ом карточка
+ *    получит настоящий UUID и станет кликабельной.
  */
 export function parseLichessBroadcastPgn(
   raw: string,
@@ -242,7 +248,7 @@ export function parseLichessBroadcastPgn(
   for (const p of parsed) {
     const hasClocks = p.whiteClockMs !== null || p.blackClockMs !== null;
     summaries.push({
-      id: p.lichessGameId ?? '',
+      id: '',
       lichessGameId: p.lichessGameId,
       whitePlayer: p.white,
       blackPlayer: p.black,

@@ -51,6 +51,10 @@ describe('parseLichessBroadcastPgn (KS-4856)', () => {
     expect(g1.whiteElo).toBe(2830);
     expect(g1.blackElo).toBe(2789);
     expect(g1.lichessGameId).toBe('aaaaaaaa');
+    // KS-4861: `id` (UUID БД) стрим не знает — намеренно пусто, пока
+    // не сматчено с серверным snapshot'ом. Клик по такой карточке
+    // блокируется в `handleGameClick` (см. проверку `!game.id`).
+    expect(g1.id).toBe('');
     expect(g1.result).toBe('*');
     expect(g1.pgn).toContain('1. e4');
     expect(g1.currentFen).not.toBe(
@@ -61,6 +65,7 @@ describe('parseLichessBroadcastPgn (KS-4856)', () => {
     expect(g1.clockUpdatedAt).not.toBeNull();
     expect(g2.result).toBe('1-0');
     expect(g2.lichessGameId).toBe('bbbbbbbb');
+    expect(g2.id).toBe('');
   });
 
   it('возвращает пустой массив на пустой строке', () => {
