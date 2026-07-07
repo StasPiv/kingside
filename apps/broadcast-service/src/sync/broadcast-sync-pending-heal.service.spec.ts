@@ -41,21 +41,13 @@ interface Mocks {
     get: jest.Mock;
     set: jest.Mock;
   };
-  metrics: {
-    recordPendingCheck: jest.Mock;
-    observePendingPromotionDelay: jest.Mock;
-    recordStreamStarted: jest.Mock;
-    recordStreamEnded: jest.Mock;
-    observeStreamDuration: jest.Mock;
-    setStreamsActive: jest.Mock;
-  };
+  metrics: Record<string, jest.Mock>;
   standingsSync: object;
   prerender: {
     enqueueFireAndForget: jest.Mock;
   };
   lichessFetch: jest.Mock;
   rateLimitDelay: jest.Mock;
-  startStream: jest.Mock;
 }
 
 function makeService(mocks: Mocks): BroadcastSyncService {
@@ -71,12 +63,6 @@ function makeService(mocks: Mocks): BroadcastSyncService {
     mocks.lichessFetch;
   (svc as unknown as { rateLimitDelay: jest.Mock }).rateLimitDelay =
     mocks.rateLimitDelay;
-  // startStream перехватываем — иначе он полезет в глобальный fetch и
-  // после теста будет висеть открытый AbortController (Jest не сможет
-  // корректно завершить worker). Тесты pending-heal проверяют факт
-  // вызова, а не реальное поведение runStream.
-  (svc as unknown as { startStream: jest.Mock }).startStream =
-    mocks.startStream;
   return svc;
 }
 
@@ -95,10 +81,7 @@ function makeMocks(): Mocks {
     metrics: {
       recordPendingCheck: jest.fn(),
       observePendingPromotionDelay: jest.fn(),
-      recordStreamStarted: jest.fn(),
-      recordStreamEnded: jest.fn(),
-      observeStreamDuration: jest.fn(),
-      setStreamsActive: jest.fn(),
+      recordLichessRequest: jest.fn(),
     },
     standingsSync: {},
     prerender: {
@@ -106,7 +89,6 @@ function makeMocks(): Mocks {
     },
     lichessFetch: jest.fn(),
     rateLimitDelay: jest.fn().mockResolvedValue(undefined),
-    startStream: jest.fn().mockReturnValue('ok'),
   };
 }
 
@@ -185,10 +167,9 @@ describe('BroadcastSyncService.runPendingHealPhase — KS-4832 / ADR-155', () =>
       mocks.metrics.observePendingPromotionDelay.mock.calls[0][0];
     expect(delayArg).toBeGreaterThanOrEqual(59);
     expect(delayArg).toBeLessThanOrEqual(62);
-    // ADR-156 §2.4: pending-heal сразу запускает стрим для промоушенных
-    // в ongoing раундов.
-    expect(mocks.startStream).toHaveBeenCalledWith(r.lichessRoundId);
-    expect(mocks.startStream).toHaveBeenCalledTimes(1);
+    // KS-4859 / ADR-159 §3.1 п.2. Раньше pending-heal при промоушене
+    // сразу вызывал `startStream()`. Стримов больше нет — live-данные
+    // подхватит fast poll (subs≥1) или slow pinned poll (subs=0).
   });
 
   it('promotes pending → finished при metadata.round.finished = true', async () => {
@@ -207,8 +188,8 @@ describe('BroadcastSyncService.runPendingHealPhase — KS-4832 / ADR-155', () =>
       data: { status: 'finished' },
     });
     expect(mocks.metrics.recordPendingCheck).toHaveBeenCalledWith('promoted');
-    // ADR-156 §2.4: для промоушена в finished стрим НЕ нужен.
-    expect(mocks.startStream).not.toHaveBeenCalled();
+    // KS-4859 / ADR-159 §3.1 п.2. Стримов больше нет — проверка на
+    // «startStream не вызывался» бесполезна.
   });
 
   it('still_pending при ongoing=false, finished=false — status не меняется', async () => {

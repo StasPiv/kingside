@@ -31,12 +31,7 @@ interface Mocks {
     get: jest.Mock;
     set: jest.Mock;
   };
-  metrics: {
-    recordStreamStarted: jest.Mock;
-    recordStreamEnded: jest.Mock;
-    observeStreamDuration: jest.Mock;
-    setStreamsActive: jest.Mock;
-  };
+  metrics: Record<string, jest.Mock>;
   standingsSync: object;
   prerender: {
     enqueueFireAndForget: jest.Mock;
@@ -60,10 +55,7 @@ function makeMocks(): Mocks {
       set: jest.fn().mockResolvedValue('OK'),
     },
     metrics: {
-      recordStreamStarted: jest.fn(),
-      recordStreamEnded: jest.fn(),
-      observeStreamDuration: jest.fn(),
-      setStreamsActive: jest.fn(),
+      recordLichessRequest: jest.fn(),
     },
     standingsSync: {},
     prerender: {
@@ -102,39 +94,10 @@ function makeResponse(status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-describe('BroadcastSyncService.startStream — KS-4832 / ADR-156', () => {
-  it("новый раунд → 'ok', started_total{result=ok}++", () => {
-    const mocks = makeMocks();
-    const svc = makeService(mocks);
-    const res = svc.startStream('round01');
-    expect(res).toBe('ok');
-    expect(mocks.metrics.recordStreamStarted).toHaveBeenCalledWith('ok');
-  });
-
-  it("повторный вызов на тот же round → 'already_active'", () => {
-    const mocks = makeMocks();
-    const svc = makeService(mocks);
-    svc.startStream('round01');
-    mocks.metrics.recordStreamStarted.mockClear();
-    const res = svc.startStream('round01');
-    expect(res).toBe('already_active');
-    expect(mocks.metrics.recordStreamStarted).toHaveBeenCalledWith(
-      'already_active',
-    );
-  });
-
-  it("50 активных стримов → 51-й даёт 'capacity_full'", () => {
-    const mocks = makeMocks();
-    const svc = makeService(mocks);
-    for (let i = 0; i < 50; i++) svc.startStream(`round${i}`);
-    mocks.metrics.recordStreamStarted.mockClear();
-    const res = svc.startStream('roundOverflow');
-    expect(res).toBe('capacity_full');
-    expect(mocks.metrics.recordStreamStarted).toHaveBeenCalledWith(
-      'capacity_full',
-    );
-  });
-});
+// KS-4859 / ADR-159 §2.3, §3.1 п.1. Метод `startStream()` удалён
+// (backend больше не открывает SSE к Lichess). Существовавшие здесь
+// тесты `startStream` — `'ok'`/`'already_active'`/`'capacity_full'` —
+// сняты вместе с методом.
 
 describe('BroadcastSyncService.refreshNonTop20RoundStatuses — KS-4832 / ADR-156', () => {
   function makeRounds(
