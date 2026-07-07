@@ -284,107 +284,13 @@ interface LichessRoundGamePlayer {
 type ParsedGame = ParsedGamePure;
 
 /**
- * KS-2699 / KS-2720: извлечь оставшееся время игроков из PGN-комментариев.
- *
- * Lichess broadcast PGN после каждого хода вставляет
- * `{ [%eval ...] [%clk H:MM:SS] }` (формат стандартный, lichess
- * порядок eval→clk). До KS-2720 определяли цвет хода по чётности
- * индекса %clk (0=белые, 1=чёрные, …) — это ломается:
- *  - на стартовых FEN side=b (Chess960 / задачи / эндшпиль-турниры);
- *  - на инкрементальных stream-блоках, где видна только часть ходов;
- *  - если у одной стороны %clk пропущен (Lichess иногда не отдаёт).
- *
- * Сейчас идём по PGN body последовательно, для каждого хода читаем
- * перед ним номер `n.` (белые) или `n...` (чёрные) — этот маркер
- * Lichess пишет ВСЕГДА, даже когда отдаёт не все ходы. Цвет определяем
- * по числу точек: ровно 1 → белые, ≥3 → чёрные. После хода смотрим
- * опциональный `{ ... %clk H:MM:SS ... }`. Берём ПОСЛЕДНИЙ %clk каждой
- * стороны (= актуальный остаток на момент последнего хода игрока).
- *
- * Возвращает `{ null, null }` если ни одного %clk нет — клиент увидит
- * `clockUpdatedAt=null` и не будет рисовать таймеры.
+ * KS-2699 / KS-2720 / KS-4855. Извлечение оставшегося времени игроков
+ * из PGN-комментариев. Реализация переехала в `@kingside/shared`
+ * (см. `packages/shared/src/broadcast-pgn/pgn-parser.ts`) в рамках
+ * KS-4855 / ADR-159 §7 п.1. Локальный export — только для обратной
+ * совместимости существующих unit-тестов (`broadcast-sync.service.spec.ts`).
  */
-export function extractClocksFromPgn(pgnSection: string): {
-  whiteMs: number | null;
-  blackMs: number | null;
-} {
-  // State-machine: идём по токенам PGN body, отслеживаем текущий
-  // цвет на ходу. `n.` / `n...` явно фиксирует цвет, обычный
-  // SAN-ход — toggle от предыдущего. Между ходом и комментарием
-  // `{ ... }` берём %clk и привязываем к стороне, СДЕЛАВШЕЙ ход.
-  //
-  // Поддерживаемые формы:
-  //   `1. e4 e5`             — стандартный сокращённый PGN;
-  //   `1. e4 1... e5`        — Lichess broadcast (полная форма);
-  //   `1... e5`              — инкремент / стартовый FEN side=b;
-  //   `1. e4 {...} 1... e5 {...}` — Lichess с %eval/%clk-комментариями.
-  //
-  // Стартовая сторона: white по умолчанию (стандартный шахматы).
-  // Если первый встретившийся номер — `n...`, переключаемся на black
-  // (стартовая сторона b).
-
-  // Удаляем headers — всё до первой пустой строки. PGN body может
-  // содержать `[`-токены (например, в эскейпированных комментариях),
-  // но в стандартном Lichess PGN — нет.
-  const bodyStart = pgnSection.indexOf('\n\n');
-  const body =
-    bodyStart >= 0 ? pgnSection.slice(bodyStart + 2) : pgnSection;
-
-  const tokenRe =
-    /(\d+\.+)|(\{[^}]*\})|(\*|1-0|0-1|1\/2-1\/2)|(\$\d+)|(\S+)/g;
-  const clkRe = /\[%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\]/;
-
-  let side: 'w' | 'b' = 'w';
-  let whiteMs: number | null = null;
-  let blackMs: number | null = null;
-  let lastSideJustMoved: 'w' | 'b' | null = null;
-
-  let m: RegExpExecArray | null;
-  while ((m = tokenRe.exec(body)) !== null) {
-    const numToken = m[1];
-    const commentToken = m[2];
-    const resultToken = m[3];
-    const nagToken = m[4];
-    const moveToken = m[5];
-
-    if (resultToken) break;
-
-    if (numToken) {
-      // `1.` → white; `1...` (или больше точек) → black.
-      const dots = numToken.replace(/\d/g, '').length;
-      side = dots >= 3 ? 'b' : 'w';
-      continue;
-    }
-
-    if (commentToken) {
-      // Привязываем %clk к стороне, СДЕЛАВШЕЙ предыдущий ход.
-      if (lastSideJustMoved == null) continue;
-      const c = clkRe.exec(commentToken);
-      if (!c) continue;
-      const h = parseInt(c[1], 10);
-      const min = parseInt(c[2], 10);
-      const s = parseFloat(c[3]);
-      if (Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(s)) continue;
-      const ms = Math.round((h * 3600 + min * 60 + s) * 1000);
-      if (lastSideJustMoved === 'w') whiteMs = ms;
-      else blackMs = ms;
-      continue;
-    }
-
-    if (nagToken) {
-      // NAG ($1, $2, ...) — пропускаем.
-      continue;
-    }
-
-    if (moveToken) {
-      // SAN-ход: фиксируем сторону, после хода toggle.
-      lastSideJustMoved = side;
-      side = side === 'w' ? 'b' : 'w';
-    }
-  }
-
-  return { whiteMs, blackMs };
-}
+export { extractClocksFromPgn } from '@kingside/shared';
 
 /**
  * KS-2591. Должен ли раунд быть закрыт по итогам PGN-обновления?

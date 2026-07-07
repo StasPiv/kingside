@@ -73,6 +73,10 @@ export * from './utils/blind-board/move-gen.js';
 // KS-3359 (ADR-080): whitelist + группы для Precision Themes.
 export * from './utils/precision-themes.js';
 export * from './chess/index.js';
+// KS-4855 / ADR-159 §7 п.1: разбор PGN broadcast-трансляций Lichess.
+// Раньше жил в apps/broadcast-service — вынесен сюда, чтобы клиент мог
+// использовать ту же реализацию (см. ADR-159 §2.2).
+export * from './broadcast-pgn/index.js';
 // KS-2962 / ADR-062: каталог фич для AI-ассистента.
 export * from './features-catalog/index.js';
 // NB: `./utils/position-key.js` намеренно НЕ реэкспортируется — он тянет `node:crypto`
