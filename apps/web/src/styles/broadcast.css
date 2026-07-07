@@ -2686,6 +2686,30 @@
   }
 }
 
+/* KS-4856 / ADR-159 §2.4: индикатор состояния канала обновлений. */
+.broadcast-channel-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 12px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid var(--c-2a2a4e, #2a2a4e);
+}
+
+.broadcast-channel-indicator--slow {
+  color: var(--c-fca, #f5b642);
+  background: rgba(245, 182, 66, 0.1);
+  border-color: rgba(245, 182, 66, 0.3);
+}
+
+.broadcast-channel-indicator--offline {
+  color: var(--c-f66, #ff6666);
+  background: rgba(255, 102, 102, 0.1);
+  border-color: rgba(255, 102, 102, 0.3);
+}
+
 /* Ветка C (§2.4.3): партия существует, но ходов ещё нет — плашка на доске. */
 .broadcast-board-wrap__board {
   position: relative;

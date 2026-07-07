@@ -430,6 +430,8 @@
       "upcomingBadge": "Upcoming",
       "pairingsNotAnnounced": "Pairings not announced yet"
     },
+    "slowMode": "Live stream unavailable, updates arrive with a delay",
+    "offline": "No connection to the broadcast server",
     "ongoing": {
       "awaitingFirstMoves": "Round has started, waiting for the first moves…"
     },

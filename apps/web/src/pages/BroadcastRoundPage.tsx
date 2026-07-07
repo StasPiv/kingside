@@ -15,6 +15,7 @@ import { PairingCard } from '../components/broadcast/PairingCard';
 import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
 import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 import { useBroadcastEvalQueue } from '../hooks/useBroadcastEvalQueue';
+import { useLichessPgnStream } from '../hooks/useLichessPgnStream';
 // KS-3261: batch-проверка «В мастерской» через POST /analyses/check.
 import { checkAnalyses } from '../api/checkAnalyses';
 import { useAuth } from '../context/AuthContext';
@@ -68,6 +69,64 @@ function computeLastMoveUci(pgn: string): string | null {
 /** Strip clock/eval comments that may cause chess.js loadPgn to fail */
 function stripPgnComments(pgn: string): string {
   return pgn.replace(/\{[^}]*\}/g, '');
+}
+
+/**
+ * KS-4856 / ADR-159 §3.2 п.2: merge клиентского snapshot'а из direct-stream
+ * с серверным.
+ *  - Серверный список — авторитет по составу партий и bracket-полям
+ *    (`id` UUID из БД, `bracketStage`, `bracketPairId`, `matchScore`).
+ *  - Клиентский snapshot — авторитет по свежести: fen, clocks, pgn,
+ *    result, lastMoveAt (последнее не гарантированно, но
+ *    `clockUpdatedAt` от клиента ставится на момент парсинга).
+ *  - Партии из stream, которых нет в server (ещё не занесены при
+ *    переходе pending → ongoing) — добавляем как есть.
+ */
+export function mergeStreamedGames(
+  serverGames: readonly BroadcastGameSummary[],
+  streamedGames: readonly BroadcastGameSummary[],
+): BroadcastGameSummary[] {
+  const merged = new Map<string, BroadcastGameSummary>();
+  const serverOrder: string[] = [];
+  for (const s of serverGames) {
+    const key = s.lichessGameId ?? `srv:${s.id}`;
+    merged.set(key, s);
+    serverOrder.push(key);
+  }
+  const extraStreamKeys: string[] = [];
+  for (const c of streamedGames) {
+    const key = c.lichessGameId;
+    if (!key) continue;
+    const srv = merged.get(key);
+    if (srv) {
+      merged.set(key, {
+        ...srv,
+        pgn: c.pgn ?? srv.pgn,
+        currentFen: c.currentFen ?? srv.currentFen,
+        result:
+          c.result && c.result !== '*'
+            ? c.result
+            : (srv.result ?? c.result ?? null),
+        whiteClockMs: c.whiteClockMs ?? srv.whiteClockMs ?? null,
+        blackClockMs: c.blackClockMs ?? srv.blackClockMs ?? null,
+        clockUpdatedAt: c.clockUpdatedAt ?? srv.clockUpdatedAt ?? null,
+        lastMoveAt: c.lastMoveAt ?? srv.lastMoveAt ?? null,
+      });
+    } else {
+      merged.set(key, c);
+      extraStreamKeys.push(key);
+    }
+  }
+  const out: BroadcastGameSummary[] = [];
+  for (const k of serverOrder) {
+    const g = merged.get(k);
+    if (g) out.push(g);
+  }
+  for (const k of extraStreamKeys) {
+    const g = merged.get(k);
+    if (g) out.push(g);
+  }
+  return out;
 }
 
 // Lichess types.
@@ -416,6 +475,44 @@ export function BroadcastRoundPage() {
 
   const currentRound = rounds.find((r) => r.id === roundId);
 
+  // KS-4856 / ADR-159 §2.2 + §3.2: клиентский direct-stream к Lichess.
+  // Хук сам проверяет фиче-флаг `VITE_BROADCAST_DIRECT_STREAM_ENABLED`;
+  // при выключенном флаге возвращает status='idle' и никаких запросов
+  // не делает — старый путь через WS работает как прежде.
+  const lichessRoundId = currentRound?.lichessRoundId ?? null;
+  const streamActive = currentRound?.status === 'ongoing';
+  const stream = useLichessPgnStream({
+    lichessRoundId,
+    enabled: streamActive,
+  });
+
+  // Merge клиентского snapshot'а с локальным state. По ADR-159 §3.2 п.2:
+  // клиент приоритетен для fen/clocks/lastMoveAt/pgn/result; серверные
+  // bracket-поля (id/bracketStage/bracketPairId/matchScore) сохраняются.
+  useEffect(() => {
+    if (!stream.games) return;
+    const merged = mergeStreamedGames(prevGamesRef.current, stream.games);
+    applyFreshGames(merged, true);
+    // Реагируем на новый snapshot; applyFreshGames обновляет ref сам.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stream.games]);
+
+  // Индикатор состояния канала: streaming/fallback/offline. WS-подключение
+  // остаётся всегда — если direct-stream упал в fallback и WS открыт,
+  // помечаем «замедленно»; если и WS отключён — «оффлайн».
+  const channelIndicator: 'streaming' | 'slow' | 'offline' | 'hidden' =
+    !streamActive
+      ? 'hidden'
+      : stream.status === 'streaming'
+        ? 'streaming'
+        : stream.status === 'fallback' && !connected
+          ? 'offline'
+          : stream.status === 'fallback'
+            ? 'slow'
+            : !connected
+              ? 'offline'
+              : 'hidden';
+
   const handleGameClick = (game: LichessGame) => {
     if (!game.pgn) return;
     // KS-2774: backend `:9754d58b` теперь шлёт `id` в REST и WS payload.
@@ -509,6 +606,34 @@ export function BroadcastRoundPage() {
         <span className="broadcast-breadcrumb-sep">/</span>
         <span>{currentRound?.name ?? ''}</span>
       </nav>
+
+      {/* KS-4856 / ADR-159 §2.4: индикатор состояния канала обновлений.
+          streaming → без плашки (норма). slow → «Обновления замедлены».
+          offline → «Нет связи с сервером трансляций». */}
+      {channelIndicator === 'slow' && (
+        <div
+          className="broadcast-channel-indicator broadcast-channel-indicator--slow"
+          data-testid="broadcast-channel-indicator"
+          data-channel-state="slow"
+        >
+          {t(
+            'broadcastRound.slowMode',
+            'Live stream unavailable, updates arrive with a delay',
+          )}
+        </div>
+      )}
+      {channelIndicator === 'offline' && (
+        <div
+          className="broadcast-channel-indicator broadcast-channel-indicator--offline"
+          data-testid="broadcast-channel-indicator"
+          data-channel-state="offline"
+        >
+          {t(
+            'broadcastRound.offline',
+            'No connection to the broadcast server',
+          )}
+        </div>
+      )}
 
       {/* KS-2703: явный CTA для разблокировки звука. AudioContext'у
           в новой вкладке нужен user-gesture для запуска (autoplay-policy);
