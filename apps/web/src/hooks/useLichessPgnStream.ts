@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Chess } from 'chess.js';
 import type { BroadcastGameSummary } from '@kingside/shared';
+import { parsePgnGames } from '@kingside/shared';
 import {
   LICHESS_BROADCAST_STREAM_BASE,
   isBroadcastDirectStreamEnabled,
@@ -15,14 +15,16 @@ import {
  * возвращает свежий снимок `games[]`. При отказе — уходит в
  * fallback-режим, страница продолжает работать через WS+REST.
  *
+ * Парсинг PGN — общая логика из `@kingside/shared/broadcast-pgn`
+ * (KS-4855 / ADR-159 §7 п.1). Тот же код работает и на backend'е —
+ * поведение fen/uci/clocks/lichessGameId одинаковое.
+ *
  * Статусы (§2.4):
  *  - `idle`       — не активен (флаг выключен, нет `lichessRoundId`,
  *                   раунд не ongoing, вкладка в фоне).
  *  - `connecting` — открыли `fetch`, ждём первый chunk.
  *  - `streaming`  — получили ≥1 валидный chunk; UI-плашки не показываем.
  *  - `fallback`   — 5 неудачных попыток подряд; полагаемся на WS.
- *  - `offline`    — ни direct-stream, ни WS не отвечают (устанавливается
- *                   родителем на основе `connected` из useBroadcastSocket).
  *
  * Retry (§2.2): 2s → 5s → 15s → 30s → 60s (потолок). Счётчик обнуляется
  * после первого валидного chunk'а. После 5 неуспешных попыток подряд —
@@ -31,13 +33,6 @@ import {
  * Visibility (§2.2): при `document.visibilityState === 'hidden'`
  * закрываем `fetch` (экономим слот из 8 у клиентского IP). При
  * возврате — переоткрываем.
- *
- * Общий PGN-парсер вынесен в `packages/shared/pgn-stream/` в рамках
- * KS-4855 (ADR-159 §7 п.1). До закрытия зависимости используем локальный
- * MVP-парсер: header по regex + chess.js для `currentFen` + `%clk` для
- * часов. После KS-4855 импорт заменится одной строкой, поведение
- * останется тем же — chess.js на клиенте и на backend'е даёт
- * одинаковые `fen`/`san` для валидного PGN.
  */
 
 const BACKOFF_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
@@ -53,21 +48,21 @@ export interface LichessPgnStreamState {
   /**
    * Свежий снимок партий раунда, распарсенный из последнего chunk'а
    * потока. `null`, пока не пришёл хотя бы один валидный chunk —
-   * родитель в это время должен показывать данные из REST-снимка.
+   * родитель в это время показывает данные из REST-снимка.
    */
   games: BroadcastGameSummary[] | null;
   status: LichessPgnStreamStatus;
-  /** Число последовательных неудачных попыток. Обнуляется после первого валидного chunk'а. */
+  /** Число последовательных неудачных попыток. */
   failureCount: number;
-  /** Сообщение последней ошибки — только для диагностики (в UI не показываем). */
+  /** Сообщение последней ошибки — для диагностики (в UI не показываем). */
   error: string | null;
 }
 
 export interface UseLichessPgnStreamArgs {
   /**
-   * Идентификатор раунда на Lichess (`BroadcastRound.lichessRoundId`
-   * из БД, отдаётся API после KS-4855). Если `null` / `undefined` —
-   * хук ничего не делает.
+   * Идентификатор раунда на Lichess
+   * (`BroadcastRound.lichessRoundId` из БД, отдаётся API после
+   * KS-4855). `null` / `undefined` → хук ничего не делает.
    */
   lichessRoundId: string | null | undefined;
   /**
@@ -111,8 +106,10 @@ export function useLichessPgnStream({
 
     const openStream = async () => {
       if (cancelled) return;
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        // Пока в фоне — не открываем; visibilitychange восстановит.
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
         return;
       }
       abortController = new AbortController();
@@ -138,16 +135,10 @@ export function useLichessPgnStream({
           const { value, done } = await reader.read();
           if (cancelled || abortController.signal.aborted) return;
           if (done) {
-            // Стрим закрылся штатно (раунд завершён). Не считаем
-            // ошибкой, но всё же попробуем переоткрыть — Lichess
-            // может отдавать пустой финальный chunk и сразу
-            // закрывать соединение при отсутствии дальнейших
-            // обновлений. Backoff мягкий.
             scheduleRetry('stream closed');
             return;
           }
           buffer += decoder.decode(value, { stream: true });
-          // Разделитель между кумулятивными снимками PGN — `\n\n\n`.
           const chunks = buffer.split('\n\n\n');
           buffer = chunks.pop() ?? '';
           for (const chunk of chunks) {
@@ -192,16 +183,12 @@ export function useLichessPgnStream({
     const handleVisibility = () => {
       if (cancelled) return;
       if (document.visibilityState === 'hidden') {
-        // Уходим со сцены — закрываем поток. Retry-таймер тоже
-        // отменяем, при возвращении откроем чистый.
         abortController?.abort();
         if (retryTimeoutId) {
           clearTimeout(retryTimeoutId);
           retryTimeoutId = null;
         }
       } else if (document.visibilityState === 'visible') {
-        // Пришли обратно — сбрасываем счётчик неудач (новая сессия)
-        // и открываем заново.
         failureCountRef.current = 0;
         void openStream();
       }
@@ -226,132 +213,53 @@ export function useLichessPgnStream({
 }
 
 /**
- * MVP-парсер PGN, отдаваемого Lichess в `/api/stream/broadcast/round/*.pgn`.
+ * Обёртка над общим `parsePgnGames` из `@kingside/shared/broadcast-pgn`.
+ * Мапит `ParsedGame → BroadcastGameSummary` под контракт REST-ответа
+ * `/broadcasts/:id/rounds/:roundId/games` — родительский компонент
+ * получает те же поля, что и от REST, и может мерджить один-в-один
+ * через `mergeStreamedGames`.
  *
- * Возвращает частично заполненный `BroadcastGameSummary[]`. Поля, которых
- * Lichess не отдаёт в PGN (`bracketStage`, `bracketPairId`, `matchScore`,
- * `updatedAt`), выставляются в `null` — родитель мержит их с серверным
- * снимком по `lichessGameId` (ADR-159 §3.2 п.2 стратегия слияния).
- *
- * После закрытия KS-4855 замещается импортом из общего пакета — интерфейс
- * возвращаемого значения совпадает по контракту.
+ * Поля, которых Lichess не отдаёт в PGN:
+ *  - `bracketStage`, `bracketPairId`, `matchScore` → `null` (клиент
+ *    сохранит серверные значения при merge, §3.2 п.2);
+ *  - `updatedAt` → эпоха (сервер даёт реальное значение при merge);
+ *  - `lastMoveAt` → `null` (Lichess не даёт wall-clock последнего хода
+ *    в PGN; frontend будет опираться на серверный `lastMoveAt`);
+ *  - `clockUpdatedAt` → `new Date().toISOString()` в момент парсинга,
+ *    только если у партии реально есть `whiteClockMs` или
+ *    `blackClockMs`. Клоки без времени применения бесполезны.
+ *  - `id` — оставляем `lichessGameId`; серверный UUID (`BroadcastGame.id`)
+ *    подтягивается при merge для полной совместимости с REST-путём
+ *    (deep-link в `/analysis/...`).
  */
 export function parseLichessBroadcastPgn(
   raw: string,
 ): BroadcastGameSummary[] {
   if (!raw.trim()) return [];
-  // Каждая партия начинается с header-блока. Разделитель между партиями
-  // Lichess ставит либо `\n\n\n` (снятый выше на уровне chunk'а), либо
-  // пустая строка между PGN'ами внутри одного chunk'а — считаем что chunk
-  // может содержать одну или несколько партий, разделим по границе
-  // `\n\n[Event ` (начало нового header'а).
-  const parts = raw
-    .split(/\n\n(?=\[Event )/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const games: BroadcastGameSummary[] = [];
-  for (const part of parts) {
-    const game = parseSingleGamePgn(part);
-    if (game) games.push(game);
+  const parsed = parsePgnGames(raw);
+  const nowIso = new Date().toISOString();
+  const summaries: BroadcastGameSummary[] = [];
+  for (const p of parsed) {
+    const hasClocks = p.whiteClockMs !== null || p.blackClockMs !== null;
+    summaries.push({
+      id: p.lichessGameId ?? '',
+      lichessGameId: p.lichessGameId,
+      whitePlayer: p.white,
+      blackPlayer: p.black,
+      whiteElo: p.whiteElo,
+      blackElo: p.blackElo,
+      result: p.result && p.result !== '*' ? p.result : (p.result ?? null),
+      pgn: p.pgn,
+      currentFen: p.fen,
+      updatedAt: new Date(0).toISOString(),
+      bracketStage: null,
+      bracketPairId: null,
+      matchScore: null,
+      whiteClockMs: p.whiteClockMs,
+      blackClockMs: p.blackClockMs,
+      clockUpdatedAt: hasClocks ? nowIso : null,
+      lastMoveAt: null,
+    });
   }
-  return games;
-}
-
-function parseSingleGamePgn(pgn: string): BroadcastGameSummary | null {
-  const whitePlayer = extractHeader(pgn, 'White');
-  const blackPlayer = extractHeader(pgn, 'Black');
-  const whiteEloRaw = extractHeader(pgn, 'WhiteElo');
-  const blackEloRaw = extractHeader(pgn, 'BlackElo');
-  const resultRaw = extractHeader(pgn, 'Result');
-  const gameId = extractHeader(pgn, 'GameId') ?? extractHeader(pgn, 'LichessId');
-  if (!whitePlayer && !blackPlayer && !gameId) return null;
-
-  const currentFen = computeFenFromPgn(pgn);
-  const { whiteClockMs, blackClockMs, hasClocks } = extractLastClocks(pgn);
-
-  const summary: BroadcastGameSummary = {
-    id: gameId ?? '',
-    lichessGameId: gameId ?? null,
-    whitePlayer: whitePlayer ?? null,
-    blackPlayer: blackPlayer ?? null,
-    whiteElo: parseIntOrNull(whiteEloRaw),
-    blackElo: parseIntOrNull(blackEloRaw),
-    result: resultRaw && resultRaw !== '*' ? resultRaw : resultRaw ?? null,
-    pgn,
-    currentFen,
-    updatedAt: new Date(0).toISOString(),
-    bracketStage: null,
-    bracketPairId: null,
-    matchScore: null,
-    whiteClockMs,
-    blackClockMs,
-    clockUpdatedAt: hasClocks ? new Date().toISOString() : null,
-    lastMoveAt: null,
-  };
-  return summary;
-}
-
-function extractHeader(pgn: string, name: string): string | null {
-  const re = new RegExp(`\\[${name} "([^"]*)"\\]`);
-  const match = pgn.match(re);
-  if (!match) return null;
-  const value = match[1].trim();
-  return value.length > 0 ? value : null;
-}
-
-function parseIntOrNull(raw: string | null): number | null {
-  if (raw === null) return null;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) ? n : null;
-}
-
-const INITIAL_FEN =
-  'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-
-function computeFenFromPgn(pgn: string): string {
-  const cleaned = pgn.replace(/\{[^}]*\}/g, '');
-  const chess = new Chess();
-  try {
-    chess.loadPgn(cleaned);
-    return chess.fen();
-  } catch {
-    return INITIAL_FEN;
-  }
-}
-
-/**
- * Возвращает последнее найденное `[%clk H:MM:SS]` для белых и чёрных.
- * Комментарии `%clk` идут в порядке ходов (белый, чёрный, белый, чёрный).
- */
-function extractLastClocks(pgn: string): {
-  whiteClockMs: number | null;
-  blackClockMs: number | null;
-  hasClocks: boolean;
-} {
-  const clkRe = /\{[^}]*?\[%clk\s+(\d+):(\d{2}):(\d{2})\][^}]*?\}/g;
-  const clocks: number[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = clkRe.exec(pgn)) !== null) {
-    const h = parseInt(m[1], 10);
-    const min = parseInt(m[2], 10);
-    const s = parseInt(m[3], 10);
-    clocks.push((h * 3600 + min * 60 + s) * 1000);
-  }
-  if (clocks.length === 0) {
-    return { whiteClockMs: null, blackClockMs: null, hasClocks: false };
-  }
-  // Индексы: 0 → белые, 1 → чёрные, 2 → белые, ...
-  // Последний ход белых = максимальный чётный индекс.
-  // Последний ход чёрных = максимальный нечётный индекс.
-  let lastWhite: number | null = null;
-  let lastBlack: number | null = null;
-  for (let i = 0; i < clocks.length; i++) {
-    if (i % 2 === 0) lastWhite = clocks[i];
-    else lastBlack = clocks[i];
-  }
-  return {
-    whiteClockMs: lastWhite,
-    blackClockMs: lastBlack,
-    hasClocks: true,
-  };
+  return summaries;
 }

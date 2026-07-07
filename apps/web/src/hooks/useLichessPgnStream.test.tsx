@@ -16,13 +16,13 @@ import {
 const SAMPLE_PGN = `[Event "GCT Zagreb 2026"]
 [Site "https://lichess.org/broadcast/gct-zagreb-2026/round-5"]
 [Date "2026.07.07"]
-[Round "5"]
+[Round "5.1"]
 [White "Carlsen, Magnus"]
 [Black "Nakamura, Hikaru"]
 [Result "*"]
 [WhiteElo "2830"]
 [BlackElo "2789"]
-[GameId "aaaaaaaa"]
+[GameURL "https://lichess.org/broadcast/gct-zagreb-2026/round-5/aaaaaaaa"]
 [Variant "Standard"]
 
 1. e4 { [%clk 1:29:55] } e5 { [%clk 1:29:50] } 2. Nf3 { [%clk 1:29:40] } *
@@ -30,13 +30,13 @@ const SAMPLE_PGN = `[Event "GCT Zagreb 2026"]
 [Event "GCT Zagreb 2026"]
 [Site "https://lichess.org/broadcast/gct-zagreb-2026/round-5"]
 [Date "2026.07.07"]
-[Round "5"]
+[Round "5.2"]
 [White "Nepomniachtchi, Ian"]
 [Black "Firouzja, Alireza"]
 [Result "1-0"]
 [WhiteElo "2795"]
 [BlackElo "2762"]
-[GameId "bbbbbbbb"]
+[GameURL "https://lichess.org/broadcast/gct-zagreb-2026/round-5/bbbbbbbb"]
 [Variant "Standard"]
 
 1. d4 { [%clk 1:29:50] } Nf6 { [%clk 1:29:45] } 1-0`;
@@ -69,7 +69,7 @@ describe('parseLichessBroadcastPgn (KS-4856)', () => {
   });
 
   it('партия без ходов и часов → clocks=null, стартовая позиция', () => {
-    const pgn = `[Event "X"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n[GameId "cccccccc"]\n\n*`;
+    const pgn = `[Event "X"]\n[White "Alpha"]\n[Black "Beta"]\n[Result "*"]\n[GameURL "https://lichess.org/broadcast/x/y/cccccccc"]\n\n*`;
     const [g] = parseLichessBroadcastPgn(pgn);
     expect(g.whiteClockMs).toBeNull();
     expect(g.blackClockMs).toBeNull();
