@@ -805,4 +805,66 @@ describe('detectRoundTournamentType — mixed format (KS-2730)', () => {
       }),
     ).toBe('swiss');
   });
+
+  describe('локализованные названия швейцарской системы (KS-4860)', () => {
+    it('format="Švajčiarsky systém na 9 kôl" (словацкий) → swiss', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Round 5',
+          broadcastFormat: 'Švajčiarsky systém na 9 kôl',
+          games: [],
+        }),
+      ).toBe('swiss');
+    });
+
+    it('format="Švajčiarsky systém" + roundName="Finálové kolo" → swiss', () => {
+      // Локализованное имя финального round'а в швейцарке НЕ должно
+      // перебивать явный швейцарский формат (симметрично англ.
+      // «Final Round» в «9-round Swiss» → swiss, KS-2474).
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Finálové kolo',
+          broadcastFormat: 'Švajčiarsky systém na 9 kôl',
+          games: [],
+        }),
+      ).toBe('swiss');
+    });
+
+    it('format="Schweizer System" (немецкий) → swiss', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Runde 3',
+          broadcastFormat: 'Schweizer System',
+          games: [],
+        }),
+      ).toBe('swiss');
+    });
+
+    it('format="Швейцарская система" (русский) → swiss', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Тур 5',
+          broadcastFormat: 'Швейцарская система',
+          games: [],
+        }),
+      ).toBe('swiss');
+    });
+
+    it('локализованная швейцарка не поднимает structureSaysMatch (placeholder Lichess не превращается в playoff)', () => {
+      // Симметрия с англ. KS-2474: две партии у одной пары не должны
+      // ложно давать playoff, если формат явно швейцарский —
+      // независимо от языка.
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Round 1',
+          broadcastFormat: 'Švajčiarsky systém na 9 kôl',
+          games: [
+            { whitePlayer: 'Player A', blackPlayer: 'Player B' },
+            { whitePlayer: 'Player A', blackPlayer: 'Player B' },
+            { whitePlayer: 'Player C', blackPlayer: 'Player D' },
+          ],
+        }),
+      ).toBe('swiss');
+    });
+  });
 });

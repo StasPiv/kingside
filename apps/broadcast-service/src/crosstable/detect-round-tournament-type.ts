@@ -18,6 +18,13 @@
  */
 
 import type { BroadcastRoundTournamentType } from '@kingside/shared';
+// KS-4860. Общие паттерны формата турнира — вынесены, чтобы локализации
+// (напр. словацкое «Švajčiarsky systém») понимали и `detect-tournament-type`,
+// и этот раунд-детектор.
+import {
+  SWISS_FORMAT_PATTERN,
+  ROUND_ROBIN_FORMAT_PATTERN,
+} from './tournament-format-patterns';
 
 export interface DetectRoundInput {
   /** `BroadcastRound.name`. */
@@ -142,8 +149,12 @@ const STRICT_PLAYOFF_PATTERNS: RegExp[] = [
   /\btie[- ]?break(?:s|er|ers)?\b/i,
 ];
 
-const SWISS_PATTERN = /\bswiss\b/i;
-const ROUND_ROBIN_PATTERN = /\bround[- ]?robin\b/i;
+// KS-4860. Локализованный whitelist (см. tournament-format-patterns.ts).
+// Word-boundaries сняты — с Unicode-aware `\b` работает нестабильно
+// вокруг диакритики и кириллицы, а риск ложных срабатываний в реальных
+// строках форматов минимален.
+const SWISS_PATTERN = SWISS_FORMAT_PATTERN;
+const ROUND_ROBIN_PATTERN = ROUND_ROBIN_FORMAT_PATTERN;
 /**
  * KS-2474: маркеры явного knockout-формата на уровне всего турнира.
  * Lichess/chess-results выдают такие строки в `tour.format`:

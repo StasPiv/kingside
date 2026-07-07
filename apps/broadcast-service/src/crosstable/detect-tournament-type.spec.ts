@@ -153,6 +153,93 @@ describe('detectTournamentType', () => {
     });
   });
 
+  describe('локализованные названия швейцарской системы (KS-4860)', () => {
+    it('"Švajčiarsky systém na 9 kôl" (словацкий) → swiss', () => {
+      // Наблюдение пользователя: FIDE Open České Budějovice, Lichess
+      // возвращает формат на словацком.
+      expect(
+        detectTournamentType({ format: 'Švajčiarsky systém na 9 kôl' }),
+      ).toBe('swiss');
+    });
+
+    it('"Švajčiarsky systém" всё капсом (SVAJČIARSKY) → swiss', () => {
+      expect(detectTournamentType({ format: 'ŠVAJČIARSKY SYSTÉM' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('"Švýcarský systém" (чешский) → swiss', () => {
+      expect(detectTournamentType({ format: 'Švýcarský systém' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('"Schweizer System" (немецкий) → swiss', () => {
+      expect(detectTournamentType({ format: 'Schweizer System' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('"Système suisse" (французский) → swiss', () => {
+      expect(detectTournamentType({ format: 'Système suisse' })).toBe('swiss');
+    });
+
+    it('"Sistema svizzero" (итальянский) → swiss', () => {
+      expect(detectTournamentType({ format: 'Sistema svizzero' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('"Sistema suizo" (испанский) → swiss', () => {
+      expect(detectTournamentType({ format: 'Sistema suizo' })).toBe('swiss');
+    });
+
+    it('"Sistema suíço" (португальский) → swiss', () => {
+      expect(detectTournamentType({ format: 'Sistema suíço' })).toBe('swiss');
+    });
+
+    it('"System szwajcarski" (польский) → swiss', () => {
+      expect(detectTournamentType({ format: 'System szwajcarski' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('"Zwitsers systeem" (нидерландский) → swiss', () => {
+      expect(detectTournamentType({ format: 'Zwitsers systeem' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('"Швейцарская система" (русский) → swiss', () => {
+      expect(detectTournamentType({ format: 'Швейцарская система' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('"ШВЕЙЦАРСКАЯ СИСТЕМА" (русский капсом) → swiss', () => {
+      expect(detectTournamentType({ format: 'ШВЕЙЦАРСКАЯ СИСТЕМА' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('"Швайцарська система" (украинский) → swiss', () => {
+      expect(detectTournamentType({ format: 'Швайцарська система' })).toBe(
+        'swiss',
+      );
+    });
+
+    it('локализованная швейцарка + hasTeamTable=true → team-swiss', () => {
+      // Симметрия с английским кейсом: base — швейцарка, флаг команды —
+      // работает и на локализованном названии.
+      expect(
+        detectTournamentType({
+          format: 'Švajčiarsky systém na 9 kôl',
+          hasTeamTable: true,
+        }),
+      ).toBe('team-swiss');
+    });
+  });
+
   describe('whitespace-only / unknown formats', () => {
     it('"   " (только whitespace) → unknown', () => {
       expect(detectTournamentType({ format: '   ' })).toBe('unknown');

@@ -26,6 +26,13 @@
 // для backward-compat с предыдущими импортами из этого модуля.
 export type { TournamentType } from '@kingside/shared';
 import type { TournamentType } from '@kingside/shared';
+// KS-4860. Общие паттерны формата турнира — вынесены, чтобы расширения
+// локализаций были едины у обоих детекторов (broadcast + round-level).
+import {
+  SWISS_FORMAT_PATTERN,
+  ROUND_ROBIN_FORMAT_PATTERN,
+  TEAM_FORMAT_PATTERN,
+} from './tournament-format-patterns';
 
 export interface DetectInput {
   /** `Broadcast.format` — строка из Lichess `tour.info.format` или null. */
@@ -38,9 +45,9 @@ export interface DetectInput {
   hasTeamTable?: boolean;
 }
 
-const TEAM_PATTERN = /team/i;
-const SWISS_PATTERN = /swiss/i;
-const ROUND_ROBIN_PATTERN = /round[- ]?robin/i;
+const TEAM_PATTERN = TEAM_FORMAT_PATTERN;
+const SWISS_PATTERN = SWISS_FORMAT_PATTERN;
+const ROUND_ROBIN_PATTERN = ROUND_ROBIN_FORMAT_PATTERN;
 /**
  * «N Round Team Tournament» — формат Lichess для командных швейцарок
  * (например «11 Round Team Tournament», «7 Round Team Tournament»).
