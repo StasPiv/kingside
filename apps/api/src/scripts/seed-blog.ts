@@ -42,22 +42,59 @@ const DEFAULT_SOURCES = [
 export interface SeedBlogStats {
   scanned: number;
   upserted: number;
+  /**
+   * KS-4863. Число разосланных broadcast-уведомлений
+   * `blog_post_published` за прогон — суммарно по всем постам,
+   * впервые переходящим в статус `published`. Дедуп внутри seed'а
+   * идёт через CAS-update `publishedNotificationSentAt` — симметрично
+   * `BlogAdminService.notifyBlogPublished` (KS-4740).
+   */
+  notified: number;
   skipped: Array<{ file: string; reason: string }>;
   errored: Array<{ file: string; error: string }>;
 }
 
 /**
- * Тонкий контракт над `PrismaClient` для тестируемости: сидеру нужны
- * только два метода — upsert по slug+locale и upsert автора по handle.
+ * KS-4863. Расширенный контракт над `PrismaClient` для тестируемости.
+ * Раньше сидеру хватало двух методов; после KS-4863 seed сам рассылает
+ * broadcast-уведомления о новых опубликованных постах (иначе они
+ * upsert'ились в БД мимо `BlogAdminService.notifyBlogPublished` и в
+ * колокольчике не появлялись). Нужны: `user.findMany` для аудитории,
+ * `notification.createMany` для записей, `blogPost.updateMany` для
+ * CAS-дедупа флага `publishedNotificationSentAt`.
  */
 export interface SeedBlogPrisma {
   blogAuthor: {
     upsert: (args: unknown) => Promise<{ id: string; handle: string }>;
   };
   blogPost: {
-    upsert: (args: unknown) => Promise<unknown>;
+    upsert: (args: unknown) => Promise<SeedBlogPostRow>;
+    updateMany: (args: unknown) => Promise<{ count: number }>;
+  };
+  user: {
+    findMany: (args: unknown) => Promise<Array<{ id: string }>>;
+  };
+  notification: {
+    createMany: (args: unknown) => Promise<{ count: number }>;
   };
   $disconnect?: () => Promise<void>;
+}
+
+/**
+ * KS-4863. Минимальный проектор строки `blog_posts` для дальнейших
+ * шагов сидера. Дополнительные поля (`bodyHtml`, `tags`, …) не нужны —
+ * они уже записаны upsert'ом.
+ */
+export interface SeedBlogPostRow {
+  id: string;
+  slug: string;
+  locale: string;
+  title: string;
+  description: string;
+  coverUrl: string | null;
+  status: string;
+  publishedAt: Date | null;
+  publishedNotificationSentAt: Date | null;
 }
 
 /**
@@ -71,6 +108,7 @@ export async function runBlogSeed(
   const stats: SeedBlogStats = {
     scanned: 0,
     upserted: 0,
+    notified: 0,
     skipped: [],
     errored: [],
   };
@@ -95,8 +133,15 @@ export async function runBlogSeed(
           parsed.authorHandle,
           authorCache,
         );
-        await upsertPost(prisma, parsed, authorId);
+        const row = await upsertPost(prisma, parsed, authorId);
         stats.upserted++;
+        // KS-4863. После upsert'а — рассылаем broadcast-уведомление
+        // `blog_post_published`, если пост впервые перешёл в
+        // published (симметрично `BlogAdminService.notifyBlogPublished`
+        // — прод-путь). Без этого шага seed добавлял записи в БД, но
+        // колокольчик оставался пустым.
+        const created = await notifyIfNewlyPublished(prisma, row, log);
+        stats.notified += created;
         log(
           `[blog-seed] OK   ${parsed.locale} ${parsed.slug} (status=${parsed.status})`,
         );
@@ -110,9 +155,67 @@ export async function runBlogSeed(
 
   log(
     `[blog-seed] DONE scanned=${stats.scanned} upserted=${stats.upserted} ` +
+      `notified=${stats.notified} ` +
       `skipped=${stats.skipped.length} errored=${stats.errored.length}`,
   );
   return stats;
+}
+
+/**
+ * KS-4863. Разослать broadcast-уведомление `blog_post_published`, если
+ * пост впервые получил `status='published'` и
+ * `publishedNotificationSentAt IS NULL`. Дедуп через CAS-update:
+ * если между чтением и `updateMany` кто-то другой уже разослал
+ * (параллельный прод-endpoint), `count=0` и рассылка пропускается.
+ *
+ * Аудитория совпадает с `NotificationService.createBroadcast`
+ * (KS-4740): все реальные пользователи кроме `isBot`, `isSynthetic`,
+ * `isHidden`. WS-emit из seed'а не делаем — у скрипта нет доступа к
+ * `MessageGateway`; клиенты подхватят запись через `GET /notifications`
+ * при следующем refresh (колокольчик поллит эндпоинт при заходе).
+ *
+ * Возвращает число созданных `Notification` (для stats и логов).
+ */
+async function notifyIfNewlyPublished(
+  prisma: SeedBlogPrisma,
+  post: SeedBlogPostRow,
+  log: (line: string) => void,
+): Promise<number> {
+  if (post.status !== 'published' || post.publishedAt === null) return 0;
+  if (post.publishedNotificationSentAt !== null) return 0;
+
+  const claim = await prisma.blogPost.updateMany({
+    where: { id: post.id, publishedNotificationSentAt: null },
+    data: { publishedNotificationSentAt: new Date() },
+  });
+  if (claim.count === 0) return 0;
+
+  const recipients = await prisma.user.findMany({
+    where: { isBot: false, isSynthetic: false, isHidden: false },
+    select: { id: true },
+  });
+  if (recipients.length === 0) return 0;
+
+  const payloadJson = JSON.stringify({
+    post_id: post.id,
+    slug: post.slug,
+    locale: post.locale,
+    title: post.title,
+    description: post.description,
+    cover_url: post.coverUrl,
+    published_at: post.publishedAt.toISOString(),
+  });
+  const result = await prisma.notification.createMany({
+    data: recipients.map((r) => ({
+      userId: r.id,
+      type: 'blog_post_published',
+      payload: payloadJson,
+    })),
+  });
+  log(
+    `[blog-seed] NOTIFY ${post.locale} ${post.slug}: ${result.count} recipients`,
+  );
+  return result.count;
 }
 
 async function ensureAuthor(
@@ -139,7 +242,7 @@ async function upsertPost(
   prisma: SeedBlogPrisma,
   parsed: SeedPostInput,
   authorId: string,
-): Promise<void> {
+): Promise<SeedBlogPostRow> {
   const bodyHtml = await renderMarkdownToHtml(parsed.bodyMd);
   const readingTimeMin = estimateReadingTimeMin(parsed.bodyMd);
   const publishedAt =
@@ -149,7 +252,7 @@ async function upsertPost(
         ? new Date()
         : null;
 
-  await prisma.blogPost.upsert({
+  return prisma.blogPost.upsert({
     where: { slug_locale: { slug: parsed.slug, locale: parsed.locale } },
     create: {
       slug: parsed.slug,
