@@ -403,7 +403,7 @@ class AgentDaemon:
         cmd.append("kingside-agent")
         cmd.extend([
             "-p",
-            "--model", "default",
+            "--model", "fable",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
@@ -1405,7 +1405,7 @@ class ChatDaemon:
         cmd.extend([
             "kingside-agent",
             "-p",
-            "--model", "default",
+            "--model", "fable",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
