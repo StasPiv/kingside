@@ -1,0 +1,82 @@
+{
+  "study": {
+    "notification": {
+      "title": "Chess training time!",
+      "intro": "Your session is ready: {{taskCount}} tasks, about {{minutes}} min.",
+      "openSession": "Open your session: {{url}}",
+      "taskLine": {
+        "puzzle_theme": "Solve {{count}} puzzles on the theme \"{{theme}}\"",
+        "sm2_review": "Review {{count}} due lessons (spaced repetition)",
+        "lesson": "Study the next lesson: {{lessonTitle}}",
+        "mistakes": "Fix {{count}} of your past mistakes",
+        "precision": "Precision: {{count}} positions against the engine",
+        "drill": "Tactic drills: {{count}} exercises",
+        "rated_game": "Play a rated {{timeControl}} game",
+        "game_review": "Analyse your latest game",
+        "puzzle_rush": "Puzzle Rush: score {{target}} or more",
+        "external_games": "Play {{count}} games on {{provider}}"
+      }
+    },
+    "page": {
+      "title": "Today's session",
+      "subtitle": "Prepared for you based on your level and progress",
+      "shelfLabel": "Your level: {{shelf}}",
+      "progress": "{{done}} of {{total}} tasks completed",
+      "start": "Start session",
+      "continue": "Continue session",
+      "recheck": "Refresh progress",
+      "status": {
+        "planned": "Planned",
+        "notified": "Waiting for you",
+        "in_progress": "In progress",
+        "completed": "Completed",
+        "expired": "Expired"
+      },
+      "taskStatus": {
+        "pending": "Not started",
+        "partial": "In progress",
+        "done": "Done",
+        "skipped": "Skipped"
+      },
+      "block": {
+        "theoryReview": "Theory review",
+        "tactics": "Tactics",
+        "theoryLesson": "New theory",
+        "practice": "Practice"
+      },
+      "task": {
+        "puzzle_theme": "{{count}} puzzles: {{theme}}",
+        "sm2_review": "Lesson review ({{count}})",
+        "lesson": "Lesson: {{lessonTitle}}",
+        "mistakes": "Work on mistakes ({{count}})",
+        "precision": "Precision vs engine ({{count}})",
+        "drill": "Tactic drills ({{count}})",
+        "rated_game": "Rated game ({{timeControl}})",
+        "game_review": "Game analysis",
+        "puzzle_rush": "Puzzle Rush (target {{target}})",
+        "external_games": "{{count}} games on {{provider}}"
+      },
+      "why": {
+        "title": "Why these tasks?",
+        "body": "The session is built from your puzzle rating, weakest tactical themes, due lesson reviews and recent activity. It adapts after every session."
+      },
+      "completed": {
+        "title": "Session completed — well done!",
+        "body": "Every task is finished. The next session will take your progress into account."
+      },
+      "partiallyDone": {
+        "title": "Session is over",
+        "body": "You completed {{done}} of {{total}} tasks. Unfinished reviews and themes move to the next session."
+      },
+      "expired": {
+        "title": "Session expired",
+        "body": "This session wasn't started in time. Don't worry — the next one will pick up where you left off."
+      },
+      "empty": {
+        "noSchedule": "You don't have a training schedule yet. Choose convenient days and time — the platform will prepare each session for you.",
+        "noScheduleCta": "Set up schedule",
+        "noSession": "No session is planned yet. The next one will appear closer to your scheduled time."
+      }
+    }
+  }
+}
