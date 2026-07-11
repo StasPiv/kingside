@@ -71,11 +71,14 @@ async function channels(guildId) {
 }
 
 async function read(channelId, limit) {
+  const chan = await api(`/channels/${channelId}`);
+  const guildId = chan.guild_id || '@me';
   const msgs = await api(`/channels/${channelId}/messages?limit=${Math.min(limit, 100)}`);
   console.log(`# Последние ${msgs.length} сообщений (новые сверху)\n`);
   for (const m of msgs) {
     const replyTo = m.referenced_message ? ` ↩ ${m.referenced_message.author?.username}` : '';
     console.log(`[${fmtTs(m.timestamp)}] ${m.author?.username}${replyTo}: ${(m.content || '(вложение/эмбед)').replace(/\n/g, ' ⏎ ')}`);
+    console.log(`  → https://discord.com/channels/${guildId}/${channelId}/${m.id}`);
   }
 }
 
