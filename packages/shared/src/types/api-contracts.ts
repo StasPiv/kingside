@@ -3844,3 +3844,59 @@ export interface CreateNotificationChannelResponse {
   channel: NotificationChannelDto;
   telegramDeepLink?: string;
 }
+
+/** Статус занятия (ADR-160 §3). */
+export type StudySessionStatus =
+  | 'planned'
+  | 'notified'
+  | 'in_progress'
+  | 'completed'
+  | 'expired';
+
+/** Статус задания занятия (ADR-160 §3). */
+export type StudyTaskStatus = 'pending' | 'partial' | 'done' | 'skipped';
+
+/** Тип задания занятия (ADR-160 §3). */
+export type StudyTaskType =
+  | 'puzzle_theme'
+  | 'sm2_review'
+  | 'lesson'
+  | 'mistakes'
+  | 'precision'
+  | 'drill'
+  | 'rated_game'
+  | 'game_review'
+  | 'puzzle_rush'
+  | 'external_games';
+
+/**
+ * Задание занятия (KS-4886). `params` зависит от типа: тема и
+ * рейтинг-окно у puzzle_theme, lessonId/courseSlug у lesson и т. д.
+ */
+export interface StudyTaskDto {
+  id: string;
+  position: number;
+  type: StudyTaskType;
+  params: Record<string, unknown> | null;
+  targetCount: number;
+  doneCount: number;
+  status: StudyTaskStatus;
+}
+
+/** Занятие с заданиями (KS-4886, страница /study). */
+export interface StudySessionDto {
+  id: string;
+  scheduledAt: string;
+  status: StudySessionStatus;
+  completedAt: string | null;
+  tasks: StudyTaskDto[];
+}
+
+/**
+ * GET /study/session — текущее занятие: самое свежее в пределах
+ * горизонта генерации (+25 ч), не expired. null — занятия нет
+ * (нет расписания или слот ещё не сгенерирован).
+ */
+export interface StudySessionResponse {
+  session: StudySessionDto | null;
+}

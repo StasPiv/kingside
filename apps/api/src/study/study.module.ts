@@ -4,6 +4,7 @@ import { StudyController } from './study.controller';
 import { TelegramWebhookController } from './telegram-webhook.controller';
 import { StudyScheduleService } from './study-schedule.service';
 import { NotificationChannelService } from './notification-channel.service';
+import { StudySessionService } from './study-session.service';
 import { TelegramBotService } from './telegram-bot.service';
 import { StudyPlanGeneratorService } from './study-plan-generator.service';
 import { StudyProfileService } from './study-profile.service';
@@ -28,6 +29,7 @@ import { StudyDispatcherScheduler } from './study-dispatcher.scheduler';
   providers: [
     StudyScheduleService,
     NotificationChannelService,
+    StudySessionService,
     TelegramBotService,
     StudyPlanGeneratorService,
     StudyProfileService,

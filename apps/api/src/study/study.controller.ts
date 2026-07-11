@@ -16,20 +16,23 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { StudyScheduleService } from './study-schedule.service';
 import { NotificationChannelService } from './notification-channel.service';
+import { StudySessionService } from './study-session.service';
 import { UpdateStudyScheduleDto } from './dto/update-study-schedule.dto';
 import { CreateNotificationChannelDto } from './dto/create-notification-channel.dto';
 import type {
   CreateNotificationChannelResponse,
   NotificationChannelsResponse,
   StudyScheduleResponse,
+  StudySessionResponse,
 } from '@kingside/shared';
 
 /**
- * REST занятий (KS-4880 / ADR-160, задача 1 из 6).
+ * REST занятий (KS-4880, KS-4886 / ADR-160).
  *
  * Пути:
  *   GET    /api/study/schedule      — расписание (null до создания)
  *   PUT    /api/study/schedule      — создать/обновить расписание
+ *   GET    /api/study/session       — текущее занятие с заданиями
  *   GET    /api/study/channels      — каналы уведомлений
  *   POST   /api/study/channels      — подключить канал (telegram → deep-link)
  *   DELETE /api/study/channels/:id  — отключить канал
@@ -42,7 +45,15 @@ export class StudyController {
   constructor(
     private readonly schedules: StudyScheduleService,
     private readonly channels: NotificationChannelService,
+    private readonly sessions: StudySessionService,
   ) {}
+
+  /** KS-4886: текущее занятие для страницы /study. */
+  @Get('session')
+  async getSession(@Request() req: AuthenticatedRequest): Promise<StudySessionResponse> {
+    const session = await this.sessions.getCurrent(req.user.id);
+    return { session };
+  }
 
   @Get('schedule')
   async getSchedule(@Request() req: AuthenticatedRequest): Promise<StudyScheduleResponse> {
