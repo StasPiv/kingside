@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +12,11 @@ import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { BroadcastBoardCard } from '../components/broadcast/BroadcastBoardCard';
 import { RoundCountdown } from '../components/broadcast/RoundCountdown';
 import { PairingCard } from '../components/broadcast/PairingCard';
-import { sortGamesByWhite, gamesFingerprint } from '../utils/broadcastGameSort';
+import {
+  sortGamesByWhite,
+  sortGamesByLastMove,
+  gamesFingerprint,
+} from '../utils/broadcastGameSort';
 import { useBroadcastSocket } from '../hooks/useBroadcastSocket';
 import { useBroadcastEvalQueue } from '../hooks/useBroadcastEvalQueue';
 import { useLichessPgnStream } from '../hooks/useLichessPgnStream';
@@ -259,6 +263,9 @@ export function guardStaleSnapshot(
 // используем его, чтобы `PlayoffBracket` получил корректный тип.
 type LichessGame = BroadcastGameSummary;
 
+/** KS-4893: localStorage-ключ выбранного режима сортировки досок. */
+const SORT_MODE_STORAGE_KEY = 'broadcast.boardsSortMode';
+
 
 type LichessRoundInfo = BroadcastRoundItem;
 
@@ -280,6 +287,37 @@ export function BroadcastRoundPage() {
   const [broadcast, setBroadcast] = useState<LichessBroadcastMeta | null>(null);
   const [rounds, setRounds] = useState<LichessRoundInfo[]>([]);
   const [games, setGames] = useState<LichessGame[]>([]);
+
+  // KS-4893: режим сортировки досок. 'default' — текущий порядок
+  // (по фамилии белых, как и раньше), 'lastMove' — самые свежие ходы
+  // первыми (живой lastMoveAt из KS-4889). Выбор переживает
+  // перезагрузку через localStorage.
+  const [sortMode, setSortMode] = useState<'default' | 'lastMove'>(() => {
+    try {
+      return window.localStorage.getItem(SORT_MODE_STORAGE_KEY) === 'lastMove'
+        ? 'lastMove'
+        : 'default';
+    } catch {
+      return 'default';
+    }
+  });
+  const changeSortMode = useCallback((next: 'default' | 'lastMove') => {
+    setSortMode(next);
+    try {
+      window.localStorage.setItem(SORT_MODE_STORAGE_KEY, next);
+    } catch {
+      /* privacy mode и т. п. */
+    }
+  }, []);
+  // Сортировку по последнему ходу применяем на рендере: state `games`
+  // всегда хранится в порядке по умолчанию, поэтому переключение назад
+  // мгновенно возвращает исходный порядок. `games` обновляется на
+  // каждом значимом снимке (fingerprint учитывает pgn/clockUpdatedAt),
+  // так что порядок живёт вместе с новыми ходами.
+  const displayGames = useMemo(
+    () => (sortMode === 'lastMove' ? sortGamesByLastMove(games) : games),
+    [sortMode, games],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   /**
@@ -834,10 +872,40 @@ export function BroadcastRoundPage() {
         </select>
       </div>
 
+      {/* KS-4893: переключатель сортировки досок. */}
+      <div
+        className="broadcast-sort-toggle"
+        role="group"
+        aria-label={t('broadcastRound.sort.label', 'Board order')}
+        data-testid="broadcast-sort-toggle"
+      >
+        <span className="broadcast-sort-toggle__label">
+          {t('broadcastRound.sort.label', 'Board order')}:
+        </span>
+        <button
+          type="button"
+          className={`broadcast-sort-toggle__btn${sortMode === 'default' ? ' broadcast-sort-toggle__btn--active' : ''}`}
+          aria-pressed={sortMode === 'default'}
+          data-testid="broadcast-sort-default"
+          onClick={() => changeSortMode('default')}
+        >
+          {t('broadcastRound.sort.default', 'Default')}
+        </button>
+        <button
+          type="button"
+          className={`broadcast-sort-toggle__btn${sortMode === 'lastMove' ? ' broadcast-sort-toggle__btn--active' : ''}`}
+          aria-pressed={sortMode === 'lastMove'}
+          data-testid="broadcast-sort-last-move"
+          onClick={() => changeSortMode('lastMove')}
+        >
+          {t('broadcastRound.sort.lastMove', 'Recent move first')}
+        </button>
+      </div>
+
       {renderRoundBody({
         status: currentRound?.status ?? '',
         startsAt: currentRound?.startsAt ?? null,
-        games,
+        games: displayGames,
         gameKey,
         lastMoveKey,
         lastMoveUciMap,

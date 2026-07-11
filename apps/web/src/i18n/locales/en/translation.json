@@ -483,6 +483,11 @@
         "losers_semi": "LB — Semifinal",
         "losers_final": "LB — Final"
       }
+    },
+    "sort": {
+      "label": "Board order",
+      "default": "Default",
+      "lastMove": "Recent move first"
     }
   },
   "broadcastGame": {

@@ -35,6 +35,35 @@ export function sortGamesByWhite<
 }
 
 /**
+ * KS-4893: сортировка партий по времени последнего хода — самые свежие
+ * первыми. `lastMoveAt` на клиентском потоке обновляется в момент
+ * прихода нового хода (KS-4889, `guardStaleSnapshot`), поэтому порядок
+ * живой: доска с последним ходом поднимается наверх.
+ *
+ * Партии без `lastMoveAt` (не начались / нет данных) — в конец.
+ * Tiebreak — порядок по фамилии белых (`sortGamesByWhite`-компаратор),
+ * чтобы при равных временах порядок был детерминированным.
+ */
+export function sortGamesByLastMove<
+  G extends Pick<
+    BroadcastGameSummary,
+    'id' | 'whitePlayer' | 'blackPlayer' | 'lastMoveAt'
+  >,
+>(games: readonly G[]): G[] {
+  const byWhite = sortGamesByWhite(games);
+  return [...byWhite].sort((a, b) => {
+    const at = a.lastMoveAt ? Date.parse(a.lastMoveAt) : NaN;
+    const bt = b.lastMoveAt ? Date.parse(b.lastMoveAt) : NaN;
+    const aOk = Number.isFinite(at);
+    const bOk = Number.isFinite(bt);
+    if (aOk && bOk) return bt - at; // свежие первыми
+    if (aOk) return -1;
+    if (bOk) return 1;
+    return 0; // оба без времени — стабильный порядок byWhite (sort стабилен)
+  });
+}
+
+/**
  * Стабильный fingerprint списка партий независимо от порядка массива.
  * Триггерит `setGames` при любом значимом изменении: PGN-длины
  * (новый ход), `result` (партия завершилась — KS-2715), `currentFen`
