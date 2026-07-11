@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { BroadcastGameSummary } from '@kingside/shared';
-import { mergeStreamedGames } from './BroadcastRoundPage';
+import { guardStaleSnapshot, mergeStreamedGames } from './BroadcastRoundPage';
 
 /**
  * KS-4856 / ADR-159 §3.2 п.2: юнит-тесты стратегии merge server ↔ stream.
@@ -214,5 +214,79 @@ describe('mergeStreamedGames (KS-4856)', () => {
     expect(merged[0].id).toBe('uuid-1');
     expect(merged[1].id).toBe('');
     expect(merged[1].lichessGameId).toBe('lg-x');
+  });
+});
+
+describe('guardStaleSnapshot (KS-4889)', () => {
+  const NOW = '2026-07-11T16:00:00.000Z';
+
+  it('замороженный REST-снимок не откатывает финальный результат', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1', result: '1/2-1/2', pgn: '1. e4 e5' })];
+    const fresh = [srvGame({ id: 'u1', lichessGameId: 'lg1', result: '*', pgn: '1. e4 e5' })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.result).toBe('1/2-1/2');
+  });
+
+  it('fresh с более коротким PGN не откатывает pgn/fen/clocks', () => {
+    const prev = [srvGame({
+      id: 'u1', lichessGameId: 'lg1',
+      pgn: '1. e4 e5 2. Nf3', currentFen: 'live-fen',
+      whiteClockMs: 500, blackClockMs: 600, clockUpdatedAt: '2026-07-11T15:59:00.000Z',
+    })];
+    const fresh = [srvGame({
+      id: 'u1', lichessGameId: 'lg1',
+      pgn: '1. e4', currentFen: 'stale-fen',
+      whiteClockMs: 1000, blackClockMs: 2000, clockUpdatedAt: '2026-07-11T15:00:00.000Z',
+    })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.pgn).toBe('1. e4 e5 2. Nf3');
+    expect(g.currentFen).toBe('live-fen');
+    expect(g.whiteClockMs).toBe(500);
+    expect(g.clockUpdatedAt).toBe('2026-07-11T15:59:00.000Z');
+  });
+
+  it('рост PGN (новый ход) ставит lastMoveAt = now, если fresh не принёс новее', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4', lastMoveAt: '2026-07-11T15:00:00.000Z' })];
+    const fresh = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4 e5', lastMoveAt: null })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.lastMoveAt).toBe(NOW);
+  });
+
+  it('рост PGN с более свежим lastMoveAt от fresh — берём его, не now', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4', lastMoveAt: '2026-07-11T15:00:00.000Z' })];
+    const fresh = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4 e5', lastMoveAt: '2026-07-11T15:58:00.000Z' })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.lastMoveAt).toBe('2026-07-11T15:58:00.000Z');
+  });
+
+  it('без нового хода lastMoveAt не даунгрейдится к более старому/null', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4', lastMoveAt: '2026-07-11T15:30:00.000Z' })];
+    const fresh = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4', lastMoveAt: null })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.lastMoveAt).toBe('2026-07-11T15:30:00.000Z');
+  });
+
+  it('prev пуст (initial) — fresh возвращается как есть', () => {
+    const fresh = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4', lastMoveAt: '2026-07-11T15:00:00.000Z' })];
+    const out = guardStaleSnapshot([], fresh, NOW);
+    expect(out).toEqual(fresh);
+  });
+
+  it('юникодный результат «½-½» тоже финальный', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1', result: '½-½', pgn: '1. e4' })];
+    const fresh = [srvGame({ id: 'u1', lichessGameId: 'lg1', result: null, pgn: '1. e4' })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.result).toBe('½-½');
+  });
+
+  it('новая партия во fresh (нет в prev) проходит без изменений', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1' })];
+    const fresh = [
+      srvGame({ id: 'u1', lichessGameId: 'lg1' }),
+      srvGame({ id: 'u2', lichessGameId: 'lg2', whitePlayer: 'Gamma', blackPlayer: 'Delta', pgn: '1. d4' }),
+    ];
+    const out = guardStaleSnapshot(prev, fresh, NOW);
+    expect(out).toHaveLength(2);
+    expect(out[1].pgn).toBe('1. d4');
   });
 });

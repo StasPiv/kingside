@@ -175,6 +175,85 @@ export function mergeStreamedGames(
   return out;
 }
 
+/** Финальный результат партии (учитывает юникодную «½-½»). */
+function isFinalResult(result: string | null | undefined): boolean {
+  if (!result) return false;
+  const r = result.replace(/½/g, '1/2');
+  return r === '1-0' || r === '0-1' || r === '1/2-1/2';
+}
+
+/**
+ * KS-4889. Защита локального состояния от отката устаревшим снимком.
+ *
+ * После ADR-159 (клиентская трансляция; backend 8d3920ce удалил
+ * runStream) сервер НЕ обновляет партии ongoing-раунда — его снимок
+ * заморожен на момент импорта. При этом REST-опрос (30 с) и WS-sync
+ * продолжают вызывать `applyFreshGames` этим замороженным снимком и
+ * затирали живые данные клиентского потока:
+ *  - партия завершилась (стрим принёс `result='1/2-1/2'`) → через ≤30 с
+ *    REST возвращал `result='*'` — результат исчезал из карточки;
+ *  - `lastMoveAt` стрим не знает (в PGN Lichess нет wall-clock хода),
+ *    а серверный заморожен → подпись «N минут назад» никогда не
+ *    обновлялась, хотя позиция росла.
+ *
+ * Правила (сравнение по паре игроков, как в `mergeStreamedGames`):
+ *  - fresh с более коротким PGN — отстал: сохраняем прежние
+ *    pgn/fen/clocks;
+ *  - финальный результат не откатываем к '*'/null;
+ *  - PGN вырос (новый ход) — `lastMoveAt = nowIso`, если fresh не
+ *    принёс значение новее прежнего;
+ *  - без нового хода `lastMoveAt` не даунгрейдим к более старому/null.
+ */
+export function guardStaleSnapshot(
+  prev: readonly BroadcastGameSummary[],
+  fresh: readonly BroadcastGameSummary[],
+  nowIso: string,
+): BroadcastGameSummary[] {
+  if (prev.length === 0) return [...fresh];
+  const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
+  const keyOf = (g: BroadcastGameSummary) =>
+    `${norm(g.whitePlayer)}|${norm(g.blackPlayer)}`;
+  const prevByKey = new Map<string, BroadcastGameSummary>();
+  for (const p of prev) prevByKey.set(keyOf(p), p);
+
+  return fresh.map((g) => {
+    const prevG = prevByKey.get(keyOf(g));
+    if (!prevG) return g;
+    let out = g;
+
+    const prevLen = prevG.pgn?.length ?? 0;
+    if ((out.pgn?.length ?? 0) < prevLen) {
+      out = {
+        ...out,
+        pgn: prevG.pgn,
+        currentFen: prevG.currentFen,
+        whiteClockMs: prevG.whiteClockMs ?? out.whiteClockMs ?? null,
+        blackClockMs: prevG.blackClockMs ?? out.blackClockMs ?? null,
+        clockUpdatedAt: prevG.clockUpdatedAt ?? out.clockUpdatedAt ?? null,
+      };
+    }
+
+    if (isFinalResult(prevG.result) && !isFinalResult(out.result)) {
+      out = { ...out, result: prevG.result };
+    }
+
+    const prevTs = prevG.lastMoveAt ? Date.parse(prevG.lastMoveAt) : NaN;
+    const curTs = out.lastMoveAt ? Date.parse(out.lastMoveAt) : NaN;
+    const grew = (out.pgn?.length ?? 0) > prevLen;
+    if (grew) {
+      const freshIsNewer =
+        Number.isFinite(curTs) && (!Number.isFinite(prevTs) || curTs > prevTs);
+      if (!freshIsNewer) out = { ...out, lastMoveAt: nowIso };
+    } else if (
+      Number.isFinite(prevTs) &&
+      (!Number.isFinite(curTs) || prevTs > curTs)
+    ) {
+      out = { ...out, lastMoveAt: prevG.lastMoveAt };
+    }
+    return out;
+  });
+}
+
 // Lichess types.
 // NB: shared `BroadcastGameSummary` точнее шейпит bracket-поля (KS-1813);
 // используем его, чтобы `PlayoffBracket` получил корректный тип.
@@ -304,12 +383,17 @@ export function BroadcastRoundPage() {
       // иначе после первого WS-sync пропадают clocks (KS-2700),
       // last-move highlight (KS-2705) и eval-bar (KS-2708), потому
       // что они ожидают `currentFen`.
-      const fresh: LichessGame[] = rawFresh.map((g) => {
+      const normalized: LichessGame[] = rawFresh.map((g) => {
         if (g.currentFen) return g;
         const fenAlt = (g as unknown as { fen?: string }).fen;
         return fenAlt ? { ...g, currentFen: fenAlt } : g;
       });
       const prev = prevGamesRef.current;
+      // KS-4889: REST-опрос и WS-sync после ADR-159 приносят замороженный
+      // серверный снимок — не даём ему откатить result/pgn/fen живого
+      // клиентского потока; здесь же проставляется lastMoveAt при росте
+      // PGN (стрим wall-clock хода не знает, сервер его не обновляет).
+      const fresh = guardStaleSnapshot(prev, normalized, new Date().toISOString());
       // KS-2702: ищем партию(-ии) в которых увеличилась PGN-длина
       // относительно prev — это и есть «получили новый ход в этом
       // апдейте». Берём ПЕРВУЮ найденную для звука и подсветки. Если
