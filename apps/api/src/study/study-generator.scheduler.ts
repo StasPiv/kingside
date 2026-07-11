@@ -72,7 +72,8 @@ export class StudyGeneratorScheduler {
     let created = 0;
     for (const schedule of schedules) {
       try {
-        if (await this.generateForSchedule(schedule, now)) created++;
+        const r = await this.generateForSchedule(schedule, now);
+        if (r.outcome === 'created') created++;
       } catch (e) {
         this.logger.error(
           `study generator: schedule ${schedule.id} failed: ${(e as Error).message}`,
@@ -85,8 +86,10 @@ export class StudyGeneratorScheduler {
   /**
    * Генерация занятия для ОДНОГО расписания (та же логика, что тик).
    * KS-4894: вызывается также из PUT /study/schedule — слот, попавший
-   * между часовыми тиками, не проваливается. Идемпотентно: занятие на
-   * слот уже есть (или параллельный тик успел первым, P2002) → false.
+   * между часовыми тиками, не проваливается. Идемпотентно.
+   *
+   * KS-4896: возвращает исход (не boolean) — вызывающий логирует
+   * решение генератора, иначе «сессии нет» не диагностируется по логам.
    */
   async generateForSchedule(
     schedule: { id: string; userId: string; sessionMinutes: number } & {
@@ -95,13 +98,13 @@ export class StudyGeneratorScheduler {
       timezone: string;
     },
     now: Date,
-  ): Promise<boolean> {
+  ): Promise<{ outcome: 'created' | 'exists' | 'no_slot' | 'empty_plan'; slot: Date | null }> {
     const slot = nextSlotWithin(
       schedule,
       now,
       StudyGeneratorScheduler.HORIZON_HOURS,
     );
-    if (!slot) return false;
+    if (!slot) return { outcome: 'no_slot', slot: null };
     try {
       const exists = await this.prisma.studySession.findUnique({
         where: {
@@ -112,15 +115,16 @@ export class StudyGeneratorScheduler {
         },
         select: { id: true },
       });
-      if (exists) return false;
-      return await this.createSession(schedule, slot);
+      if (exists) return { outcome: 'exists', slot };
+      const created = await this.createSession(schedule, slot);
+      return { outcome: created ? 'created' : 'empty_plan', slot };
     } catch (e) {
       // P2002 — параллельный тик успел первым: не ошибка.
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
         e.code === 'P2002'
       ) {
-        return false;
+        return { outcome: 'exists', slot };
       }
       throw e;
     }

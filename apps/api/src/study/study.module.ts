@@ -13,6 +13,7 @@ import { StudyGeneratorScheduler } from './study-generator.scheduler';
 import { StudyDispatcherScheduler } from './study-dispatcher.scheduler';
 import { StudyTrackingService } from './study-tracking.service';
 import { StudyTrackingScheduler } from './study-tracking.scheduler';
+import { StudyDiagnosticsService } from './study-diagnostics.service';
 
 /**
  * Модуль занятий (ADR-160):
@@ -41,6 +42,7 @@ import { StudyTrackingScheduler } from './study-tracking.scheduler';
     StudyDispatcherScheduler,
     StudyTrackingService,
     StudyTrackingScheduler,
+    StudyDiagnosticsService,
   ],
   exports: [
     StudyScheduleService,

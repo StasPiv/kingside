@@ -56,14 +56,22 @@ export class StudyScheduleService {
     try {
       const now = new Date();
       if (schedule.active) {
-        await this.prisma.studySession.deleteMany({
+        const removed = await this.prisma.studySession.deleteMany({
           where: {
             scheduleId: schedule.id,
             status: 'planned',
             scheduledAt: { gt: now },
           },
         });
-        await this.generator.generateForSchedule(schedule, now);
+        const r = await this.generator.generateForSchedule(schedule, now);
+        // KS-4896: одна строка на каждый PUT — решение генератора видно
+        // в логах (иначе «сессии нет» недиагностируемо).
+        this.logger.log(
+          `PUT schedule ${schedule.id} (user ${userId}): removed ${removed.count} planned, ` +
+            `generation=${r.outcome}${r.slot ? ` slot=${r.slot.toISOString()}` : ''}`,
+        );
+      } else {
+        this.logger.log(`PUT schedule ${schedule.id} (user ${userId}): inactive, no generation`);
       }
     } catch (e) {
       // Сохранение расписания важнее мгновенной генерации: часовой тик

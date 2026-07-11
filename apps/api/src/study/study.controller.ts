@@ -17,6 +17,7 @@ import { AuthenticatedRequest } from '../common/authenticated-request';
 import { StudyScheduleService } from './study-schedule.service';
 import { NotificationChannelService } from './notification-channel.service';
 import { StudySessionService } from './study-session.service';
+import { StudyDiagnosticsService } from './study-diagnostics.service';
 import { UpdateStudyScheduleDto } from './dto/update-study-schedule.dto';
 import { CreateNotificationChannelDto } from './dto/create-notification-channel.dto';
 import type {
@@ -46,6 +47,7 @@ export class StudyController {
     private readonly schedules: StudyScheduleService,
     private readonly channels: NotificationChannelService,
     private readonly sessions: StudySessionService,
+    private readonly diagnostics: StudyDiagnosticsService,
   ) {}
 
   /** KS-4886: текущее занятие для страницы /study. */
@@ -53,6 +55,17 @@ export class StudyController {
   async getSession(@Request() req: AuthenticatedRequest): Promise<StudySessionResponse> {
     const session = await this.sessions.getCurrent(req.user.id);
     return { session };
+  }
+
+  /**
+   * KS-4896: диагностика СВОИХ занятий — сырые строки расписания,
+   * последних сессий (задачи + журнал доставки с ошибками) и каналов.
+   * Прод-БД недоступна извне; этот endpoint отвечает на «есть ли у
+   * меня занятие и что с доставкой» без доступа к БД.
+   */
+  @Get('diagnostics')
+  async getDiagnostics(@Request() req: AuthenticatedRequest) {
+    return this.diagnostics.collect(req.user.id);
   }
 
   @Get('schedule')
