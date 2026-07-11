@@ -5284,7 +5284,9 @@
         "rated_game": "Rated game ({{timeControl}})",
         "game_review": "Game analysis",
         "puzzle_rush": "Puzzle Rush (target {{target}})",
-        "external_games": "{{count}} games on {{provider}}"
+        "external_games": "{{count}} games on {{provider}}",
+        "rated_game_plain": "Rated game",
+        "puzzle_rush_plain": "Puzzle Rush"
       },
       "why": {
         "title": "Why these tasks?",
