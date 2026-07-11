@@ -1582,7 +1582,11 @@ if $DEPLOY_API; then
     # key-pair-id CloudFront и ИМЯ секрета в Secrets Manager (сам ключ
     # читается через secretsmanager:GetSecretValue из ecsTaskRole inline
     # policy kingside-lectures-s3-access, см. KS-3821/KS-3828).
-    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"Stanislav"},{"name":"REVIEW_COMMENT_V2","value":"on"},{"name":"LECTURE_AUDIO_BUCKET","value":"kingside-lectures"},{"name":"LECTURE_AUDIO_CDN_BASE","value":"https://media.kingside.site"},{"name":"LECTURE_AUDIO_CDN_KEY_PAIR_ID","value":"K22OGMBTKZ8IZR"},{"name":"LECTURE_AUDIO_CDN_PRIVATE_KEY_SECRET_NAME","value":"kingside/cloudfront/lectures-signing-key"}]'
+    # KS-4892: STUDY_TELEGRAM_WEBHOOK_URL — webhook отдельного study-бота
+    # (kingside_study_bot, KS-4891). Значение нечувствительно (публичный URL).
+    # Сам токен TELEGRAM_STUDY_BOT_TOKEN — secret в task-def из
+    # Secrets Manager kingside/api (наследуется при клонировании revision).
+    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"Stanislav"},{"name":"REVIEW_COMMENT_V2","value":"on"},{"name":"LECTURE_AUDIO_BUCKET","value":"kingside-lectures"},{"name":"LECTURE_AUDIO_CDN_BASE","value":"https://media.kingside.site"},{"name":"LECTURE_AUDIO_CDN_KEY_PAIR_ID","value":"K22OGMBTKZ8IZR"},{"name":"LECTURE_AUDIO_CDN_PRIVATE_KEY_SECRET_NAME","value":"kingside/cloudfront/lectures-signing-key"},{"name":"STUDY_TELEGRAM_WEBHOOK_URL","value":"https://api.kingside.site/study/telegram/webhook"}]'
     NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE" "$API_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
     _perf_stamp "api_taskdef_done"
