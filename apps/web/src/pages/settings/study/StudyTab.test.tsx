@@ -86,8 +86,14 @@ describe('StudyTab (KS-4883)', () => {
       .spyOn(api, 'put')
       .mockResolvedValue({ schedule: SCHEDULE });
     wrap();
+    // Ждём ЗАПОЛНЕНИЯ формы из schedule (useEffect после загрузки), а не
+    // только появления секции: до эффекта days=[] и кнопка «Сохранить»
+    // заблокирована — клик по ней уходил в пустоту (флаки KS-4890).
     await waitFor(() =>
-      expect(screen.getByTestId('study-schedule-section')).toBeInTheDocument(),
+      expect((screen.getByTestId('study-time-input') as HTMLInputElement).value).toBe('19:30'),
+    );
+    await waitFor(() =>
+      expect((screen.getByTestId('study-schedule-save') as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(screen.getByTestId('study-schedule-save'));
     await waitFor(() =>
