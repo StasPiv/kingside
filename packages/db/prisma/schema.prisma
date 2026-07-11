@@ -3073,8 +3073,8 @@ model StudySession {
   /// Диспетчер: scheduled_at <= now AND status='planned' (ADR-160 §4).
   @@index([status, scheduledAt])
   @@index([userId, scheduledAt(sort: Desc)])
-  /// Генератор: «занятие на слот уже создано?» (schedule + слот).
-  @@index([scheduleId, scheduledAt])
+  /// KS-4881: идемпотентность генератора — один слот = одно занятие.
+  @@unique([scheduleId, scheduledAt])
   @@map("study_sessions")
 }
 
