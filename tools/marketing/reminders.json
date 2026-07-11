@@ -1,0 +1,18 @@
+{
+  "_comment": "Календарь Telegram-напоминаний по стратегии tools/marketing/social-organic-strategy.md §3 (KS-4870). Правь тексты/расписание здесь — планировщик (scripts/marketing-reminders/send-reminders.mjs) перечитывает файл каждую минуту, перезапуск не нужен. type: daily | weekly (dow: 1=Пн … 7=Вс) | monthly (dom: число месяца). time: ЧЧ:ММ в таймзоне REMINDERS_TZ (по умолчанию Europe/Kyiv). Напоминания с одинаковым временем склеиваются в одно сообщение.",
+  "reminders": [
+    { "id": "D1", "type": "daily", "time": "09:00", "text": "Reddit: 1–3 полезных ответа в r/chess / r/chessbeginners" },
+    { "id": "D2", "type": "daily", "time": "09:00", "text": "Ответить на комментарии YT/TT/IG" },
+    { "id": "D3", "type": "daily", "time": "09:00", "text": "Мониторинг лент авторов и шахматных новостей → идеи в бэклог" },
+    { "id": "W1", "type": "weekly", "dow": 1, "time": "09:00", "text": "Заказать видео недели у content (тема из пула)" },
+    { "id": "W2", "type": "weekly", "dow": 3, "time": "09:00", "text": "Публикация YouTube-видео + UTM в описании" },
+    { "id": "W3", "type": "weekly", "dow": 3, "time": "09:00", "text": "Нарезать 2–3 вертикальных клипа из видео недели" },
+    { "id": "W4", "type": "weekly", "dow": 4, "time": "09:00", "text": "Публикация клипа №1 (Shorts/TikTok/Reels)" },
+    { "id": "W5", "type": "weekly", "dow": 6, "time": "09:00", "text": "Публикация клипа №2 (Shorts/TikTok/Reels)" },
+    { "id": "W6", "type": "weekly", "dow": 7, "time": "09:00", "text": "Клип №3 / IG-карусель + репост в X" },
+    { "id": "W7", "type": "weekly", "dow": 7, "time": "09:00", "text": "GA: снять недельные метрики по каналам" },
+    { "id": "W8", "type": "weekly", "dow": 5, "time": "09:00", "text": "Турнирный ньюсджекинг-клип (если идёт турнир)" },
+    { "id": "M1", "type": "monthly", "dom": 1, "time": "09:00", "text": "Месячная ретроспектива каналов + обновление пула тем" },
+    { "id": "M2", "type": "monthly", "dom": 1, "time": "09:00", "text": "Networking: 10–20 релевантных аккаунтов" }
+  ]
+}

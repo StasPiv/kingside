@@ -488,6 +488,27 @@ services:
     profiles:
       - monitoring
 
+  # KS-4870: Telegram-напоминания по маркетинговому календарю (§3 стратегии).
+  # Расписание/тексты — tools/marketing/reminders.json (перечитывается на лету).
+  marketing-reminders:
+    image: node:20-alpine
+    restart: unless-stopped
+    mem_limit: 64m
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-0}
+      REMINDERS_TZ: ${REMINDERS_TZ:-Europe/Kyiv}
+    volumes:
+      - ./scripts/marketing-reminders:/app:ro
+      - ./tools/marketing:/config:ro
+      - marketing_reminders_state:/state
+    command: ["node", "/app/send-reminders.mjs"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   postgres_data:
   redis_data:
@@ -495,3 +516,4 @@ volumes:
   grafana_data:
   prometheus_data:
   alertmanager_data:
+  marketing_reminders_state:
