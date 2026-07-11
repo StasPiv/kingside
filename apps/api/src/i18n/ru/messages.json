@@ -21,5 +21,19 @@
   "guess.pgn.strongest": "Сильнейший · точность {acc}%",
   "guess.pgn.betterThanPlayer": "Сильнее реального · {accUser}% против {accPlayer}%",
   "guess.pgn.weakerLoss": "Слабее · потеря {loss}%",
-  "guess.pgn.weakerGood": "Чуть слабее · {accUser}% против {accPlayer}%"
+  "guess.pgn.weakerGood": "Чуть слабее · {accUser}% против {accPlayer}%",
+  "study.notification.title": "Учебное занятие",
+  "study.notification.intro": "Ваше занятие готово:",
+  "study.notification.openSession": "Открыть занятие",
+  "study.task.sm2_review": "Повторить уроки: {count}",
+  "study.task.puzzle_theme": "Решить {count} пазлов — тема: {theme}",
+  "study.task.puzzle_theme_mix": "Решить {count} пазлов",
+  "study.task.lesson": "Пройти следующий урок курса",
+  "study.task.mistakes": "Работа над ошибками: {count} задач",
+  "study.task.precision": "Точность: {count} позиций",
+  "study.task.drill": "Дриллы: {count}",
+  "study.task.rated_game": "Сыграть рейтинговую партию",
+  "study.task.game_review": "Разобрать свою партию",
+  "study.task.puzzle_rush": "Puzzle Rush: {count} забег(ов)",
+  "study.task.external_games": "Сыграть {count} партий на {provider}"
 }

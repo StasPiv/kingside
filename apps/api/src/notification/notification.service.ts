@@ -36,16 +36,23 @@ export class NotificationService {
       },
     });
 
-    // Push via WebSocket
-    this.messageGateway.server
-      .to(`user:${userId}`)
-      .emit('notification:new', {
-        id: notification.id,
-        type: notification.type,
-        payload,
-        read: false,
-        createdAt: notification.createdAt.toISOString(),
-      });
+    // Push via WebSocket. KS-4882: ошибки пуша не роняют создание —
+    // запись в БД уже есть, уведомление прочитается из списка; иначе
+    // вызывающий (диспетчер занятий) посчитает доставку failed и
+    // создаст дубль ретраем.
+    try {
+      this.messageGateway.server
+        .to(`user:${userId}`)
+        .emit('notification:new', {
+          id: notification.id,
+          type: notification.type,
+          payload,
+          read: false,
+          createdAt: notification.createdAt.toISOString(),
+        });
+    } catch (e) {
+      this.logger.warn(`notification:new push failed: ${(e as Error).message}`);
+    }
 
     return notification;
   }

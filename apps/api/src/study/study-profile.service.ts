@@ -122,20 +122,20 @@ export class StudyProfileService {
     const progress = await this.prisma.userCourseProgress.findFirst({
       where: { userId, completedAt: null },
       orderBy: { updatedAt: 'desc' },
-      select: { courseId: true },
+      select: { course: { select: { id: true, slug: true } } },
     });
 
-    let courseId = progress?.courseId ?? null;
-    if (!courseId) {
+    let course = progress?.course ?? null;
+    if (!course) {
       const shelf = ratingPuzzle < 1300 ? 'beginner' : ratingPuzzle < 1700 ? 'intermediate' : 'advanced';
-      const course = await this.prisma.course.findFirst({
+      course = await this.prisma.course.findFirst({
         where: { ownerId: null, isPublished: true, level: shelf },
         orderBy: { createdAt: 'asc' },
-        select: { id: true },
+        select: { id: true, slug: true },
       });
-      courseId = course?.id ?? null;
     }
-    if (!courseId) return null;
+    if (!course) return null;
+    const courseId = course.id;
 
     const completed = await this.prisma.userLessonProgress.findMany({
       where: { userId, completedAt: { not: null }, lesson: { courseId } },
@@ -149,7 +149,12 @@ export class StudyProfileService {
     });
     const next = lessons.find((l) => !done.has(l.id));
     return next
-      ? { lessonId: next.id, courseId, estMinutes: next.estMinutes }
+      ? {
+          lessonId: next.id,
+          courseId,
+          courseSlug: course.slug,
+          estMinutes: next.estMinutes,
+        }
       : null;
   }
 

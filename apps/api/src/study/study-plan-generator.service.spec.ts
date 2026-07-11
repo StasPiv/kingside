@@ -9,7 +9,7 @@ function profile(overrides: Partial<StudyProfile> = {}): StudyProfile {
     ratingPuzzle: 1500,
     dueReviewLessonIds: [],
     weakThemes: [{ theme: 'fork', attempted: 20, rate: 45 }],
-    nextLesson: { lessonId: 'l1', courseId: 'c1', estMinutes: 10 },
+    nextLesson: { lessonId: 'l1', courseId: 'c1', courseSlug: 'basics', estMinutes: 10 },
     recentThemeSolveRate: null,
     recentCompletionRates: [],
     practiceLastUsedAt: {},
@@ -80,7 +80,7 @@ describe('StudyPlanGeneratorService (правила §2, KS-4881)', () => {
     it('урок не назначается, если estMinutes больше остатка бюджета', () => {
       const plan = gen.buildPlan(
         profile({
-          nextLesson: { lessonId: 'l1', courseId: 'c1', estMinutes: 60 },
+          nextLesson: { lessonId: 'l1', courseId: 'c1', courseSlug: 'basics', estMinutes: 60 },
         }),
         30,
       );

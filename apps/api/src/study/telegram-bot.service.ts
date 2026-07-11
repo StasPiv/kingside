@@ -48,6 +48,26 @@ export class TelegramBotService {
     return username;
   }
 
+  /**
+   * Отправка с ответом об успехе — для диспетчера (KS-4882): false
+   * уходит в StudyNotification.error и ретраится следующим тиком.
+   */
+  async sendMessageStrict(chatId: string, text: string): Promise<boolean> {
+    if (!this.configured) return false;
+    const res = await fetch(
+      `https://api.telegram.org/bot${this.botToken}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text }),
+      },
+    );
+    if (!res.ok) {
+      this.logger.warn(`sendMessage to ${chatId} failed: HTTP ${res.status}`);
+    }
+    return res.ok;
+  }
+
   /** Отправка сообщения в чат; ошибки логируются, не бросаются. */
   async sendMessage(chatId: string, text: string): Promise<void> {
     if (!this.configured) return;

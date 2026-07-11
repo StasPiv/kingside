@@ -63,7 +63,13 @@ export interface StudyProfile {
    */
   weakThemes: Array<{ theme: string; attempted: number; rate: number }>;
   /** Следующий урок активного курса (или системного по полке). */
-  nextLesson: { lessonId: string; courseId: string; estMinutes: number } | null;
+  nextLesson: {
+    lessonId: string;
+    courseId: string;
+    /** Slug курса — для deep-link `/lessons/:slug/:lessonId` в уведомлении. */
+    courseSlug: string;
+    estMinutes: number;
+  } | null;
   /** Решаемость тематических пазлов за последние 3 занятия (%, null = мало данных). */
   recentThemeSolveRate: number | null;
   /** Доля выполненных задач в каждом из последних занятий, новые первыми (0-1). */
@@ -140,6 +146,7 @@ export class StudyPlanGeneratorService {
         params: {
           lessonId: profile.nextLesson.lessonId,
           courseId: profile.nextLesson.courseId,
+          courseSlug: profile.nextLesson.courseSlug,
         },
         targetCount: 1,
       });

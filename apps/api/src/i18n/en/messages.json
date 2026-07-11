@@ -21,5 +21,19 @@
   "guess.pgn.strongest": "Strongest · accuracy {acc}%",
   "guess.pgn.betterThanPlayer": "Better than played · {accUser}% vs {accPlayer}%",
   "guess.pgn.weakerLoss": "Weaker · loss {loss}%",
-  "guess.pgn.weakerGood": "Slightly weaker · {accUser}% vs {accPlayer}%"
+  "guess.pgn.weakerGood": "Slightly weaker · {accUser}% vs {accPlayer}%",
+  "study.notification.title": "Training session",
+  "study.notification.intro": "Your training session is ready:",
+  "study.notification.openSession": "Open the session",
+  "study.task.sm2_review": "Review lessons: {count}",
+  "study.task.puzzle_theme": "Solve {count} puzzles — theme: {theme}",
+  "study.task.puzzle_theme_mix": "Solve {count} puzzles",
+  "study.task.lesson": "Complete the next course lesson",
+  "study.task.mistakes": "Mistake practice: {count} puzzles",
+  "study.task.precision": "Precision: {count} positions",
+  "study.task.drill": "Drills: {count}",
+  "study.task.rated_game": "Play a rated game",
+  "study.task.game_review": "Review your game",
+  "study.task.puzzle_rush": "Puzzle Rush: {count} run(s)",
+  "study.task.external_games": "Play {count} game(s) on {provider}"
 }
