@@ -336,6 +336,24 @@ button[data-testid='study-session-recheck']:hover:not(:disabled) {
     max-width: none;
   }
 
+  /* KS-4901: 7 дней — всегда один цельный ряд. С min-width 44px и
+     gap 6px семь кнопок не влезали в ~342px (390px-экран минус
+     паддинги), и «Вс» отрывалась на вторую строку — её принимали
+     за продолжение ряда и выбирали не тот день (KS-4896/KS-4900).
+     Убираем перенос: кнопки делят ширину ряда поровну. */
+  .study-days {
+    flex-wrap: nowrap;
+    width: 100%;
+    gap: 4px;
+  }
+
+  .study-day-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 2px;
+    text-align: center;
+  }
+
   .study-save-row button[data-testid='study-schedule-save'] {
     flex: 1 1 100%;
   }
