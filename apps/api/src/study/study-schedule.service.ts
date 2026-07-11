@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { StudyGeneratorScheduler } from './study-generator.scheduler';
 import type { StudyScheduleDto, StudyFocus } from '@kingside/shared';
 import { UpdateStudyScheduleDto } from './dto/update-study-schedule.dto';
 
@@ -7,10 +8,20 @@ import { UpdateStudyScheduleDto } from './dto/update-study-schedule.dto';
  * CRUD расписания занятий (KS-4880 / ADR-160 §3).
  * Расписание 1:1 с пользователем — `GET` возвращает null до первого
  * `PUT`, `PUT` работает как upsert.
+ *
+ * KS-4894: после сохранения активного расписания занятие для
+ * ближайшего слота генерируется СРАЗУ (той же логикой, что часовой
+ * тик) — слот, попавший между тиками, не проваливается, GET
+ * /study/session показывает занятие немедленно.
  */
 @Injectable()
 export class StudyScheduleService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(StudyScheduleService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly generator: StudyGeneratorScheduler,
+  ) {}
 
   async get(userId: string): Promise<StudyScheduleDto | null> {
     const schedule = await this.prisma.studySchedule.findUnique({
@@ -37,6 +48,31 @@ export class StudyScheduleService {
       create: { userId, ...data },
       update: data,
     });
+
+    // KS-4894: немедленная генерация ближайшего занятия. Перед ней —
+    // уборка будущих НЕотправленных занятий, чей слот больше не
+    // соответствует новому расписанию (изменил время → старый planned
+    // не должен уведомляться). notified/in_progress не трогаем.
+    try {
+      const now = new Date();
+      if (schedule.active) {
+        await this.prisma.studySession.deleteMany({
+          where: {
+            scheduleId: schedule.id,
+            status: 'planned',
+            scheduledAt: { gt: now },
+          },
+        });
+        await this.generator.generateForSchedule(schedule, now);
+      }
+    } catch (e) {
+      // Сохранение расписания важнее мгновенной генерации: часовой тик
+      // догонит, ошибку только логируем.
+      this.logger.error(
+        `immediate generation for schedule ${schedule.id} failed: ${(e as Error).message}`,
+      );
+    }
+
     return this.toDto(schedule);
   }
 

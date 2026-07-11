@@ -72,32 +72,8 @@ export class StudyGeneratorScheduler {
     let created = 0;
     for (const schedule of schedules) {
       try {
-        const slot = nextSlotWithin(
-          schedule,
-          now,
-          StudyGeneratorScheduler.HORIZON_HOURS,
-        );
-        if (!slot) continue;
-        const exists = await this.prisma.studySession.findUnique({
-          where: {
-            scheduleId_scheduledAt: {
-              scheduleId: schedule.id,
-              scheduledAt: slot,
-            },
-          },
-          select: { id: true },
-        });
-        if (exists) continue;
-        await this.createSession(schedule, slot);
-        created++;
+        if (await this.generateForSchedule(schedule, now)) created++;
       } catch (e) {
-        // P2002 — параллельный тик успел первым: не ошибка.
-        if (
-          e instanceof Prisma.PrismaClientKnownRequestError &&
-          e.code === 'P2002'
-        ) {
-          continue;
-        }
         this.logger.error(
           `study generator: schedule ${schedule.id} failed: ${(e as Error).message}`,
         );
@@ -106,17 +82,61 @@ export class StudyGeneratorScheduler {
     return created;
   }
 
+  /**
+   * Генерация занятия для ОДНОГО расписания (та же логика, что тик).
+   * KS-4894: вызывается также из PUT /study/schedule — слот, попавший
+   * между часовыми тиками, не проваливается. Идемпотентно: занятие на
+   * слот уже есть (или параллельный тик успел первым, P2002) → false.
+   */
+  async generateForSchedule(
+    schedule: { id: string; userId: string; sessionMinutes: number } & {
+      daysOfWeek: number[];
+      timeLocal: string;
+      timezone: string;
+    },
+    now: Date,
+  ): Promise<boolean> {
+    const slot = nextSlotWithin(
+      schedule,
+      now,
+      StudyGeneratorScheduler.HORIZON_HOURS,
+    );
+    if (!slot) return false;
+    try {
+      const exists = await this.prisma.studySession.findUnique({
+        where: {
+          scheduleId_scheduledAt: {
+            scheduleId: schedule.id,
+            scheduledAt: slot,
+          },
+        },
+        select: { id: true },
+      });
+      if (exists) return false;
+      return await this.createSession(schedule, slot);
+    } catch (e) {
+      // P2002 — параллельный тик успел первым: не ошибка.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        return false;
+      }
+      throw e;
+    }
+  }
+
   private async createSession(
     schedule: { id: string; userId: string; sessionMinutes: number },
     slot: Date,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const profile = await this.profiles.collect(schedule.userId, schedule.id);
     const plan = this.generator.buildPlan(profile, schedule.sessionMinutes);
     if (plan.length === 0) {
       this.logger.warn(
         `study generator: empty plan for schedule ${schedule.id}, skipping slot`,
       );
-      return;
+      return false;
     }
     await this.prisma.studySession.create({
       data: {
@@ -135,5 +155,6 @@ export class StudyGeneratorScheduler {
         },
       },
     });
+    return true;
   }
 }
