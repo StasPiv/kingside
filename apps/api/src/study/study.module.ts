@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { NotificationModule } from '../notification/notification.module';
+import { WorkshopModule } from '../workshop/workshop.module';
 import { StudyController } from './study.controller';
 import { TelegramWebhookController } from './telegram-webhook.controller';
 import { StudyScheduleService } from './study-schedule.service';
@@ -10,6 +11,8 @@ import { StudyPlanGeneratorService } from './study-plan-generator.service';
 import { StudyProfileService } from './study-profile.service';
 import { StudyGeneratorScheduler } from './study-generator.scheduler';
 import { StudyDispatcherScheduler } from './study-dispatcher.scheduler';
+import { StudyTrackingService } from './study-tracking.service';
+import { StudyTrackingScheduler } from './study-tracking.scheduler';
 
 /**
  * Модуль занятий (ADR-160):
@@ -19,12 +22,13 @@ import { StudyDispatcherScheduler } from './study-dispatcher.scheduler';
  *   cron EVERY_HOUR с Redis-lock.
  * - KS-4882 (задача 3): диспетчер уведомлений — cron EVERY_MINUTE,
  *   onsite + Telegram, ретраи, i18n en/ru.
- * Трекинг прогресса — задача 5 epic'а.
+ * - KS-4884 (задача 5): reconciliation-трекинг §5.1 (EVERY_15_MINUTES +
+ *   по требованию) и внешние снапшоты §5.2 (ежедневно).
  *
  * PrismaModule и RedisModule — глобальные, импорт не нужен.
  */
 @Module({
-  imports: [NotificationModule],
+  imports: [NotificationModule, WorkshopModule],
   controllers: [StudyController, TelegramWebhookController],
   providers: [
     StudyScheduleService,
@@ -35,6 +39,8 @@ import { StudyDispatcherScheduler } from './study-dispatcher.scheduler';
     StudyProfileService,
     StudyGeneratorScheduler,
     StudyDispatcherScheduler,
+    StudyTrackingService,
+    StudyTrackingScheduler,
   ],
   exports: [
     StudyScheduleService,

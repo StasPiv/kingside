@@ -106,4 +106,86 @@ export class ExternalChessService {
     });
     return filtered.join('\n\n');
   }
+
+  /**
+   * KS-4884 / ADR-160 §5.2. Дневная активность lichess: число партий
+   * за календарные сутки UTC + текущие рейтинги по категориям.
+   * Лёгкие вызовы: NDJSON-список партий без ходов (max 200) + профиль.
+   */
+  async fetchLichessDailyActivity(
+    username: string,
+    dayStartUtc: Date,
+  ): Promise<{ gamesPlayed: number; ratings: Record<string, number> }> {
+    const since = dayStartUtc.getTime();
+    const until = since + 86_400_000;
+    const params = new URLSearchParams({
+      since: String(since),
+      until: String(until),
+      moves: 'false',
+      max: '200',
+    });
+    const gamesRes = await fetch(
+      `https://lichess.org/api/games/user/${encodeURIComponent(username)}?${params}`,
+      { headers: { Accept: 'application/x-ndjson' } },
+    );
+    if (!gamesRes.ok) {
+      throw new Error(`lichess games API error: ${gamesRes.status}`);
+    }
+    const ndjson = (await gamesRes.text()).trim();
+    const gamesPlayed = ndjson ? ndjson.split('\n').length : 0;
+
+    const userRes = await fetch(
+      `https://lichess.org/api/user/${encodeURIComponent(username)}`,
+      { headers: { Accept: 'application/json' } },
+    );
+    const ratings: Record<string, number> = {};
+    if (userRes.ok) {
+      const body = (await userRes.json()) as {
+        perfs?: Record<string, { rating?: number }>;
+      };
+      for (const [perf, data] of Object.entries(body.perfs ?? {})) {
+        if (typeof data?.rating === 'number') ratings[perf] = data.rating;
+      }
+    }
+    return { gamesPlayed, ratings };
+  }
+
+  /**
+   * KS-4884 / ADR-160 §5.2. Дневная активность chess.com: партии за
+   * сутки UTC (месячный PGN-архив, фильтр по [Date]) + рейтинги из
+   * /stats. У chess.com нет per-day API — архив за месяц и так
+   * кэшируется их CDN.
+   */
+  async fetchChesscomDailyActivity(
+    username: string,
+    dayStartUtc: Date,
+  ): Promise<{ gamesPlayed: number; ratings: Record<string, number> }> {
+    const y = dayStartUtc.getUTCFullYear();
+    const m = dayStartUtc.getUTCMonth() + 1;
+    const pgn = await this.fetchChesscomGames(username, y, m).catch(() => '');
+    const dateTag = `[Date "${y}.${String(m).padStart(2, '0')}.${String(
+      dayStartUtc.getUTCDate(),
+    ).padStart(2, '0')}"]`;
+    const gamesPlayed = pgn
+      .split(/\n(?=\[Event )/)
+      .filter((g) => g.includes(dateTag)).length;
+
+    const statsRes = await fetch(
+      `https://api.chess.com/pub/player/${encodeURIComponent(username.toLowerCase())}/stats`,
+    );
+    const ratings: Record<string, number> = {};
+    if (statsRes.ok) {
+      const body = (await statsRes.json()) as Record<
+        string,
+        { last?: { rating?: number } }
+      >;
+      for (const [key, data] of Object.entries(body)) {
+        const rating = data?.last?.rating;
+        if (typeof rating === 'number') {
+          ratings[key.replace(/^chess_/, '')] = rating;
+        }
+      }
+    }
+    return { gamesPlayed, ratings };
+  }
 }

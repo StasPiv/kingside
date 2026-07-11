@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { StudyTrackingService } from './study-tracking.service';
 import type {
   StudySessionDto,
   StudySessionStatus,
@@ -15,28 +16,45 @@ import type {
  * горизонта генерации (+25 ч от сейчас): показывается и сегодняшнее
  * выполненное, и уже сгенерированное на ближайший слот. expired не
  * отдаём — по нему нечего делать.
+ *
+ * KS-4884 (§5.1): перед выдачей активной сессии — пересчёт прогресса
+ * по требованию, страница всегда показывает свежие done_count.
  */
 @Injectable()
 export class StudySessionService {
   /** Совпадает с горизонтом генератора (+25 ч, ADR-160 §4). */
   private static readonly HORIZON_HOURS = 25;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tracking: StudyTrackingService,
+  ) {}
 
   async getCurrent(userId: string): Promise<StudySessionDto | null> {
     const horizon = new Date(
       Date.now() + StudySessionService.HORIZON_HOURS * 3600_000,
     );
-    const session = await this.prisma.studySession.findFirst({
-      where: {
-        userId,
-        status: { in: ['planned', 'notified', 'in_progress', 'completed'] },
-        scheduledAt: { lte: horizon },
-      },
+    const where = {
+      userId,
+      status: { in: ['planned', 'notified', 'in_progress', 'completed'] },
+      scheduledAt: { lte: horizon },
+    };
+    let session = await this.prisma.studySession.findFirst({
+      where,
       orderBy: { scheduledAt: 'desc' },
       include: { tasks: { orderBy: { position: 'asc' } } },
     });
     if (!session) return null;
+
+    // KS-4884: пересчёт по требованию для активной сессии.
+    if (['notified', 'in_progress'].includes(session.status)) {
+      await this.tracking.reconcileById(session.id);
+      session = await this.prisma.studySession.findFirst({
+        where: { id: session.id },
+        include: { tasks: { orderBy: { position: 'asc' } } },
+      });
+      if (!session) return null;
+    }
     return {
       id: session.id,
       scheduledAt: session.scheduledAt.toISOString(),
