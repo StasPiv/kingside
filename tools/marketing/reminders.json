@@ -1,21 +1,115 @@
 {
-  "_comment": "Календарь Telegram-напоминаний по стратегии tools/marketing/social-organic-strategy.md §3.2 (KS-4875). Каждое напоминание — исполнительское действие с готовым материалом из брифа (tools/marketing/briefs/daily|weekly|monthly). Правь тексты/расписание здесь — планировщик (scripts/marketing-reminders/send-reminders.mjs) перечитывает файл каждую минуту, перезапуск не нужен. type: daily | weekly (dow: 1=Пн … 7=Вс) | monthly (dom: число месяца). time: ЧЧ:ММ в таймзоне REMINDERS_TZ (по умолчанию Europe/Kyiv). Напоминания с одинаковым временем склеиваются в одно сообщение.",
+  "_comment": "Календарь Telegram-напоминаний по стратегии tools/marketing/social-organic-strategy.md §3.2 (KS-4875). Каждое напоминание — исполнительское действие с готовым материалом из брифа (tools/marketing/briefs/daily|weekly|monthly). Правь тексты/расписание здесь — планировщик (scripts/marketing-reminders/send-reminders.mjs) перечитывает файл каждую минуту, перезапуск не нужен. type: daily | weekly (dow: 1=Пн … 7=Вс) | monthly (dom: число месяца). time: ЧЧ:ММ в таймзоне REMINDERS_TZ (по умолчанию Europe/Kyiv). Напоминания с одинаковым временем склеиваются в одно сообщение. Плейсхолдер {brief:daily|weekly|monthly} в тексте (KS-4876): в сообщение добавляется содержимое актуального брифа из tools/marketing/briefs/ (daily/ГГГГ-ММ-ДД.md, weekly/ГГГГ-Wнн.md ISO-неделя, monthly/ГГГГ-ММ.md) — одной секцией, один раз на сообщение; если файла нет — пометка «бриф не подготовлен».",
   "reminders": [
-    { "id": "D1", "type": "daily", "time": "09:30", "text": "Reddit: опубликуй готовые ответы из дневного брифа (tools/marketing/briefs/daily/, раздел Reddit)" },
-    { "id": "D2", "type": "daily", "time": "09:30", "text": "Комментарии: короткие — ответь, сложные — перешли маркетологу; черновики из брифа — опубликуй" },
-    { "id": "W1", "type": "weekly", "dow": 1, "time": "09:30", "text": "Записать 2–3 клипа по недельному брифу (tools/marketing/briefs/weekly/ — позиции и сценарии готовы)" },
-    { "id": "W2", "type": "weekly", "dow": 2, "time": "09:30", "text": "Клип №1 → Shorts + TikTok + Reels (тексты из недельного брифа)" },
-    { "id": "W3", "type": "weekly", "dow": 2, "time": "09:30", "text": "Telegram-канал: опубликуй готовый пост №1 из недельного брифа" },
-    { "id": "W4", "type": "weekly", "dow": 3, "time": "09:30", "text": "Позиция дня из брифа → X + IG (тексты готовы)" },
-    { "id": "W5", "type": "weekly", "dow": 4, "time": "09:30", "text": "Клип №2 → Shorts + TikTok + Reels (тексты из недельного брифа)" },
-    { "id": "W6", "type": "weekly", "dow": 4, "time": "09:30", "text": "Discord: опубликуй готовые ответы из дневного брифа" },
-    { "id": "W7", "type": "weekly", "dow": 5, "time": "09:30", "text": "Турнирный пост из дневного брифа → X (если блок есть в брифе)" },
-    { "id": "W8", "type": "weekly", "dow": 6, "time": "09:30", "text": "Клип №3 → Shorts + TikTok + Reels (тексты из недельного брифа)" },
-    { "id": "W9", "type": "weekly", "dow": 6, "time": "09:30", "text": "Quora: опубликуй готовые ответы из недельного брифа" },
-    { "id": "W10", "type": "weekly", "dow": 7, "time": "09:30", "text": "Telegram-канал: опубликуй готовый пост №2 из недельного брифа" },
-    { "id": "W11", "type": "weekly", "dow": 7, "time": "09:30", "text": "GA: перешли маркетологу недельные цифры new/returning по source (скриншот/выгрузка)" },
-    { "id": "M1", "type": "monthly", "dom": 2, "time": "09:30", "text": "Прочитай ретроспективу в месячном брифе (tools/marketing/briefs/monthly/) и подтверди план" },
-    { "id": "M2", "type": "monthly", "dom": 5, "time": "09:30", "text": "Networking по списку из месячного брифа (10–20 аккаунтов, шаблоны готовы)" },
-    { "id": "M3", "type": "monthly", "dom": 15, "time": "09:30", "text": "YouTube-видео месяца: запиши по сценарию из месячного брифа и опубликуй" }
+    {
+      "id": "D1",
+      "type": "daily",
+      "time": "09:30",
+      "text": "Reddit: опубликуй готовые ответы из дневного брифа (tools/marketing/briefs/daily/, раздел Reddit) {brief:daily}"
+    },
+    {
+      "id": "D2",
+      "type": "daily",
+      "time": "09:30",
+      "text": "Комментарии: короткие — ответь, сложные — перешли маркетологу; черновики из брифа — опубликуй {brief:daily}"
+    },
+    {
+      "id": "W1",
+      "type": "weekly",
+      "dow": 1,
+      "time": "09:30",
+      "text": "Записать 2–3 клипа по недельному брифу (tools/marketing/briefs/weekly/ — позиции и сценарии готовы) {brief:weekly}"
+    },
+    {
+      "id": "W2",
+      "type": "weekly",
+      "dow": 2,
+      "time": "09:30",
+      "text": "Клип №1 → Shorts + TikTok + Reels (тексты из недельного брифа) {brief:weekly}"
+    },
+    {
+      "id": "W3",
+      "type": "weekly",
+      "dow": 2,
+      "time": "09:30",
+      "text": "Telegram-канал: опубликуй готовый пост №1 из недельного брифа {brief:weekly}"
+    },
+    {
+      "id": "W4",
+      "type": "weekly",
+      "dow": 3,
+      "time": "09:30",
+      "text": "Позиция дня из брифа → X + IG (тексты готовы) {brief:weekly}"
+    },
+    {
+      "id": "W5",
+      "type": "weekly",
+      "dow": 4,
+      "time": "09:30",
+      "text": "Клип №2 → Shorts + TikTok + Reels (тексты из недельного брифа) {brief:weekly}"
+    },
+    {
+      "id": "W6",
+      "type": "weekly",
+      "dow": 4,
+      "time": "09:30",
+      "text": "Discord: опубликуй готовые ответы из дневного брифа {brief:daily}"
+    },
+    {
+      "id": "W7",
+      "type": "weekly",
+      "dow": 5,
+      "time": "09:30",
+      "text": "Турнирный пост из дневного брифа → X (если блок есть в брифе) {brief:daily}"
+    },
+    {
+      "id": "W8",
+      "type": "weekly",
+      "dow": 6,
+      "time": "09:30",
+      "text": "Клип №3 → Shorts + TikTok + Reels (тексты из недельного брифа) {brief:weekly}"
+    },
+    {
+      "id": "W9",
+      "type": "weekly",
+      "dow": 6,
+      "time": "09:30",
+      "text": "Quora: опубликуй готовые ответы из недельного брифа {brief:weekly}"
+    },
+    {
+      "id": "W10",
+      "type": "weekly",
+      "dow": 7,
+      "time": "09:30",
+      "text": "Telegram-канал: опубликуй готовый пост №2 из недельного брифа {brief:weekly}"
+    },
+    {
+      "id": "W11",
+      "type": "weekly",
+      "dow": 7,
+      "time": "09:30",
+      "text": "GA: перешли маркетологу недельные цифры new/returning по source (скриншот/выгрузка)"
+    },
+    {
+      "id": "M1",
+      "type": "monthly",
+      "dom": 2,
+      "time": "09:30",
+      "text": "Прочитай ретроспективу в месячном брифе (tools/marketing/briefs/monthly/) и подтверди план {brief:monthly}"
+    },
+    {
+      "id": "M2",
+      "type": "monthly",
+      "dom": 5,
+      "time": "09:30",
+      "text": "Networking по списку из месячного брифа (10–20 аккаунтов, шаблоны готовы) {brief:monthly}"
+    },
+    {
+      "id": "M3",
+      "type": "monthly",
+      "dom": 15,
+      "time": "09:30",
+      "text": "YouTube-видео месяца: запиши по сценарию из месячного брифа и опубликуй {brief:monthly}"
+    }
   ]
 }
