@@ -191,7 +191,7 @@ tools/marketing/briefs/
 ### Разметка трафика (обязательно с первого дня)
 Каждая ссылка — с UTM (маркетолог включает их в готовые тексты брифов):
 ```
-https://kingside.click/?utm_source=<канал>&utm_medium=social&utm_campaign=organic
+https://kingside.site/?utm_source=<канал>&utm_medium=social&utm_campaign=organic
 utm_source: reddit | youtube | youtube_shorts | tiktok | instagram | twitter | discord | telegram | quora
 ```
 Без UTM трафик из приложений соцсетей падает в Direct и каналы неразличимы.
