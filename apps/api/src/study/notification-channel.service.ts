@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -69,6 +70,15 @@ export class NotificationChannelService {
         data: { userId, type, verifiedAt: new Date() },
       });
       return { channel: this.toDto(channel) };
+    }
+
+    // KS-4891: telegram-канал доступен только при отдельном study-боте.
+    // Deep-link на общего бота вёл в webhook агентской инфраструктуры —
+    // /start не доходил. Без TELEGRAM_STUDY_BOT_TOKEN — честный 503.
+    if (!this.telegramBot.configured) {
+      throw new ServiceUnavailableException(
+        'Telegram channel connection is not configured yet',
+      );
     }
 
     // telegram: существующий подтверждённый канал не пересоздаём;
