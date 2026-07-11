@@ -1,0 +1,365 @@
+/* ============================================================
+ * KS-4888. Стили функции «планирование занятий» (KS-4883):
+ *   - вкладка «Занятия» в /settings (StudyTab.tsx);
+ *   - страница /study (StudyPage.tsx).
+ *
+ * Паттерн — тот же, что у вкладки «Приватность» (KS-4751):
+ * vertical-stack поля внутри .settings-section, семантические
+ * токены (light/dark), вторичные кнопки для второстепенных
+ * действий. Разметка компонентов не менялась — только классы.
+ * ============================================================ */
+
+/* ── Общее ────────────────────────────────────────────────── */
+
+.study-error {
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.study-section-hint {
+  margin: -8px 0 16px;
+}
+
+/* Поле формы: label сверху, контрол снизу (глобальный
+   .settings-field — row-flex со space-between, здесь он резал
+   метки «Часовой пояс» / «Фокус» и налезал на select). */
+.settings-field.study-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 0;
+}
+
+.settings-field.study-field:first-of-type {
+  padding-top: 0;
+}
+
+.settings-field.study-field > label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-field.study-field select,
+.settings-field.study-field input[type='time'] {
+  width: 100%;
+  max-width: 320px;
+}
+
+/* Ряд «чекбокс + подпись» (расписание включено, on-site). */
+.settings-field.study-field-check {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.settings-field.study-field-check > label {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+[data-testid='study-schedule-section'] input[type='checkbox'],
+[data-testid='study-channels-section'] input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+  flex: none;
+}
+
+/* ── Дни недели ───────────────────────────────────────────── */
+
+.study-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.study-day-btn {
+  min-width: 44px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.study-day-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.study-day-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--ov-accent-15, rgba(124, 131, 255, 0.25));
+}
+
+.study-day-btn[aria-pressed='true'] {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent, #fff);
+}
+
+.study-day-btn[aria-pressed='true']:hover {
+  background: var(--accent-primary);
+  opacity: 0.9;
+}
+
+/* ── Ряд сохранения ───────────────────────────────────────── */
+
+.study-save-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.study-note {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.study-note-ok {
+  color: var(--success);
+  font-size: 13px;
+}
+
+.study-note-err {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* ── Каналы уведомлений ───────────────────────────────────── */
+
+.study-telegram-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.study-telegram-pending {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.study-telegram-refresh {
+  margin-left: 8px;
+}
+
+/* Второстепенные действия — не CTA: outline-кнопки в стиле
+   вкладки «Приватность». Основные (Save, Connect Telegram)
+   остаются глобальными accent-кнопками. */
+button[data-testid='study-telegram-disconnect'],
+button[data-testid='study-telegram-refresh'],
+button[data-testid='study-session-recheck'] {
+  padding: 7px 14px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+button[data-testid='study-telegram-disconnect']:hover:not(:disabled),
+button[data-testid='study-telegram-refresh']:hover:not(:disabled),
+button[data-testid='study-session-recheck']:hover:not(:disabled) {
+  background: var(--ov-white-10);
+  border-color: var(--border-strong);
+}
+
+/* ── Страница /study ──────────────────────────────────────── */
+
+.study-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+
+.study-page h1 {
+  margin-bottom: 4px;
+}
+
+.study-subtitle {
+  margin: 0 0 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.study-why-body {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Шапка занятия: статус, прогресс, «перепроверить». */
+.study-session-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.study-session-progress {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-recheck-btn {
+  margin-left: auto;
+}
+
+/* Бейджи статусов (занятие и задания). */
+.study-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.study-badge-done,
+.study-badge-completed {
+  background: var(--success-soft, rgba(76, 175, 80, 0.15));
+  color: var(--success);
+}
+
+.study-badge-expired {
+  background: var(--bg-muted);
+  color: var(--text-muted, var(--text-secondary));
+}
+
+/* Баннеры completed / expired. */
+.study-banner {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.study-banner-ok {
+  background: var(--success-soft, rgba(76, 175, 80, 0.15));
+  color: var(--success);
+}
+
+.study-banner-muted {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
+/* Список заданий. */
+.study-task-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+
+.study-task {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 14px;
+}
+
+.study-task:last-child {
+  border-bottom: none;
+}
+
+.study-task-skipped {
+  opacity: 0.6;
+}
+
+.study-task-num {
+  flex: none;
+  width: 22px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.study-task-num-done {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.study-task-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.study-task-label a {
+  color: var(--accent-primary);
+}
+
+.study-task-label a:hover {
+  color: var(--accent-primary);
+  opacity: 0.85;
+}
+
+.study-task-progress {
+  flex: none;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+/* ── mobile ───────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .settings-field.study-field select,
+  .settings-field.study-field input[type='time'] {
+    max-width: none;
+  }
+
+  .study-save-row button[data-testid='study-schedule-save'] {
+    flex: 1 1 100%;
+  }
+
+  .study-session-head {
+    gap: 8px;
+  }
+
+  .study-recheck-btn {
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+
+  /* Задание: label на всю ширину, прогресс и бейдж — второй строкой. */
+  .study-task {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .study-task-label {
+    flex: 1 1 calc(100% - 34px);
+  }
+
+  .study-task-progress {
+    margin-left: 34px;
+  }
+}

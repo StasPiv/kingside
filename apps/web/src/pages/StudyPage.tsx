@@ -114,37 +114,21 @@ function TaskRow({ task }: { task: StudyTaskDto }): ReactElement {
   return (
     <li
       data-testid={`study-task-${task.position}`}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '10px 0',
-        borderBottom: '1px solid var(--c-333, #333)',
-        opacity: task.status === 'skipped' ? 0.6 : 1,
-      }}
+      className={`study-task${task.status === 'skipped' ? ' study-task-skipped' : ''}`}
     >
-      <span aria-hidden style={{ width: 20, textAlign: 'center' }}>
+      <span aria-hidden className={`study-task-num${done ? ' study-task-num-done' : ''}`}>
         {done ? '✓' : task.position + 1 + '.'}
       </span>
-      <span style={{ flex: 1 }}>
+      <span className="study-task-label">
         {link ? <Link to={link}>{label}</Link> : label}
       </span>
       <span
         data-testid={`study-task-${task.position}-progress`}
-        style={{ fontVariantNumeric: 'tabular-nums', opacity: 0.85 }}
+        className="study-task-progress"
       >
         {task.doneCount}/{task.targetCount}
       </span>
-      <span
-        style={{
-          fontSize: 12,
-          padding: '2px 8px',
-          borderRadius: 10,
-          background: done ? 'var(--c-4caf50)' : 'var(--c-333, #333)',
-          color: done ? '#fff' : 'inherit',
-          opacity: done ? 1 : 0.85,
-        }}
-      >
+      <span className={`study-badge${done ? ' study-badge-done' : ''}`}>
         {t(`study.page.taskStatus.${task.status}`)}
       </span>
     </li>
@@ -165,14 +149,14 @@ function SessionView({
   const total = session.tasks.length;
   return (
     <section className="settings-section" data-testid="study-session">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <div className="study-session-head">
         <span
           data-testid="study-session-status"
-          style={{ fontSize: 13, padding: '2px 10px', borderRadius: 10, background: 'var(--c-333, #333)' }}
+          className={`study-badge study-badge-status study-badge-${session.status}`}
         >
           {t(`study.page.status.${session.status}`)}
         </span>
-        <span data-testid="study-session-progress" style={{ opacity: 0.85 }}>
+        <span data-testid="study-session-progress" className="study-session-progress">
           {t('study.page.progress', { done: doneTasks, total })}
         </span>
         <button
@@ -180,25 +164,25 @@ function SessionView({
           data-testid="study-session-recheck"
           onClick={onRecheck}
           disabled={rechecking}
-          style={{ marginLeft: 'auto' }}
+          className="study-recheck-btn"
         >
           {t('study.page.recheck')}
         </button>
       </div>
 
       {session.status === 'completed' && (
-        <p data-testid="study-session-completed" style={{ color: 'var(--c-4caf50)' }}>
+        <p data-testid="study-session-completed" className="study-banner study-banner-ok">
           <strong>{t('study.page.completed.title')}</strong>{' '}
           {t('study.page.completed.body')}
         </p>
       )}
       {session.status === 'expired' && (
-        <p data-testid="study-session-expired" style={{ opacity: 0.85 }}>
+        <p data-testid="study-session-expired" className="study-banner study-banner-muted">
           <strong>{t('study.page.expired.title')}</strong> {t('study.page.expired.body')}
         </p>
       )}
 
-      <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0' }}>
+      <ul className="study-task-list">
         {session.tasks
           .slice()
           .sort((a, b) => a.position - b.position)
@@ -245,16 +229,16 @@ export function StudyPage(): ReactElement {
   const error = scheduleError || sessionError;
 
   return (
-    <div className="study-page" style={{ maxWidth: 720, margin: '0 auto', padding: 16 }}>
+    <div className="study-page">
       <h1>{t('study.page.title', "Today's session")}</h1>
-      <p style={{ opacity: 0.8, marginTop: 0 }}>
+      <p className="study-subtitle">
         {t('study.page.subtitle', 'Prepared for you based on your level and progress')}
       </p>
 
       {loading && <p>{t('common.loading', 'Loading…')}</p>}
 
       {!loading && error && (
-        <p style={{ color: 'var(--c-ef4444)' }} data-testid="study-page-error">
+        <p className="study-error" data-testid="study-page-error">
           {t('study.page.loadError', 'Failed to load. Try again later.')}
         </p>
       )}
@@ -281,7 +265,7 @@ export function StudyPage(): ReactElement {
       {!loading && !error && (
         <section className="settings-section">
           <h2>{t('study.page.why.title')}</h2>
-          <p style={{ opacity: 0.85 }}>{t('study.page.why.body')}</p>
+          <p className="study-why-body">{t('study.page.why.body')}</p>
         </section>
       )}
     </div>

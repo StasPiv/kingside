@@ -172,7 +172,7 @@ export function StudyTab(): ReactElement {
   if (error) {
     return (
       <section className="settings-section">
-        <p style={{ color: 'var(--c-ef4444)' }} data-testid="study-tab-error">
+        <p className="study-error" data-testid="study-tab-error">
           {t('settings.study.loadError', 'Failed to load study settings.')}
         </p>
       </section>
@@ -183,37 +183,24 @@ export function StudyTab(): ReactElement {
     <>
       <section className="settings-section" data-testid="study-schedule-section">
         <h2>{t('settings.study.scheduleTitle', 'Training schedule')}</h2>
-        <p className="settings-hint" style={{ marginTop: 0 }}>
+        <p className="settings-hint study-section-hint">
           {t(
             'settings.study.scheduleHint',
             'Pick convenient days and time — the platform prepares each session for you and sends a reminder.',
           )}
         </p>
 
-        <div
-          className="settings-field"
-          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}
-        >
+        <div className="settings-field study-field study-field-stack">
           <label>{t('settings.study.daysLabel', 'Days of week')}</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <div className="study-days">
             {DAY_ORDER.map((day) => (
               <button
                 key={day}
                 type="button"
+                className="study-day-btn"
                 data-testid={`study-day-${day}`}
                 onClick={() => toggleDay(day)}
                 aria-pressed={days.includes(day)}
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  border: days.includes(day)
-                    ? '2px solid var(--c-4caf50)'
-                    : '1px solid var(--c-555)',
-                  background: 'var(--c-2a2a2a, #2a2a2a)',
-                  color: 'var(--c-fff, #fff)',
-                  opacity: days.includes(day) ? 1 : 0.7,
-                }}
               >
                 {t(`settings.study.day.${day}`)}
               </button>
@@ -221,7 +208,7 @@ export function StudyTab(): ReactElement {
           </div>
         </div>
 
-        <div className="settings-field" style={{ marginTop: 12 }}>
+        <div className="settings-field study-field">
           <label htmlFor="study-time">{t('settings.study.timeLabel', 'Time')}</label>
           <input
             id="study-time"
@@ -235,7 +222,7 @@ export function StudyTab(): ReactElement {
           />
         </div>
 
-        <div className="settings-field" style={{ marginTop: 12 }}>
+        <div className="settings-field study-field">
           <label htmlFor="study-timezone">
             {t('settings.study.timezoneLabel', 'Time zone')}
           </label>
@@ -256,7 +243,7 @@ export function StudyTab(): ReactElement {
           </select>
         </div>
 
-        <div className="settings-field" style={{ marginTop: 12 }}>
+        <div className="settings-field study-field">
           <label htmlFor="study-minutes">
             {t('settings.study.minutesLabel', 'Session length')}
           </label>
@@ -277,7 +264,7 @@ export function StudyTab(): ReactElement {
           </select>
         </div>
 
-        <div className="settings-field" style={{ marginTop: 12 }}>
+        <div className="settings-field study-field">
           <label htmlFor="study-focus">{t('settings.study.focusLabel', 'Focus')}</label>
           <select
             id="study-focus"
@@ -297,10 +284,7 @@ export function StudyTab(): ReactElement {
         </div>
 
         {schedule && (
-          <div
-            className="settings-field"
-            style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}
-          >
+          <div className="settings-field study-field study-field-check">
             <input
               id="study-active"
               data-testid="study-active-toggle"
@@ -317,7 +301,7 @@ export function StudyTab(): ReactElement {
           </div>
         )}
 
-        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="study-save-row">
           <button
             type="button"
             data-testid="study-schedule-save"
@@ -327,20 +311,17 @@ export function StudyTab(): ReactElement {
             {saving ? t('common.loading', 'Saving…') : t('common.save', 'Save')}
           </button>
           {days.length === 0 && (
-            <span style={{ fontSize: 12, opacity: 0.7 }}>
+            <span className="study-note">
               {t('settings.study.noDaysHint', 'Pick at least one day')}
             </span>
           )}
           {saveStatus === 'saved' && (
-            <span
-              data-testid="study-schedule-saved"
-              style={{ fontSize: 12, color: 'var(--c-4caf50)' }}
-            >
+            <span data-testid="study-schedule-saved" className="study-note study-note-ok">
               {t('settings.externalSaved', 'Saved')}
             </span>
           )}
           {saveStatus === 'error' && (
-            <span style={{ fontSize: 12, color: 'var(--c-ef4444)' }}>
+            <span className="study-note study-note-err">
               {t('settings.externalError', 'Failed to save')}
             </span>
           )}
@@ -351,7 +332,7 @@ export function StudyTab(): ReactElement {
         <h2>{t('settings.study.channelsTitle', 'Session notifications')}</h2>
 
         {/* On-site: колокольчик на сайте. */}
-        <div className="settings-field" style={{ display: 'flex', gap: 8 }}>
+        <div className="settings-field study-field study-field-check">
           <input
             id="study-channel-onsite"
             data-testid="study-channel-onsite-toggle"
@@ -366,14 +347,11 @@ export function StudyTab(): ReactElement {
         </div>
 
         {/* Telegram: deep-link → /start в боте → канал подтверждён. */}
-        <div
-          className="settings-field"
-          style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, marginTop: 12 }}
-        >
+        <div className="settings-field study-field study-field-stack">
           <label>Telegram</label>
           {telegram?.verified ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span data-testid="study-telegram-status" style={{ color: 'var(--c-4caf50)' }}>
+            <div className="study-telegram-row">
+              <span data-testid="study-telegram-status" className="study-note-ok">
                 {t('settings.study.telegramConnected', 'Connected')}
               </span>
               <button
@@ -398,10 +376,7 @@ export function StudyTab(): ReactElement {
                   : t('settings.study.telegramConnect', 'Connect Telegram')}
               </button>
               {telegram && !telegram.verified && (
-                <div
-                  data-testid="study-telegram-pending"
-                  style={{ fontSize: 13, opacity: 0.85 }}
-                >
+                <div data-testid="study-telegram-pending" className="study-telegram-pending">
                   {t(
                     'settings.study.telegramPending',
                     'Waiting for confirmation — press Start in the bot chat, then refresh the status.',
@@ -417,7 +392,7 @@ export function StudyTab(): ReactElement {
                   <button
                     type="button"
                     data-testid="study-telegram-refresh"
-                    style={{ marginLeft: 8 }}
+                    className="study-telegram-refresh"
                     disabled={channelBusy}
                     onClick={() => void refresh()}
                   >
@@ -427,7 +402,7 @@ export function StudyTab(): ReactElement {
               )}
             </>
           )}
-          <p style={{ fontSize: 13, opacity: 0.75, margin: 0 }}>
+          <p className="settings-hint">
             {t(
               'settings.study.telegramHint',
               'Session reminders with task links arrive from the platform bot. The link opens a chat — press Start to confirm.',
@@ -436,7 +411,7 @@ export function StudyTab(): ReactElement {
         </div>
 
         {channelError && (
-          <p style={{ color: 'var(--c-ef4444)', fontSize: 13 }} data-testid="study-channel-error">
+          <p className="study-error" data-testid="study-channel-error">
             {t('settings.study.channelError', 'Channel operation failed. Try again.')}
           </p>
         )}
