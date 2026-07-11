@@ -28,7 +28,7 @@
  * - сообщения длиннее лимита Telegram (4096) режутся на части по строкам;
  * - при ошибке отправки состояние не обновляется — повтор на следующем тике.
  *
- * Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REMINDERS_TZ (default Europe/Kyiv),
+ * Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REMINDERS_TZ (default Europe/Prague),
  *      REMINDERS_CONFIG (default /config/reminders.json),
  *      REMINDERS_BRIEFS (default /config/briefs),
  *      REMINDERS_STATE (default /state/state.json),
@@ -39,7 +39,7 @@ import { dirname, join } from 'node:path';
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
-const TZ = process.env.REMINDERS_TZ || 'Europe/Kyiv';
+const TZ = process.env.REMINDERS_TZ || 'Europe/Prague';
 const CONFIG_PATH = process.env.REMINDERS_CONFIG || '/config/reminders.json';
 const BRIEFS_DIR = process.env.REMINDERS_BRIEFS || '/config/briefs';
 const STATE_PATH = process.env.REMINDERS_STATE || '/state/state.json';

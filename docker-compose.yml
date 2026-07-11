@@ -497,7 +497,7 @@ services:
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-0}
-      REMINDERS_TZ: ${REMINDERS_TZ:-Europe/Kyiv}
+      REMINDERS_TZ: ${REMINDERS_TZ:-Europe/Prague}
     volumes:
       - ./scripts/marketing-reminders:/app:ro
       - ./tools/marketing:/config:ro
