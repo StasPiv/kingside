@@ -10,6 +10,8 @@
  * Использование:
  *   node tools/reddit-read.mjs r/chess [hot|new|top|rising]   — список тредов
  *   node tools/reddit-read.mjs <url-треда>                    — пост + комментарии
+ *   node tools/reddit-read.mjs user <name>                    — последние комментарии пользователя
+ *     (мониторинг собственных публикаций: сабреддит, тред, текст, score, ссылка)
  *
  * Примеры:
  *   node tools/reddit-read.mjs r/chessbeginners new
@@ -123,14 +125,35 @@ async function readThread(url) {
   }
 }
 
+async function listUserComments(name) {
+  const html = await get(`https://old.reddit.com/user/${name}/comments/`);
+  const rows = things(html).filter((t) => t.tag.includes('comment'));
+  console.log(`# u/${name} — последние комментарии (${rows.length})\n`);
+  for (const c of rows.slice(0, MAX_COMMENTS)) {
+    const sub = attr(c.tag, 'data-subreddit') || '?';
+    const permalink = attr(c.tag, 'data-permalink') || '';
+    // Заголовок треда: ссылка на сам тред в шапке блока комментария
+    const title = /<a[^>]*class="title[^"]*"[^>]*>([\s\S]*?)<\/a>/.exec(c.body);
+    const text = firstUsertext(c.body);
+    console.log(`• r/${sub}${title ? ` — ${htmlToText(title[1])}` : ''}`);
+    console.log(`  score=${score(c.body)} https://old.reddit.com${permalink}`);
+    if (text) console.log(text.split('\n').map((l) => `  ${l}`).join('\n'));
+    console.log('');
+  }
+  if (!rows.length) console.log('(комментариев нет или профиль пуст)');
+}
+
 const arg = process.argv[2];
 const sort = process.argv[3] || 'hot';
 if (!arg) {
-  console.error('Использование: node tools/reddit-read.mjs <r/subreddit [hot|new|top|rising] | url-треда>');
+  console.error('Использование: node tools/reddit-read.mjs <r/subreddit [hot|new|top|rising] | user <name> | url-треда>');
   process.exit(2);
 }
 try {
-  if (/^r\//.test(arg)) await listSubreddit(arg, sort);
+  if (arg === 'user' && process.argv[3]) await listUserComments(process.argv[3].replace(/^u\//, ''));
+  else if (/^(https?:\/\/)?(www\.|old\.|new\.)?reddit\.com\/user\//.test(arg)) {
+    await listUserComments(arg.replace(/\/+$/, '').split('/user/')[1].split('/')[0]);
+  } else if (/^r\//.test(arg)) await listSubreddit(arg, sort);
   else await readThread(arg);
 } catch (e) {
   console.error(`[error] ${e.message}`);
