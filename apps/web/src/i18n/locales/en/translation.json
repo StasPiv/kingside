@@ -581,7 +581,8 @@
       "board": "Board",
       "game": "Game & analysis",
       "interface": "Interface",
-      "privacy": "Privacy"
+      "privacy": "Privacy",
+      "study": "Study plan"
     },
     "privacy": {
       "title": "Privacy & data",
@@ -622,6 +623,45 @@
     "botEngineDebugPanel": {
       "label": "Show bot engine debug panel",
       "hint": "Diagnostic only. Shows engine events (load, ready, bestmove) above the board in games against a bot."
+    },
+    "study": {
+      "scheduleTitle": "Training schedule",
+      "scheduleHint": "Pick convenient days and time — the platform prepares each session for you and sends a reminder.",
+      "daysLabel": "Days of week",
+      "day": {
+        "0": "Sun",
+        "1": "Mon",
+        "2": "Tue",
+        "3": "Wed",
+        "4": "Thu",
+        "5": "Fri",
+        "6": "Sat"
+      },
+      "timeLabel": "Time",
+      "timezoneLabel": "Time zone",
+      "minutesLabel": "Session length",
+      "minutesValue": "{{minutes}} min",
+      "focusLabel": "Focus",
+      "focus": {
+        "balanced": "Balanced",
+        "tactics": "Tactics",
+        "openings": "Openings",
+        "endgames": "Endgames"
+      },
+      "activeLabel": "Schedule active",
+      "noDaysHint": "Pick at least one day",
+      "loadError": "Failed to load study settings.",
+      "channelsTitle": "Session notifications",
+      "channelOnsite": "On-site notifications",
+      "telegramConnect": "Connect Telegram",
+      "telegramNewLink": "Get a new link",
+      "telegramConnected": "Connected",
+      "telegramDisconnect": "Disconnect",
+      "telegramPending": "Waiting for confirmation — press Start in the bot chat, then refresh the status.",
+      "telegramOpenLink": "Open link again",
+      "telegramRefresh": "Refresh status",
+      "telegramHint": "Session reminders with task links arrive from the platform bot. The link opens a chat — press Start to confirm.",
+      "channelError": "Channel operation failed. Try again."
     }
   },
   "guess": {
@@ -5205,5 +5245,69 @@
   "myActions": {
     "unknownEvent": "Unknown event: {{type}}",
     "retentionHint": "You have been active for {{days}} days"
+  },
+  "study": {
+    "page": {
+      "title": "Today's session",
+      "subtitle": "Prepared for you based on your level and progress",
+      "shelfLabel": "Your level: {{shelf}}",
+      "progress": "{{done}} of {{total}} tasks completed",
+      "start": "Start session",
+      "continue": "Continue session",
+      "recheck": "Refresh progress",
+      "status": {
+        "planned": "Planned",
+        "notified": "Waiting for you",
+        "in_progress": "In progress",
+        "completed": "Completed",
+        "expired": "Expired"
+      },
+      "taskStatus": {
+        "pending": "Not started",
+        "partial": "In progress",
+        "done": "Done",
+        "skipped": "Skipped"
+      },
+      "block": {
+        "theoryReview": "Theory review",
+        "tactics": "Tactics",
+        "theoryLesson": "New theory",
+        "practice": "Practice"
+      },
+      "task": {
+        "puzzle_theme": "{{count}} puzzles: {{theme}}",
+        "sm2_review": "Lesson review ({{count}})",
+        "lesson": "Lesson: {{lessonTitle}}",
+        "mistakes": "Work on mistakes ({{count}})",
+        "precision": "Precision vs engine ({{count}})",
+        "drill": "Tactic drills ({{count}})",
+        "rated_game": "Rated game ({{timeControl}})",
+        "game_review": "Game analysis",
+        "puzzle_rush": "Puzzle Rush (target {{target}})",
+        "external_games": "{{count}} games on {{provider}}"
+      },
+      "why": {
+        "title": "Why these tasks?",
+        "body": "The session is built from your puzzle rating, weakest tactical themes, due lesson reviews and recent activity. It adapts after every session."
+      },
+      "completed": {
+        "title": "Session completed — well done!",
+        "body": "Every task is finished. The next session will take your progress into account."
+      },
+      "partiallyDone": {
+        "title": "Session is over",
+        "body": "You completed {{done}} of {{total}} tasks. Unfinished reviews and themes move to the next session."
+      },
+      "expired": {
+        "title": "Session expired",
+        "body": "This session wasn't started in time. Don't worry — the next one will pick up where you left off."
+      },
+      "empty": {
+        "noSchedule": "You don't have a training schedule yet. Choose convenient days and time — the platform will prepare each session for you.",
+        "noScheduleCta": "Set up schedule",
+        "noSession": "No session is planned yet. The next one will appear closer to your scheduled time."
+      },
+      "loadError": "Failed to load. Try again later."
+    }
   }
 }

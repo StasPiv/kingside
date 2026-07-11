@@ -37,6 +37,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { StudyPage } from './pages/StudyPage';
 import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
 // KS-2484 (ADR-044): отдельный список play-vs-engine пазлов.
 import { PrecisionPage } from './pages/PrecisionPage';
@@ -690,6 +691,8 @@ export function App() {
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/game/:gameId/review" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+        {/* KS-4883 / ADR-160: занятие дня (расписание — в /settings?tab=study). */}
+        <Route path="/study" element={<ProtectedRoute><StudyPage /></ProtectedRoute>} />
         {/* KS-4829. Лобби админки — общий вход во все разделы. Иконка
             сайдбара ведёт сюда; отсюда — на конкретный раздел. */}
         <Route

@@ -28,6 +28,8 @@ import {
 import { HelpButton } from '../components/HelpButton';
 import { resetDrillOnboarding } from '../utils/drillOnboarding';
 import { PrivacyTab } from './settings/privacy/PrivacyTab';
+// KS-4883 / ADR-160: расписание занятий + каналы уведомлений.
+import { StudyTab } from './settings/study/StudyTab';
 // KS-2423: drill-only mute для звуков тренажёров.
 import { useDrillSounds } from '../hooks/useDrillSounds';
 
@@ -45,7 +47,7 @@ import { useDrillSounds } from '../hooks/useDrillSounds';
  * `account`. См. ADR §2.2.
  */
 
-const TAB_ORDER = ['account', 'board', 'game', 'interface', 'privacy'] as const;
+const TAB_ORDER = ['account', 'board', 'game', 'interface', 'study', 'privacy'] as const;
 type SettingsTab = (typeof TAB_ORDER)[number];
 
 const LAST_TAB_STORAGE_KEY = 'settings.lastTab';
@@ -329,6 +331,7 @@ export function SettingsPage() {
           drillsOnboardingMsg={drillsOnboardingMsg}
         />
       )}
+      {activeTab === 'study' && <StudyTab />}
       {activeTab === 'privacy' && <PrivacyTab />}
     </div>
   );
