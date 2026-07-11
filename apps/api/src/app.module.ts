@@ -88,6 +88,9 @@ import { HintsModule } from './hints/hints.module';
 // маршрутизируется только под `HINTS_TEST_MODE=1`; без env-var
 // endpoints возвращают 404 (модуль импортируется, но controllers пуст).
 import { HintsTestModule } from './test-mode/hints-test.module';
+// KS-4880 / ADR-160: занятия — расписание, каналы уведомлений,
+// Telegram /start-webhook.
+import { StudyModule } from './study/study.module';
 import { HealthController } from './health.controller';
 @Module({
   controllers: [HealthController],
@@ -184,6 +187,8 @@ import { HealthController } from './health.controller';
     // forRoot() — чтобы условная регистрация работала при e2e (env
     // выставляется в Jest setupFiles до Nest.compile, см. ADR-150 T4).
     HintsTestModule.forRoot(),
+    // KS-4880 / ADR-160: занятия (расписание + каналы уведомлений).
+    StudyModule,
   ],
 })
 export class AppModule implements NestModule {

@@ -149,7 +149,14 @@ export type RatingHistoryResponse = {
 
 // ─── Notifications (REST + WS) ──────────────────────────────────────
 
-export type NotificationType = 'challenge_received' | 'friend_request' | 'game_started' | 'message';
+export type NotificationType =
+  | 'challenge_received'
+  | 'friend_request'
+  | 'game_started'
+  | 'message'
+  | 'blog_post_published'
+  // KS-4880 / ADR-160 §4: on-site уведомление о занятии.
+  | 'study_session';
 
 export type NotificationItem = {
   id: string;
@@ -3763,3 +3770,77 @@ export interface LecturesStartResponse {
   serverNow: string;
 }
 
+
+// ─── Study scheduler (KS-4880 / ADR-160) ────────────────────────────
+
+/** Долгосрочный фокус плана занятий (ADR-160 §2.4). */
+export type StudyFocus = 'tactics' | 'openings' | 'endgames' | 'balanced';
+
+/**
+ * Расписание занятий (1:1 с пользователем, ADR-160 §3).
+ * `daysOfWeek`: 0=воскресенье … 6=суббота; `timeLocal`: "HH:mm";
+ * `timezone`: IANA (например "Europe/Prague").
+ */
+export interface StudyScheduleDto {
+  id: string;
+  daysOfWeek: number[];
+  timeLocal: string;
+  timezone: string;
+  sessionMinutes: number;
+  focus: StudyFocus | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /study/schedule — null, если расписание ещё не создано. */
+export interface StudyScheduleResponse {
+  schedule: StudyScheduleDto | null;
+}
+
+/** Тело PUT /study/schedule (upsert). */
+export interface UpdateStudyScheduleRequest {
+  daysOfWeek: number[];
+  timeLocal: string;
+  timezone: string;
+  sessionMinutes?: number;
+  focus?: StudyFocus | null;
+  active?: boolean;
+}
+
+/** Тип канала уведомлений о занятиях (ADR-160 §4). Email — фаза 2. */
+export type NotificationChannelType = 'telegram' | 'email' | 'onsite';
+
+/**
+ * Канал уведомлений. `verified` — канал подтверждён (для telegram —
+ * пройден /start-диалог с ботом; onsite подтверждён сразу).
+ * `address` наружу не отдаём (chat_id — внутренняя деталь).
+ */
+export interface NotificationChannelDto {
+  id: string;
+  type: NotificationChannelType;
+  verified: boolean;
+  enabled: boolean;
+  createdAt: string;
+}
+
+/** GET /study/channels */
+export interface NotificationChannelsResponse {
+  channels: NotificationChannelDto[];
+}
+
+/** Тело POST /study/channels. */
+export interface CreateNotificationChannelRequest {
+  type: NotificationChannelType;
+}
+
+/**
+ * Ответ POST /study/channels. Для telegram канал создаётся
+ * неподтверждённым, `telegramDeepLink` — ссылка t.me/<bot>?start=<token>
+ * для подтверждения (токен одноразовый, TTL 15 минут). Для onsite
+ * deep-link отсутствует — канал подтверждён сразу.
+ */
+export interface CreateNotificationChannelResponse {
+  channel: NotificationChannelDto;
+  telegramDeepLink?: string;
+}

@@ -191,6 +191,12 @@ model User {
   // комментариями без явной обработки (см. ADR-140 §2.1).
   blogPostLikes             BlogPostLike[]
   blogPostComments          BlogPostComment[]
+  // KS-4880 / ADR-160 §3: занятия — расписание (1:1), сгенерированные
+  // сессии, каналы уведомлений и снапшоты внешней активности.
+  studySchedule             StudySchedule?
+  studySessions             StudySession[]
+  notificationChannels      NotificationChannel[]
+  externalActivitySnapshots ExternalActivitySnapshot[]
 
   @@unique([oauthProvider, oauthProviderId])
   /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
@@ -3020,4 +3026,136 @@ model AgentServiceAccount {
 
   @@index([tokenHash])
   @@map("agent_service_accounts")
+}
+
+/// KS-4880 / ADR-160 §3. Расписание занятий — 1:1 с пользователем.
+/// `daysOfWeek` (0=вс…6=сб) + `timeLocal` (HH:mm) + `timezone` (IANA)
+/// покрывают «ежедневно» и «N раз в неделю» без rrule-библиотек.
+/// Таймзона обязательна — время ученика локальное.
+model StudySchedule {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @unique @map("user_id") @db.Uuid
+  daysOfWeek     Int[]    @map("days_of_week")
+  timeLocal      String   @map("time_local")
+  timezone       String
+  sessionMinutes Int      @default(30) @map("session_minutes")
+  /// Долгосрочный фокус плана: tactics|openings|endgames|balanced.
+  focus          String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions StudySession[]
+
+  @@index([active])
+  @@map("study_schedules")
+}
+
+/// KS-4880 / ADR-160 §3. Сгенерированное занятие. `profileSnapshot` —
+/// входы генератора на момент сборки (отладка + «почему мне это
+/// назначили»). Статусы: planned|notified|in_progress|completed|expired.
+model StudySession {
+  id              String    @id @default(uuid()) @db.Uuid
+  scheduleId      String    @map("schedule_id") @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  scheduledAt     DateTime  @map("scheduled_at") @db.Timestamptz(3)
+  status          String    @default("planned")
+  profileSnapshot Json?     @map("profile_snapshot")
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  schedule      StudySchedule       @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks         StudyTask[]
+  notifications StudyNotification[]
+
+  /// Диспетчер: scheduled_at <= now AND status='planned' (ADR-160 §4).
+  @@index([status, scheduledAt])
+  @@index([userId, scheduledAt(sort: Desc)])
+  /// Генератор: «занятие на слот уже создано?» (schedule + слот).
+  @@index([scheduleId, scheduledAt])
+  @@map("study_sessions")
+}
+
+/// KS-4880 / ADR-160 §3. Задание внутри занятия. `params` — JSONB,
+/// состав различается по типам (тема, рейтинг-окно, lessonId, count,
+/// timeControl…), отдельные таблицы на тип избыточны.
+/// type: puzzle_theme|sm2_review|lesson|mistakes|precision|drill|
+/// rated_game|game_review|puzzle_rush|external_games.
+/// status: pending|partial|done|skipped.
+model StudyTask {
+  id          String    @id @default(uuid()) @db.Uuid
+  sessionId   String    @map("session_id") @db.Uuid
+  position    Int
+  type        String
+  params      Json?
+  targetCount Int       @default(1) @map("target_count")
+  doneCount   Int       @default(0) @map("done_count")
+  status      String    @default("pending")
+  verifiedAt  DateTime? @map("verified_at") @db.Timestamptz(3)
+
+  session StudySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, position])
+  @@map("study_tasks")
+}
+
+/// KS-4880 / ADR-160 §3-4. Канал доставки уведомлений о занятиях.
+/// type: telegram|email|onsite. `address` — chat_id для telegram,
+/// email для почты, NULL для onsite. `verifiedAt IS NULL` — канал не
+/// подтверждён (telegram подтверждается /start-токеном, см. deep-link
+/// t.me/<bot>?start=<token>). onsite verified сразу при создании.
+model NotificationChannel {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  type       String
+  address    String?
+  verifiedAt DateTime? @map("verified_at") @db.Timestamptz(3)
+  enabled    Boolean   @default(true)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studyNotifications StudyNotification[]
+
+  /// Один канал каждого типа на пользователя (v1: без мульти-адресов).
+  @@unique([userId, type])
+  @@map("notification_channels")
+}
+
+/// KS-4880 / ADR-160 §3-4. Журнал отправки уведомления о занятии в
+/// конкретный канал. status: sent|failed; `error` — текст ошибки
+/// канала для ретраев диспетчера (максимум 3, затем onsite-fallback).
+model StudyNotification {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @map("session_id") @db.Uuid
+  channelId String   @map("channel_id") @db.Uuid
+  status    String
+  error     String?
+  sentAt    DateTime @default(now()) @map("sent_at") @db.Timestamptz(3)
+
+  session StudySession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  channel NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("study_notifications")
+}
+
+/// KS-4880 / ADR-160 §3, §5.2. Ежедневный снимок внешней активности
+/// (lichess/chess.com) для пользователей с активным расписанием.
+/// `ratings` — JSONB по категориям. Уникальность user+provider+date —
+/// повторный прогон крона перезаписывает, не дублирует.
+model ExternalActivitySnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  provider    String
+  date        DateTime @db.Date
+  gamesPlayed Int      @default(0) @map("games_played")
+  ratings     Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider, date])
+  @@map("external_activity_snapshots")
 }

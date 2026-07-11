@@ -12,7 +12,10 @@ export type NotificationType =
   | 'friend_request'
   | 'game_started'
   | 'message'
-  | 'blog_post_published';
+  | 'blog_post_published'
+  // KS-4880 / ADR-160 §4: on-site уведомление о занятии (шлёт
+  // диспетчер занятий, задача 3 epic'а).
+  | 'study_session';
 
 @Injectable()
 export class NotificationService {
