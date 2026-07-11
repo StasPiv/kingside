@@ -560,11 +560,21 @@ class AgentDaemon:
                         write_immediate(line)
                     continue
 
-                # === result event ===
-                # LLM-валидатор отключён (экономия токенов) — всё публикуется как есть.
-                # Код reject-ветки сохранён ниже на случай возврата валидатора.
-                verdict = {"ok": True}
-                publish = True
+                # === result event: валидация накопленного текста ===
+                full_text = "".join(self._turn_text).strip()
+                if full_text:
+                    verdict = validate_outbound(
+                        full_text,
+                        tool_uses=list(self._turn_tool_uses),
+                        user_prompt=self._current_input_text,
+                    )
+                else:
+                    verdict = {"ok": True}
+
+                publish = verdict.get("ok") or self._validation_attempts >= 2
+                if not verdict.get("ok") and publish:
+                    log(f"Daemon {self.name}: validation exhausted "
+                        f"({self._validation_attempts + 1} attempts), publishing as-is")
 
                 if publish:
                     flush_buffer()
@@ -973,7 +983,23 @@ def handle_telegram_send(handler, payload):
         handler.wfile.write(json.dumps({"error": "missing 'message'"}).encode())
         return
 
-    # LLM-валидатор отключён (экономия токенов).
+    verdict = validate_outbound(message)
+    if not verdict.get("ok"):
+        violations_text = format_violations(verdict)
+        log(f"Telegram send REJECTED by validator: {message[:80]} | {violations_text[:200]}")
+        _log_validation_reject("telegram", payload.get("agent", "?"), 1, message, verdict)
+        handler.send_response(422)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({
+            "error": "validation_failed",
+            "message": (
+                "Сообщение нарушает правила CLAUDE.md и в Telegram не отправлено. "
+                "Перепиши и вызови telegram_send снова.\n\nНарушения:\n" + violations_text
+            ),
+            "violations": verdict.get("violations", []),
+        }, ensure_ascii=False).encode())
+        return
 
     # Таблицы Telegram не рендерит — оборачиваем в моноширинный блок
     message = _wrap_markdown_tables(message)
@@ -4011,11 +4037,9 @@ if __name__ == "__main__":
     chat_cleanup_thread = threading.Thread(target=_chat_daemon_cleanup_loop, daemon=True)
     chat_cleanup_thread.start()
 
-    # Cron-пинг координатора отключён (экономия токенов) — координатор
-    # реагирует только на входящие сообщения (webhook трекера, agent_message,
-    # telegram). Вернуть: раскомментировать две строки ниже.
-    # coord_cron_thread = threading.Thread(target=coordinator_cron_loop, daemon=True)
-    # coord_cron_thread.start()
+    # Cron-пинг координатора каждые 7 мин (проверка зависших задач)
+    coord_cron_thread = threading.Thread(target=coordinator_cron_loop, daemon=True)
+    coord_cron_thread.start()
 
     class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
         daemon_threads = True
