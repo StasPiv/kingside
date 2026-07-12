@@ -6,8 +6,6 @@ import { RedisService } from '../redis/redis.service';
 import {
   PlannedTask,
   StudyPlanGeneratorService,
-  StudyProfile,
-  StudyTaskType,
 } from './study-plan-generator.service';
 import { StudyProfileService } from './study-profile.service';
 import { StudyLessonBuilderService } from './study-lesson-builder.service';
@@ -191,6 +189,9 @@ export class StudyGeneratorScheduler {
       materialData,
     );
 
+    // KS-4918 (постановка пользователя): занятие состоит из ОДНОГО
+    // пункта — интерактивного урока. Отдельные homework-задачи убраны:
+    // тактика/партия/закрепление уже внутри урока шагами.
     const tasks: Array<PlannedTask & { role: string }> = [
       {
         role: 'main',
@@ -203,10 +204,6 @@ export class StudyGeneratorScheduler {
         },
         targetCount: 1,
       },
-      ...this.homework(profile, shelf, window).map((t) => ({
-        ...t,
-        role: 'homework',
-      })),
     ];
 
     await this.prisma.studySession.create({
@@ -235,49 +232,4 @@ export class StudyGeneratorScheduler {
     return true;
   }
 
-  /**
-   * Домашнее задание (ADR-162 §5): 1–2 задачи существующих типов —
-   * тактика по теме занятия + практика из ротации полки (тип, не
-   * использованный дольше всех; reconciliation v1 проверяет как раньше).
-   */
-  private homework(
-    profile: StudyProfile,
-    shelf: { practiceRotation: string[] },
-    window: { min: number; max: number },
-  ): PlannedTask[] {
-    const theme = profile.carryOver.theme ?? profile.weakThemes[0]?.theme ?? null;
-    const tasks: PlannedTask[] = [
-      {
-        type: 'puzzle_theme',
-        params: {
-          theme,
-          ratingMin: profile.ratingPuzzle + window.min,
-          ratingMax: profile.ratingPuzzle + window.max,
-        },
-        targetCount: 8,
-      },
-    ];
-    // Вторая homework-задача — только в обычном/расширенном объёме (§2.3 v1).
-    if (this.generator.maxBlocks(profile) >= 3) {
-      const rotation = shelf.practiceRotation.filter((t): t is StudyTaskType =>
-        ['mistakes', 'precision', 'drill', 'rated_game', 'puzzle_rush'].includes(t),
-      );
-      let best: StudyTaskType = rotation[0] ?? 'mistakes';
-      let bestTime = Infinity;
-      for (const type of rotation) {
-        const used = profile.practiceLastUsedAt[type];
-        const t = used ? used.getTime() : -1;
-        if (t < bestTime) {
-          bestTime = t;
-          best = type;
-        }
-      }
-      tasks.push({
-        type: best,
-        params: {},
-        targetCount: best === 'rated_game' || best === 'puzzle_rush' ? 1 : 5,
-      });
-    }
-    return tasks;
-  }
 }

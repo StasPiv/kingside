@@ -9,6 +9,7 @@ import {
   templateSlugFor,
 } from './study-shelves';
 import { STUDY_NOTE_LINES } from './templates/study-template-content';
+import { puzzleThemeLabel } from './puzzle-theme-labels';
 import { LessonMaterial } from './material/lesson-material.types';
 
 /**
@@ -54,7 +55,12 @@ export class StudyLessonBuilderService {
     const course = await this.ensurePersonalCourse(userId, lang);
     await this.rotateOldLessons(course.id);
 
-    const focusTheme = material.focusThemes[0] ?? shelf.priorityThemes[0] ?? 'tactics';
+    // KS-4918: тема выбирается с ФАКТИЧЕСКИМ наличием задач в окне —
+    // иначе puzzle-шаг пуст и прогресс урока блокируется.
+    const { theme: focusTheme, themed } = await this.pickThemeWithPuzzles(
+      [...material.focusThemes, ...shelf.priorityThemes],
+      ratingWindow,
+    );
     const template = await this.loadTemplate(shelf.key, lang);
     const args = this.placeholderArgs(lang, focusTheme, material);
 
@@ -98,7 +104,12 @@ export class StudyLessonBuilderService {
                   type: 'puzzle',
                   selection: {
                     mode: 'filter',
-                    themes: [focusTheme] as import('@kingside/shared').PuzzleTheme[],
+                    // KS-4918: тема проверена на наличие задач; если ни
+                    // одна не дала — filter без темы (смешанные задачи
+                    // по окну, пустого шага не бывает).
+                    themes: (themed
+                      ? [focusTheme]
+                      : []) as import('@kingside/shared').PuzzleTheme[],
                     ratingMin: Math.max(400, ratingWindow.min),
                     ratingMax: Math.min(3200, ratingWindow.max),
                     limit: 6,
@@ -149,7 +160,8 @@ export class StudyLessonBuilderService {
       lessonId: lesson.id,
       courseId: course.id,
       courseSlug: course.slug,
-      themeLabel: focusTheme,
+      // KS-4918: наружу (params, снапшот, история) — человекочитаемое.
+      themeLabel: puzzleThemeLabel(focusTheme, lang),
     };
   }
 
@@ -185,6 +197,32 @@ export class StudyLessonBuilderService {
     };
   }
 
+  /**
+   * KS-4918: первая тема-кандидат, по которой в окне рейтинга реально
+   * есть >= MIN задач (LIKE contains — тот же фильтр, что у
+   * puzzle-resolver'а). Ни одной → themed=false (шаг соберётся без
+   * темы, по окну).
+   */
+  private async pickThemeWithPuzzles(
+    candidates: string[],
+    window: { min: number; max: number },
+  ): Promise<{ theme: string; themed: boolean }> {
+    const MIN = 6;
+    const seen = new Set<string>();
+    for (const theme of candidates) {
+      if (!theme || seen.has(theme)) continue;
+      seen.add(theme);
+      const n = await this.prisma.puzzle.count({
+        where: {
+          themes: { contains: theme },
+          rating: { gte: Math.max(400, window.min), lte: Math.min(3200, window.max) },
+        },
+      });
+      if (n >= MIN) return { theme, themed: true };
+    }
+    return { theme: candidates[0] ?? 'tactics', themed: false };
+  }
+
   /** Аргументы подстановки по контракту плейсхолдеров. */
   private placeholderArgs(
     lang: string,
@@ -201,10 +239,16 @@ export class StudyLessonBuilderService {
     const carry = material.notes.find((n) => n.key === 'carryOver');
     const frag = material.gameFragments[0];
     return {
-      focusTheme,
+      // KS-4918: в тексты идёт человекочитаемое название темы.
+      focusTheme: puzzleThemeLabel(focusTheme, lang),
       notes,
       homeworkCarryOver: carry
-        ? fillPlaceholders(noteLines.carryOver ?? '', carry.args)
+        ? fillPlaceholders(noteLines.carryOver ?? '', {
+            ...carry.args,
+            ...(typeof carry.args.theme === 'string'
+              ? { theme: puzzleThemeLabel(carry.args.theme, lang) }
+              : {}),
+          })
         : '',
       white: frag?.white ?? '?',
       black: frag?.black ?? '?',
