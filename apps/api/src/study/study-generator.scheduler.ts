@@ -10,8 +10,8 @@ import {
   StudyTaskType,
 } from './study-plan-generator.service';
 import { StudyProfileService } from './study-profile.service';
-import { StudyPlanConfigService } from './study-plan-config.service';
 import { StudyLessonBuilderService } from './study-lesson-builder.service';
+import { shelfWithFocus } from './study-shelves';
 import { BaselineMaterialSource } from './material/baseline-material.source';
 import { nextSlotWithin } from './study-slot.util';
 
@@ -43,7 +43,6 @@ export class StudyGeneratorScheduler {
     private readonly redis: RedisService,
     private readonly generator: StudyPlanGeneratorService,
     private readonly profiles: StudyProfileService,
-    private readonly config: StudyPlanConfigService,
     private readonly lessonBuilder: StudyLessonBuilderService,
     private readonly material: BaselineMaterialSource,
   ) {}
@@ -143,10 +142,11 @@ export class StudyGeneratorScheduler {
   }
 
   /**
-   * KS-4910 / ADR-162: занятие v2 = персональный урок (main) +
-   * 1–2 homework-задачи. Полка — из tools/study-plan (focus-оверрайд
-   * расписания учитывается), материал — через LessonMaterialSource
-   * (baseline), урок — StudyLessonBuilder в скрытом персональном курсе.
+   * KS-4910/KS-4911 / ADR-162: занятие v2 = персональный урок (main) +
+   * 1–2 homework-задачи. Полка — константы study-shelves.ts
+   * (focus-оверрайд расписания учитывается), материал — через
+   * LessonMaterialSource (baseline), урок — клонирование шаблонного
+   * курса study-template-<shelf> в скрытый персональный курс.
    */
   private async createSession(
     schedule: {
@@ -158,7 +158,7 @@ export class StudyGeneratorScheduler {
     slot: Date,
   ): Promise<boolean> {
     const profile = await this.profiles.collect(schedule.userId, schedule.id);
-    const shelf = this.config.shelfWithFocus(
+    const shelf = shelfWithFocus(
       profile.ratingPuzzle,
       profile.ratingPuzzleDev,
       schedule.focus ?? null,

@@ -15,8 +15,8 @@ import { StudyDispatcherScheduler } from './study-dispatcher.scheduler';
 import { StudyTrackingService } from './study-tracking.service';
 import { StudyTrackingScheduler } from './study-tracking.scheduler';
 import { StudyDiagnosticsService } from './study-diagnostics.service';
-import { StudyPlanConfigService } from './study-plan-config.service';
 import { StudyLessonBuilderService } from './study-lesson-builder.service';
+import { StudyTemplateSeederService } from './study-template-seeder.service';
 import { BaselineMaterialSource } from './material/baseline-material.source';
 
 /**
@@ -48,7 +48,7 @@ import { BaselineMaterialSource } from './material/baseline-material.source';
     StudyTrackingScheduler,
     StudyDiagnosticsService,
     // KS-4910 / ADR-162: занятия v2 — урок в занятии.
-    StudyPlanConfigService,
+    StudyTemplateSeederService,
     StudyLessonBuilderService,
     BaselineMaterialSource,
   ],

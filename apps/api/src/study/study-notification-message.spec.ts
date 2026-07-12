@@ -9,17 +9,16 @@ import {
 const en: Record<string, string> = {
   'study.notification.title': 'Training session',
   'study.notification.intro': 'Your training session is ready:',
-  'study.notification.openSession': 'Open the session: {{url}}',
-  'study.notification.taskLine.sm2_review': 'Review lessons: {{count}}',
-  'study.notification.taskLine.puzzle_theme': 'Solve {{count}} puzzles — theme: {{theme}}',
-  'study.notification.taskLine.puzzle_theme_mix': 'Solve {{count}} puzzles',
-  'study.notification.taskLine.lesson': 'Complete the lesson: {{lessonTitle}}',
-  'study.notification.taskLine.rated_game': 'Play a rated game',
+  'study.notification.openSession': 'Open the session',
+  'study.task.sm2_review': 'Review lessons: {count}',
+  'study.task.puzzle_theme': 'Solve {count} puzzles — theme: {theme}',
+  'study.task.puzzle_theme_mix': 'Solve {count} puzzles',
+  'study.task.lesson': 'Complete the next course lesson',
+  'study.task.rated_game': 'Play a rated game',
 };
-// Подстановка {{name}} — как в StudyPlanConfigService.fill.
 const t: StudyTranslator = (key, args) => {
   let s = en[key] ?? key;
-  for (const [k, v] of Object.entries(args ?? {})) s = s.replaceAll(`{{${k}}}`, String(v));
+  for (const [k, v] of Object.entries(args ?? {})) s = s.replace(`{${k}}`, String(v));
   return s;
 };
 

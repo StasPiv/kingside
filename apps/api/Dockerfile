@@ -158,9 +158,6 @@ COPY --from=build /app/packages/maia-core ./packages/maia-core
 # maia3_simplified.onnx, переопределяется в production на /app/tools/
 # maia3/maia3_simplified.onnx через переменную окружения сервиса).
 COPY tools/maia3 ./tools/maia3
-# KS-4910 / ADR-162 §3.2: полки, тексты и шаблоны уроков генератора
-# занятий (StudyPlanConfigService ищет /app/tools/study-plan).
-COPY tools/study-plan ./tools/study-plan
 # KS-4070: Stockfish-trace бинарь (FactorsRebuilderService) в образ
 # временно не включается — он gitignored (tools/stockfish-trace/.gitignore:
 # src/stockfish*), и build context из git его не получает. Без бинаря
