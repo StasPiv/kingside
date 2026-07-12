@@ -135,6 +135,33 @@ function TaskRow({ task }: { task: StudyTaskDto }): ReactElement {
   );
 }
 
+/**
+ * KS-4912 / ADR-162 §2.2: main-задача занятия v2 — единственная задача
+ * `type='lesson'` с `params.lessonId` (персональный урок). Роут плеера:
+ * `/lessons/:courseSlug/:lessonId` — для user-курсов `:lessonSlug`
+ * несёт UUID урока (см. LessonPage, KS-2645).
+ */
+export function findMainLesson(session: StudySessionDto): {
+  task: StudyTaskDto;
+  lessonId: string;
+  courseSlug: string;
+  themeLabel: string | null;
+} | null {
+  for (const task of session.tasks) {
+    if (task.type !== 'lesson') continue;
+    const p = (task.params ?? {}) as Record<string, unknown>;
+    if (typeof p.lessonId === 'string' && p.lessonId && typeof p.courseSlug === 'string' && p.courseSlug) {
+      return {
+        task,
+        lessonId: p.lessonId,
+        courseSlug: p.courseSlug,
+        themeLabel: typeof p.themeLabel === 'string' && p.themeLabel ? p.themeLabel : null,
+      };
+    }
+  }
+  return null;
+}
+
 function SessionView({
   session,
   onRecheck,
@@ -147,6 +174,14 @@ function SessionView({
   const { t } = useTranslation();
   const doneTasks = session.tasks.filter((task) => task.status === 'done').length;
   const total = session.tasks.length;
+
+  // KS-4912: урок-центричный вид. main-урок — главная кнопка в плеер;
+  // остальные задачи — блок «Домашнее задание». Сессии v1 (без урока
+  // с lessonId в params) рендерятся прежним списком.
+  const main = findMainLesson(session);
+  const homework = main
+    ? session.tasks.filter((task) => task.id !== main.task.id)
+    : session.tasks;
   return (
     <section className="settings-section" data-testid="study-session">
       <div className="study-session-head">
@@ -182,14 +217,122 @@ function SessionView({
         </p>
       )}
 
-      <ul className="study-task-list">
-        {session.tasks
-          .slice()
-          .sort((a, b) => a.position - b.position)
-          .map((task) => (
-            <TaskRow key={task.id} task={task} />
-          ))}
-      </ul>
+      {/* KS-4912: карточка персонального урока — главное действие. */}
+      {main && (
+        <div className="study-lesson-card" data-testid="study-lesson-card">
+          <h3 className="study-lesson-card__title">
+            {t('study.page.lesson.title', 'Personal lesson')}
+          </h3>
+          {main.themeLabel && (
+            <p className="study-lesson-card__theme" data-testid="study-lesson-theme">
+              {t('study.page.lesson.theme', 'Topic: {{theme}}', { theme: main.themeLabel })}
+            </p>
+          )}
+          <p className="study-lesson-card__hint">
+            {t(
+              'study.page.lesson.hint',
+              'Built from your games and stats. Complete it — homework follows.',
+            )}
+          </p>
+          {main.task.status === 'done' ? (
+            <span className="study-lesson-card__done" data-testid="study-lesson-done">
+              ✓ {t('study.page.lesson.done', 'Lesson completed')}
+            </span>
+          ) : (
+            <Link
+              to={`/lessons/${main.courseSlug}/${main.lessonId}`}
+              data-testid="study-lesson-start"
+            >
+              <button type="button" className="study-lesson-card__cta">
+                {session.status === 'in_progress'
+                  ? t('study.page.continue', 'Continue session')
+                  : t('study.page.start', 'Start session')}
+              </button>
+            </Link>
+          )}
+        </div>
+      )}
+
+      {homework.length > 0 && (
+        <>
+          {main && (
+            <h3 className="study-homework-title" data-testid="study-homework-title">
+              {t('study.page.homework.title', 'Homework')}
+            </h3>
+          )}
+          <ul className="study-task-list">
+            {homework
+              .slice()
+              .sort((a, b) => a.position - b.position)
+              .map((task) => (
+                <TaskRow key={task.id} task={task} />
+              ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * KS-4912 / ADR-162 §3.2: онбординг источников партий. Персональный
+ * урок собирается из партий пользователя; если нет ни привязанных
+ * внешних аккаунтов (chess.com/lichess), ни загруженных PGN — баннер
+ * с двумя действиями. Источники — существующие API:
+ * GET /users/me/settings (usernames), GET /workshop/pgn-files.
+ */
+function MaterialOnboardingBanner(): ReactElement | null {
+  const { t } = useTranslation();
+  const [state, setState] = useState<'loading' | 'has-material' | 'no-material'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      api.get<{ chesscomUsername?: string | null; lichessUsername?: string | null }>(
+        '/users/me/settings',
+      ),
+      api.get<{ data?: unknown[] } | unknown[]>('/workshop/pgn-files'),
+    ])
+      .then(([settings, filesRaw]) => {
+        if (cancelled) return;
+        const hasAccounts = Boolean(settings.chesscomUsername || settings.lichessUsername);
+        const files = Array.isArray(filesRaw) ? filesRaw : (filesRaw.data ?? []);
+        setState(hasAccounts || files.length > 0 ? 'has-material' : 'no-material');
+      })
+      .catch(() => {
+        // Не удалось определить — баннер не показываем (не пугаем зря).
+        if (!cancelled) setState('has-material');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (state !== 'no-material') return null;
+  return (
+    <section
+      className="settings-section study-material-banner"
+      data-testid="study-material-banner"
+    >
+      <h2>{t('study.page.material.title', 'Add your games')}</h2>
+      <p className="study-material-banner__body">
+        {t(
+          'study.page.material.body',
+          'Personal lessons are built from your games. Link your chess.com or lichess account, or upload a PGN file — until then lessons use general material for your level.',
+        )}
+      </p>
+      <div className="study-material-banner__actions">
+        <Link to="/settings?tab=account" data-testid="study-material-link-accounts">
+          <button type="button">
+            {t('study.page.material.linkAccounts', 'Link accounts')}
+          </button>
+        </Link>
+        <Link to="/workshop/pgn-files" data-testid="study-material-upload-pgn">
+          <button type="button">
+            {t('study.page.material.uploadPgn', 'Upload PGN')}
+          </button>
+        </Link>
+      </div>
     </section>
   );
 }
@@ -242,6 +385,8 @@ export function StudyPage(): ReactElement {
           {t('study.page.loadError', 'Failed to load. Try again later.')}
         </p>
       )}
+
+      {!loading && !error && <MaterialOnboardingBanner />}
 
       {!loading && !error && session && (
         <SessionView session={session} onRecheck={() => void handleRecheck()} rechecking={rechecking} />

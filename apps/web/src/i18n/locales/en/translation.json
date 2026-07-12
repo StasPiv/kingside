@@ -5314,7 +5314,22 @@
         "noScheduleCta": "Set up schedule",
         "noSession": "No session is planned yet. The next one will appear closer to your scheduled time."
       },
-      "loadError": "Failed to load. Try again later."
+      "loadError": "Failed to load. Try again later.",
+      "lesson": {
+        "title": "Personal lesson",
+        "theme": "Topic: {{theme}}",
+        "hint": "Built from your games and stats. Complete it — homework follows.",
+        "done": "Lesson completed"
+      },
+      "homework": {
+        "title": "Homework"
+      },
+      "material": {
+        "title": "Add your games",
+        "body": "Personal lessons are built from your games. Link your chess.com or lichess account, or upload a PGN file — until then lessons use general material for your level.",
+        "linkAccounts": "Link accounts",
+        "uploadPgn": "Upload PGN"
+      }
     }
   }
 }
