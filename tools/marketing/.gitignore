@@ -3,3 +3,4 @@
 sessions/*
 !sessions/README.md
 .discord-token
+.marketing-bot-token
