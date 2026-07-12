@@ -9,7 +9,7 @@
  *   node tools/reddit-browse.mjs inbox            — входящие (ответы/упоминания)
  *   node tools/reddit-browse.mjs inbox --unread   — только непрочитанные
  *
- * Ограничители (ADR-161 §3.2): 08:00–23:00 Prague, ≤1 цикла/30 мин,
+ * Ограничители (ADR-161 §3.2): 08:00–23:00 Prague, ≤1 цикла/READ_INTERVAL_MIN,
  * без пагинации вглубь, джиттер. Коды выхода: 0 ок; 3 разлогин; 4 ограничитель.
  */
 
@@ -17,7 +17,9 @@ import { withSession, LoggedOutError } from './marketing/session-lib.mjs';
 import { extractRedditListing, extractRedditInbox, guardOrExit, recordRead, jitter } from './marketing/browse-lib.mjs';
 
 const [target, opt] = process.argv.slice(2);
-if (!target) {
+// Валидация ДО guardOrExit/recordRead: опечатка или --help не должны
+// сжигать слот чтения сессии (READ_INTERVAL_MIN).
+if (!target || (target !== 'inbox' && !/^(r\/)?[A-Za-z0-9_]+$/.test(target))) {
   console.error('Использование: node tools/reddit-browse.mjs <r/сабреддит [hot|new|rising] | inbox [--unread]>');
   process.exit(2);
 }
