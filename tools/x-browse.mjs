@@ -33,6 +33,14 @@ try {
   await withSession('x', async (page) => {
     if (mode !== 'home') {
       await page.goto(targets[mode](arg), { waitUntil: 'domcontentloaded', timeout: 45000 });
+    } else {
+      // home открывается на алгоритмической «For you» — мониторингу нужна
+      // хронологическая «Following» (подписки аккаунта)
+      const following = page.locator('[role="tab"]', { hasText: 'Following' });
+      if (await following.count()) {
+        await following.first().click();
+        await page.waitForTimeout(1500);
+      }
     }
     await page.waitForSelector('article[data-testid="tweet"]', { timeout: 30000 }).catch(() => {});
     const seen = new Map();
