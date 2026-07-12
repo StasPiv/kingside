@@ -90,6 +90,13 @@ export interface UserLessonDto {
   title: string;
   estMinutes: number | null;
   stepCount: number;
+  /**
+   * KS-4921: завершение урока ТЕКУЩИМ пользователем (ISO-строка из
+   * `UserLessonProgress.completedAt`), `null` — не завершён. Поле
+   * присутствует в `GET /lessons/courses/:slug` (user-курс,
+   * авторизованный запрос); в остальных ответах может отсутствовать.
+   */
+  completedAt?: string | null;
 }
 
 export interface UserLessonStepDto {

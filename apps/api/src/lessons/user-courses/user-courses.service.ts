@@ -353,19 +353,26 @@ export class UserCoursesService {
       ? await this.computeStatsForCourse(course.id)
       : undefined;
 
+    // KS-4921: per-lesson completedAt считается ВСЕГДА (не только при
+    // наличии записи прогресса курса) — страница курса показывает
+    // честный статус каждого урока, без эвристики «первые N пройдены».
+    const lessonIds = course.lessons.map((l) => l.id);
+    const lessonProgressRows =
+      lessonIds.length > 0
+        ? await this.prisma.userLessonProgress.findMany({
+            where: { userId, lessonId: { in: lessonIds } },
+            select: { lessonId: true, completedAt: true },
+          })
+        : [];
+    const completedAtByLesson = new Map(
+      lessonProgressRows.map((lp) => [lp.lessonId, lp.completedAt]),
+    );
+
     let currentLessonForProgress:
       | { slug: string; title: string; order: number }
       | null = null;
     let completedLessonsCount = 0;
     if (progress) {
-      const lessonIds = course.lessons.map((l) => l.id);
-      const lessonProgressRows =
-        lessonIds.length > 0
-          ? await this.prisma.userLessonProgress.findMany({
-              where: { userId, lessonId: { in: lessonIds } },
-              select: { lessonId: true, completedAt: true },
-            })
-          : [];
       const completedSet = new Set(
         lessonProgressRows
           .filter((lp) => lp.completedAt != null)
@@ -387,7 +394,9 @@ export class UserCoursesService {
 
     return {
       course: toCourseDto(course, { stats }),
-      lessons: course.lessons.map(toLessonDto),
+      lessons: course.lessons.map((l) =>
+        toLessonDto(l, completedAtByLesson.get(l.id) ?? null),
+      ),
       progress: progress
         ? toCoursePlayProgressDto(
             {
@@ -727,14 +736,18 @@ export function toCourseDto(
  * KS-2648: row теперь из `lessons`. `courseId` (системное) маппится в
  * `userCourseId` legacy DTO. `title` для пользовательских непуст.
  */
-export function toLessonDto(row: {
-  id: string;
-  courseId: string;
-  order: number;
-  title: string | null;
-  estMinutes: number | null;
-  _count?: { steps: number };
-}): UserLessonDto {
+export function toLessonDto(
+  row: {
+    id: string;
+    courseId: string;
+    order: number;
+    title: string | null;
+    estMinutes: number | null;
+    _count?: { steps: number };
+  },
+  /** KS-4921: completedAt текущего пользователя (undefined — не отдавать поле). */
+  completedAt?: Date | null,
+): UserLessonDto {
   return {
     id: row.id,
     userCourseId: row.courseId,
@@ -742,6 +755,9 @@ export function toLessonDto(row: {
     title: row.title ?? '',
     estMinutes: row.estMinutes,
     stepCount: row._count?.steps ?? 0,
+    ...(completedAt !== undefined && {
+      completedAt: completedAt?.toISOString() ?? null,
+    }),
   };
 }
 
