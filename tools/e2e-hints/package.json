@@ -8,7 +8,21 @@
     "e2e:hints": "playwright test",
     "e2e:hints:ui": "playwright test --ui",
     "e2e:hints:headed": "playwright test --headed",
-    "e2e:hints:report": "playwright show-report"
+    "e2e:hints:report": "playwright show-report",
+    "e2e:rule": "playwright test --grep",
+    "e2e:rule:analyze-after-loss": "playwright test tests/analyze-after-loss.spec.ts",
+    "e2e:rule:bridge-promo-after-3-wasm": "playwright test tests/bridge-promo-after-3-wasm.spec.ts",
+    "e2e:rule:discover-puzzle-rush": "playwright test tests/discover-puzzle-rush.spec.ts",
+    "e2e:rule:guest-features-discovery": "playwright test tests/guest-features-discovery.spec.ts",
+    "e2e:rule:guest-play-friction": "playwright test tests/guest-play-friction.spec.ts",
+    "e2e:rule:guest-register-prompt": "playwright test tests/guest-register-prompt.spec.ts",
+    "e2e:rule:guest-try-puzzles": "playwright test tests/guest-try-puzzles.spec.ts",
+    "e2e:rule:hint-overuse-mistakes-diary": "playwright test tests/hint-overuse-mistakes-diary.spec.ts",
+    "e2e:rule:home-idle-suggest-puzzles": "playwright test tests/home-idle-suggest-puzzles.spec.ts",
+    "e2e:rule:mistakes-diary-after-failures": "playwright test tests/mistakes-diary-after-failures.spec.ts",
+    "e2e:rule:puzzle-comeback-after-week": "playwright test tests/puzzle-comeback-after-week.spec.ts",
+    "e2e:rule:rush-streak-recovery": "playwright test tests/rush-streak-recovery.spec.ts",
+    "e2e:rule:study-v2-flow": "playwright test tests/study-v2-flow.spec.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0"
