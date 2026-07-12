@@ -8,7 +8,6 @@
 
 | Дата брифа | Тред | Статус |
 |---|---|---|
-| 2026-07-11 | https://www.reddit.com/r/chessbeginners/comments/1utch0q/ («950 elo») | ожидает публикации |
 | 2026-07-11 | https://www.reddit.com/r/chess/comments/1ut2wk3/ («commit my time this fall») | ожидает публикации |
 | 2026-07-11 | https://www.reddit.com/r/TournamentChess/comments/1ut2pw6/ («QGD exchange model games») | ожидает публикации |
 | 2026-07-11 | https://old.reddit.com/r/chess/comments/1usrtrq/ («WSCC Divya 14–1», срочное 12:00) | опубликовано (owv8yxb, score 1, реплаев нет) |
@@ -21,4 +20,5 @@
 | 2026-07-12 | https://x.com/anishgiri/status/2076225791386427543 (срочное: живой матч Ниманн–Гири, ответ под твитом Гири) | опубликовано (x, контур с подтверждением, 09:58Z, проверено на профиле) |
 | 2026-07-12 | https://x.com/anishgiri/status/2076262232158028197 (срочное: итог матча, Ниманн 9.5–3.5 — ответ под постом Гири) | опубликовано (x, контур с подтверждением, 11:57Z) |
 | 2026-07-12 | https://old.reddit.com/r/TournamentChess/comments/1uu6dce/thinking_about_buying_artur_yusupovs_books/ (вечнозелёный из брифа: тред про книги Юсупова (9 голосов, живой)) | опубликовано (reddit, контур с подтверждением) |
+| 2026-07-12 | https://old.reddit.com/r/chessbeginners/comments/1utch0q/950_elo_is_torture_and_is_harder_than_playing/ (вечнозелёный из брифа 11.07, без ссылки) | СРЕЗАН фильтром r/chessbeginners: виден в профиле (ox35yk7), анонимно пуст — не перепубликовывать, сабреддит до набора кармы избегать |
 Статусы: ожидает публикации → опубликовано (после подтверждения пользователя) → закрыт (3 дня без новых реплаев).
