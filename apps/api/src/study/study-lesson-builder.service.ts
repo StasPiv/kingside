@@ -208,17 +208,25 @@ export class StudyLessonBuilderService {
     window: { min: number; max: number },
   ): Promise<{ theme: string; themed: boolean }> {
     const MIN = 6;
+    /** Максимум проверяемых кандидатов — защита времени PUT-запроса. */
+    const MAX_CANDIDATES = 5;
     const seen = new Set<string>();
     for (const theme of candidates) {
       if (!theme || seen.has(theme)) continue;
+      if (seen.size >= MAX_CANDIDATES) break;
       seen.add(theme);
-      const n = await this.prisma.puzzle.count({
+      // НЕ count(): LIKE contains по прод-банку (миллионы строк) в
+      // count сканирует всё rating-окно (KS-4918: PUT падал 504).
+      // findMany с take прекращает скан на MIN-й найденной строке.
+      const found = await this.prisma.puzzle.findMany({
         where: {
           themes: { contains: theme },
           rating: { gte: Math.max(400, window.min), lte: Math.min(3200, window.max) },
         },
+        select: { id: true },
+        take: MIN,
       });
-      if (n >= MIN) return { theme, themed: true };
+      if (found.length >= MIN) return { theme, themed: true };
     }
     return { theme: candidates[0] ?? 'tactics', themed: false };
   }
