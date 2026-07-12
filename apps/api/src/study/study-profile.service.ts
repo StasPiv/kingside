@@ -33,7 +33,7 @@ export class StudyProfileService {
     const [user, dueReviews, weakThemes, recentSessions] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { ratingPuzzle: true },
+        select: { ratingPuzzle: true, ratingPuzzleDev: true },
       }),
       this.prisma.lessonReview.findMany({
         where: { userId, dueAt: { lte: new Date() } },
@@ -57,6 +57,11 @@ export class StudyProfileService {
 
     return {
       ratingPuzzle: user.ratingPuzzle,
+      ratingPuzzleDev: user.ratingPuzzleDev,
+      // KS-4910: score последних завершённых уроков (ADR-162 §5).
+      recentScores: recentSessions
+        .map((s) => (s as { score?: number | null }).score)
+        .filter((s): s is number => typeof s === 'number'),
       dueReviewLessonIds: dueReviews.map((r) => r.lessonId),
       weakThemes,
       nextLesson,
@@ -120,7 +125,13 @@ export class StudyProfileService {
     ratingPuzzle: number,
   ): Promise<StudyProfile['nextLesson']> {
     const progress = await this.prisma.userCourseProgress.findFirst({
-      where: { userId, completedAt: null },
+      where: {
+        userId,
+        completedAt: null,
+        // KS-4910: скрытый персональный курс занятий не считается
+        // «активным курсом» ученика — иначе циклическая связь.
+        course: { description: { not: 'kingside:study-personal-course' } },
+      },
       orderBy: { updatedAt: 'desc' },
       select: { course: { select: { id: true, slug: true } } },
     });

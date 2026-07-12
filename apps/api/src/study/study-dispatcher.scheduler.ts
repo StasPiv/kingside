@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { NotificationService } from '../notification/notification.service';
+import { StudyPlanConfigService } from './study-plan-config.service';
 import { TelegramBotService } from './telegram-bot.service';
 import {
   buildTelegramText,
@@ -48,7 +48,7 @@ export class StudyDispatcherScheduler {
     private readonly redis: RedisService,
     private readonly notifications: NotificationService,
     private readonly telegramBot: TelegramBotService,
-    private readonly i18n: I18nService,
+    private readonly config: StudyPlanConfigService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -106,8 +106,9 @@ export class StudyDispatcherScheduler {
     notifications: Array<{ channelId: string; status: string }>;
   }): Promise<boolean> {
     const lang = session.user.locale === 'ru' ? 'ru' : 'en';
-    const t: StudyTranslator = (key, args) =>
-      this.i18n.t(`messages.${key}`, { lang, ...(args ? { args } : {}) }) as string;
+    // KS-4910 / ADR-162 §3.2: строки уведомлений — из
+    // tools/study-plan/texts.<lang>.json, не из кода/messages.json.
+    const t: StudyTranslator = (key, args) => this.config.text(lang, key, args);
     const tasks: NotifiableTask[] = session.tasks.map((task) => ({
       type: task.type,
       params: (task.params ?? null) as Record<string, unknown> | null,

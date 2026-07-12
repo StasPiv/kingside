@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { NotificationModule } from '../notification/notification.module';
 import { WorkshopModule } from '../workshop/workshop.module';
+import { UserCoursesModule } from '../lessons/user-courses/user-courses.module';
 import { StudyController } from './study.controller';
 import { TelegramWebhookController } from './telegram-webhook.controller';
 import { StudyScheduleService } from './study-schedule.service';
@@ -14,6 +15,9 @@ import { StudyDispatcherScheduler } from './study-dispatcher.scheduler';
 import { StudyTrackingService } from './study-tracking.service';
 import { StudyTrackingScheduler } from './study-tracking.scheduler';
 import { StudyDiagnosticsService } from './study-diagnostics.service';
+import { StudyPlanConfigService } from './study-plan-config.service';
+import { StudyLessonBuilderService } from './study-lesson-builder.service';
+import { BaselineMaterialSource } from './material/baseline-material.source';
 
 /**
  * Модуль занятий (ADR-160):
@@ -29,7 +33,7 @@ import { StudyDiagnosticsService } from './study-diagnostics.service';
  * PrismaModule и RedisModule — глобальные, импорт не нужен.
  */
 @Module({
-  imports: [NotificationModule, WorkshopModule],
+  imports: [NotificationModule, WorkshopModule, UserCoursesModule],
   controllers: [StudyController, TelegramWebhookController],
   providers: [
     StudyScheduleService,
@@ -43,6 +47,10 @@ import { StudyDiagnosticsService } from './study-diagnostics.service';
     StudyTrackingService,
     StudyTrackingScheduler,
     StudyDiagnosticsService,
+    // KS-4910 / ADR-162: занятия v2 — урок в занятии.
+    StudyPlanConfigService,
+    StudyLessonBuilderService,
+    BaselineMaterialSource,
   ],
   exports: [
     StudyScheduleService,

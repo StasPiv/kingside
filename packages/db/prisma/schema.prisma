@@ -3064,6 +3064,12 @@ model StudySession {
   profileSnapshot Json?     @map("profile_snapshot")
   completedAt     DateTime? @map("completed_at") @db.Timestamptz(3)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// KS-4910 / ADR-162 §2.1: урок занятия в скрытом персональном курсе.
+  /// Без FK — урок чистится ротацией (30 дней), сессия остаётся историей.
+  lessonId        String?   @map("lesson_id") @db.Uuid
+  /// KS-4910 / ADR-162 §5: score завершённого урока 0-100 — вход
+  /// адаптации следующего занятия.
+  score           Int?
 
   schedule      StudySchedule       @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -3094,6 +3100,8 @@ model StudyTask {
   doneCount   Int       @default(0) @map("done_count")
   status      String    @default("pending")
   verifiedAt  DateTime? @map("verified_at") @db.Timestamptz(3)
+  /// KS-4910 / ADR-162 §2.1: main (урок занятия) | homework (§5).
+  role        String    @default("main")
 
   session StudySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 

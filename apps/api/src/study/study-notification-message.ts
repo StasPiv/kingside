@@ -49,30 +49,41 @@ export function taskPath(task: NotifiableTask): string {
   }
 }
 
-/** Однострочное описание задания на языке пользователя. */
+/**
+ * Однострочное описание задания на языке пользователя. Ключи —
+ * `study.notification.taskLine.<type>` из tools/study-plan/texts.*.json
+ * (KS-4910 / ADR-162 §3.2: тексты из данных, не из кода).
+ */
 export function taskLine(task: NotifiableTask, t: StudyTranslator): string {
   const params = task.params ?? {};
+  const base = 'study.notification.taskLine';
   switch (task.type) {
     case 'puzzle_theme': {
       const theme = typeof params.theme === 'string' ? params.theme : null;
       return theme
-        ? t('study.task.puzzle_theme', { count: task.targetCount, theme })
-        : t('study.task.puzzle_theme_mix', { count: task.targetCount });
+        ? t(`${base}.puzzle_theme`, { count: task.targetCount, theme })
+        : t(`${base}.puzzle_theme_mix`, { count: task.targetCount });
     }
     case 'external_games': {
       const provider = typeof params.provider === 'string' ? params.provider : 'lichess';
-      return t('study.task.external_games', { count: task.targetCount, provider });
+      return t(`${base}.external_games`, { count: task.targetCount, provider });
     }
+    case 'lesson': {
+      const lessonTitle =
+        typeof params.themeLabel === 'string' ? params.themeLabel : '';
+      return t(`${base}.lesson`, { lessonTitle });
+    }
+    case 'rated_game':
+      return t(`${base}.rated_game`, { timeControl: 'blitz' });
+    case 'puzzle_rush':
+      return t(`${base}.puzzle_rush`, { target: task.targetCount });
     case 'sm2_review':
     case 'mistakes':
     case 'precision':
     case 'drill':
-    case 'puzzle_rush':
-      return t(`study.task.${task.type}`, { count: task.targetCount });
-    case 'lesson':
-    case 'rated_game':
+      return t(`${base}.${task.type}`, { count: task.targetCount });
     case 'game_review':
-      return t(`study.task.${task.type}`);
+      return t(`${base}.game_review`);
     default:
       return task.type;
   }
@@ -81,21 +92,26 @@ export function taskLine(task: NotifiableTask, t: StudyTranslator): string {
 /**
  * Текст Telegram-сообщения: заголовок, нумерованный список заданий со
  * ссылками, ссылка на страницу занятия. `origin` — схема+хост фронта.
+ * Строки — из tools/study-plan/texts.*.json.
  */
 export function buildTelegramText(
   tasks: NotifiableTask[],
   origin: string,
   t: StudyTranslator,
+  opts?: { sessionMinutes?: number },
 ): string {
   const lines = [
     `♟ ${t('study.notification.title')}`,
     '',
-    t('study.notification.intro'),
+    t('study.notification.intro', {
+      taskCount: tasks.length,
+      minutes: opts?.sessionMinutes ?? 30,
+    }),
     ...tasks.map(
       (task, i) => `${i + 1}. ${taskLine(task, t)} — ${origin}${taskPath(task)}`,
     ),
     '',
-    `${t('study.notification.openSession')}: ${origin}/study`,
+    t('study.notification.openSession', { url: `${origin}/study` }),
   ];
   return lines.join('\n');
 }

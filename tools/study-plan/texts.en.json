@@ -4,6 +4,13 @@
       "title": "Chess training time!",
       "intro": "Your session is ready: {{taskCount}} tasks, about {{minutes}} min.",
       "openSession": "Open your session: {{url}}",
+      "lessonReady": {
+        "title": "Your lesson is ready!",
+        "intro": "A personal lesson on “{{themeLabel}}” has been built from your games and stats — about {{minutes}} min.",
+        "introNoTheme": "Your personal lesson has been built from your games and stats — about {{minutes}} min.",
+        "homework": "Homework follows the lesson ({{count}} tasks), due before your next session.",
+        "open": "Start the session: {{url}}"
+      },
       "taskLine": {
         "puzzle_theme": "Solve {{count}} puzzles on the theme \"{{theme}}\"",
         "sm2_review": "Review {{count}} due lessons (spaced repetition)",
@@ -14,7 +21,8 @@
         "rated_game": "Play a rated {{timeControl}} game",
         "game_review": "Analyse your latest game",
         "puzzle_rush": "Puzzle Rush: score {{target}} or more",
-        "external_games": "Play {{count}} games on {{provider}}"
+        "external_games": "Play {{count}} games on {{provider}}",
+        "puzzle_theme_mix": "Solve {{count}} puzzles on mixed themes"
       }
     },
     "page": {

@@ -8,6 +8,8 @@ interface TrackableSession {
   userId: string;
   scheduledAt: Date;
   status: string;
+  /** KS-4910: урок занятия — источник score при завершении. */
+  lessonId?: string | null;
   schedule: { timezone: string };
   tasks: Array<{
     id: string;
@@ -16,6 +18,8 @@ interface TrackableSession {
     targetCount: number;
     doneCount: number;
     status: string;
+    /** KS-4910: main | homework — completed определяется по main. */
+    role?: string;
   }>;
 }
 
@@ -56,7 +60,8 @@ export class StudyTrackingService {
    */
   async reconcileSession(session: TrackableSession): Promise<string> {
     let anyProgress = false;
-    let allDone = true;
+    let allMainDone = true;
+    let hasMain = false;
 
     for (const task of session.tasks) {
       if (task.status === 'skipped') continue;
@@ -74,11 +79,17 @@ export class StudyTrackingService {
         });
       }
       if (doneCount > 0) anyProgress = true;
-      if (status !== 'done') allDone = false;
+      // KS-4910 / ADR-162 §5: completed = урок (main) завершён; homework
+      // не блокирует завершение занятия (несделанная — carry-over).
+      // Сессии v1 без role трактуются как main — прежнее поведение.
+      if ((task.role ?? 'main') === 'main') {
+        hasMain = true;
+        if (status !== 'done') allMainDone = false;
+      }
     }
 
     let nextStatus = session.status;
-    if (allDone && session.tasks.some((t) => t.status !== 'skipped')) {
+    if (hasMain && allMainDone) {
       nextStatus = 'completed';
     } else if (anyProgress && session.status === 'notified') {
       nextStatus = 'in_progress';
@@ -88,11 +99,27 @@ export class StudyTrackingService {
         where: { id: session.id },
         data: {
           status: nextStatus,
-          ...(nextStatus === 'completed' && { completedAt: new Date() }),
+          ...(nextStatus === 'completed' && {
+            completedAt: new Date(),
+            // KS-4910: score завершённого урока — вход адаптации.
+            score: await this.lessonScore(session),
+          }),
         },
       });
     }
     return nextStatus;
+  }
+
+  /** Score урока занятия из UserLessonProgress (ADR-162 §5). */
+  private async lessonScore(session: TrackableSession): Promise<number | null> {
+    if (!session.lessonId) return null;
+    const progress = await this.prisma.userLessonProgress.findUnique({
+      where: {
+        userId_lessonId: { userId: session.userId, lessonId: session.lessonId },
+      },
+      select: { score: true },
+    });
+    return progress?.score ?? null;
   }
 
   /** Пересчёт по требованию (страница занятия): по id, только активные статусы. */

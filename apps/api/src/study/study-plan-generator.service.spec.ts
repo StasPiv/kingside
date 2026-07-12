@@ -7,6 +7,8 @@ import {
 function profile(overrides: Partial<StudyProfile> = {}): StudyProfile {
   return {
     ratingPuzzle: 1500,
+    ratingPuzzleDev: 50,
+    recentScores: [],
     dueReviewLessonIds: [],
     weakThemes: [{ theme: 'fork', attempted: 20, rate: 45 }],
     nextLesson: { lessonId: 'l1', courseId: 'c1', courseSlug: 'basics', estMinutes: 10 },

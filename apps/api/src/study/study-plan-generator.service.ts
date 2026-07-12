@@ -55,6 +55,10 @@ export const BLOCK_MINUTES = {
 /** Профиль ученика — входы генератора (§2.1), собирает StudyProfileService. */
 export interface StudyProfile {
   ratingPuzzle: number;
+  /** KS-4910: Glicko deviation — выбор полки (некалиброван → fallback). */
+  ratingPuzzleDev: number;
+  /** KS-4910 / ADR-162 §5: score последних уроков (новые первыми) — вход адаптации. */
+  recentScores: number[];
   /** Просроченные SM-2 повторения: lessonId по возрастанию dueAt. */
   dueReviewLessonIds: string[];
   /**
@@ -174,11 +178,16 @@ export class StudyPlanGeneratorService {
   }
 
   /**
-   * §2.2/§2.3 окно рейтинга пазлов: базово −100…+50; решаемость < 40 %
-   * → смещение вниз на 100; > 80 % → вверх на 50.
+   * §2.2/§2.3 окно рейтинга пазлов: базово −100…+50; вход адаптации —
+   * score последних уроков (ADR-162 §5), fallback — решаемость v1.
+   * < 40 → смещение вниз на 100; > 80 → вверх на 50.
    */
   ratingWindow(profile: StudyProfile): { min: number; max: number } {
-    const rate = profile.recentThemeSolveRate;
+    const scores = profile.recentScores.slice(0, 3);
+    const rate =
+      scores.length > 0
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+        : profile.recentThemeSolveRate;
     if (rate !== null && rate < 40) return { min: -200, max: -50 };
     if (rate !== null && rate > 80) return { min: -50, max: 100 };
     return { min: -100, max: 50 };
