@@ -69,6 +69,32 @@ check('поздний ответ на сгоревший → не approved', (()
   return r.status === 'expired';
 })());
 
+// --- Привязка ответа к черновику ---
+import { resolveReply } from './publish-lib.mjs';
+let rr = {};
+const ra = addDraft({ platform: 'x', url: 'u1', text: 't1' }, { now: NOON, state: rr });
+check('один pending + «ok» без id → привязка к нему', (() => {
+  const res = resolveReply('ok', { now: NOON, state: rr });
+  return res.id === ra && res.draft.status === 'approved';
+})());
+let rr2 = {};
+const rb = addDraft({ platform: 'x', url: 'u1', text: 't1' }, { now: NOON, state: rr2 });
+const rc = addDraft({ platform: 'reddit', url: 'u2', text: 't2' }, { now: NOON, state: rr2 });
+check('несколько pending + «ok» без id → отказ ambiguous', (() => {
+  const res = resolveReply('ok', { now: NOON, state: rr2 });
+  return Array.isArray(res.ambiguous) && res.ambiguous.length === 2 && rr2[rb].status === 'pending' && rr2[rc].status === 'pending';
+})());
+check('«<id> skip» при нескольких → только указанный', (() => {
+  const res = resolveReply(`${rc} skip`, { now: NOON, state: rr2 });
+  return res.id === rc && rr2[rc].status === 'skipped' && rr2[rb].status === 'pending';
+})());
+check('«<id> свой текст» → approved с правкой', (() => {
+  const res = resolveReply(`${rb} My edited version`, { now: NOON, state: rr2 });
+  return res.id === rb && rr2[rb].status === 'approved' && rr2[rb].text === 'My edited version';
+})());
+check('нет активных → понятный отказ', /нет активных/.test(resolveReply('ok', { now: NOON, state: {} }).error || ''));
+check('несуществующий id → отказ', /не найден/.test(resolveReply('d99-20990101 ok', { now: NOON, state: rr2 }).error || ''));
+
 // --- Браузерная часть на фикстурах ---
 const { chromium } = await import('playwright');
 const browser = await chromium.launch({ headless: true });

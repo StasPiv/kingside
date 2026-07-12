@@ -118,6 +118,28 @@ export function resolveDraft(id, reply, { now = new Date(), state } = {}) {
   return d;
 }
 
+/**
+ * Привязка ответа основателя к черновику (KS-4906, доработка):
+ *  - ответ начинается с id («d2-20260712 ok», «d2-20260712 мой текст») → этот черновик;
+ *  - без id и ждёт РОВНО ОДИН черновик → он;
+ *  - без id при нескольких pending → отказ { ambiguous: [ids] } — агент
+ *    переспрашивает с явными id, ничего не публикуется.
+ */
+export function resolveReply(reply, { now = new Date(), state } = {}) {
+  const s = state ?? loadDrafts();
+  const r = reply.trim();
+  const m = /^(d\d+-\d{8})\s+([\s\S]+)$/.exec(r);
+  if (m) {
+    if (!s[m[1]]) return { error: `черновик ${m[1]} не найден` };
+    return { id: m[1], draft: resolveDraft(m[1], m[2], { now, state: s }) };
+  }
+  const pending = Object.entries(s).filter(([, d]) => d.status === 'pending' && now.getTime() - d.sentAt <= DRAFT_TTL_MS);
+  if (pending.length === 0) return { error: 'нет активных черновиков' };
+  if (pending.length > 1) return { ambiguous: pending.map(([id]) => id) };
+  const [id] = pending[0];
+  return { id, draft: resolveDraft(id, r, { now, state: s }) };
+}
+
 /** Протухшие pending-черновики сгорают (вызывается каждым циклом). */
 export function expireDrafts({ now = new Date(), state } = {}) {
   const s = state ?? loadDrafts();
