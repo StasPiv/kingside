@@ -141,6 +141,19 @@ const THEME_LABELS: Record<'ru' | 'en', Record<string, string>> = {
   },
 };
 
+/**
+ * KS-4922. Служебные токены генератора задач (tactic-worker пишет их в
+ * колонку `themes` вместе с настоящими темами): режим решения и фаза
+ * пазла. Это НЕ темы — им нельзя становиться слабой темой профиля или
+ * темой занятия (у Stanislav 'reactive' стал темой урока: сырой ключ в
+ * названии и пустой puzzle-шаг — задач с таким «токеном» в окне нет).
+ */
+export const SERVICE_THEME_TOKENS: ReadonlySet<string> = new Set([
+  'playVsEngine',
+  'reactive',
+  'preventive',
+]);
+
 /** Название темы на языке пользователя; вне словаря — humanize ключа. */
 export function puzzleThemeLabel(theme: string, lang: string): string {
   const l = lang === 'ru' ? 'ru' : 'en';

@@ -5,6 +5,7 @@ import {
   StudyProfile,
   StudyTaskType,
 } from './study-plan-generator.service';
+import { SERVICE_THEME_TOKENS } from './puzzle-theme-labels';
 
 /**
  * KS-4881 / ADR-160 §2.1. Сбор профиля ученика «на лету» из
@@ -95,6 +96,9 @@ export class StudyProfileService {
     const map = new Map<string, { attempted: number; solved: number }>();
     for (const row of raw) {
       for (const theme of row.themes.split(' ').filter(Boolean)) {
+        // KS-4922: служебные токены генератора (playVsEngine/reactive/
+        // preventive) — не темы, в слабые темы не попадают.
+        if (SERVICE_THEME_TOKENS.has(theme)) continue;
         const e = map.get(theme) ?? { attempted: 0, solved: 0 };
         e.attempted += Number(row.total);
         e.solved += Number(row.solved);
