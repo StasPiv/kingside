@@ -183,11 +183,17 @@ export class UserProgressService {
 
   /**
    * Пометить урок завершённым. Идемпотентно.
+   *
+   * KS-4917: `score` (нормализованный 0..1, как в системном
+   * ProgressService.completeLesson) теперь ЗАПИСЫВАЕТСЯ в
+   * UserLessonProgress.score (0..100). Раньше параметр игнорировался
+   * (`_score`), из-за чего у занятий v2 (ADR-162 §5)
+   * StudySession.score всегда был 0 и адаптация не работала.
    */
   async completeLesson(
     userId: string,
     userLessonId: string,
-    _score: number,
+    score: number,
   ): Promise<UserLessonPlayProgressDto> {
     const lesson = await this.assertLessonAccessible(userId, userLessonId);
 
@@ -232,17 +238,22 @@ export class UserProgressService {
       }
     }
 
+    // KS-4917: клиентский score 0..1 → 0..100 (образец — системный
+    // ProgressService). Значения вне диапазона обрезаются.
+    const score100 = Math.max(0, Math.min(100, Math.round(score * 100)));
+
     const row = await this.prisma.userLessonProgress.upsert({
       where: { userId_lessonId: { userId, lessonId: userLessonId } },
       update: {
         stepsState: finalStepsState,
         completedAt: now,
+        score: score100,
         updatedAt: now,
       },
       create: {
         userId,
         lessonId: userLessonId,
-        score: 0,
+        score: score100,
         stepsState: finalStepsState,
         completedAt: now,
         updatedAt: now,
