@@ -2,8 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudyTrackingService } from './study-tracking.service';
 import type {
+  StudyHistoryItemDto,
   StudySessionDto,
   StudySessionStatus,
+  StudyTaskRole,
   StudyTaskStatus,
   StudyTaskType,
 } from '@kingside/shared';
@@ -60,6 +62,8 @@ export class StudySessionService {
       scheduledAt: session.scheduledAt.toISOString(),
       status: session.status as StudySessionStatus,
       completedAt: session.completedAt?.toISOString() ?? null,
+      score: session.score ?? null,
+      lessonId: session.lessonId ?? null,
       tasks: session.tasks.map((t) => ({
         id: t.id,
         position: t.position,
@@ -68,7 +72,46 @@ export class StudySessionService {
         targetCount: t.targetCount,
         doneCount: t.doneCount,
         status: t.status as StudyTaskStatus,
+        role: (t.role ?? 'main') as StudyTaskRole,
       })),
     };
+  }
+
+  /**
+   * KS-4916: история занятий — прошедшие сессии (completed|expired,
+   * а также notified|in_progress с прошедшим слотом) со score, темой
+   * и сводкой домашних заданий. Новые первыми.
+   */
+  async getHistory(userId: string, limit: number): Promise<StudyHistoryItemDto[]> {
+    const sessions = await this.prisma.studySession.findMany({
+      where: {
+        userId,
+        OR: [
+          { status: { in: ['completed', 'expired'] } },
+          {
+            status: { in: ['notified', 'in_progress'] },
+            scheduledAt: { lte: new Date() },
+          },
+        ],
+      },
+      orderBy: { scheduledAt: 'desc' },
+      take: limit,
+      include: { tasks: { select: { role: true, status: true } } },
+    });
+    return sessions.map((s) => {
+      const homework = s.tasks.filter((t) => (t.role ?? 'main') === 'homework');
+      const snapshot = (s.profileSnapshot ?? {}) as { themeLabel?: unknown };
+      return {
+        id: s.id,
+        scheduledAt: s.scheduledAt.toISOString(),
+        status: s.status as StudySessionStatus,
+        completedAt: s.completedAt?.toISOString() ?? null,
+        score: s.score ?? null,
+        themeLabel:
+          typeof snapshot.themeLabel === 'string' ? snapshot.themeLabel : null,
+        homeworkDone: homework.filter((t) => t.status === 'done').length,
+        homeworkTotal: homework.length,
+      };
+    });
   }
 }

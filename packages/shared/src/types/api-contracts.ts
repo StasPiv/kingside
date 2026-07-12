@@ -3881,6 +3881,8 @@ export interface StudyTaskDto {
   targetCount: number;
   doneCount: number;
   status: StudyTaskStatus;
+  /** KS-4916 / ADR-162: main — урок занятия, homework — домашка. */
+  role: StudyTaskRole;
 }
 
 /** Занятие с заданиями (KS-4886, страница /study). */
@@ -3889,6 +3891,10 @@ export interface StudySessionDto {
   scheduledAt: string;
   status: StudySessionStatus;
   completedAt: string | null;
+  /** KS-4916 / ADR-162 §5: score завершённого урока 0-100 (null — нет). */
+  score: number | null;
+  /** KS-4916: урок занятия (плеер /lessons/:slug/:lessonId). */
+  lessonId: string | null;
   tasks: StudyTaskDto[];
 }
 
@@ -3899,4 +3905,31 @@ export interface StudySessionDto {
  */
 export interface StudySessionResponse {
   session: StudySessionDto | null;
+}
+
+// ─── Study v2 (KS-4910/KS-4916 / ADR-162) ───────────────────────────
+
+/** Роль задания занятия: main — урок занятия, homework — домашка (§5). */
+export type StudyTaskRole = 'main' | 'homework';
+
+/**
+ * Запись истории занятий (KS-4916, блок «история со score» на /study).
+ * `homeworkDone/homeworkTotal` — сводка домашних заданий сессии.
+ */
+export interface StudyHistoryItemDto {
+  id: string;
+  scheduledAt: string;
+  status: StudySessionStatus;
+  completedAt: string | null;
+  /** Score завершённого урока 0-100 (null — не завершён/сессия v1). */
+  score: number | null;
+  /** Тема занятия из снапшота профиля (null — сессия v1). */
+  themeLabel: string | null;
+  homeworkDone: number;
+  homeworkTotal: number;
+}
+
+/** GET /study/history?limit=N (default 10, max 50). */
+export interface StudyHistoryResponse {
+  items: StudyHistoryItemDto[];
 }

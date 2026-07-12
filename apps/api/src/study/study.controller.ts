@@ -1,14 +1,17 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -23,6 +26,7 @@ import { CreateNotificationChannelDto } from './dto/create-notification-channel.
 import type {
   CreateNotificationChannelResponse,
   NotificationChannelsResponse,
+  StudyHistoryResponse,
   StudyScheduleResponse,
   StudySessionResponse,
 } from '@kingside/shared';
@@ -55,6 +59,22 @@ export class StudyController {
   async getSession(@Request() req: AuthenticatedRequest): Promise<StudySessionResponse> {
     const session = await this.sessions.getCurrent(req.user.id);
     return { session };
+  }
+
+  /**
+   * KS-4916: история занятий со score и сводкой домашки (блок
+   * «история» на /study). limit 1..50, default 10.
+   */
+  @Get('history')
+  async getHistory(
+    @Request() req: AuthenticatedRequest,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ): Promise<StudyHistoryResponse> {
+    const items = await this.sessions.getHistory(
+      req.user.id,
+      Math.min(50, Math.max(1, limit)),
+    );
+    return { items };
   }
 
   /**
