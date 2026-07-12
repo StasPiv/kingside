@@ -113,35 +113,63 @@ if (cmd === 'start') {
   const chatId = requireChat(state);
   await send(chatId, rest.join(' ').slice(0, 280));
   console.log('отправлено');
-} else if (cmd === 'poll') {
+} else if (cmd === 'poll' || cmd === 'listen') {
   const chatId = requireChat(state);
-  const updates = await fetchUpdates(state, 0);
-  const replies = updates
-    .map((u) => u.message)
-    .filter((m) => m && m.chat?.id === chatId && m.text && !m.text.startsWith('/'));
-  if (!replies.length) { console.log('новых ответов нет'); process.exit(0); }
-  for (const m of replies) {
-    const r = resolveReply(m.text);
-    if (r.error) { await send(chatId, `⚠️ ${r.error}`); console.log(`ответ «${m.text.slice(0, 40)}»: ${r.error}`); continue; }
-    if (r.ambiguous) {
-      await send(chatId, `Активных черновиков несколько — начни ответ с id: ${r.ambiguous.join(', ')}`);
-      console.log(`ambiguous: ${r.ambiguous.join(', ')}`);
-      continue;
+  const LISTEN_LOCK = join(SESSIONS_DIR, 'bot-listen.lock');
+
+  const handleReplies = async (updates) => {
+    const replies = updates
+      .map((u) => u.message)
+      .filter((m) => m && m.chat?.id === chatId && m.text && !m.text.startsWith('/'));
+    for (const m of replies) {
+      const r = resolveReply(m.text);
+      if (r.error) { await send(chatId, `⚠️ ${r.error}`); console.log(`ответ «${m.text.slice(0, 40)}»: ${r.error}`); continue; }
+      if (r.ambiguous) {
+        await send(chatId, `Активных черновиков несколько — начни ответ с id: ${r.ambiguous.join(', ')}`);
+        console.log(`ambiguous: ${r.ambiguous.join(', ')}`);
+        continue;
+      }
+      console.log(`${new Date().toISOString()} черновик ${r.id} → ${r.draft.status}`);
+      if (r.draft.status === 'approved') {
+        const { stdout, stderr, code } = await run('node', [join(HERE, 'publish.mjs'), r.id]).catch((e) => e);
+        const ok = (stdout || '').includes('Опубликовано');
+        await send(chatId, ok ? `✅ ${r.id} опубликован: ${r.draft.url}` : `⚠️ ${r.id} не опубликован: ${(stderr || stdout || '').trim().slice(0, 200)}`);
+        console.log((stdout || stderr || '').trim());
+        if (!ok && code === 5) console.error('СТОП-КРАН — платформа остановлена');
+      } else if (r.draft.status === 'skipped') {
+        await send(chatId, `Ок, ${r.id} не публикуем.`);
+      } else if (r.draft.status === 'expired') {
+        await send(chatId, `${r.id} уже сгорел (4 часа) — не публикую. Если нужно, пришлю новый черновик.`);
+      }
     }
-    console.log(`черновик ${r.id} → ${r.draft.status}`);
-    if (r.draft.status === 'approved') {
-      const { stdout, stderr, code } = await run('node', [join(HERE, 'publish.mjs'), r.id]).catch((e) => e);
-      const ok = (stdout || '').includes('Опубликовано');
-      await send(chatId, ok ? `✅ ${r.id} опубликован: ${r.draft.url}` : `⚠️ ${r.id} не опубликован: ${(stderr || stdout || '').trim().slice(0, 200)}`);
-      console.log((stdout || stderr || '').trim());
-      if (!ok && code === 5) console.error('СТОП-КРАН — платформа остановлена');
-    } else if (r.draft.status === 'skipped') {
-      await send(chatId, `Ок, ${r.id} не публикуем.`);
-    } else if (r.draft.status === 'expired') {
-      await send(chatId, `${r.id} уже сгорел (4 часа) — не публикую. Если нужно, пришлю новый черновик.`);
+    return replies.length;
+  };
+
+  if (cmd === 'listen') {
+    // Постоянный слушатель: длинный опрос 50 с в бесконечном цикле.
+    // Пульс — в bot-listen.lock; poll при живом пульсе уступает, чтобы два
+    // клиента не дрались за getUpdates (Telegram даёт 409 на параллель).
+    console.log('слушатель запущен (длинный опрос 50 с)');
+    for (;;) {
+      writeFileSync(LISTEN_LOCK, String(Date.now()));
+      try {
+        const updates = await fetchUpdates(state, 50);
+        if (updates.length) await handleReplies(updates);
+      } catch (e) {
+        console.error(`listen: ${e.message} — пауза 15 с`);
+        await new Promise((r) => setTimeout(r, 15000));
+      }
     }
+  } else {
+    // Разовый опрос (тики): при живом слушателе не лезем в getUpdates
+    try {
+      const beat = Number(readFileSync(LISTEN_LOCK, 'utf8'));
+      if (Date.now() - beat < 90_000) { console.log('слушатель активен — опрос не нужен'); process.exit(0); }
+    } catch { /* слушателя нет */ }
+    const updates = await fetchUpdates(state, 0);
+    if (!(await handleReplies(updates))) console.log('новых ответов нет');
   }
 } else {
-  console.error('Использование: node tools/marketing/marketing-bot.mjs <start | send <draft-id> | poll | notify "текст">');
+  console.error('Использование: node tools/marketing/marketing-bot.mjs <start | send <draft-id> | poll | listen | notify "текст">');
   process.exit(2);
 }
