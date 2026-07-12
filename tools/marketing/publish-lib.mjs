@@ -15,7 +15,7 @@
  * Все состояния — в tools/marketing/sessions/ (не в общем /tmp, ADR §3.1).
  */
 
-import { readFileSync, writeFileSync, chmodSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SESSIONS_DIR } from './session-lib.mjs';
@@ -127,17 +127,24 @@ export function resolveDraft(id, reply, { now = new Date(), state } = {}) {
  */
 export function resolveReply(reply, { now = new Date(), state } = {}) {
   const s = state ?? loadDrafts();
+  const persist = !state; // состояние не инъецировано → результат пишем на диск
+  const done = (id) => {
+    if (persist) save(DRAFTS_STATE, s);
+    return { id, draft: s[id] };
+  };
   const r = reply.trim();
   const m = /^(d\d+-\d{8})\s+([\s\S]+)$/.exec(r);
   if (m) {
     if (!s[m[1]]) return { error: `черновик ${m[1]} не найден` };
-    return { id: m[1], draft: resolveDraft(m[1], m[2], { now, state: s }) };
+    resolveDraft(m[1], m[2], { now, state: s });
+    return done(m[1]);
   }
   const pending = Object.entries(s).filter(([, d]) => d.status === 'pending' && now.getTime() - d.sentAt <= DRAFT_TTL_MS);
   if (pending.length === 0) return { error: 'нет активных черновиков' };
   if (pending.length > 1) return { ambiguous: pending.map(([id]) => id) };
   const [id] = pending[0];
-  return { id, draft: resolveDraft(id, r, { now, state: s }) };
+  resolveDraft(id, r, { now, state: s });
+  return done(id);
 }
 
 /** Протухшие pending-черновики сгорают (вызывается каждым циклом). */
@@ -197,7 +204,10 @@ export async function fillXReply(page, text, { submit = true } = {}) {
 // --- Лог публикаций ---
 
 export function appendPublished({ platform, url, note }, { now = new Date(), path = PUBLISHED_MD } = {}) {
-  const line = `| ${dayKey(now)} | ${url} (${note || 'публикация'}) | опубликовано (${platform}, браузерный контур) |\n`;
-  appendFileSync(path, line);
+  const line = `| ${dayKey(now)} | ${url} (${note || 'публикация'}) | опубликовано (${platform}, браузерный контур) |`;
+  // строка — В таблицу (перед строкой «Статусы: …»), а не в хвост файла
+  const md = readFileSync(path, 'utf8');
+  const anchor = md.indexOf('\nСтатусы:');
+  writeFileSync(path, anchor === -1 ? `${md}${line}\n` : `${md.slice(0, anchor)}${line}${md.slice(anchor)}`);
   return line;
 }
