@@ -46,6 +46,29 @@ if (denied) {
   process.exit(4);
 }
 
+// Discord публикуется существующим API-механизмом (user-токен, как discord-read),
+// браузер не нужен (ADR-161 §2.2); контур подтверждения/лимитов — общий.
+if (platform === 'discord') {
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const token = readFileSync(new URL('./.discord-token', import.meta.url), 'utf8').trim();
+  const chan = /discord\.com\/channels\/\d+\/(\d+)/.exec(url)?.[1];
+  if (!chan) { console.error(`[error] в url черновика нет id канала: ${url}`); process.exit(1); }
+  const res = await fetch(`https://discord.com/api/v9/channels/${chan}/messages`, {
+    method: 'POST',
+    headers: { Authorization: token, 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36' },
+    body: JSON.stringify({ content: text }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { console.error(`[error] Discord API ${res.status}: ${body.message || ''}`); process.exit(1); }
+  recordAction(platform, {});
+  appendPublished({ platform, url: `${url.replace(/\/$/, '')}/${body.id}`, note: draft.note });
+  draft.status = 'published';
+  draft.publishedAt = Date.now();
+  saveDrafts(drafts);
+  console.log(`Опубликовано: ${url} (discord, сообщение ${body.id}). Записано в published.md, счётчики обновлены.`);
+  process.exit(0);
+}
+
 try {
   await withSession(platform, async (page) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });

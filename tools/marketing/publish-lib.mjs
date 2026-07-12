@@ -204,10 +204,10 @@ export async function fillXReply(page, text, { submit = true } = {}) {
 // --- Лог публикаций ---
 
 export function appendPublished({ platform, url, note }, { now = new Date(), path = PUBLISHED_MD } = {}) {
-  const line = `| ${dayKey(now)} | ${url} (${note || 'публикация'}) | опубликовано (${platform}, браузерный контур) |`;
+  const line = `| ${dayKey(now)} | ${url} (${note || 'публикация'}) | опубликовано (${platform}, контур с подтверждением) |`;
   // строка — В таблицу (перед строкой «Статусы: …»), а не в хвост файла
   const md = readFileSync(path, 'utf8');
   const anchor = md.indexOf('\nСтатусы:');
-  writeFileSync(path, anchor === -1 ? `${md}${line}\n` : `${md.slice(0, anchor)}${line}${md.slice(anchor)}`);
+  writeFileSync(path, anchor === -1 ? `${md}${line}\n` : `${md.slice(0, anchor)}\n${line}${md.slice(anchor)}`);
   return line;
 }
