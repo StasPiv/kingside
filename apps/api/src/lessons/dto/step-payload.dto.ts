@@ -146,8 +146,12 @@ class PuzzleSelectionFilterDto {
   @IsIn(['filter'])
   mode!: 'filter';
 
+  /**
+   * KS-4919: пустой массив разрешён — «фильтр только по рейтингу»
+   * (смешанные темы). Запасной вариант сборки занятия (KS-4918), когда
+   * по темам профиля нет задач в окне; резолвер пустой массив игнорирует.
+   */
   @IsArray()
-  @ArrayNotEmpty()
   @IsString({ each: true })
   themes!: PuzzleTheme[];
 
