@@ -504,3 +504,72 @@ describe('CoursePage', () => {
     ).toBe('beginner-basics');
   });
 });
+
+// KS-4920: статусы user-уроков — из реального `completedAt` (KS-4921),
+// не из префиксной эвристики по `completedLessonsCount`.
+describe('adaptUserLessons (KS-4920)', () => {
+  const lesson = (
+    id: string,
+    order: number,
+    completedAt?: string | null,
+  ) => ({
+    id,
+    userCourseId: 'uc1',
+    order,
+    title: `L${order}`,
+    estMinutes: null,
+    stepCount: 5,
+    ...(completedAt !== undefined && { completedAt }),
+  });
+
+  it('прод-кейс Stanislav: завершён урок 2, урок 1 нет — статусы честные', async () => {
+    const { adaptUserLessons } = await import('./CoursePage');
+    const res = adaptUserLessons(
+      [lesson('a', 0, null), lesson('b', 1, '2026-07-12T18:00:00.000Z')],
+      1, // агрегат от сервера — с эвристикой красил наоборот
+    );
+    expect(res[0].progressState).toBe('in_progress'); // reactive — не завершён
+    expect(res[1].progressState).toBe('completed'); // Эндшпиль — завершён
+    // Прогресс-бар завершённого урока заполнен.
+    expect(res[1].completedStepsCount).toBe(5);
+    expect(res[0].completedStepsCount).toBe(0);
+  });
+
+  it('незавершённые после первого — not_started; завершённый префикс — completed', async () => {
+    const { adaptUserLessons } = await import('./CoursePage');
+    const res = adaptUserLessons(
+      [
+        lesson('a', 0, '2026-07-01T00:00:00.000Z'),
+        lesson('b', 1, null),
+        lesson('c', 2, null),
+      ],
+      1,
+    );
+    expect(res.map((l) => l.progressState)).toEqual([
+      'completed',
+      'in_progress',
+      'not_started',
+    ]);
+  });
+
+  it('fallback: без поля completedAt (старый API) — прежняя эвристика по count', async () => {
+    const { adaptUserLessons } = await import('./CoursePage');
+    const res = adaptUserLessons([lesson('a', 0), lesson('b', 1)], 1);
+    expect(res.map((l) => l.progressState)).toEqual([
+      'completed',
+      'in_progress',
+    ]);
+  });
+
+  it('все уроки завершены — все completed (hero покажет «Курс пройден»)', async () => {
+    const { adaptUserLessons } = await import('./CoursePage');
+    const res = adaptUserLessons(
+      [
+        lesson('a', 0, '2026-07-01T00:00:00.000Z'),
+        lesson('b', 1, '2026-07-02T00:00:00.000Z'),
+      ],
+      2,
+    );
+    expect(res.every((l) => l.progressState === 'completed')).toBe(true);
+  });
+});

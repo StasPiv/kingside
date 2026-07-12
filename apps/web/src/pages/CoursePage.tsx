@@ -52,11 +52,10 @@ import { resolveInlineText } from '../utils/inlineI18nText';
  *   7. lesson-list — карточки уроков со статусом, шагами, бейджами
  *      Mastered/Due (только system).
  *
- * Адаптация DTO к общему shape выполняется через `adaptLessons` —
- * для user-уроков progressState и SM-2 поля недоступны, они
- * вычисляются эвристически по агрегатному `progress.completedLessons
- * Count` (первые N уроков в курсе считаются `completed`, остальные —
- * `not_started`).
+ * Адаптация DTO к общему shape выполняется через `adaptUserLessons` —
+ * для user-уроков SM-2 поля недоступны (нейтральные дефолты), а
+ * `progressState` берётся из реального `UserLessonDto.completedAt`
+ * (KS-4920 / KS-4921).
  */
 
 type CourseLoadData =
@@ -77,16 +76,34 @@ function isUserCourseResponse(
  * Адаптирует `UserLessonDto[]` к shape'у `CourseLessonSummary[]`,
  * который ждут `CourseActiveLessonHero` и lesson-cards. Часть полей
  * у user-уроков не существует (slug, blockKey, kind, masteredAt, dueAt),
- * заполняем нейтральными дефолтами; progressState — эвристика по
- * `progress.completedLessonsCount`.
+ * заполняем нейтральными дефолтами.
+ *
+ * KS-4920: `progressState` — по РЕАЛЬНОМУ `lesson.completedAt`
+ * (KS-4921: backend отдаёт его per-lesson). Прежняя эвристика «первые
+ * `completedLessonsCount` уроков пройдены» врала, когда завершён не
+ * префикс порядка (прод-кейс: завершён урок 2, урок 1 нет — пройденный
+ * показывался «В процессе», hero зациклевал на него «Продолжить»).
+ * Первый незавершённый по порядку — `in_progress` (цель hero),
+ * остальные незавершённые — `not_started`.
+ *
+ * Fallback: если поле `completedAt` отсутствует во ВСЁМ списке
+ * (старый ответ API из кэша), сохраняем прежнюю эвристику по
+ * `completedLessonsCount` — хуже, чем факт, но лучше, чем «все не
+ * начаты».
  */
-function adaptUserLessons(
+export function adaptUserLessons(
   lessons: UserLessonDto[],
   completedLessonsCount: number,
 ): CourseLessonSummary[] {
+  const hasCompletedAtField = lessons.some((l) => l.completedAt !== undefined);
+  const firstUncompletedIdx = lessons.findIndex((l) => l.completedAt == null);
   return lessons.map((l, idx) => {
     let progressState: CourseLessonSummary['progressState'];
-    if (idx < completedLessonsCount) progressState = 'completed';
+    if (hasCompletedAtField) {
+      if (l.completedAt != null) progressState = 'completed';
+      else if (idx === firstUncompletedIdx) progressState = 'in_progress';
+      else progressState = 'not_started';
+    } else if (idx < completedLessonsCount) progressState = 'completed';
     else if (idx === completedLessonsCount) progressState = 'in_progress';
     else progressState = 'not_started';
     return {
@@ -102,9 +119,11 @@ function adaptUserLessons(
       summary: null,
       summaryI18nKey: '',
       stepCount: l.stepCount,
-      // У user-DTO нет per-lesson stepsState на уровне списка курса —
-      // показываем «N steps» в карточке (без прогресс-бара).
-      completedStepsCount: 0,
+      // У user-DTO нет per-lesson stepsState на уровне списка курса.
+      // KS-4920: у завершённого урока прогресс-бар заполняем целиком
+      // (иначе «Пройден» с пустым баром — вторая жалоба из тикета);
+      // частичный прогресс незавершённых BE не отдаёт — бар пустой.
+      completedStepsCount: progressState === 'completed' ? l.stepCount : 0,
       progressState,
       // SM-2 не подключён к user-курсам (ADR-026 §2.1).
       masteredAt: null,
@@ -269,7 +288,7 @@ export function CoursePage() {
   }
 
   // ── Адаптация к общему шаблону ─────────────────────────────────────
-  const { course, lessons, progress } = data;
+  const { course, lessons } = data;
   const isUser = isUserCourseResponse(data);
 
   const courseTitle = isUser
