@@ -78,7 +78,10 @@ try {
       haltPlatform(platform, challenge);
       throw Object.assign(new Error(`СТОП-КРАН: ${challenge}. Платформа ${platform} остановлена, основателю нужно сообщить в Telegram.`), { code: 5 });
     }
-    if (platform === 'reddit') await fillRedditComment(page, text);
+    if (draft.kind === 'repost') {
+      const { repostTweet } = await import('./publish-lib.mjs');
+      await repostTweet(page);
+    } else if (platform === 'reddit') await fillRedditComment(page, text);
     else if (platform === 'x') await fillXReply(page, text);
     else throw new Error(`Платформа ${platform} браузерным контуром не публикуется`);
     await jitter(3000, 6000); // дождаться обработки отправки

@@ -32,6 +32,10 @@ export const DAILY_LIMITS = {
   x: { total: 5 },
   reddit: { total: 5, perSubreddit: 2 }, // до 100 кармы; после — поднять в стратегии
   discord: { total: 5 },
+  // Лёгкие реакции (KS-4908, запрос основателя): лайки — автономно без
+  // подтверждения (при уверенности), репосты — через черновик
+  'x-like': { total: 10, gapMin: 2 },
+  'x-repost': { total: 3 },
 };
 
 const load = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return {}; } };
@@ -54,8 +58,9 @@ export function actionDenied(platform, { subreddit, now = new Date(), state } = 
   if (limits.perSubreddit && subreddit && (day.bySub[subreddit] || 0) >= limits.perSubreddit) {
     return `лимит ${limits.perSubreddit}/день в r/${subreddit}`;
   }
-  if (p.lastActionAt && (now.getTime() - p.lastActionAt) / 60000 < MIN_GAP_MIN) {
-    return `пауза между действиями <${MIN_GAP_MIN} мин`;
+  const gapMin = limits.gapMin ?? MIN_GAP_MIN;
+  if (p.lastActionAt && (now.getTime() - p.lastActionAt) / 60000 < gapMin) {
+    return `пауза между действиями <${gapMin} мин`;
   }
   return null;
 }
@@ -188,6 +193,26 @@ export async function fillRedditComment(page, text, { submit = true } = {}) {
   if (!area) throw new Error('Форма комментария не найдена (тред закрыт или разметка уехала)');
   await area.fill(text);
   if (submit) await page.click('.commentarea form.usertext button[type="submit"]');
+  return true;
+}
+
+/** X: лайк на открытой странице твита. true — поставлен, 'already' — уже стоял. */
+export async function likeTweet(page) {
+  if (await page.$('[data-testid="unlike"]')) return 'already';
+  const btn = await page.$('[data-testid="like"]');
+  if (!btn) throw new Error('Кнопка лайка не найдена (разметка уехала или твит недоступен)');
+  await btn.click();
+  return true;
+}
+
+/** X: репост на открытой странице твита. true — сделан, 'already' — уже был. */
+export async function repostTweet(page) {
+  if (await page.$('[data-testid="unretweet"]')) return 'already';
+  const btn = await page.$('[data-testid="retweet"]');
+  if (!btn) throw new Error('Кнопка репоста не найдена (разметка уехала или твит недоступен)');
+  await btn.click();
+  const confirm = await page.waitForSelector('[data-testid="retweetConfirm"]', { timeout: 5000 });
+  await confirm.click();
   return true;
 }
 
