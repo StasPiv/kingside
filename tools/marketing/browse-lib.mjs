@@ -14,7 +14,10 @@ import { join } from 'node:path';
 import { SESSIONS_DIR } from './session-lib.mjs';
 
 const READS_STATE = join(SESSIONS_DIR, 'reads-state.json');
-export const READ_INTERVAL_MIN = 30;
+// 28, а не 30: циклы идут раз в 30 мин, и чтение внутри цикла смещено на
+// ~минуту — при пороге 30 каждый второй цикл отскакивал с «прошло 29 мин».
+// Темп остаётся ≤2 чтений/час на платформу (потолок ADR-161 §3.2 соблюдён).
+export const READ_INTERVAL_MIN = 28;
 
 // --- Ограничители (§3.2) ---
 
