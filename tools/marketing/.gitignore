@@ -1,3 +1,5 @@
 # KS-4907 (ADR-161): секреты Discord-инструментов — не коммитить
-sessions/
+# KS-4904: README c порядком переноса — единственное, что из sessions/ живёт в git
+sessions/*
+!sessions/README.md
 .discord-token
