@@ -151,24 +151,53 @@ export class ExternalChessService {
   }
 
   /**
+   * KS-4911 / ADR-162 §3.1. Дневной PGN lichess-партий (с ходами) для
+   * авто-импорта в workshop. Лимит max — щадящий режим rate-limit.
+   */
+  async fetchLichessDailyPgn(
+    username: string,
+    dayStartUtc: Date,
+    max = 50,
+  ): Promise<string> {
+    const since = dayStartUtc.getTime();
+    const params = new URLSearchParams({
+      since: String(since),
+      until: String(since + 86_400_000),
+      max: String(max),
+      opening: 'true',
+    });
+    const res = await fetch(
+      `https://lichess.org/api/games/user/${encodeURIComponent(username)}?${params}`,
+      { headers: { Accept: 'application/x-chess-pgn' } },
+    );
+    if (!res.ok) {
+      throw new Error(`lichess games API error: ${res.status}`);
+    }
+    return res.text();
+  }
+
+  /**
    * KS-4884 / ADR-160 §5.2. Дневная активность chess.com: партии за
    * сутки UTC (месячный PGN-архив, фильтр по [Date]) + рейтинги из
    * /stats. У chess.com нет per-day API — архив за месяц и так
-   * кэшируется их CDN.
+   * кэшируется их CDN. `dayPgn` (KS-4911) — PGN-текст партий этих
+   * суток для авто-импорта: архив уже скачан, второй запрос не нужен.
    */
   async fetchChesscomDailyActivity(
     username: string,
     dayStartUtc: Date,
-  ): Promise<{ gamesPlayed: number; ratings: Record<string, number> }> {
+  ): Promise<{ gamesPlayed: number; ratings: Record<string, number>; dayPgn: string }> {
     const y = dayStartUtc.getUTCFullYear();
     const m = dayStartUtc.getUTCMonth() + 1;
     const pgn = await this.fetchChesscomGames(username, y, m).catch(() => '');
     const dateTag = `[Date "${y}.${String(m).padStart(2, '0')}.${String(
       dayStartUtc.getUTCDate(),
     ).padStart(2, '0')}"]`;
-    const gamesPlayed = pgn
+    const dayGames = pgn
       .split(/\n(?=\[Event )/)
-      .filter((g) => g.includes(dateTag)).length;
+      .filter((g) => g.includes(dateTag));
+    const gamesPlayed = dayGames.length;
+    const dayPgn = dayGames.join('\n\n');
 
     const statsRes = await fetch(
       `https://api.chess.com/pub/player/${encodeURIComponent(username.toLowerCase())}/stats`,
@@ -186,6 +215,6 @@ export class ExternalChessService {
         }
       }
     }
-    return { gamesPlayed, ratings };
+    return { gamesPlayed, ratings, dayPgn };
   }
 }

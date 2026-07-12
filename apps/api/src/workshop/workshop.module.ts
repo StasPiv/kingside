@@ -20,6 +20,6 @@ import { McpModule as McpDiscoveryModule } from '../mcp/decorators';
   // отдельно (личный WorkshopController остаётся под class-JwtAuthGuard).
   controllers: [WorkshopPublicController, WorkshopController],
   providers: [WorkshopService, ExternalChessService],
-  exports: [ExternalChessService],
+  exports: [ExternalChessService, WorkshopService],
 })
 export class WorkshopModule {}

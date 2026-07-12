@@ -4,6 +4,7 @@ import { Prisma } from '@kingside/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { ExternalChessService } from '../workshop/external-chess.service';
+import { WorkshopService } from '../workshop/workshop.service';
 import { StudyTrackingService } from './study-tracking.service';
 
 /**
@@ -35,6 +36,7 @@ export class StudyTrackingScheduler {
     private readonly redis: RedisService,
     private readonly tracking: StudyTrackingService,
     private readonly externalChess: ExternalChessService,
+    private readonly workshop: WorkshopService,
   ) {}
 
   @Cron('0 */15 * * * *') // каждые 15 минут (в enum @nestjs/schedule нет EVERY_15_MINUTES)
@@ -106,7 +108,11 @@ export class StudyTrackingScheduler {
       }
       for (const job of jobs) {
         try {
-          const activity =
+          const activity: {
+            gamesPlayed: number;
+            ratings: Record<string, number>;
+            dayPgn?: string;
+          } =
             job.provider === 'lichess'
               ? await this.externalChess.fetchLichessDailyActivity(job.username, dayStart)
               : await this.externalChess.fetchChesscomDailyActivity(job.username, dayStart);
@@ -131,6 +137,19 @@ export class StudyTrackingScheduler {
             },
           });
           written++;
+
+          // KS-4911 / ADR-162 §3.1: авто-импорт вчерашних партий в
+          // workshop (материал персональных уроков). Только вчерашний
+          // диапазон и только при активности; дедуп по Link/Site —
+          // внутри importPgn, повторный тик партии не дублирует.
+          if (activity.gamesPlayed > 0) {
+            await this.autoImportDay(user.id, job, dayStart, activity).catch(
+              (e) =>
+                this.logger.warn(
+                  `study-auto import ${job.provider}/${job.username} failed: ${(e as Error).message}`,
+                ),
+            );
+          }
         } catch (e) {
           this.logger.warn(
             `snapshot ${job.provider}/${job.username} failed: ${(e as Error).message}`,
@@ -141,6 +160,38 @@ export class StudyTrackingScheduler {
       }
     }
     return written;
+  }
+
+  /**
+   * KS-4911: дотяг PGN за вчерашние сутки в workshop-импорт
+   * `study-auto (<provider>)`. lichess — отдельный дневной PGN-запрос
+   * (лимит 50 партий); chess.com — dayPgn уже выделен из месячного
+   * архива при снапшоте, второй запрос не нужен.
+   */
+  private async autoImportDay(
+    userId: string,
+    job: { provider: string; username: string },
+    dayStart: Date,
+    activity: { dayPgn?: string },
+  ): Promise<void> {
+    let pgn: string;
+    if (job.provider === 'lichess') {
+      // Пауза перед дополнительным вызовом — тот же throttle.
+      await new Promise((r) => setTimeout(r, StudyTrackingScheduler.THROTTLE_MS));
+      pgn = await this.externalChess.fetchLichessDailyPgn(job.username, dayStart);
+    } else {
+      pgn = activity.dayPgn ?? '';
+    }
+    if (!pgn.trim()) return;
+    const result = await this.workshop.importPgn(userId, {
+      buffer: Buffer.from(pgn, 'utf8'),
+      originalname: `study-auto (${job.provider}).pgn`,
+    } as Express.Multer.File);
+    this.logger.log(
+      `study-auto import ${job.provider}/${job.username}: +${
+        (result as { added?: number }).added ?? (result as { gamesCount?: number }).gamesCount ?? 0
+      } game(s)`,
+    );
   }
 
   private async acquire(key: string, ttlSec: number): Promise<boolean> {
