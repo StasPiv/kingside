@@ -9,7 +9,7 @@ import {
   templateSlugFor,
 } from './study-shelves';
 import { STUDY_NOTE_LINES } from './templates/study-template-content';
-import { puzzleThemeLabel } from './puzzle-theme-labels';
+import { puzzleThemeLabel, SERVICE_THEME_TOKENS } from './puzzle-theme-labels';
 import { LessonMaterial } from './material/lesson-material.types';
 
 /**
@@ -213,6 +213,9 @@ export class StudyLessonBuilderService {
     const seen = new Set<string>();
     for (const theme of candidates) {
       if (!theme || seen.has(theme)) continue;
+      // KS-4922: служебные токены генератора — не темы (страховка для
+      // carry-over из сессий, созданных до фильтра в weakThemes).
+      if (SERVICE_THEME_TOKENS.has(theme)) continue;
       if (seen.size >= MAX_CANDIDATES) break;
       seen.add(theme);
       // НЕ count(): LIKE contains по прод-банку (миллионы строк) в
