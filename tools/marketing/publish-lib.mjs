@@ -27,11 +27,11 @@ const PUBLISHED_MD = join(dirname(fileURLToPath(import.meta.url)), 'briefs', 'pu
 export const DRAFT_TTL_MS = 4 * 60 * 60 * 1000; // 4 часа (ADR §4)
 export const MIN_GAP_MIN = 10; // ≥10 мин между действиями на платформе (ADR §3.2)
 
-/** Дневные потолки: ADR §3.2 (публикации) ∩ стратегия §3.4. */
+/** Дневные потолки: ADR §3.2 ∩ стратегия §3.4; подняты 5→10 (решение пользователя 12.07). */
 export const DAILY_LIMITS = {
-  x: { total: 5 },
-  reddit: { total: 5, perSubreddit: 2 }, // до 100 кармы; после — поднять в стратегии
-  discord: { total: 5 },
+  x: { total: 10 },
+  reddit: { total: 10, perSubreddit: 2 }, // perSubreddit 2 до 100 кармы — не менялся
+  discord: { total: 10 },
   // Лёгкие реакции (KS-4908, запрос основателя): лайки — автономно без
   // подтверждения (при уверенности), репосты — через черновик
   'x-like': { total: 10, gapMin: 2 },
