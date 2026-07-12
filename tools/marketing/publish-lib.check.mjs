@@ -22,22 +22,33 @@ const NOON = at('2026-07-12T10:00:00Z');
 let s = {};
 check('пустое состояние → действовать можно', actionDenied('reddit', { now: NOON, state: s }) === null);
 
-for (let i = 0; i < DAILY_LIMITS.reddit.total; i++) {
-  s = recordAction('reddit', { subreddit: `sub${i}`, now: new Date(NOON.getTime() + i * 11 * 60000), state: s });
+// Лимиты сняты (Infinity, решение пользователя 12.07). Тесты потолков идут
+// ТОЛЬКО при конечных значениях — цикл до Infinity вешает систему (инцидент 12.07).
+if (Number.isFinite(DAILY_LIMITS.reddit.total)) {
+  for (let i = 0; i < DAILY_LIMITS.reddit.total; i++) {
+    s = recordAction('reddit', { subreddit: `sub${i}`, now: new Date(NOON.getTime() + i * 11 * 60000), state: s });
+  }
+  const afterAll = new Date(NOON.getTime() + 6 * 11 * 60000);
+  check(`дневной потолок reddit=${DAILY_LIMITS.reddit.total} → отказ`, /дневной лимит/.test(actionDenied('reddit', { now: afterAll, state: s }) || ''));
+  check('другая платформа не затронута', actionDenied('x', { now: afterAll, state: s }) === null);
+} else {
+  const many = recordAction('reddit', { subreddit: 'chess', now: NOON, state: {} });
+  check('лимиты сняты → отказа нет после действий', actionDenied('reddit', { subreddit: 'chess', now: new Date(NOON.getTime() + 60000), state: many }) === null);
 }
-const afterAll = new Date(NOON.getTime() + 6 * 11 * 60000);
-check(`дневной потолок reddit=${DAILY_LIMITS.reddit.total} → отказ`, /дневной лимит/.test(actionDenied('reddit', { now: afterAll, state: s }) || ''));
-check('другая платформа не затронута', actionDenied('x', { now: afterAll, state: s }) === null);
 
-let s2 = {};
-s2 = recordAction('reddit', { subreddit: 'chess', now: NOON, state: s2 });
-s2 = recordAction('reddit', { subreddit: 'chess', now: new Date(NOON.getTime() + 11 * 60000), state: s2 });
-const t3 = new Date(NOON.getTime() + 22 * 60000);
-check('лимит 2/сабреддит → отказ для r/chess', /r\/chess/.test(actionDenied('reddit', { subreddit: 'chess', now: t3, state: s2 }) || ''));
-check('в другой сабреддит — можно', actionDenied('reddit', { subreddit: 'other', now: t3, state: s2 }) === null);
+if (Number.isFinite(DAILY_LIMITS.reddit.perSubreddit)) {
+  let s2 = {};
+  s2 = recordAction('reddit', { subreddit: 'chess', now: NOON, state: s2 });
+  s2 = recordAction('reddit', { subreddit: 'chess', now: new Date(NOON.getTime() + 11 * 60000), state: s2 });
+  const t3 = new Date(NOON.getTime() + 22 * 60000);
+  check('лимит 2/сабреддит → отказ для r/chess', /r\/chess/.test(actionDenied('reddit', { subreddit: 'chess', now: t3, state: s2 }) || ''));
+  check('в другой сабреддит — можно', actionDenied('reddit', { subreddit: 'other', now: t3, state: s2 }) === null);
+}
 
 let s3 = recordAction('x', { now: NOON, state: {} });
-check(`пауза <${MIN_GAP_MIN} мин → отказ`, /пауза/.test(actionDenied('x', { now: new Date(NOON.getTime() + 5 * 60000), state: s3 }) || ''));
+if (MIN_GAP_MIN > 0) {
+  check(`пауза <${MIN_GAP_MIN} мин → отказ`, /пауза/.test(actionDenied('x', { now: new Date(NOON.getTime() + 5 * 60000), state: s3 }) || ''));
+}
 check('пауза 11 мин → можно', actionDenied('x', { now: new Date(NOON.getTime() + 11 * 60000), state: s3 }) === null);
 
 let s4 = haltPlatform('x', 'капча', { now: NOON, state: {} });
