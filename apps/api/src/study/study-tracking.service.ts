@@ -129,7 +129,10 @@ export class StudyTrackingService {
       include: { tasks: true, schedule: { select: { timezone: true } } },
     });
     if (!session) return;
-    if (!['notified', 'in_progress'].includes(session.status)) return;
+    // KS-4920: planned тоже пересчитывается — пользователь может открыть
+    // /study и пройти урок ДО слота (до перевода диспетчером в notified);
+    // без пересчёта такое занятие не завершалось никогда и просрочивалось.
+    if (!['planned', 'notified', 'in_progress'].includes(session.status)) return;
     await this.reconcileSession(session);
   }
 
@@ -192,10 +195,9 @@ export class StudyTrackingService {
     let expired = 0;
     for (const session of candidates) {
       try {
-        const status =
-          session.status === 'planned'
-            ? 'planned'
-            : await this.reconcileSession(session); // финальный пересчёт
+        // KS-4920: финальный пересчёт и для planned — урок мог быть
+        // пройден до слота (диспетчер не успел перевести в notified).
+        const status = await this.reconcileSession(session);
         if (status === 'completed') continue;
         await this.prisma.studySession.update({
           where: { id: session.id },
@@ -264,8 +266,20 @@ export class StudyTrackingService {
       case 'lesson': {
         const lessonId = typeof params.lessonId === 'string' ? params.lessonId : null;
         if (!lessonId) return 0;
+        // KS-4920: персональный урок занятия (lessonId === session.lessonId)
+        // создаётся вместе с сессией и нигде больше не используется —
+        // его завершение засчитывается БЕЗ фильтра по времени. Пользователь,
+        // прошедший урок ДО scheduled_at (открыл /study заранее), иначе
+        // никогда не получал «завершено». Для чужих lessonId (v1: урок
+        // курса) фильтр по времени сохранён — иначе засчиталось бы
+        // давнее прохождение.
+        const isSessionLesson = lessonId === session.lessonId;
         return this.prisma.userLessonProgress.count({
-          where: { userId, lessonId, completedAt: { gte: since } },
+          where: {
+            userId,
+            lessonId,
+            completedAt: isSessionLesson ? { not: null } : { gte: since },
+          },
         });
       }
       case 'mistakes': {

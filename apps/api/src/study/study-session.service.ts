@@ -49,7 +49,8 @@ export class StudySessionService {
     if (!session) return null;
 
     // KS-4884: пересчёт по требованию для активной сессии.
-    if (['notified', 'in_progress'].includes(session.status)) {
+    // KS-4920: planned включён — прогресс до слота тоже виден сразу.
+    if (['planned', 'notified', 'in_progress'].includes(session.status)) {
       await this.tracking.reconcileById(session.id);
       session = await this.prisma.studySession.findFirst({
         where: { id: session.id },
