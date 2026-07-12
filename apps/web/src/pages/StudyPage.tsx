@@ -4,7 +4,13 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../api';
 import { useStudySchedule } from '../hooks/useStudySchedule';
-import type { StudySessionDto, StudySessionResponse, StudyTaskDto } from '@kingside/shared';
+import type {
+  StudyHistoryItemDto,
+  StudyHistoryResponse,
+  StudySessionDto,
+  StudySessionResponse,
+  StudyTaskDto,
+} from '@kingside/shared';
 
 /**
  * KS-4883 / ADR-160 (задача 4 из 6). Страница `/study` — занятие дня.
@@ -148,7 +154,10 @@ export function findMainLesson(session: StudySessionDto): {
   themeLabel: string | null;
 } | null {
   for (const task of session.tasks) {
-    if (task.type !== 'lesson') continue;
+    // KS-4916: role в DTO — homework-задачи (в т.ч. типа lesson) main
+    // быть не могут. У сессий v1 все задачи role='main' (default
+    // миграции), поэтому дополнительно требуем type='lesson' + params.
+    if (task.role === 'homework' || task.type !== 'lesson') continue;
     const p = (task.params ?? {}) as Record<string, unknown>;
     if (typeof p.lessonId === 'string' && p.lessonId && typeof p.courseSlug === 'string' && p.courseSlug) {
       return {
@@ -209,6 +218,13 @@ function SessionView({
         <p data-testid="study-session-completed" className="study-banner study-banner-ok">
           <strong>{t('study.page.completed.title')}</strong>{' '}
           {t('study.page.completed.body')}
+          {/* KS-4916: score завершённого урока. */}
+          {session.score != null && (
+            <span data-testid="study-session-score" className="study-session-score">
+              {' '}
+              {t('study.page.history.score', 'Score: {{score}}', { score: session.score })}
+            </span>
+          )}
         </p>
       )}
       {session.status === 'expired' && (
@@ -270,6 +286,70 @@ function SessionView({
           </ul>
         </>
       )}
+    </section>
+  );
+}
+
+/**
+ * KS-4916 / ADR-162 §5: история занятий со score — видимый контроль
+ * прогресса. GET /study/history (последние 10): дата, статус, тема,
+ * score урока, сводка домашки.
+ */
+function HistoryBlock(): ReactElement | null {
+  const { t, i18n } = useTranslation();
+  const [items, setItems] = useState<StudyHistoryItemDto[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<StudyHistoryResponse>('/study/history?limit=10')
+      .then((res) => {
+        if (!cancelled) setItems(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!items || items.length === 0) return null;
+  const fmt = new Intl.DateTimeFormat(i18n.language || 'en', {
+    day: 'numeric',
+    month: 'short',
+  });
+  return (
+    <section className="settings-section" data-testid="study-history">
+      <h2>{t('study.page.history.title', 'Session history')}</h2>
+      <ul className="study-history-list">
+        {items.map((item) => (
+          <li key={item.id} className="study-history-item" data-testid={`study-history-${item.id}`}>
+            <span className="study-history-item__date">
+              {fmt.format(new Date(item.scheduledAt))}
+            </span>
+            {item.themeLabel && (
+              <span className="study-history-item__theme">{item.themeLabel}</span>
+            )}
+            <span className={`study-badge study-badge-status study-badge-${item.status}`}>
+              {t(`study.page.status.${item.status}`)}
+            </span>
+            <span className="study-history-item__score" data-testid={`study-history-${item.id}-score`}>
+              {item.score != null
+                ? t('study.page.history.score', 'Score: {{score}}', { score: item.score })
+                : '—'}
+            </span>
+            {item.homeworkTotal > 0 && (
+              <span className="study-history-item__homework">
+                {t('study.page.history.homework', 'Homework {{done}}/{{total}}', {
+                  done: item.homeworkDone,
+                  total: item.homeworkTotal,
+                })}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -406,6 +486,8 @@ export function StudyPage(): ReactElement {
           <p>{t('study.page.empty.noSession')}</p>
         </section>
       )}
+
+      {!loading && !error && <HistoryBlock />}
 
       {!loading && !error && (
         <section className="settings-section">

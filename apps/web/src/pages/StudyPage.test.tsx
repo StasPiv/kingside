@@ -34,6 +34,7 @@ function makeTask(over: Partial<StudyTaskDto> = {}): StudyTaskDto {
     targetCount: 10,
     doneCount: 0,
     status: 'pending',
+    role: 'main',
     ...over,
   };
 }
@@ -43,6 +44,8 @@ const SESSION: StudySessionDto = {
   scheduledAt: '2026-07-11T19:30:00.000Z',
   status: 'notified',
   completedAt: null,
+  score: null,
+  lessonId: null,
   tasks: [
     makeTask(),
     makeTask({
@@ -60,7 +63,7 @@ const SESSION: StudySessionDto = {
 function mockGet(
   schedule: StudyScheduleDto | null,
   session: StudySessionDto | null = null,
-  opts: { hasAccounts?: boolean; pgnFiles?: unknown[] } = {},
+  opts: { hasAccounts?: boolean; pgnFiles?: unknown[]; history?: unknown[] } = {},
 ) {
   return vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
     if (path === '/study/schedule') return { schedule };
@@ -70,6 +73,7 @@ function mockGet(
       return opts.hasAccounts ? { lichessUsername: 'someone' } : {};
     }
     if (path === '/workshop/pgn-files') return { data: opts.pgnFiles ?? [] };
+    if (path.startsWith('/study/history')) return { items: opts.history ?? [] };
     throw new Error(`unexpected GET ${path}`);
   });
 }
@@ -80,6 +84,8 @@ const SESSION_V2: StudySessionDto = {
   scheduledAt: '2026-07-12T19:30:00.000Z',
   status: 'notified',
   completedAt: null,
+  score: null,
+  lessonId: 'lesson-uuid-1',
   tasks: [
     makeTask({
       id: 'm1',
@@ -95,8 +101,8 @@ const SESSION_V2: StudySessionDto = {
       doneCount: 0,
       status: 'pending',
     }),
-    makeTask({ id: 'h1', position: 1, type: 'puzzle_theme', status: 'pending' }),
-    makeTask({ id: 'h2', position: 2, type: 'mistakes', params: {}, status: 'pending' }),
+    makeTask({ id: 'h1', position: 1, type: 'puzzle_theme', status: 'pending', role: 'homework' }),
+    makeTask({ id: 'h2', position: 2, type: 'mistakes', params: {}, status: 'pending', role: 'homework' }),
   ],
 };
 
@@ -216,6 +222,72 @@ describe('StudyPage (KS-4883)', () => {
     wrap();
     await waitFor(() => expect(screen.getByTestId('study-lesson-card')).toBeInTheDocument());
     expect(screen.queryByTestId('study-material-banner')).not.toBeInTheDocument();
+  });
+
+  it('v2: история занятий со score и сводкой домашки', async () => {
+    mockGet(SCHEDULE, SESSION_V2, {
+      hasAccounts: true,
+      history: [
+        {
+          id: 'hist1',
+          scheduledAt: '2026-07-10T19:30:00.000Z',
+          status: 'completed',
+          completedAt: '2026-07-10T20:00:00.000Z',
+          score: 85,
+          themeLabel: 'Вилки',
+          homeworkDone: 1,
+          homeworkTotal: 2,
+        },
+        {
+          id: 'hist2',
+          scheduledAt: '2026-07-09T19:30:00.000Z',
+          status: 'expired',
+          completedAt: null,
+          score: null,
+          themeLabel: null,
+          homeworkDone: 0,
+          homeworkTotal: 0,
+        },
+      ],
+    });
+    wrap();
+    await waitFor(() => expect(screen.getByTestId('study-history')).toBeInTheDocument());
+    expect(screen.getByTestId('study-history-hist1-score').textContent).toContain('85');
+    expect(screen.getByTestId('study-history-hist1').textContent).toContain('Вилки');
+    expect(screen.getByTestId('study-history-hist2-score').textContent).toBe('—');
+  });
+
+  it('v2: пустая история — блока нет', async () => {
+    mockGet(SCHEDULE, SESSION_V2, { hasAccounts: true, history: [] });
+    wrap();
+    await waitFor(() => expect(screen.getByTestId('study-lesson-card')).toBeInTheDocument());
+    expect(screen.queryByTestId('study-history')).not.toBeInTheDocument();
+  });
+
+  it('v2: score завершённого занятия показан в баннере', async () => {
+    mockGet(
+      SCHEDULE,
+      { ...SESSION_V2, status: 'completed', completedAt: '2026-07-12T20:00:00.000Z', score: 92 },
+      { hasAccounts: true },
+    );
+    wrap();
+    await waitFor(() => expect(screen.getByTestId('study-session-score')).toBeInTheDocument());
+    expect(screen.getByTestId('study-session-score').textContent).toContain('92');
+  });
+
+  it('findMainLesson: homework-задача типа lesson не считается main', () => {
+    const s: StudySessionDto = {
+      ...SESSION_V2,
+      tasks: [
+        makeTask({
+          id: 'hw-lesson',
+          type: 'lesson',
+          role: 'homework',
+          params: { lessonId: 'x', courseSlug: 'y' },
+        }),
+      ],
+    };
+    expect(findMainLesson(s)).toBeNull();
   });
 
   it('findMainLesson: задача lesson с lessonId+courseSlug — main; без них — null', () => {

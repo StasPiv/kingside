@@ -429,3 +429,42 @@ button[data-testid='study-session-recheck']:hover:not(:disabled) {
   gap: 10px;
   flex-wrap: wrap;
 }
+
+/* KS-4916: история занятий со score. */
+.study-history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.study-history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--c-333, #333);
+  flex-wrap: wrap;
+}
+
+.study-history-item__date {
+  min-width: 64px;
+  opacity: 0.85;
+}
+
+.study-history-item__theme {
+  font-weight: 600;
+}
+
+.study-history-item__score {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-history-item__homework {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.study-session-score {
+  font-weight: 600;
+}

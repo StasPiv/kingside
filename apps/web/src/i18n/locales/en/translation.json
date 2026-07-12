@@ -5329,6 +5329,11 @@
         "body": "Personal lessons are built from your games. Link your chess.com or lichess account, or upload a PGN file — until then lessons use general material for your level.",
         "linkAccounts": "Link accounts",
         "uploadPgn": "Upload PGN"
+      },
+      "history": {
+        "title": "Session history",
+        "score": "Score: {{score}}",
+        "homework": "Homework {{done}}/{{total}}"
       }
     }
   }
