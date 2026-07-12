@@ -233,6 +233,11 @@ export function appendPublished({ platform, url, note }, { now = new Date(), pat
   // строка — В таблицу (перед строкой «Статусы: …»), а не в хвост файла
   const md = readFileSync(path, 'utf8');
   const anchor = md.indexOf('\nСтатусы:');
-  writeFileSync(path, anchor === -1 ? `${md}${line}\n` : `${md.slice(0, anchor)}\n${line}${md.slice(anchor)}`);
+  if (anchor === -1) {
+    writeFileSync(path, `${md}${line}\n`);
+  } else {
+    const prefix = md.slice(0, anchor).replace(/\n+$/, '\n'); // ровно одна пустая строка не образуется
+    writeFileSync(path, `${prefix}${prefix.endsWith('\n') ? '' : '\n'}${line}${md.slice(anchor)}`);
+  }
   return line;
 }
