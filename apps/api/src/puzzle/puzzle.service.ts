@@ -528,7 +528,16 @@ export class PuzzleService {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const sql = `SELECT * FROM puzzles p ${whereClause} ORDER BY random() LIMIT ${Number(take)}`;
+    // KS-4919: ORDER BY random() по всей выборке сортировал сотни тысяч
+    // строк (rating-окно на 6M банке = 541k строк, 122 сек на прод-БД,
+    // 504 шлюза). Вместо этого — случайный выбор из ограниченного пула:
+    // внутренний LIMIT останавливает любой план (btree rating / GIN
+    // themes / seq) после первых POOL совпадений, сортировка random()
+    // идёт по пулу, а не по всей выборке. Цена — случайность в рамках
+    // детерминированного среза POOL строк; для подбора задач этого
+    // достаточно.
+    const POOL = Math.max(500, Number(take) * 50);
+    const sql = `SELECT * FROM (SELECT * FROM puzzles p ${whereClause} LIMIT ${POOL}) t ORDER BY random() LIMIT ${Number(take)}`;
 
     const rows = await this.prisma.$queryRawUnsafe<Array<{
       id: string; fen: string; moves: string; rating: number; themes: string;
