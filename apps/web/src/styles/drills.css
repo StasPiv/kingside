@@ -2311,3 +2311,63 @@ html[data-theme="light"] {
     font-size: 20px;
   }
 }
+
+/* ===========================================================
+ * KS-4925 — стабилизация вертикали drill-шага (mobile jump).
+ *
+ * Жалоба: на мобильном при смене динамических элементов drill-шага
+ * урока контент скачет вверх-вниз. Три источника скачков:
+ *  1. `.drill-instructions` — текст инструкции (1–2 строки) сменяется
+ *     коротким «Верно!/Не совсем» (1 строка) → высота плашки меняется
+ *     и доска подпрыгивает.
+ *  2. `.drill-runner__answer-controls` — кнопки 1..4 (shape='number',
+ *     56–64px) скрываются при feedback'е; move-hint (shape='move')
+ *     появляется/исчезает → контент под доской дёргается.
+ *  3. `.drill-runner--loading` / `--error` — между drill'ами runner
+ *     рендерит только строку «Loading…» → весь блок схлопывается
+ *     с ~600px до ~40px и обратно на каждый ответ (auto-next).
+ * =========================================================== */
+
+/* 1. Резерв на 2 строки текста, чтобы смена «вопрос ↔ вердикт» не
+ *    меняла высоту. `em` привязан к font-size плашки (14px desktop /
+ *    13px mobile), 26px = вертикальные paddings (24) + borders (2).
+ *    Flex-центрирование — короткий вердикт стоит по центру плашки. */
+.drill-instructions {
+  display: flex;
+  align-items: center;
+  min-height: calc(2 * 1.45em + 26px);
+}
+
+/* 2. Ряд answer-controls всегда резервирует высоту самого высокого
+ *    своего содержимого, чтобы появление/скрытие hint'а и кнопок не
+ *    сдвигало контент ниже. */
+.drill-runner__answer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 36px;
+}
+
+/* shape='number': кнопки 1..4 (56px desktop / 64px mobile, см. R3 §10)
+ * скрываются при feedback'е — держим их высоту. */
+.drill-runner[data-shape="number"] .drill-runner__answer-controls {
+  min-height: 64px;
+}
+
+/* 3. Loading/error между drill'ами: держим высоту, сопоставимую с
+ *    полным runner'ом (nav + stats + инструкция + доска + controls),
+ *    чтобы страница не схлопывалась на каждом auto-next. */
+.drill-runner--loading,
+.drill-runner--error {
+  min-height: 520px;
+}
+
+@media (max-width: 767px) {
+  /* Mobile: доска ≈ 100vw - отступы, плюс ~230px верхних блоков. */
+  .drill-runner--loading,
+  .drill-runner--error {
+    min-height: calc(100vw + 230px);
+  }
+}
