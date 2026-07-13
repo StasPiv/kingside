@@ -4,23 +4,16 @@
     {
       "id": "W1",
       "type": "weekly",
-      "dow": 1,
+      "dow": 2,
       "time": "09:30",
       "text": "Записать 2–3 клипа по недельному брифу (tools/marketing/briefs/weekly/ — позиции и сценарии готовы) {brief:weekly}"
     },
     {
       "id": "W2",
       "type": "weekly",
-      "dow": 2,
+      "dow": 3,
       "time": "09:30",
       "text": "Клип №1 → Shorts + TikTok + Reels (тексты из недельного брифа) {brief:weekly}"
-    },
-    {
-      "id": "W3",
-      "type": "weekly",
-      "dow": 2,
-      "time": "09:30",
-      "text": "Telegram-канал: опубликуй готовый пост №1 из недельного брифа {brief:weekly}"
     },
     {
       "id": "W4",
@@ -56,13 +49,6 @@
       "dow": 6,
       "time": "09:30",
       "text": "Quora: опубликуй готовые ответы из недельного брифа {brief:weekly}"
-    },
-    {
-      "id": "W10",
-      "type": "weekly",
-      "dow": 7,
-      "time": "09:30",
-      "text": "Telegram-канал: опубликуй готовый пост №2 из недельного брифа {brief:weekly}"
     },
     {
       "id": "W11",
