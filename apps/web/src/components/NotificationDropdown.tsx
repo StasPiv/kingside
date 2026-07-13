@@ -30,6 +30,8 @@ const TYPE_ICONS: Record<string, string> = {
   message: '✉️',
   // KS-4741: новый тип уведомления — публикация статьи блога.
   blog_post_published: '📝',
+  // KS-4932: занятие по расписанию готово (ADR-163).
+  study_session: '📚',
 };
 
 function formatTimeControl(initial: number, increment: number): string {
@@ -85,6 +87,10 @@ export function NotificationDropdown({
         }
         break;
       }
+      // KS-4932: уведомление о занятии ведёт на страницу занятий.
+      case 'study_session':
+        navigate('/study');
+        break;
       default:
         // Для неизвестного типа — лучше отправить на главную, чем
         // молча закрыть колокольчик без реакции.
@@ -167,6 +173,15 @@ function renderNotificationText(n: NotificationItem, t: TFunction): string {
       const title = p.title || t('notifications.blog_post_published.body', 'New blog post');
       const subtitle = t('notifications.blog_post_published.body', 'New blog post');
       return `${subtitle} — ${title}`;
+    }
+    // KS-4932 / ADR-163: занятие готово — с именем тренировки из
+    // payload.scheduleName (кладёт study-диспетчер, KS-4927).
+    case 'study_session': {
+      return p.scheduleName
+        ? t('notifications.study_session.body', 'Training “{{name}}” — your session is ready', {
+            name: p.scheduleName,
+          })
+        : t('notifications.study_session.bodyNoName', 'Your training session is ready');
     }
     default:
       // Для незнакомого type — fallback на сырой type-ключ, чтобы

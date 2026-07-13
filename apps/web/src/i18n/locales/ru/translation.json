@@ -317,6 +317,10 @@
     "blog_post_published": {
       "title": "{{title}}",
       "body": "Новая статья в блоге"
+    },
+    "study_session": {
+      "body": "Тренировка «{{name}}» — занятие готово",
+      "bodyNoName": "Ваше занятие готово"
     }
   },
   "friends": {

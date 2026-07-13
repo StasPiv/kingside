@@ -89,6 +89,39 @@ describe('NotificationDropdown — KS-4741 blog_post_published', () => {
     expect(screen.getByTestId('route').textContent).toBe('/');
   });
 
+  // KS-4932 / ADR-163: уведомление о занятии — текст с именем
+  // тренировки из payload.scheduleName, клик ведёт на /study.
+  it('study_session: текст с именем тренировки, клик ведёт на /study', () => {
+    renderDropdown([
+      {
+        id: 'n-s',
+        type: 'study_session' as unknown as NotificationItem['type'],
+        payload: { sessionId: 'sess1', taskCount: 3, scheduleName: 'Вечерняя тактика' },
+        read: false,
+        createdAt: new Date().toISOString(),
+      } as unknown as NotificationItem,
+    ]);
+    // Не raw-тип, а человекочитаемый текст с именем (i18n en в тестах).
+    expect(screen.queryByText('study_session')).not.toBeInTheDocument();
+    const text = screen.getByText(/Вечерняя тактика/);
+    expect(text.textContent).toContain('session is ready');
+    fireEvent.click(text);
+    expect(screen.getByTestId('route').textContent).toBe('/study');
+  });
+
+  it('study_session без scheduleName — generic-текст без имени', () => {
+    renderDropdown([
+      {
+        id: 'n-s2',
+        type: 'study_session' as unknown as NotificationItem['type'],
+        payload: { sessionId: 'sess1' },
+        read: false,
+        createdAt: new Date().toISOString(),
+      } as unknown as NotificationItem,
+    ]);
+    expect(screen.getByText('Your training session is ready')).toBeInTheDocument();
+  });
+
   it('blog_post_published без slug — клик не переходит на blog, идёт на /', () => {
     const n = makeBlogN();
     (n.payload as { slug?: string }).slug = undefined;
