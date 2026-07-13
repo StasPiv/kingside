@@ -1,18 +1,49 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudyGeneratorScheduler } from './study-generator.scheduler';
 import type { StudyScheduleDto, StudyFocus } from '@kingside/shared';
-import { UpdateStudyScheduleDto } from './dto/update-study-schedule.dto';
+import {
+  MAX_SCHEDULES_PER_USER,
+  UpsertStudyScheduleDto,
+} from './dto/upsert-study-schedule.dto';
+
+/** Строка тренировки со слотами (shape Prisma include). */
+interface ScheduleWithSlots {
+  id: string;
+  userId: string;
+  name: string;
+  timezone: string;
+  sessionMinutes: number;
+  focus: string | null;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  slots: Array<{
+    id: string;
+    daysOfWeek: number[];
+    timeLocal: string;
+    sessionMinutes: number | null;
+    createdAt: Date;
+  }>;
+}
 
 /**
- * CRUD расписания занятий (KS-4880 / ADR-160 §3).
- * Расписание 1:1 с пользователем — `GET` возвращает null до первого
- * `PUT`, `PUT` работает как upsert.
+ * CRUD тренировок (KS-4880 / ADR-160 §3 → KS-4927 / ADR-163 §5).
  *
- * KS-4894: после сохранения активного расписания занятие для
- * ближайшего слота генерируется СРАЗУ (той же логикой, что часовой
- * тик) — слот, попавший между тиками, не проваливается, GET
- * /study/session показывает занятие немедленно.
+ * ADR-163: у пользователя до 5 тренировок (StudySchedule без unique),
+ * у тренировки 1..7 слотов (StudyScheduleSlot). Слоты сохраняются
+ * replace-on-write — полный список в каждом POST/PUT. Валидация:
+ * два слота пользователя (любых тренировок) не могут совпадать по
+ * паре (день, время) — 400.
+ *
+ * KS-4894: после сохранения активной тренировки занятия для ближайших
+ * слотов генерируются СРАЗУ (той же логикой, что часовой тик) — слот,
+ * попавший между тиками, не проваливается.
  */
 @Injectable()
 export class StudyScheduleService {
@@ -23,65 +54,161 @@ export class StudyScheduleService {
     private readonly generator: StudyGeneratorScheduler,
   ) {}
 
-  async get(userId: string): Promise<StudyScheduleDto | null> {
-    const schedule = await this.prisma.studySchedule.findUnique({
+  async list(userId: string): Promise<StudyScheduleDto[]> {
+    const schedules = await this.prisma.studySchedule.findMany({
       where: { userId },
+      orderBy: { createdAt: 'asc' },
+      include: { slots: { orderBy: { createdAt: 'asc' } } },
     });
-    return schedule ? this.toDto(schedule) : null;
+    return schedules.map((s) => this.toDto(s));
   }
 
-  async upsert(userId: string, dto: UpdateStudyScheduleDto): Promise<StudyScheduleDto> {
+  async create(
+    userId: string,
+    dto: UpsertStudyScheduleDto,
+  ): Promise<StudyScheduleDto> {
     this.assertValidTimezone(dto.timezone);
-    const daysOfWeek = [...new Set(dto.daysOfWeek)].sort((a, b) => a - b);
-
-    const data = {
-      daysOfWeek,
-      timeLocal: dto.timeLocal,
-      timezone: dto.timezone,
-      ...(dto.sessionMinutes !== undefined && { sessionMinutes: dto.sessionMinutes }),
-      ...(dto.focus !== undefined && { focus: dto.focus }),
-      ...(dto.active !== undefined && { active: dto.active }),
-    };
-
-    const schedule = await this.prisma.studySchedule.upsert({
-      where: { userId },
-      create: { userId, ...data },
-      update: data,
-    });
-
-    // KS-4894: немедленная генерация ближайшего занятия. Перед ней —
-    // уборка будущих НЕотправленных занятий, чей слот больше не
-    // соответствует новому расписанию (изменил время → старый planned
-    // не должен уведомляться). notified/in_progress не трогаем.
-    try {
-      const now = new Date();
-      if (schedule.active) {
-        const removed = await this.prisma.studySession.deleteMany({
-          where: {
-            scheduleId: schedule.id,
-            status: 'planned',
-            scheduledAt: { gt: now },
-          },
-        });
-        const r = await this.generator.generateForSchedule(schedule, now);
-        // KS-4896: одна строка на каждый PUT — решение генератора видно
-        // в логах (иначе «сессии нет» недиагностируемо).
-        this.logger.log(
-          `PUT schedule ${schedule.id} (user ${userId}): removed ${removed.count} planned, ` +
-            `generation=${r.outcome}${r.slot ? ` slot=${r.slot.toISOString()}` : ''}`,
-        );
-      } else {
-        this.logger.log(`PUT schedule ${schedule.id} (user ${userId}): inactive, no generation`);
-      }
-    } catch (e) {
-      // Сохранение расписания важнее мгновенной генерации: часовой тик
-      // догонит, ошибку только логируем.
-      this.logger.error(
-        `immediate generation for schedule ${schedule.id} failed: ${(e as Error).message}`,
+    const count = await this.prisma.studySchedule.count({ where: { userId } });
+    if (count >= MAX_SCHEDULES_PER_USER) {
+      throw new BadRequestException(
+        `Schedule limit reached: max ${MAX_SCHEDULES_PER_USER} trainings per user`,
       );
     }
+    const slots = this.normalizeSlots(dto.slots);
+    await this.assertNoSlotOverlap(userId, slots, null);
 
+    const schedule = await this.prisma.studySchedule.create({
+      data: {
+        userId,
+        name: dto.name.trim(),
+        timezone: dto.timezone,
+        ...(dto.sessionMinutes !== undefined && {
+          sessionMinutes: dto.sessionMinutes,
+        }),
+        ...(dto.focus !== undefined && { focus: dto.focus }),
+        ...(dto.active !== undefined && { active: dto.active }),
+        slots: { create: slots },
+      },
+      include: { slots: { orderBy: { createdAt: 'asc' } } },
+    });
+
+    await this.regenerateAfterWrite(schedule);
     return this.toDto(schedule);
+  }
+
+  async update(
+    userId: string,
+    scheduleId: string,
+    dto: UpsertStudyScheduleDto,
+  ): Promise<StudyScheduleDto> {
+    this.assertValidTimezone(dto.timezone);
+    const existing = await this.prisma.studySchedule.findFirst({
+      where: { id: scheduleId, userId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Schedule not found');
+
+    const slots = this.normalizeSlots(dto.slots);
+    await this.assertNoSlotOverlap(userId, slots, scheduleId);
+
+    // Replace-on-write (ADR-163 §5): слоты пересоздаются полным списком
+    // одной транзакцией с полями тренировки.
+    const [, schedule] = await this.prisma.$transaction([
+      this.prisma.studyScheduleSlot.deleteMany({ where: { scheduleId } }),
+      this.prisma.studySchedule.update({
+        where: { id: scheduleId },
+        data: {
+          name: dto.name.trim(),
+          timezone: dto.timezone,
+          ...(dto.sessionMinutes !== undefined && {
+            sessionMinutes: dto.sessionMinutes,
+          }),
+          ...(dto.focus !== undefined && { focus: dto.focus }),
+          ...(dto.active !== undefined && { active: dto.active }),
+          slots: { create: slots },
+        },
+        include: { slots: { orderBy: { createdAt: 'asc' } } },
+      }),
+    ]);
+
+    await this.regenerateAfterWrite(schedule);
+    return this.toDto(schedule);
+  }
+
+  /**
+   * ADR-163 §5: удаление тренировки каскадом удаляет её слоты и ВСЕ её
+   * сессии (onDelete: Cascade у StudySession.schedule) — включая
+   * историю; фронт предупреждает в confirm-диалоге.
+   */
+  async delete(userId: string, scheduleId: string): Promise<void> {
+    const existing = await this.prisma.studySchedule.findFirst({
+      where: { id: scheduleId, userId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Schedule not found');
+    await this.prisma.studySchedule.delete({ where: { id: scheduleId } });
+    this.logger.log(`DELETE schedule ${scheduleId} (user ${userId})`);
+  }
+
+  // ─── Валидация ──────────────────────────────────────────────────────
+
+  /** Дедуп и сортировка дней в каждом слоте. */
+  private normalizeSlots(
+    slots: UpsertStudyScheduleDto['slots'],
+  ): Array<{ daysOfWeek: number[]; timeLocal: string; sessionMinutes: number | null }> {
+    return slots.map((s) => ({
+      daysOfWeek: [...new Set(s.daysOfWeek)].sort((a, b) => a - b),
+      timeLocal: s.timeLocal,
+      sessionMinutes: s.sessionMinutes ?? null,
+    }));
+  }
+
+  /**
+   * ADR-163 §2: два слота пользователя (любых тренировок) не могут
+   * совпадать по паре (день, время) — иначе два занятия в один момент.
+   * Проверяются и слоты сохраняемого списка между собой, и слоты
+   * остальных тренировок пользователя. `excludeScheduleId` — редактируемая
+   * тренировка (её старые слоты заменяются, в сравнении не участвуют).
+   */
+  private async assertNoSlotOverlap(
+    userId: string,
+    slots: Array<{ daysOfWeek: number[]; timeLocal: string }>,
+    excludeScheduleId: string | null,
+  ): Promise<void> {
+    const seen = new Set<string>();
+    for (const slot of slots) {
+      for (const day of slot.daysOfWeek) {
+        const key = `${day}@${slot.timeLocal}`;
+        if (seen.has(key)) {
+          throw new BadRequestException(
+            `Overlapping slots: day ${day} at ${slot.timeLocal} appears twice`,
+          );
+        }
+        seen.add(key);
+      }
+    }
+    const others = await this.prisma.studyScheduleSlot.findMany({
+      where: {
+        schedule: {
+          userId,
+          ...(excludeScheduleId ? { id: { not: excludeScheduleId } } : {}),
+        },
+      },
+      select: {
+        daysOfWeek: true,
+        timeLocal: true,
+        schedule: { select: { name: true } },
+      },
+    });
+    for (const other of others) {
+      for (const day of other.daysOfWeek) {
+        if (seen.has(`${day}@${other.timeLocal}`)) {
+          throw new BadRequestException(
+            `Overlapping slots: day ${day} at ${other.timeLocal} already used by training "${other.schedule.name}"`,
+          );
+        }
+      }
+    }
   }
 
   /**
@@ -97,25 +224,69 @@ export class StudyScheduleService {
     }
   }
 
-  private toDto(schedule: {
-    id: string;
-    daysOfWeek: number[];
-    timeLocal: string;
-    timezone: string;
-    sessionMinutes: number;
-    focus: string | null;
-    active: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-  }): StudyScheduleDto {
+  // ─── Немедленная генерация (KS-4894) ────────────────────────────────
+
+  /**
+   * После сохранения активной тренировки — уборка будущих НЕотправленных
+   * занятий (слот мог измениться) и прогон генератора по всем слотам.
+   * Сохранение важнее мгновенной генерации: ошибку логируем, часовой
+   * тик догонит.
+   */
+  private async regenerateAfterWrite(schedule: ScheduleWithSlots): Promise<void> {
+    try {
+      const now = new Date();
+      if (!schedule.active) {
+        // Пауза тренировки: будущие planned-занятия убираем, уведомлять
+        // по неактивной тренировке нечего. notified/in_progress не трогаем.
+        const removed = await this.prisma.studySession.deleteMany({
+          where: {
+            scheduleId: schedule.id,
+            status: 'planned',
+            scheduledAt: { gt: now },
+          },
+        });
+        this.logger.log(
+          `PUT schedule ${schedule.id}: inactive, removed ${removed.count} planned, no generation`,
+        );
+        return;
+      }
+      const removed = await this.prisma.studySession.deleteMany({
+        where: {
+          scheduleId: schedule.id,
+          status: 'planned',
+          scheduledAt: { gt: now },
+        },
+      });
+      const r = await this.generator.generateForSchedule(schedule, now);
+      // KS-4896: одна строка на каждый PUT — решение генератора видно
+      // в логах (иначе «сессии нет» недиагностируемо).
+      this.logger.log(
+        `PUT schedule ${schedule.id} (user ${schedule.userId}): removed ${removed.count} planned, ` +
+          `created=${r.created} outcomes=[${r.outcomes
+            .map((o) => `${o.outcome}${o.slot ? `@${o.slot.toISOString()}` : ''}`)
+            .join(', ')}]`,
+      );
+    } catch (e) {
+      this.logger.error(
+        `immediate generation for schedule ${schedule.id} failed: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  private toDto(schedule: ScheduleWithSlots): StudyScheduleDto {
     return {
       id: schedule.id,
-      daysOfWeek: schedule.daysOfWeek,
-      timeLocal: schedule.timeLocal,
+      name: schedule.name,
       timezone: schedule.timezone,
       sessionMinutes: schedule.sessionMinutes,
       focus: (schedule.focus as StudyFocus | null) ?? null,
       active: schedule.active,
+      slots: schedule.slots.map((s) => ({
+        id: s.id,
+        daysOfWeek: s.daysOfWeek,
+        timeLocal: s.timeLocal,
+        sessionMinutes: s.sessionMinutes,
+      })),
       createdAt: schedule.createdAt.toISOString(),
       updatedAt: schedule.updatedAt.toISOString(),
     };

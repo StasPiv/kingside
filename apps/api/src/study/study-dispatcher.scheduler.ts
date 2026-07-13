@@ -79,6 +79,8 @@ export class StudyDispatcherScheduler {
       include: {
         tasks: { orderBy: { position: 'asc' } },
         user: { select: { id: true, locale: true } },
+        // KS-4927: имя тренировки — в заголовок уведомления.
+        schedule: { select: { name: true } },
         notifications: true,
       },
     });
@@ -103,6 +105,7 @@ export class StudyDispatcherScheduler {
     userId: string;
     tasks: Array<{ type: string; params: unknown; targetCount: number }>;
     user: { id: string; locale: string };
+    schedule: { name: string };
     notifications: Array<{ channelId: string; status: string }>;
   }): Promise<boolean> {
     const lang = session.user.locale === 'ru' ? 'ru' : 'en';
@@ -176,7 +179,7 @@ export class StudyDispatcherScheduler {
   /** null — успех; строка — текст ошибки для StudyNotification.error. */
   private async sendToChannel(
     channel: { type: string; address: string | null },
-    session: { id: string; userId: string },
+    session: { id: string; userId: string; schedule: { name: string } },
     tasks: NotifiableTask[],
     t: StudyTranslator,
   ): Promise<string | null> {
@@ -185,12 +188,19 @@ export class StudyDispatcherScheduler {
         await this.notifications.create(session.userId, 'study_session', {
           sessionId: session.id,
           taskCount: tasks.length,
+          // KS-4927: имя тренировки — фронт показывает его в уведомлении.
+          scheduleName: session.schedule.name,
         });
         return null;
       }
       if (channel.type === 'telegram') {
         if (!channel.address) return 'telegram channel has no chat_id';
-        const text = buildTelegramText(tasks, this.frontendOrigin(), t);
+        const text = buildTelegramText(
+          tasks,
+          this.frontendOrigin(),
+          t,
+          session.schedule.name,
+        );
         const ok = await this.telegramBot.sendMessageStrict(channel.address, text);
         return ok ? null : 'telegram sendMessage failed';
       }

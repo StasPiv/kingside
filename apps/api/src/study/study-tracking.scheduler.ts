@@ -88,7 +88,8 @@ export class StudyTrackingScheduler {
     );
     const users = await this.prisma.user.findMany({
       where: {
-        studySchedule: { active: true },
+        // KS-4927: у пользователя до 5 тренировок — хотя бы одна активная.
+        studySchedules: { some: { active: true } },
         OR: [
           { lichessUsername: { not: null } },
           { chesscomUsername: { not: null } },

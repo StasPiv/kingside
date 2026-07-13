@@ -69,19 +69,20 @@ export class StudyGeneratorScheduler {
   }
 
   /**
-   * Прогон генерации для всех активных расписаний. Вынесен из tick'а —
+   * Прогон генерации для всех активных тренировок. Вынесен из tick'а —
    * вызывается также вручную/из тестов с фиксированным `now`.
    * Возвращает число созданных занятий.
    */
   async generateDueSessions(now: Date): Promise<number> {
     const schedules = await this.prisma.studySchedule.findMany({
       where: { active: true },
+      include: { slots: true },
     });
     let created = 0;
     for (const schedule of schedules) {
       try {
         const r = await this.generateForSchedule(schedule, now);
-        if (r.outcome === 'created') created++;
+        created += r.created;
       } catch (e) {
         this.logger.error(
           `study generator: schedule ${schedule.id} failed: ${(e as Error).message}`,
@@ -92,24 +93,76 @@ export class StudyGeneratorScheduler {
   }
 
   /**
-   * Генерация занятия для ОДНОГО расписания (та же логика, что тик).
-   * KS-4894: вызывается также из PUT /study/schedule — слот, попавший
-   * между часовыми тиками, не проваливается. Идемпотентно.
+   * Генерация занятий для ОДНОЙ тренировки (та же логика, что тик).
+   * KS-4894: вызывается также из POST/PUT /study/schedules — слот,
+   * попавший между часовыми тиками, не проваливается. Идемпотентно
+   * (UNIQUE scheduleId_scheduledAt).
    *
-   * KS-4896: возвращает исход (не boolean) — вызывающий логирует
-   * решение генератора, иначе «сессии нет» не диагностируется по логам.
+   * KS-4927 / ADR-163 §4: цикл по слотам тренировки — для каждого
+   * слота ближайшее срабатывание в горизонте +25 ч; в горизонте может
+   * жить несколько planned-занятий одной тренировки (утро+вечер).
+   * `sessionMinutes` слота (если задан) прокидывается в createSession
+   * вместо значения тренировки.
+   *
+   * KS-4896: возвращает исходы по слотам — вызывающий логирует решение
+   * генератора, иначе «сессии нет» не диагностируется по логам.
    */
   async generateForSchedule(
-    schedule: { id: string; userId: string; sessionMinutes: number } & {
-      daysOfWeek: number[];
-      timeLocal: string;
+    schedule: {
+      id: string;
+      userId: string;
+      sessionMinutes: number;
       timezone: string;
       focus?: string | null;
+      slots: Array<{
+        daysOfWeek: number[];
+        timeLocal: string;
+        sessionMinutes: number | null;
+      }>;
+    },
+    now: Date,
+  ): Promise<{
+    created: number;
+    outcomes: Array<{
+      outcome: 'created' | 'exists' | 'no_slot' | 'empty_plan';
+      slot: Date | null;
+    }>;
+  }> {
+    let created = 0;
+    const outcomes: Array<{
+      outcome: 'created' | 'exists' | 'no_slot' | 'empty_plan';
+      slot: Date | null;
+    }> = [];
+    for (const slotDef of schedule.slots) {
+      const r = await this.generateForSlot(schedule, slotDef, now);
+      if (r.outcome === 'created') created++;
+      outcomes.push(r);
+    }
+    return { created, outcomes };
+  }
+
+  /** Один слот тренировки: ближайшее срабатывание в горизонте. */
+  private async generateForSlot(
+    schedule: {
+      id: string;
+      userId: string;
+      sessionMinutes: number;
+      timezone: string;
+      focus?: string | null;
+    },
+    slotDef: {
+      daysOfWeek: number[];
+      timeLocal: string;
+      sessionMinutes: number | null;
     },
     now: Date,
   ): Promise<{ outcome: 'created' | 'exists' | 'no_slot' | 'empty_plan'; slot: Date | null }> {
     const slot = nextSlotWithin(
-      schedule,
+      {
+        daysOfWeek: slotDef.daysOfWeek,
+        timeLocal: slotDef.timeLocal,
+        timezone: schedule.timezone,
+      },
       now,
       StudyGeneratorScheduler.HORIZON_HOURS,
     );
@@ -125,7 +178,11 @@ export class StudyGeneratorScheduler {
         select: { id: true },
       });
       if (exists) return { outcome: 'exists', slot };
-      const created = await this.createSession(schedule, slot);
+      const created = await this.createSession(
+        schedule,
+        slot,
+        slotDef.sessionMinutes ?? schedule.sessionMinutes,
+      );
       return { outcome: created ? 'created' : 'empty_plan', slot };
     } catch (e) {
       // P2002 — параллельный тик успел первым: не ошибка.
@@ -154,6 +211,13 @@ export class StudyGeneratorScheduler {
       focus?: string | null;
     },
     slot: Date,
+    /**
+     * KS-4927 / ADR-163 §4: эффективная длительность занятия —
+     * оверрайд слота либо значение тренировки. Пишется в profileSnapshot
+     * (план v2 = один урок, бюджет времени в сборке пока не участвует —
+     * снапшот сохраняет вход для будущей адаптации и отладки).
+     */
+    effectiveSessionMinutes?: number,
   ): Promise<boolean> {
     const profile = await this.profiles.collect(schedule.userId, schedule.id);
     const shelf = shelfWithFocus(
@@ -217,6 +281,7 @@ export class StudyGeneratorScheduler {
           ...profile,
           shelf: shelf.key,
           themeLabel: lesson.themeLabel,
+          sessionMinutes: effectiveSessionMinutes ?? schedule.sessionMinutes,
         } as unknown as Prisma.InputJsonValue,
         tasks: {
           create: tasks.map((task, i) => ({

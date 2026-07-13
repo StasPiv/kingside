@@ -81,14 +81,21 @@ export function taskLine(task: NotifiableTask, t: StudyTranslator): string {
 /**
  * Текст Telegram-сообщения: заголовок, нумерованный список заданий со
  * ссылками, ссылка на страницу занятия. `origin` — схема+хост фронта.
+ *
+ * KS-4927 / ADR-163 §5: `scheduleName` — имя тренировки в заголовке
+ * («какое из моих занятий пришло»); пустая строка → заголовок без имени.
  */
 export function buildTelegramText(
   tasks: NotifiableTask[],
   origin: string,
   t: StudyTranslator,
+  scheduleName = '',
 ): string {
+  const title = scheduleName.trim()
+    ? `♟ ${t('study.notification.title')} — ${scheduleName.trim()}`
+    : `♟ ${t('study.notification.title')}`;
   const lines = [
-    `♟ ${t('study.notification.title')}`,
+    title,
     '',
     t('study.notification.intro'),
     ...tasks.map(

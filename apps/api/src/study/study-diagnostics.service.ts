@@ -17,8 +17,13 @@ export class StudyDiagnosticsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async collect(userId: string) {
-    const [schedule, sessions, channels] = await Promise.all([
-      this.prisma.studySchedule.findUnique({ where: { userId } }),
+    const [schedules, sessions, channels] = await Promise.all([
+      // KS-4927 / ADR-163: у пользователя до 5 тренировок со слотами.
+      this.prisma.studySchedule.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        include: { slots: { orderBy: { createdAt: 'asc' } } },
+      }),
       this.prisma.studySession.findMany({
         where: { userId },
         orderBy: { scheduledAt: 'desc' },
@@ -33,16 +38,21 @@ export class StudyDiagnosticsService {
 
     return {
       now: new Date().toISOString(),
-      schedule: schedule && {
+      schedules: schedules.map((schedule) => ({
         id: schedule.id,
-        daysOfWeek: schedule.daysOfWeek,
-        timeLocal: schedule.timeLocal,
+        name: schedule.name,
         timezone: schedule.timezone,
         sessionMinutes: schedule.sessionMinutes,
         active: schedule.active,
+        slots: schedule.slots.map((slot) => ({
+          id: slot.id,
+          daysOfWeek: slot.daysOfWeek,
+          timeLocal: slot.timeLocal,
+          sessionMinutes: slot.sessionMinutes,
+        })),
         createdAt: schedule.createdAt.toISOString(),
         updatedAt: schedule.updatedAt.toISOString(),
-      },
+      })),
       sessions: sessions.map((s) => ({
         id: s.id,
         scheduledAt: s.scheduledAt.toISOString(),

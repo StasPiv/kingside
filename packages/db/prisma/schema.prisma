@@ -191,9 +191,9 @@ model User {
   // комментариями без явной обработки (см. ADR-140 §2.1).
   blogPostLikes             BlogPostLike[]
   blogPostComments          BlogPostComment[]
-  // KS-4880 / ADR-160 §3: занятия — расписание (1:1), сгенерированные
-  // сессии, каналы уведомлений и снапшоты внешней активности.
-  studySchedule             StudySchedule?
+  // KS-4880 / ADR-160 §3, KS-4927 / ADR-163: тренировки (до 5),
+  // сгенерированные сессии, каналы уведомлений и снапшоты активности.
+  studySchedules            StudySchedule[]
   studySessions             StudySession[]
   notificationChannels      NotificationChannel[]
   externalActivitySnapshots ExternalActivitySnapshot[]
@@ -3028,15 +3028,15 @@ model AgentServiceAccount {
   @@map("agent_service_accounts")
 }
 
-/// KS-4880 / ADR-160 §3. Расписание занятий — 1:1 с пользователем.
-/// `daysOfWeek` (0=вс…6=сб) + `timeLocal` (HH:mm) + `timezone` (IANA)
-/// покрывают «ежедневно» и «N раз в неделю» без rrule-библиотек.
-/// Таймзона обязательна — время ученика локальное.
+/// KS-4880 / ADR-160 §3, KS-4927 / ADR-163 §3. Тренировка (именованный
+/// план занятий). У пользователя до 5 тренировок (лимит в сервисе);
+/// дни/время вынесены в StudyScheduleSlot (1..7 на тренировку).
+/// Таймзона одна на тренировку, слоты наследуют.
 model StudySchedule {
   id             String   @id @default(uuid()) @db.Uuid
-  userId         String   @unique @map("user_id") @db.Uuid
-  daysOfWeek     Int[]    @map("days_of_week")
-  timeLocal      String   @map("time_local")
+  userId         String   @map("user_id") @db.Uuid
+  /// KS-4927 / ADR-163 §2: имя тренировки (до 60 символов).
+  name           String   @default("Занятие")
   timezone       String
   sessionMinutes Int      @default(30) @map("session_minutes")
   /// Долгосрочный фокус плана: tactics|openings|endgames|balanced.
@@ -3045,11 +3045,30 @@ model StudySchedule {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions StudySession[]
+  slots    StudyScheduleSlot[]
 
+  @@index([userId])
   @@index([active])
   @@map("study_schedules")
+}
+
+/// KS-4927 / ADR-163 §3. Временной диапазон тренировки: дни недели
+/// (0=вс…6=сб) + локальное время (HH:mm). `sessionMinutes` — оверрайд
+/// длительности занятия (null → наследует тренировку).
+model StudyScheduleSlot {
+  id             String   @id @default(uuid()) @db.Uuid
+  scheduleId     String   @map("schedule_id") @db.Uuid
+  daysOfWeek     Int[]    @map("days_of_week")
+  timeLocal      String   @map("time_local")
+  sessionMinutes Int?     @map("session_minutes")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  schedule StudySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
+  @@map("study_schedule_slots")
 }
 
 /// KS-4880 / ADR-160 §3. Сгенерированное занятие. `profileSnapshot` —

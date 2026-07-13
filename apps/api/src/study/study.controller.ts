@@ -21,26 +21,30 @@ import { StudyScheduleService } from './study-schedule.service';
 import { NotificationChannelService } from './notification-channel.service';
 import { StudySessionService } from './study-session.service';
 import { StudyDiagnosticsService } from './study-diagnostics.service';
-import { UpdateStudyScheduleDto } from './dto/update-study-schedule.dto';
+import { UpsertStudyScheduleDto } from './dto/upsert-study-schedule.dto';
 import { CreateNotificationChannelDto } from './dto/create-notification-channel.dto';
 import type {
   CreateNotificationChannelResponse,
   NotificationChannelsResponse,
   StudyHistoryResponse,
   StudyScheduleResponse,
-  StudySessionResponse,
+  StudySchedulesResponse,
+  StudySessionsCurrentResponse,
 } from '@kingside/shared';
 
 /**
- * REST занятий (KS-4880, KS-4886 / ADR-160).
+ * REST занятий (KS-4880, KS-4886 / ADR-160; KS-4927 / ADR-163 §5 —
+ * несколько тренировок, синглтон-эндпоинты заменены).
  *
  * Пути:
- *   GET    /api/study/schedule      — расписание (null до создания)
- *   PUT    /api/study/schedule      — создать/обновить расписание
- *   GET    /api/study/session       — текущее занятие с заданиями
- *   GET    /api/study/channels      — каналы уведомлений
- *   POST   /api/study/channels      — подключить канал (telegram → deep-link)
- *   DELETE /api/study/channels/:id  — отключить канал
+ *   GET    /api/study/schedules        — все тренировки пользователя
+ *   POST   /api/study/schedules        — создать тренировку (лимит 5)
+ *   PUT    /api/study/schedules/:id    — обновить (слоты replace-on-write)
+ *   DELETE /api/study/schedules/:id    — удалить (каскад слотов и сессий)
+ *   GET    /api/study/sessions/current — ближайшее занятие каждой тренировки
+ *   GET    /api/study/channels         — каналы уведомлений
+ *   POST   /api/study/channels         — подключить канал (telegram → deep-link)
+ *   DELETE /api/study/channels/:id     — отключить канал
  *
  * Все эндпоинты требуют JWT.
  */
@@ -54,11 +58,16 @@ export class StudyController {
     private readonly diagnostics: StudyDiagnosticsService,
   ) {}
 
-  /** KS-4886: текущее занятие для страницы /study. */
-  @Get('session')
-  async getSession(@Request() req: AuthenticatedRequest): Promise<StudySessionResponse> {
-    const session = await this.sessions.getCurrent(req.user.id);
-    return { session };
+  /**
+   * KS-4886 → KS-4927 / ADR-163 §5: ближайшее занятие каждой активной
+   * тренировки для страницы /study.
+   */
+  @Get('sessions/current')
+  async getCurrentSessions(
+    @Request() req: AuthenticatedRequest,
+  ): Promise<StudySessionsCurrentResponse> {
+    const sessions = await this.sessions.getCurrent(req.user.id);
+    return { sessions };
   }
 
   /**
@@ -88,20 +97,45 @@ export class StudyController {
     return this.diagnostics.collect(req.user.id);
   }
 
-  @Get('schedule')
-  async getSchedule(@Request() req: AuthenticatedRequest): Promise<StudyScheduleResponse> {
-    const schedule = await this.schedules.get(req.user.id);
+  /** KS-4927 / ADR-163 §5: все тренировки пользователя. */
+  @Get('schedules')
+  async getSchedules(
+    @Request() req: AuthenticatedRequest,
+  ): Promise<StudySchedulesResponse> {
+    const schedules = await this.schedules.list(req.user.id);
+    return { schedules };
+  }
+
+  /** KS-4927: создать тренировку (лимит 5; пересечение слотов → 400). */
+  @Post('schedules')
+  async createSchedule(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: UpsertStudyScheduleDto,
+  ): Promise<StudyScheduleResponse> {
+    const schedule = await this.schedules.create(req.user.id, dto);
     return { schedule };
   }
 
-  @Put('schedule')
+  /** KS-4927: обновить тренировку — слоты replace-on-write. */
+  @Put('schedules/:id')
   @HttpCode(HttpStatus.OK)
   async putSchedule(
     @Request() req: AuthenticatedRequest,
-    @Body() dto: UpdateStudyScheduleDto,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpsertStudyScheduleDto,
   ): Promise<StudyScheduleResponse> {
-    const schedule = await this.schedules.upsert(req.user.id, dto);
+    const schedule = await this.schedules.update(req.user.id, id, dto);
     return { schedule };
+  }
+
+  /** KS-4927: удалить тренировку (каскад слотов и сессий, вкл. историю). */
+  @Delete('schedules/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteSchedule(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    await this.schedules.delete(req.user.id, id);
   }
 
   @Get('channels')

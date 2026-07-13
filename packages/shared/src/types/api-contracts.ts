@@ -3777,35 +3777,63 @@ export interface LecturesStartResponse {
 export type StudyFocus = 'tactics' | 'openings' | 'endgames' | 'balanced';
 
 /**
- * Расписание занятий (1:1 с пользователем, ADR-160 §3).
+ * KS-4927 / ADR-163 §3. Временной диапазон тренировки.
  * `daysOfWeek`: 0=воскресенье … 6=суббота; `timeLocal`: "HH:mm";
- * `timezone`: IANA (например "Europe/Prague").
+ * `sessionMinutes` — оверрайд длительности (null → значение тренировки).
  */
-export interface StudyScheduleDto {
+export interface StudySlotDto {
   id: string;
   daysOfWeek: number[];
   timeLocal: string;
+  sessionMinutes: number | null;
+}
+
+/** Слот в теле POST/PUT /study/schedules (replace-on-write, ADR-163 §5). */
+export interface StudySlotInput {
+  daysOfWeek: number[];
+  timeLocal: string;
+  sessionMinutes?: number | null;
+}
+
+/**
+ * Тренировка (KS-4927 / ADR-163 §2-§3): именованный план занятий с
+ * фокусом и 1..7 временными диапазонами. У пользователя до 5 тренировок.
+ * `timezone`: IANA (например "Europe/Prague"), одна на тренировку.
+ */
+export interface StudyScheduleDto {
+  id: string;
+  name: string;
   timezone: string;
   sessionMinutes: number;
   focus: StudyFocus | null;
   active: boolean;
+  slots: StudySlotDto[];
   createdAt: string;
   updatedAt: string;
 }
 
-/** GET /study/schedule — null, если расписание ещё не создано. */
-export interface StudyScheduleResponse {
-  schedule: StudyScheduleDto | null;
+/** GET /study/schedules — все тренировки пользователя. */
+export interface StudySchedulesResponse {
+  schedules: StudyScheduleDto[];
 }
 
-/** Тело PUT /study/schedule (upsert). */
-export interface UpdateStudyScheduleRequest {
-  daysOfWeek: number[];
-  timeLocal: string;
+/** Ответ POST/PUT /study/schedules — сохранённая тренировка. */
+export interface StudyScheduleResponse {
+  schedule: StudyScheduleDto;
+}
+
+/**
+ * Тело POST /study/schedules и PUT /study/schedules/:id (ADR-163 §5).
+ * `slots` — полный список: сохраняется replace-on-write. Пересечение
+ * слотов по паре (день, время) с любыми слотами пользователя → 400.
+ */
+export interface UpsertStudyScheduleRequest {
+  name: string;
   timezone: string;
   sessionMinutes?: number;
   focus?: StudyFocus | null;
   active?: boolean;
+  slots: StudySlotInput[];
 }
 
 /** Тип канала уведомлений о занятиях (ADR-160 §4). Email — фаза 2. */
@@ -3888,6 +3916,10 @@ export interface StudyTaskDto {
 /** Занятие с заданиями (KS-4886, страница /study). */
 export interface StudySessionDto {
   id: string;
+  /** KS-4927 / ADR-163 §5: тренировка, породившая занятие. */
+  scheduleId: string;
+  /** KS-4927: имя тренировки для карточки занятия. */
+  scheduleName: string;
   scheduledAt: string;
   status: StudySessionStatus;
   completedAt: string | null;
@@ -3899,12 +3931,12 @@ export interface StudySessionDto {
 }
 
 /**
- * GET /study/session — текущее занятие: самое свежее в пределах
- * горизонта генерации (+25 ч), не expired. null — занятия нет
- * (нет расписания или слот ещё не сгенерирован).
+ * GET /study/sessions/current (KS-4927 / ADR-163 §5) — ближайшее
+ * занятие каждой активной тренировки в пределах горизонта генерации
+ * (+25 ч), не expired. Пустой массив — занятий нет.
  */
-export interface StudySessionResponse {
-  session: StudySessionDto | null;
+export interface StudySessionsCurrentResponse {
+  sessions: StudySessionDto[];
 }
 
 // ─── Study v2 (KS-4910/KS-4916 / ADR-162) ───────────────────────────
@@ -3925,6 +3957,8 @@ export interface StudyHistoryItemDto {
   score: number | null;
   /** Тема занятия из снапшота профиля (null — сессия v1). */
   themeLabel: string | null;
+  /** KS-4927 / ADR-163 §5: имя тренировки, породившей занятие. */
+  scheduleName: string;
   homeworkDone: number;
   homeworkTotal: number;
 }
