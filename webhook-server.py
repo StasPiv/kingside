@@ -1424,6 +1424,9 @@ class ChatDaemon:
             "--output-format", "stream-json",
             "--verbose",
             "--strict-mcp-config",
+            # Без этого Bash-вызовы (stockfish, maia-runner в position-review)
+            # уходят в permission-gate и отклоняются «requires approval».
+            "--dangerously-skip-permissions",
         ])
         if self._resume_session_id:
             cmd.extend(["--resume", self._resume_session_id])
