@@ -17,8 +17,9 @@ const check = (name, cond) => { console.log(`${cond ? 'ok  ' : 'FAIL'} ${name}`)
 const at = (iso) => new Date(iso); // Prague летом = UTC+2
 const fresh = { x: { lastRead: at('2026-07-12T10:00:00Z').getTime() } };
 
-check('часы: 07:59 Prague → отказ', /часов активности/.test(readDenied('x', { now: at('2026-07-12T05:59:00Z'), state: {} }) || ''));
-check('часы: 23:30 Prague → отказ', /часов активности/.test(readDenied('x', { now: at('2026-07-12T21:30:00Z'), state: {} }) || ''));
+check('часы: 06:59 Prague → отказ', /часов активности/.test(readDenied('x', { now: at('2026-07-12T04:59:00Z'), state: {} }) || ''));
+check('часы: 07:00 Prague → можно', readDenied('x', { now: at('2026-07-12T05:00:00Z'), state: {} }) === null);
+check('часы: 22:30 Prague → отказ', /часов активности/.test(readDenied('x', { now: at('2026-07-12T20:30:00Z'), state: {} }) || ''));
 check('часы: 12:00 Prague, состояния нет → можно', readDenied('x', { now: at('2026-07-12T10:00:00Z'), state: {} }) === null);
 check(`интервал: прошло 10 мин → отказ (лимит ${READ_INTERVAL_MIN})`, /лимит чтения/.test(readDenied('x', { now: at('2026-07-12T10:10:00Z'), state: fresh }) || ''));
 check('интервал: прошло 31 мин → можно', readDenied('x', { now: at('2026-07-12T10:31:00Z'), state: fresh }) === null);
