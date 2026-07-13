@@ -6,6 +6,9 @@ import type { UserCourseDto } from '@kingside/shared';
 import { lessonsApi } from '../../api/lessonsApi';
 import { useAuth } from '../../context/AuthContext';
 import { useDelayedFlag } from '../../hooks/useDelayedFlag';
+// KS-4936: ссылка на Telegram-канал в блоке сообщества.
+import { FaTelegram } from 'react-icons/fa';
+import { TELEGRAM_CHANNEL_URL } from '../../constants/social';
 
 /**
  * `CommunityStripBlock` — компактная горизонтальная полоса
@@ -121,13 +124,31 @@ export function CommunityStripBlock() {
     >
       <header className="community-strip-block__header">
         <h2>{t('lessons.community.title', 'New from community')}</h2>
-        <Link
-          to="/lessons/discover"
-          className="community-strip-block__view-all"
-          data-testid="community-strip-view-all"
-        >
-          {t('lessons.community.viewAll', 'All courses & authors →')}
-        </Link>
+        <span className="community-strip-block__links">
+          {/* KS-4936: Telegram-канал проекта рядом со ссылкой каталога. */}
+          <a
+            href={TELEGRAM_CHANNEL_URL}
+            className="community-strip-block__view-all community-strip-block__telegram"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="community-strip-telegram"
+          >
+            <FaTelegram
+              size={14}
+              color="#26A5E4"
+              aria-hidden="true"
+              style={{ verticalAlign: 'text-top', marginRight: 4 }}
+            />
+            {t('lessons.community.telegram', 'We are on Telegram')}
+          </a>
+          <Link
+            to="/lessons/discover"
+            className="community-strip-block__view-all"
+            data-testid="community-strip-view-all"
+          >
+            {t('lessons.community.viewAll', 'All courses & authors →')}
+          </Link>
+        </span>
       </header>
 
       <ul

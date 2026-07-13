@@ -1006,7 +1006,10 @@
       "untranslatedText": "Эта статья пока не переведена на русский. Показан оригинал.",
       "untranslatedLink": "Прочитать в оригинале",
       "relatedCtaTitle": "Попробовать в разделе",
-      "relatedCtaButton": "Открыть раздел"
+      "relatedCtaButton": "Открыть раздел",
+      "telegramCtaTitle": "Подписывайтесь на наш Telegram-канал",
+      "telegramCtaBody": "Новые функции, статьи и советы — сначала в @kingside_site.",
+      "telegramCtaButton": "Открыть канал"
     }
   },
   "adminHints": {
@@ -3642,7 +3645,8 @@
     "cta": {
       "title": "Готовы играть?",
       "button": "Создать аккаунт",
-      "youtube": "Видеообзоры на YouTube"
+      "youtube": "Видеообзоры на YouTube",
+      "telegram": "Новости в Telegram"
     },
     "rating": {
       "title": "Система рейтинга",
@@ -4214,7 +4218,8 @@
     },
     "community": {
       "title": "Новое от сообщества",
-      "viewAll": "Все курсы и авторы →"
+      "viewAll": "Все курсы и авторы →",
+      "telegram": "Мы в Telegram"
     },
     "curriculum": {
       "title": "Структурированный курс шахмат",

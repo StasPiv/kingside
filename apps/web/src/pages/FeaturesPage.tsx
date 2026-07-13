@@ -13,6 +13,9 @@ import { PatreonLogo } from '../components/PatreonLogo';
 // контентном потоке `/`.
 import { LecturesPromoSection } from '../components/lectures/LecturesPromoSection';
 import { CoachesPromo } from '../components/lectures/CoachesPromo';
+// KS-4936: Telegram-канал проекта в CTA-footer и inline-футере.
+import { FaTelegram } from 'react-icons/fa';
+import { TELEGRAM_CHANNEL_URL } from '../constants/social';
 
 const SECTIONS = ['play', 'analyze', 'puzzles', 'workshop', 'broadcasts', 'social', 'customize', 'rating'] as const;
 const ICONS: Record<string, string> = {
@@ -26,6 +29,31 @@ const ICONS: Record<string, string> = {
  * Маршруты выровнены по существующим quick-links в `variant='features'`,
  * чтобы у гостя не было неожиданных редиректов.
  */
+/**
+ * KS-4936. Кнопка Telegram-канала для CTA-footer (лендинг и Features)
+ * — в стиле существующей YouTube-кнопки.
+ */
+function TelegramChannelButton() {
+  const { t } = useTranslation();
+  return (
+    <a
+      className="features-btn features-btn--secondary features-telegram-link"
+      href={TELEGRAM_CHANNEL_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid="features-telegram-link"
+    >
+      <FaTelegram
+        size={20}
+        color="#26A5E4"
+        aria-hidden="true"
+        style={{ verticalAlign: 'text-bottom', marginRight: 8 }}
+      />
+      {t('features.cta.telegram', 'News in Telegram')}
+    </a>
+  );
+}
+
 const HOME_CARDS = [
   { key: 'play', to: '/play', icon: '♟' },
   { key: 'analyze', to: '/analysis/new', icon: '🔍' },
@@ -316,6 +344,8 @@ function GuestLandingHome() {
           </svg>
           {t('features.cta.youtube', 'Video reviews on YouTube')}
         </a>
+        {/* KS-4936: Telegram-канал проекта. */}
+        <TelegramChannelButton />
       </section>
 
       {/* KS-4589: прежняя секция `.landing-support` удалена — Patreon
@@ -340,6 +370,17 @@ function GuestLandingHome() {
         <Link to="/credits" className="landing-footer__link">
           {t('landing.footerLinks.credits')}
         </Link>
+        {/* KS-4936: ссылка на Telegram-канал в inline-футере. */}
+        <span className="landing-footer__sep" aria-hidden="true">·</span>
+        <a
+          href={TELEGRAM_CHANNEL_URL}
+          className="landing-footer__link"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="landing-footer-telegram"
+        >
+          Telegram
+        </a>
       </footer>
     </>
   );
@@ -442,6 +483,8 @@ function FeaturesCatalog() {
           </svg>
           {t('features.cta.youtube', 'Video reviews on YouTube')}
         </a>
+        {/* KS-4936: Telegram-канал проекта. */}
+        <TelegramChannelButton />
       </section>
     </>
   );

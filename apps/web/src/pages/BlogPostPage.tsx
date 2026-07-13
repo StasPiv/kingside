@@ -33,6 +33,8 @@ import type {
   BlogLocale,
   BlogPostDetail,
 } from '@kingside/shared';
+// KS-4936: CTA Telegram-канала в конце статьи.
+import { TELEGRAM_CHANNEL_URL } from '../constants/social';
 
 // KS-4474 / ADR-140 §2.2 T8. Задержка между моментом готовности статьи
 // и `POST /view` — отсекает скан-проходы по ленте (пользователь открыл,
@@ -421,6 +423,35 @@ export function BlogPostPage() {
           </Link>
         </aside>
       )}
+
+      {/* KS-4936. CTA Telegram-канала в конце статьи — кросс-ссылка
+          блог → канал (план tools/marketing/telegram-channel-growth.md).
+          Стили переиспользуют .blog-related-cta (обе темы). */}
+      <aside
+        className="blog-related-cta blog-telegram-cta"
+        data-testid="blog-post-telegram-cta"
+      >
+        <div className="blog-related-cta__text">
+          <div className="blog-related-cta__title">
+            {t('blog.post.telegramCtaTitle', 'Subscribe to our Telegram channel')}
+          </div>
+          <div className="blog-related-cta__route">
+            {t(
+              'blog.post.telegramCtaBody',
+              'New features, articles and tips — first in @kingside_site.',
+            )}
+          </div>
+        </div>
+        <a
+          href={TELEGRAM_CHANNEL_URL}
+          className="blog-related-cta__button"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="blog-post-telegram-cta-button"
+        >
+          {t('blog.post.telegramCtaButton', 'Open channel')} →
+        </a>
+      </aside>
 
       {/* KS-4476 / ADR-140 T10. Комментарии под телом статьи и блоком
           related-CTA. `key={post.id}` сбрасывает state секции при смене

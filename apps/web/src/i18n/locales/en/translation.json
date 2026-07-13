@@ -994,7 +994,10 @@
       "untranslatedText": "This article is not translated into English yet. Showing the original.",
       "untranslatedLink": "Read the original",
       "relatedCtaTitle": "Try it in the section",
-      "relatedCtaButton": "Open section"
+      "relatedCtaButton": "Open section",
+      "telegramCtaTitle": "Subscribe to our Telegram channel",
+      "telegramCtaBody": "New features, articles and tips — first in @kingside_site.",
+      "telegramCtaButton": "Open channel"
     }
   },
   "adminHints": {
@@ -3448,7 +3451,8 @@
     "cta": {
       "title": "Ready to play?",
       "button": "Create free account",
-      "youtube": "Video reviews on YouTube"
+      "youtube": "Video reviews on YouTube",
+      "telegram": "News in Telegram"
     },
     "rating": {
       "title": "Rating System",
@@ -4026,7 +4030,8 @@
     },
     "community": {
       "title": "New from community",
-      "viewAll": "All courses & authors →"
+      "viewAll": "All courses & authors →",
+      "telegram": "We are on Telegram"
     },
     "curriculum": {
       "title": "Structured chess curriculum",

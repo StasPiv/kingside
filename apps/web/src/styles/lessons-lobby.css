@@ -1813,3 +1813,11 @@
     transform: none !important;
   }
 }
+
+/* KS-4936: две ссылки справа в шапке блока сообщества. */
+.community-strip-block__links {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
