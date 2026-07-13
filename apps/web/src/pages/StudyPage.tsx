@@ -3,21 +3,24 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../api';
-import { useStudySchedule } from '../hooks/useStudySchedule';
+import { useStudySchedules } from '../hooks/useStudySchedules';
 import type {
   StudyHistoryItemDto,
   StudyHistoryResponse,
   StudySessionDto,
-  StudySessionResponse,
+  StudySessionsCurrentResponse,
   StudyTaskDto,
 } from '@kingside/shared';
 
 /**
- * KS-4883 / ADR-160 (задача 4 из 6). Страница `/study` — занятие дня.
+ * KS-4883 / ADR-160 (задача 4 из 6). Страница `/study` — занятия дня.
  *
- * Данные: GET /study/session (KS-4886) — текущее занятие с заданиями;
- * GET /study/schedule — для различения состояний «нет расписания»
- * (CTA в /settings?tab=study) и «занятие ещё не сгенерировано».
+ * KS-4929 / ADR-163: тренировок может быть несколько — GET
+ * /study/sessions/current отдаёт ближайшее занятие каждой активной
+ * тренировки; карточка занятия подписана именем тренировки
+ * (`scheduleName`). GET /study/schedules — для различения состояний
+ * «нет тренировок» (CTA в /settings?tab=study) и «занятие ещё не
+ * сгенерировано».
  *
  * Прогресс заданий (`doneCount`) наполняет reconciliation-трекинг
  * (KS-4884): до его выхода значения нулевые — UI это не ломает.
@@ -193,6 +196,12 @@ function SessionView({
     : session.tasks;
   return (
     <section className="settings-section" data-testid="study-session">
+      {/* KS-4929 / ADR-163: имя тренировки — занятий может быть несколько. */}
+      {session.scheduleName && (
+        <h2 className="study-session-schedule" data-testid="study-session-schedule-name">
+          {session.scheduleName}
+        </h2>
+      )}
       <div className="study-session-head">
         <span
           data-testid="study-session-status"
@@ -328,6 +337,15 @@ function HistoryBlock(): ReactElement | null {
             <span className="study-history-item__date">
               {fmt.format(new Date(item.scheduledAt))}
             </span>
+            {/* KS-4929 / ADR-163: имя тренировки, породившей занятие. */}
+            {item.scheduleName && (
+              <span
+                className="study-history-item__schedule"
+                data-testid={`study-history-${item.id}-schedule`}
+              >
+                {item.scheduleName}
+              </span>
+            )}
             {item.themeLabel && (
               <span className="study-history-item__theme">{item.themeLabel}</span>
             )}
@@ -419,17 +437,18 @@ function MaterialOnboardingBanner(): ReactElement | null {
 
 export function StudyPage(): ReactElement {
   const { t } = useTranslation();
-  const { schedule, loading: scheduleLoading, error: scheduleError } = useStudySchedule();
+  const { schedules, loading: schedulesLoading, error: schedulesError } = useStudySchedules();
 
-  const [session, setSession] = useState<StudySessionDto | null>(null);
+  // KS-4929 / ADR-163: ближайшее занятие каждой активной тренировки.
+  const [sessions, setSessions] = useState<StudySessionDto[]>([]);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
 
-  const fetchSession = useCallback(async () => {
+  const fetchSessions = useCallback(async () => {
     try {
-      const res = await api.get<StudySessionResponse>('/study/session');
-      setSession(res.session);
+      const res = await api.get<StudySessionsCurrentResponse>('/study/sessions/current');
+      setSessions(res.sessions);
       setSessionError(null);
     } catch (err) {
       setSessionError(err instanceof Error ? err.message : 'error');
@@ -439,17 +458,18 @@ export function StudyPage(): ReactElement {
   }, []);
 
   useEffect(() => {
-    void fetchSession();
-  }, [fetchSession]);
+    void fetchSessions();
+  }, [fetchSessions]);
 
   const handleRecheck = useCallback(async () => {
     setRechecking(true);
-    await fetchSession();
+    await fetchSessions();
     setRechecking(false);
-  }, [fetchSession]);
+  }, [fetchSessions]);
 
-  const loading = scheduleLoading || sessionLoading;
-  const error = scheduleError || sessionError;
+  const loading = schedulesLoading || sessionLoading;
+  const error = schedulesError || sessionError;
+  const hasSchedules = schedules.length > 0;
 
   return (
     <div className="study-page">
@@ -468,11 +488,17 @@ export function StudyPage(): ReactElement {
 
       {!loading && !error && <MaterialOnboardingBanner />}
 
-      {!loading && !error && session && (
-        <SessionView session={session} onRecheck={() => void handleRecheck()} rechecking={rechecking} />
-      )}
+      {!loading && !error &&
+        sessions.map((session) => (
+          <SessionView
+            key={session.id}
+            session={session}
+            onRecheck={() => void handleRecheck()}
+            rechecking={rechecking}
+          />
+        ))}
 
-      {!loading && !error && !session && !schedule && (
+      {!loading && !error && sessions.length === 0 && !hasSchedules && (
         <section className="settings-section" data-testid="study-empty-no-schedule">
           <p>{t('study.page.empty.noSchedule')}</p>
           <Link to="/settings?tab=study">
@@ -481,7 +507,7 @@ export function StudyPage(): ReactElement {
         </section>
       )}
 
-      {!loading && !error && !session && schedule && (
+      {!loading && !error && sessions.length === 0 && hasSchedules && (
         <section className="settings-section" data-testid="study-empty-no-session">
           <p>{t('study.page.empty.noSession')}</p>
         </section>

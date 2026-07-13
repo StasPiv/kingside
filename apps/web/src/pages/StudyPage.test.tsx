@@ -15,12 +15,14 @@ import type { StudyScheduleDto, StudySessionDto, StudyTaskDto } from '@kingside/
 
 const SCHEDULE: StudyScheduleDto = {
   id: 's1',
-  daysOfWeek: [1, 3, 5],
-  timeLocal: '19:30',
+  name: 'Тактика вечером',
   timezone: 'Europe/Prague',
   sessionMinutes: 45,
   focus: null,
   active: true,
+  slots: [
+    { id: 'slot1', daysOfWeek: [1, 3, 5], timeLocal: '19:30', sessionMinutes: null },
+  ],
   createdAt: '2026-07-11T00:00:00.000Z',
   updatedAt: '2026-07-11T00:00:00.000Z',
 };
@@ -41,6 +43,8 @@ function makeTask(over: Partial<StudyTaskDto> = {}): StudyTaskDto {
 
 const SESSION: StudySessionDto = {
   id: 'sess1',
+  scheduleId: 's1',
+  scheduleName: 'Тактика вечером',
   scheduledAt: '2026-07-11T19:30:00.000Z',
   status: 'notified',
   completedAt: null,
@@ -62,13 +66,14 @@ const SESSION: StudySessionDto = {
 
 function mockGet(
   schedule: StudyScheduleDto | null,
-  session: StudySessionDto | null = null,
+  session: StudySessionDto | StudySessionDto[] | null = null,
   opts: { hasAccounts?: boolean; pgnFiles?: unknown[]; history?: unknown[] } = {},
 ) {
+  const sessions = session == null ? [] : Array.isArray(session) ? session : [session];
   return vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
-    if (path === '/study/schedule') return { schedule };
+    if (path === '/study/schedules') return { schedules: schedule ? [schedule] : [] };
     if (path === '/study/channels') return { channels: [] };
-    if (path === '/study/session') return { session };
+    if (path === '/study/sessions/current') return { sessions };
     if (path === '/users/me/settings') {
       return opts.hasAccounts ? { lichessUsername: 'someone' } : {};
     }
@@ -81,6 +86,8 @@ function mockGet(
 /** Сессия v2: main-урок + homework. */
 const SESSION_V2: StudySessionDto = {
   id: 'sess2',
+  scheduleId: 's1',
+  scheduleName: 'Тактика вечером',
   scheduledAt: '2026-07-12T19:30:00.000Z',
   status: 'notified',
   completedAt: null,
@@ -299,6 +306,48 @@ describe('StudyPage (KS-4883)', () => {
       tasks: [makeTask({ id: 'x', type: 'lesson', params: {} })],
     };
     expect(findMainLesson(broken)).toBeNull();
+  });
+
+  it('KS-4929: несколько занятий — карточка на каждую тренировку с её именем', async () => {
+    const second: StudySessionDto = {
+      ...SESSION_V2,
+      id: 'sess3',
+      scheduleId: 's2',
+      scheduleName: 'Эндшпили утром',
+    };
+    mockGet(SCHEDULE, [SESSION_V2, second], { hasAccounts: true });
+    wrap();
+    await waitFor(() =>
+      expect(screen.getAllByTestId('study-session')).toHaveLength(2),
+    );
+    const names = screen
+      .getAllByTestId('study-session-schedule-name')
+      .map((el) => el.textContent);
+    expect(names).toEqual(['Тактика вечером', 'Эндшпили утром']);
+  });
+
+  it('KS-4929: история показывает имя тренировки', async () => {
+    mockGet(SCHEDULE, SESSION_V2, {
+      hasAccounts: true,
+      history: [
+        {
+          id: 'hist1',
+          scheduledAt: '2026-07-10T19:30:00.000Z',
+          status: 'completed',
+          completedAt: '2026-07-10T20:00:00.000Z',
+          score: 85,
+          themeLabel: null,
+          scheduleName: 'Тактика вечером',
+          homeworkDone: 1,
+          homeworkTotal: 2,
+        },
+      ],
+    });
+    wrap();
+    await waitFor(() => expect(screen.getByTestId('study-history')).toBeInTheDocument());
+    expect(screen.getByTestId('study-history-hist1-schedule').textContent).toBe(
+      'Тактика вечером',
+    );
   });
 
   it('завершённое занятие показывает поздравление', async () => {
