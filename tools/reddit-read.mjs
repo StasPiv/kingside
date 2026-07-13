@@ -120,7 +120,8 @@ async function readThread(url) {
     // вложенность по числу родительских div.child до этого комментария — грубо через data-replies недоступно; используем маркер отступа из permalink глубиной не располагаем — печатаем плоско
     const text = firstUsertext(c.body);
     if (!text) continue;
-    console.log(`[${author}] (score=${score(c.body)})`);
+    const plink = attr(c.tag, 'data-permalink') || '';
+    console.log(`[${author}] (score=${score(c.body)})${plink ? ` https://old.reddit.com${plink}` : ''}`);
     console.log(text.split('\n').map((l) => `  ${l}`).join('\n'), '\n');
   }
 }
