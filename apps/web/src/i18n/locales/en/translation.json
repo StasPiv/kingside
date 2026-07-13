@@ -653,7 +653,7 @@
         "openings": "Openings",
         "endgames": "Endgames"
       },
-      "activeLabel": "Schedule active",
+      "activeLabel": "Training active",
       "noDaysHint": "Pick at least one day",
       "loadError": "Failed to load study settings.",
       "channelsTitle": "Session notifications",
@@ -666,7 +666,22 @@
       "telegramOpenLink": "Open link again",
       "telegramRefresh": "Refresh status",
       "telegramHint": "Session reminders with task links arrive from the platform bot. The link opens a chat — press Start to confirm.",
-      "channelError": "Channel operation failed. Try again."
+      "channelError": "Channel operation failed. Try again.",
+      "schedulesTitle": "Trainings",
+      "schedulesHint": "Create up to 5 trainings, each with its own focus and up to 7 weekly times — the platform prepares every session and sends a reminder.",
+      "noSchedules": "No trainings yet — add the first one.",
+      "defaultName": "Training",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Evening tactics",
+      "slotsLabel": "Times",
+      "slotMinutesLabel": "Slot length",
+      "slotMinutesInherit": "Training default",
+      "addSlot": "+ Add time",
+      "removeSlot": "Remove",
+      "addSchedule": "+ Add training",
+      "scheduleLimit": "Limit: {{max}} trainings",
+      "deleteSchedule": "Delete training",
+      "deleteConfirm": "Delete training “{{name}}”? Its planned sessions and history will be deleted too."
     }
   },
   "guess": {

@@ -468,3 +468,65 @@ button[data-testid='study-session-recheck']:hover:not(:disabled) {
 .study-session-score {
   font-weight: 600;
 }
+
+/* ── KS-4928 / ADR-163: карточки тренировок и слоты ───────── */
+
+.study-schedule-card {
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: var(--bg-surface);
+}
+
+.study-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--border-mid);
+}
+
+.study-slot:last-of-type {
+  border-bottom: none;
+}
+
+.study-slot-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.study-slot-add,
+.study-slot-remove {
+  align-self: flex-start;
+  padding: 6px 10px;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.study-slot-add:hover,
+.study-slot-remove:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.study-schedule-delete {
+  color: var(--danger);
+}
+
+/* ── KS-4929 / ADR-163: имя тренировки на /study ──────────── */
+
+.study-session-schedule {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.study-history-item__schedule {
+  font-weight: 600;
+}
