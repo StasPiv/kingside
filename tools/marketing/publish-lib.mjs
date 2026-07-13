@@ -94,7 +94,19 @@ export function resumePlatform(platform, { state } = {}) {
 export function loadDrafts() { return load(DRAFTS_STATE); }
 export function saveDrafts(state) { save(DRAFTS_STATE, state); }
 
+/** Discord: канал открыт на запись по discord-sources-analysis.tsv (колонка «запись»). */
+export function discordWritable(url) {
+  const chan = /discord\.com\/channels\/\d+\/(\d+)/.exec(url)?.[1];
+  if (!chan) return false;
+  const tsv = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'discord-sources-analysis.tsv'), 'utf8');
+  const row = tsv.split('\n').map((l) => l.split('\t')).find((c) => c[2]?.trim() === chan);
+  return !!row && row[3]?.trim() === 'да';
+}
+
 export function addDraft({ platform, url, text, subreddit, note }, { now = new Date(), state } = {}) {
+  if (platform === 'discord' && !discordWritable(url)) {
+    throw new Error('канал Discord закрыт для записи (discord-sources-analysis.tsv) — только мониторинг, черновик не создан');
+  }
   const s = state ?? loadDrafts();
   const id = `d${Object.keys(s).length + 1}-${dayKey(now).replaceAll('-', '')}`;
   s[id] = { platform, url, text, subreddit, note, status: 'pending', sentAt: now.getTime() };
