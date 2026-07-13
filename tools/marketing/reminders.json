@@ -2,18 +2,6 @@
   "_comment": "Календарь Telegram-напоминаний по стратегии tools/marketing/social-organic-strategy.md §3.2 (KS-4875). Каждое напоминание — исполнительское действие с готовым материалом из брифа (tools/marketing/briefs/daily|weekly|monthly). Правь тексты/расписание здесь — планировщик (scripts/marketing-reminders/send-reminders.mjs) перечитывает файл каждую минуту, перезапуск не нужен. type: daily | weekly (dow: 1=Пн … 7=Вс) | monthly (dom: число месяца). time: ЧЧ:ММ в таймзоне REMINDERS_TZ (по умолчанию Europe/Kyiv). Напоминания с одинаковым временем склеиваются в одно сообщение. Плейсхолдер {brief:daily|weekly|monthly} в тексте (KS-4876): в сообщение добавляется содержимое актуального брифа из tools/marketing/briefs/ (daily/ГГГГ-ММ-ДД.md, weekly/ГГГГ-Wнн.md ISO-неделя, monthly/ГГГГ-ММ.md) — одной секцией, один раз на сообщение; если файла нет — пометка «бриф не подготовлен».",
   "reminders": [
     {
-      "id": "D1",
-      "type": "daily",
-      "time": "09:30",
-      "text": "Ответы дня: опубликуй готовые ответы из дневного брифа (tools/marketing/briefs/daily/, раздел Ответы) {brief:daily}"
-    },
-    {
-      "id": "D2",
-      "type": "daily",
-      "time": "09:30",
-      "text": "Комментарии: короткие — ответь, сложные — перешли маркетологу; черновики из брифа — опубликуй {brief:daily}"
-    },
-    {
       "id": "W1",
       "type": "weekly",
       "dow": 1,
@@ -49,18 +37,11 @@
       "text": "Клип №2 → Shorts + TikTok + Reels (тексты из недельного брифа) {brief:weekly}"
     },
     {
-      "id": "W6",
-      "type": "weekly",
-      "dow": 4,
-      "time": "09:30",
-      "text": "Discord: опубликуй готовые ответы из дневного брифа {brief:daily}"
-    },
-    {
       "id": "W7",
       "type": "weekly",
       "dow": 5,
       "time": "09:30",
-      "text": "Турнирный пост из дневного брифа → X (если блок есть в брифе) {brief:daily}"
+      "text": "Турнирный пост недели → X (если блок есть в недельном брифе) {brief:weekly}"
     },
     {
       "id": "W8",
