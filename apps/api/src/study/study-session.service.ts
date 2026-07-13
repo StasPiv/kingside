@@ -14,14 +14,17 @@ import type {
  * KS-4886 / ADR-160 → KS-4927 / ADR-163 §5. Чтение текущих занятий
  * для страницы /study.
  *
- * «Текущие» — по одному самому свежему занятию КАЖДОЙ тренировки
- * пользователя со статусом planned|notified|in_progress|completed и
- * scheduled_at в пределах горизонта генерации (+25 ч от сейчас):
- * показывается и сегодняшнее выполненное, и уже сгенерированное на
- * ближайший слот. expired не отдаём — по нему нечего делать.
+ * «Текущие» — по одному занятию КАЖДОЙ тренировки пользователя со
+ * статусом planned|notified|in_progress|completed и scheduled_at в
+ * пределах горизонта генерации (+25 ч от сейчас). Выбор per тренировка
+ * (KS-4933): среди уже наступивших занятий — самое свежее (активное
+ * для прохождения либо только что пройденное), иначе — ближайшее
+ * будущее. expired не отдаём — по нему нечего делать.
  *
- * KS-4884 (§5.1): перед выдачей активной сессии — пересчёт прогресса
- * по требованию, страница всегда показывает свежие done_count.
+ * KS-4884 (§5.1): перед выдачей — пересчёт прогресса по требованию
+ * для ВСЕХ активных сессий горизонта (KS-4933: не только выбранной —
+ * иначе completed пройденного занятия при нескольких слотах ждал
+ * 15-минутный cron), страница всегда показывает свежие done_count.
  */
 @Injectable()
 export class StudySessionService {
@@ -34,44 +37,68 @@ export class StudySessionService {
   ) {}
 
   async getCurrent(userId: string): Promise<StudySessionDto[]> {
+    const now = new Date();
     const horizon = new Date(
-      Date.now() + StudySessionService.HORIZON_HOURS * 3600_000,
+      now.getTime() + StudySessionService.HORIZON_HOURS * 3600_000,
     );
-    const sessions = await this.prisma.studySession.findMany({
-      where: {
-        userId,
-        status: { in: ['planned', 'notified', 'in_progress', 'completed'] },
-        scheduledAt: { lte: horizon },
-        schedule: { active: true },
-      },
-      orderBy: { scheduledAt: 'desc' },
-      include: {
-        tasks: { orderBy: { position: 'asc' } },
-        schedule: { select: { name: true } },
-      },
-    });
-    // По одной (самой свежей) сессии на тренировку.
+    const findAll = () =>
+      this.prisma.studySession.findMany({
+        where: {
+          userId,
+          status: { in: ['planned', 'notified', 'in_progress', 'completed'] },
+          scheduledAt: { lte: horizon },
+          schedule: { active: true },
+        },
+        orderBy: { scheduledAt: 'desc' },
+        include: {
+          tasks: { orderBy: { position: 'asc' } },
+          schedule: { select: { name: true } },
+        },
+      });
+
+    let sessions = await findAll();
+
+    // KS-4884: пересчёт по требованию для активных сессий.
+    // KS-4920: planned включён — прогресс до слота тоже виден сразу.
+    // KS-4933: реконсилятся ВСЕ активные сессии пользователя в горизонте,
+    // а не только самая свежая per тренировка — при нескольких слотах
+    // будущая planned-сессия второго слота заслоняла пройденное занятие,
+    // и completed выставлялся только 15-минутным cron'ом.
+    const active = sessions.filter((s) =>
+      ['planned', 'notified', 'in_progress'].includes(s.status),
+    );
+    if (active.length > 0) {
+      for (const s of active) {
+        await this.tracking.reconcileById(s.id);
+      }
+      sessions = await findAll();
+    }
+
+    // Текущая сессия per тренировка: среди уже наступивших
+    // (scheduledAt <= now: активная для прохождения либо пройденная
+    // сегодня) — самая свежая; будущих — ближайшая. Наступившие
+    // приоритетнее будущих: только что завершённое занятие остаётся
+    // видимым со статусом completed, а не заслоняется завтрашним
+    // слотом (KS-4933). `sessions` отсортированы по scheduledAt desc:
+    // первая невыбранная наступившая — самая свежая, последняя
+    // будущая — ближайшая.
     const bySchedule = new Map<string, (typeof sessions)[number]>();
     for (const s of sessions) {
-      if (!bySchedule.has(s.scheduleId)) bySchedule.set(s.scheduleId, s);
+      const chosen = bySchedule.get(s.scheduleId);
+      if (!chosen) {
+        bySchedule.set(s.scheduleId, s);
+        continue;
+      }
+      // desc-порядок: будущие идут первыми (дальние → ближние), затем
+      // наступившие (свежие → старые). Выбранную будущую вытесняет и
+      // более близкая будущая, и первая наступившая; выбранную
+      // наступившую (самую свежую) не вытесняет никто.
+      const chosenIsPast = chosen.scheduledAt.getTime() <= now.getTime();
+      if (!chosenIsPast) bySchedule.set(s.scheduleId, s);
     }
 
     const result: StudySessionDto[] = [];
-    for (let session of bySchedule.values()) {
-      // KS-4884: пересчёт по требованию для активной сессии.
-      // KS-4920: planned включён — прогресс до слота тоже виден сразу.
-      if (['planned', 'notified', 'in_progress'].includes(session.status)) {
-        await this.tracking.reconcileById(session.id);
-        const fresh = await this.prisma.studySession.findFirst({
-          where: { id: session.id },
-          include: {
-            tasks: { orderBy: { position: 'asc' } },
-            schedule: { select: { name: true } },
-          },
-        });
-        if (!fresh) continue;
-        session = fresh;
-      }
+    for (const session of bySchedule.values()) {
       result.push({
         id: session.id,
         scheduleId: session.scheduleId,
