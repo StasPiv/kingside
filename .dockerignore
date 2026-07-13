@@ -7,6 +7,8 @@ apps/web
 !apps/web/package.json
 !apps/web/public/maia3
 !apps/web/public/maia3/**
+!apps/web/public/stockfish
+!apps/web/public/stockfish/stockfish-16-trace.*
 !apps/broadcast-worker/package.json
 !apps/matchmaker/package.json
 !apps/e2e/package.json
@@ -21,6 +23,7 @@ tools
 !tools/maia3/**
 !tools/maia-dist
 !tools/maia-dist/**
+!tools/sf-trace-cli.mjs
 scripts
 infra
 .turbo

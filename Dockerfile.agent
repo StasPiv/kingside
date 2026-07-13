@@ -50,6 +50,17 @@ RUN cd /opt/maia && npm init -y >/dev/null 2>&1 && npm install --no-audit --no-f
     && chmod +x /usr/local/bin/maia \
     && maia --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" --top 1
 
+# sf-trace (KS-4941): инструментированный Stockfish-16 (WASM) с командой
+# `eval json` → 63 позиционных субтерма. Тот же движок, что в браузере
+# (apps/web/public/stockfish/stockfish-16-trace.*). Изоляция: в образе, не
+# монтируется. Врапер: sf-trace --fen "<FEN>" → JSON {position,subterms,total}.
+COPY tools/sf-trace-cli.mjs /opt/sf-trace/sf-trace-cli.mjs
+COPY apps/web/public/stockfish/stockfish-16-trace.js /opt/sf-trace/stockfish-16-trace.js
+COPY apps/web/public/stockfish/stockfish-16-trace.wasm /opt/sf-trace/stockfish-16-trace.wasm
+RUN printf '#!/bin/bash\nexec node /opt/sf-trace/sf-trace-cli.mjs "$@"\n' > /usr/local/bin/sf-trace \
+    && chmod +x /usr/local/bin/sf-trace \
+    && sf-trace --fen "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3" | head -c 40
+
 RUN npm install -g @anthropic-ai/claude-code@latest
 
 RUN useradd -m -s /bin/bash agent
