@@ -33,6 +33,7 @@ export const DAILY_LIMITS = {
   x: { total: Infinity },
   reddit: { total: Infinity, perSubreddit: Infinity },
   discord: { total: Infinity },
+  telegram: { total: Infinity }, // канал @kingside_site (создан пользователем 13.07)
   'x-like': { total: Infinity, gapMin: 0 },
   'x-repost': { total: Infinity },
 };

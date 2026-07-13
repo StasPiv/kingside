@@ -46,6 +46,28 @@ if (denied) {
   process.exit(4);
 }
 
+// Telegram: пост в канал @kingside_site ботом @kingside_marketing_bot (админ, 13.07).
+// url черновика: https://t.me/kingside_site (информативно), канал задан константой.
+if (platform === 'telegram') {
+  const { readFileSync } = await import('node:fs');
+  const tgToken = readFileSync(new URL('./.marketing-bot-token', import.meta.url), 'utf8').trim();
+  const res = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: '@kingside_site', text, disable_web_page_preview: false }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!body.ok) { console.error(`[error] Telegram API: ${body.description || res.status}`); process.exit(1); }
+  recordAction(platform, {});
+  const postUrl = `https://t.me/kingside_site/${body.result.message_id}`;
+  appendPublished({ platform, url: postUrl, note: draft.note });
+  draft.status = 'published';
+  draft.publishedAt = Date.now();
+  saveDrafts(drafts);
+  console.log(`Опубликовано: ${postUrl} (telegram). Записано в published.md, счётчики обновлены.`);
+  process.exit(0);
+}
+
 // Discord публикуется существующим API-механизмом (user-токен, как discord-read),
 // браузер не нужен (ADR-161 §2.2); контур подтверждения/лимитов — общий.
 if (platform === 'discord') {
