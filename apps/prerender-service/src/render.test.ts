@@ -6,22 +6,33 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { Browser, BrowserContext, Page } from 'playwright';
-import { createRenderer, RenderTimeoutError } from './render.js';
+import {
+  ContentNotReadyError,
+  createRenderer,
+  RenderTimeoutError,
+} from './render.js';
 
 interface MockBrowserSpec {
   /** Сколько раз метод close был вызван. */
   closed: { count: number };
   /** Сколько раз `newContext` дёргали. */
   contextCount: { count: number };
+  /** KS-4935: вызовы waitForSelector / waitForLoadState. */
+  waitForSelectorCalls: { count: number };
+  waitForLoadStateCalls: { count: number };
 }
 
 function makeBrowserMock(opts: {
   gotoBehavior?: 'resolve' | 'hang' | 'throw';
   evaluateHtml?: string;
+  /** KS-4935: поведение waitForSelector (default found). */
+  selectorBehavior?: 'found' | 'timeout';
 }): { browser: Browser; spec: MockBrowserSpec } {
   const spec: MockBrowserSpec = {
     closed: { count: 0 },
     contextCount: { count: 0 },
+    waitForSelectorCalls: { count: 0 },
+    waitForLoadStateCalls: { count: 0 },
   };
   const evaluateHtml =
     opts.evaluateHtml ?? '<html><body>Hello</body></html>';
@@ -37,7 +48,19 @@ function makeBrowserMock(opts: {
       return undefined;
     }),
     waitForFunction: vi.fn(async () => undefined),
-    waitForLoadState: vi.fn(async () => undefined),
+    waitForLoadState: vi.fn(async () => {
+      spec.waitForLoadStateCalls.count += 1;
+      return undefined;
+    }),
+    waitForSelector: vi.fn(async () => {
+      spec.waitForSelectorCalls.count += 1;
+      if (opts.selectorBehavior === 'timeout') {
+        const e = new Error('Timeout 100ms exceeded');
+        e.name = 'TimeoutError';
+        throw e;
+      }
+      return {};
+    }),
     evaluate: vi.fn(async () => evaluateHtml),
   } as unknown as Page;
   const context: BrowserContext = {
@@ -206,6 +229,73 @@ describe('createRenderer — browser recovery (KS-4229)', () => {
     expect(spec.closed.count).toBe(0);
 
     await renderer.close();
+  });
+});
+
+describe('createRenderer — readySelector (KS-4935)', () => {
+  it('селектор найден → HTML возвращается, networkidle не используется', async () => {
+    const { browser, spec } = makeBrowserMock({
+      evaluateHtml: '<html><body>Article</body></html>',
+    });
+    const renderer = await createRenderer({
+      timeoutMs: 1_000,
+      launchBrowser: async () => browser,
+      logger: silentLogger,
+    });
+    const html = await renderer.render(
+      'https://x/ru/blog/a',
+      'meta[property="og:type"][content="article"]',
+    );
+    expect(html).toContain('Article');
+    expect(spec.waitForSelectorCalls.count).toBe(1);
+    expect(spec.waitForLoadStateCalls.count).toBe(0);
+  });
+
+  it('селектор не найден → ContentNotReadyError со снятым HTML', async () => {
+    const { browser } = makeBrowserMock({
+      selectorBehavior: 'timeout',
+      evaluateHtml: '<html><body>skeleton</body></html>',
+    });
+    const renderer = await createRenderer({
+      timeoutMs: 100,
+      launchBrowser: async () => browser,
+      logger: silentLogger,
+    });
+    const err = await renderer
+      .render('https://x/ru/blog/a', 'meta[x]')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ContentNotReadyError);
+    expect((err as ContentNotReadyError).html).toContain('skeleton');
+    expect((err as ContentNotReadyError).selector).toBe('meta[x]');
+  });
+
+  it('ContentNotReadyError не приводит к пересозданию браузера', async () => {
+    const { browser, spec } = makeBrowserMock({
+      selectorBehavior: 'timeout',
+    });
+    const renderer = await createRenderer({
+      timeoutMs: 100,
+      recreateAfterFailures: 2,
+      launchBrowser: async () => browser,
+      logger: silentLogger,
+    });
+    for (let i = 0; i < 3; i++) {
+      await renderer.render('https://x/ru/blog/a', 'meta[x]').catch(() => undefined);
+    }
+    expect(spec.closed.count).toBe(0);
+  });
+
+  it('без селектора — прежняя эвристика (networkidle)', async () => {
+    const { browser, spec } = makeBrowserMock({});
+    const renderer = await createRenderer({
+      timeoutMs: 1_000,
+      launchBrowser: async () => browser,
+      logger: silentLogger,
+    });
+    await renderer.render('https://x/tournaments/1');
+    expect(spec.waitForSelectorCalls.count).toBe(0);
+    expect(spec.waitForLoadStateCalls.count).toBe(1);
   });
 });
 

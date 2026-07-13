@@ -25,7 +25,15 @@
 import { chromium, type Browser, type BrowserContext } from 'playwright';
 
 export interface Renderer {
-  render(url: string): Promise<string>;
+  /**
+   * KS-4935. `readySelector` — CSS-селектор «контент готов» (из
+   * `PrerenderRouteInfo`). Задан — ждём его вместо networkidle
+   * (факты KS-4935: networkidle наступал в CPU-паузу до старта
+   * запроса данных, в S3 уходил loading-скелетон). Не дождались за
+   * timeoutMs — `ContentNotReadyError` со снятым HTML: caller решает,
+   * ретраить или публиковать деградированный snapshot.
+   */
+  render(url: string, readySelector?: string): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -74,6 +82,23 @@ export class RenderTimeoutError extends Error {
     super(
       `render hard-timeout after ${elapsedMs}ms for url=${url}`,
     );
+  }
+}
+
+/**
+ * KS-4935. Страница загрузилась, но `readySelector` за timeoutMs не
+ * появился — SPA не отрендерила контент. `html` — снятый snapshot «как
+ * есть»: caller (index.ts) публикует его только после исчерпания
+ * SQS-ретраев, чтобы скелетон не затирал S3 с первой попытки.
+ */
+export class ContentNotReadyError extends Error {
+  override readonly name = 'ContentNotReadyError';
+  constructor(
+    public readonly url: string,
+    public readonly selector: string,
+    public readonly html: string,
+  ) {
+    super(`content selector "${selector}" not found for url=${url}`);
   }
 }
 
@@ -176,7 +201,10 @@ export async function createRenderer(
    * KS-4229. Один рендер: создание контекста, навигация, snapshot.
    * Не имеет timeout-логики — её обвязывает `render(...)` снаружи.
    */
-  async function renderOnce(url: string): Promise<string> {
+  async function renderOnce(
+    url: string,
+    readySelector?: string,
+  ): Promise<string> {
     const b = await ensureBrowser();
     const context: BrowserContext = await b.newContext({
       userAgent,
@@ -193,24 +221,41 @@ export async function createRenderer(
         timeout: opts.timeoutMs,
       });
 
-      // Ждём флаг готовности от SPA либо networkidle, что быстрее.
-      // Promise.race — фронт может никогда не выставить флаг (старая
-      // сборка); networkidle сам по себе ненадёжен для long-poll'ов —
-      // оба условия с hard cap по timeoutMs.
-      await Promise.race([
-        page
-          .waitForFunction(
-            () =>
-              (window as unknown as { __PRERENDER_READY__?: boolean })
-                .__PRERENDER_READY__ === true,
-            null,
-            { timeout: opts.timeoutMs, polling: 200 },
-          )
-          .catch(() => undefined),
-        page
-          .waitForLoadState('networkidle', { timeout: opts.timeoutMs })
-          .catch(() => undefined),
-      ]);
+      // KS-4935. Селектор готовности контента задан — ждём именно его,
+      // networkidle не участвует. Факты (CloudWatch + snapshot'ы блога):
+      // networkidle (500 мс сетевой тишины) на Fargate cpu=512 наступает
+      // в CPU-паузу ДО старта запроса данных SPA, и в S3 уходил
+      // loading-скелетон с дефолтными мета. `state: 'attached'` —
+      // meta-теги в <head> невидимы для 'visible'-ожидания.
+      let contentReady = true;
+      if (readySelector) {
+        contentReady = await page
+          .waitForSelector(readySelector, {
+            state: 'attached',
+            timeout: opts.timeoutMs,
+          })
+          .then(() => true)
+          .catch(() => false);
+      } else {
+        // Прежняя эвристика: флаг готовности от SPA либо networkidle,
+        // что быстрее. Promise.race — фронт может никогда не выставить
+        // флаг (старая сборка); networkidle сам по себе ненадёжен для
+        // long-poll'ов — оба условия с hard cap по timeoutMs.
+        await Promise.race([
+          page
+            .waitForFunction(
+              () =>
+                (window as unknown as { __PRERENDER_READY__?: boolean })
+                  .__PRERENDER_READY__ === true,
+              null,
+              { timeout: opts.timeoutMs, polling: 200 },
+            )
+            .catch(() => undefined),
+          page
+            .waitForLoadState('networkidle', { timeout: opts.timeoutMs })
+            .catch(() => undefined),
+        ]);
+      }
 
       // Снимаем HTML целиком (включая <!DOCTYPE> через outerHTML
       // корневого <html>). page.content() даёт то же, но через
@@ -220,7 +265,11 @@ export async function createRenderer(
         () => document.documentElement.outerHTML,
       );
       // Доктайп page.evaluate не отдаёт — добавляем явно.
-      return `<!DOCTYPE html>\n${html}`;
+      const snapshot = `<!DOCTYPE html>\n${html}`;
+      if (!contentReady && readySelector) {
+        throw new ContentNotReadyError(url, readySelector, snapshot);
+      }
+      return snapshot;
     } finally {
       // KS-4229. context.close() ВСЕГДА, с подавлением ошибки. Если
       // зависнем здесь — внешний hard-timeout всё равно освободит
@@ -230,7 +279,7 @@ export async function createRenderer(
     }
   }
 
-  async function render(url: string): Promise<string> {
+  async function render(url: string, readySelector?: string): Promise<string> {
     const started = Date.now();
 
     // KS-4229. Hard-timeout wrapper. Если renderOnce уходит в зависший
@@ -248,7 +297,7 @@ export async function createRenderer(
 
     try {
       const html = await Promise.race<string>([
-        renderOnce(url),
+        renderOnce(url, readySelector),
         timeoutPromise,
       ]);
       // Успех — сбрасываем счётчик зависаний.
@@ -263,6 +312,20 @@ export async function createRenderer(
       failureCount = 0;
       return html;
     } catch (e) {
+      // KS-4935. ContentNotReadyError — браузер жив и отработал штатно,
+      // просто SPA не отрендерила контент за timeoutMs. Не provider-сбой:
+      // failureCount не растёт, браузер не пересоздаётся. Решение о
+      // ретрае/публикации — за caller'ом (index.ts, по receiveCount).
+      if (e instanceof ContentNotReadyError) {
+        logger.warn(
+          logLine('warn', 'render content not ready', {
+            url,
+            selector: e.selector,
+            elapsedMs: Date.now() - started,
+          }),
+        );
+        throw e;
+      }
       failureCount += 1;
       // KS-4229 follow-up. Любой timeout (наш RenderTimeoutError или
       // Playwright'овский TimeoutError, который часто срабатывает

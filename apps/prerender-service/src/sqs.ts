@@ -25,6 +25,13 @@ export interface PrerenderEnvelope {
   task: PrerenderTask;
   receiptHandle: string;
   messageId: string;
+  /**
+   * KS-4935. SQS ApproximateReceiveCount — какой это по счёту приём
+   * сообщения (1 = первый). index.ts исчерпывает ретраи «контент не
+   * готов» по этому счётчику: после N приёмов публикует snapshot как
+   * есть — очередь без DLQ, ядовитая задача не должна крутиться вечно.
+   */
+  receiveCount: number;
 }
 
 export interface SqsPrerenderQueueOptions {
@@ -52,6 +59,8 @@ export function createSqsQueue(
         MaxNumberOfMessages: Math.min(Math.max(opts.batchSize, 1), 10),
         WaitTimeSeconds: opts.waitTimeSeconds,
         VisibilityTimeout: opts.visibilityTimeoutSeconds,
+        // KS-4935: счётчик приёмов — для исчерпания content-ретраев.
+        MessageSystemAttributeNames: ['ApproximateReceiveCount'],
       }),
     );
 
@@ -86,10 +95,13 @@ export function createSqsQueue(
         await deleteMessage(m.ReceiptHandle);
         continue;
       }
+      const rawCount = m.Attributes?.ApproximateReceiveCount;
+      const receiveCount = rawCount ? parseInt(rawCount, 10) || 1 : 1;
       envelopes.push({
         task: parsed,
         receiptHandle: m.ReceiptHandle,
         messageId: m.MessageId,
+        receiveCount,
       });
     }
     return envelopes;

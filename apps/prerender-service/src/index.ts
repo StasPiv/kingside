@@ -21,7 +21,11 @@ import {
   type PrerenderTask,
 } from '@kingside/shared';
 import { loadConfig, type Config } from './config.js';
-import { createRenderer, type Renderer } from './render.js';
+import {
+  ContentNotReadyError,
+  createRenderer,
+  type Renderer,
+} from './render.js';
 import { createS3Store, type S3PrerenderStore } from './s3.js';
 import {
   createSqsQueue,
@@ -70,6 +74,15 @@ function log(level: 'info' | 'warn' | 'error', msg: string): void {
   }
 }
 
+/**
+ * KS-4935. Сколько приёмов SQS-сообщения дать «контент не готов»-ретраям.
+ * До исчерпания — сообщение возвращается через VisibilityTimeout (60 с),
+ * и рендер повторяется; после — публикуем снятый HTML как есть
+ * (деградация к прежнему поведению: у очереди нет DLQ, ядовитая задача
+ * не должна крутиться вечно).
+ */
+const MAX_CONTENT_RETRIES = 3;
+
 async function processOne(
   env: PrerenderEnvelope,
   deps: Deps,
@@ -82,7 +95,28 @@ async function processOne(
   );
 
   const t0 = Date.now();
-  const html = await deps.renderer.render(route.url);
+  let html: string;
+  try {
+    html = await deps.renderer.render(route.url, route.readySelector);
+  } catch (e) {
+    // KS-4935. Страница не отрендерила контент (readySelector не
+    // появился за timeoutMs). Первые приёмы — НЕ публикуем скелетон
+    // (он затирал хорошие snapshot'ы, факт из CloudWatch 08:28:30 →
+    // 08:28:37): бросаем дальше, сообщение вернётся в очередь. После
+    // MAX_CONTENT_RETRIES приёмов — публикуем что сняли.
+    if (
+      e instanceof ContentNotReadyError &&
+      env.receiveCount >= MAX_CONTENT_RETRIES
+    ) {
+      log(
+        'warn',
+        `content not ready after ${env.receiveCount} receives id=${env.messageId} url=${route.url} — publishing degraded snapshot`,
+      );
+      html = e.html;
+    } else {
+      throw e;
+    }
+  }
   const tRender = Date.now() - t0;
 
   const t1 = Date.now();

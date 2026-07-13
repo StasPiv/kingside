@@ -55,6 +55,14 @@ export interface PrerenderRouteInfo {
   url: string;
   /** Ключ в `kingside-prerender-store`. Без leading-slash. */
   s3Key: string;
+  /**
+   * KS-4935. CSS-селектор «страница отрендерила КОНТЕНТ». Задан —
+   * воркер ждёт его вместо networkidle. Факты KS-4935 (CloudWatch +
+   * содержимое snapshot'ов): networkidle на Fargate cpu=512 наступает
+   * в CPU-паузу ДО старта запроса данных, и в S3 уходил
+   * loading-скелетон с дефолтными <title>/og:*.
+   */
+  readySelector?: string;
 }
 
 export function resolvePrerenderRoute(
@@ -131,9 +139,15 @@ export function resolvePrerenderRoute(
       // S3-ключ повторяет URL: `ru/blog/<slug>.html` / `en/blog/<slug>.html`.
       // Slug в URL и ключе НЕ кодируется — все slug'и в БД — kebab-case
       // ASCII, см. валидацию в blog-admin.service.
+      // KS-4935. Готовность: Helmet выставил `og:type=article` (данные
+      // статьи загружены) ЛИБО отрендерено «не найдено» (delete-hook
+      // KS-4616 штатно перезаписывает snapshot удалённой статьи).
+      // Состояние error селектором не считается — воркер ретрайнет.
       return {
         url: `${base}/${task.locale}/blog/${task.slug}`,
         s3Key: `${task.locale}/blog/${task.slug}.html`,
+        readySelector:
+          'meta[property="og:type"][content="article"], [data-testid="blog-post-not-found"]',
       };
     case 'list': {
       // /broadcasts → list/broadcasts.html и т.п. — в одном
