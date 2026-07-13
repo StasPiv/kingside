@@ -1,12 +1,16 @@
 /**
  * KS-4914 / ADR-162. e2e полного потока «Занятия v2»:
  *
- *   расписание (PUT /study/schedule → immediate generation)
- *   → генерация персонального урока (StudySession.lessonId, задачи main+homework)
+ *   расписание (POST /study/schedules → immediate generation;
+ *   KS-4930: контракты заменены KS-4927 / ADR-163 §5 — тренировка с
+ *   именем и слотами, GET /study/sessions/current вместо синглтона)
+ *   → генерация персонального урока (StudySession.lessonId, main-задача
+ *     lesson; KS-4918 — занятие состоит из ОДНОГО пункта, отдельные
+ *     homework-задачи убраны: закрепление идёт шагами внутри урока)
  *   → уведомление (диспетчер EVERY_MINUTE → onsite Notification type='study_session')
  *   → прохождение урока в плеере (/lessons/:courseSlug/:lessonId)
- *   → занятие completed со score (reconciliation по требованию GET /study/session)
- *   → домашка отражается через reconciliation (puzzle_theme: solved attempt → doneCount).
+ *   → занятие completed со score (reconciliation по требованию
+ *     GET /study/sessions/current).
  *
  * Особенности:
  *  - Слот расписания ставится на «сейчас + 2 мин» (UTC) — диспетчер
@@ -18,8 +22,7 @@
  *    финальные состояния /study. Решать puzzle-шаг перетаскиванием
  *    фигур в e2e хрупко и не добавляет покрытия потоку занятий.
  *  - Прямой доступ к postgres (localhost:5434) — очистка study-данных
- *    DEV_USER перед прогоном (идемпотентность) и сид пазла с темой
- *    домашки (в test-стеке база пазлов пуста).
+ *    DEV_USER перед прогоном (идемпотентность).
  *
  * Скриншоты ключевых экранов — tools/e2e-hints/videos/study-v2-flow/.
  */
@@ -82,14 +85,18 @@ async function getSession(
   request: APIRequestContext,
   token: string,
 ): Promise<StudySession | null> {
-  const res = await request.get(`${API_URL}/study/session`, {
+  // KS-4930: GET /study/session заменён на /study/sessions/current
+  // (ADR-163 §5). У DEV_USER в этом спеке одна тренировка с одним
+  // слотом — берём её единственную сессию.
+  const res = await request.get(`${API_URL}/study/sessions/current`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  expect(res.ok(), `GET /study/session: ${res.status()}`).toBeTruthy();
-  return ((await res.json()) as { session: StudySession | null }).session;
+  expect(res.ok(), `GET /study/sessions/current: ${res.status()}`).toBeTruthy();
+  const { sessions } = (await res.json()) as { sessions: StudySession[] };
+  return sessions[0] ?? null;
 }
 
-test('занятие v2: расписание → урок → уведомление → плеер → completed+score → домашка', async ({
+test('занятие v2: расписание → урок → уведомление → плеер → completed+score', async ({
   page,
   context,
   request,
@@ -121,31 +128,34 @@ test('занятие v2: расписание → урок → уведомле�
   const token = await apiToken(request);
   await loginAs(context, request, TEST_USER);
 
-  // ── 1. Расписание: слот через ~2 минуты, PUT делает immediate generation ──
-  await test.step('PUT /study/schedule создаёт занятие с уроком', async () => {
+  // ── 1. Расписание: слот через ~2 минуты, POST делает immediate generation ──
+  // KS-4930: PUT /study/schedule заменён на POST /study/schedules
+  // (ADR-163 §5 — тренировка с именем, дни/время ушли в slots).
+  await test.step('POST /study/schedules создаёт занятие с уроком', async () => {
     const slot = new Date(Date.now() + 120_000);
     const hh = String(slot.getUTCHours()).padStart(2, '0');
     const mm = String(slot.getUTCMinutes()).padStart(2, '0');
-    const res = await request.put(`${API_URL}/study/schedule`, {
+    const res = await request.post(`${API_URL}/study/schedules`, {
       headers: { Authorization: `Bearer ${token}` },
       data: {
-        daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
-        timeLocal: `${hh}:${mm}`,
+        name: 'Занятие v2',
         timezone: 'UTC',
         sessionMinutes: 60,
         active: true,
+        slots: [{ daysOfWeek: [0, 1, 2, 3, 4, 5, 6], timeLocal: `${hh}:${mm}` }],
       },
     });
-    expect(res.ok(), `PUT /study/schedule: ${res.status()} ${await res.text()}`).toBeTruthy();
+    expect(res.ok(), `POST /study/schedules: ${res.status()} ${await res.text()}`).toBeTruthy();
   });
 
-  // ── 2. Генерация: сессия planned, персональный урок, main+homework ──
+  // ── 2. Генерация: сессия planned, персональный урок (main) ──
+  // KS-4918: занятие = один пункт (интерактивный урок), отдельных
+  // homework-задач нет — закрепление идёт шагами внутри урока.
   let lessonId = '';
   let courseSlug = '';
-  let homeworkTheme: string | null = null;
-  await test.step('сессия сгенерирована: lessonId + homework', async () => {
+  await test.step('сессия сгенерирована: lessonId + main-задача', async () => {
     const session = await getSession(request, token);
-    expect(session, 'session должна существовать сразу после PUT').toBeTruthy();
+    expect(session, 'session должна существовать сразу после POST').toBeTruthy();
     expect(session!.status).toBe('planned');
     expect(session!.lessonId, 'lessonId персонального урока').toBeTruthy();
     lessonId = session!.lessonId!;
@@ -155,24 +165,6 @@ test('занятие v2: расписание → урок → уведомле�
     expect(main!.type).toBe('lesson');
     courseSlug = String(main!.params?.courseSlug ?? '');
     expect(courseSlug, 'courseSlug в params main-задачи').toBeTruthy();
-
-    const homework = session!.tasks.filter((t) => t.role === 'homework');
-    expect(homework.length, 'есть домашка').toBeGreaterThan(0);
-    const puzzleHw = homework.find((t) => t.type === 'puzzle_theme');
-    expect(puzzleHw, 'homework puzzle_theme').toBeTruthy();
-    homeworkTheme = (puzzleHw!.params?.theme as string | null) ?? null;
-  });
-
-  // ── 3. Сид пазла с темой домашки (база пазлов test-стека пуста) ──
-  const puzzleId = `study-e2e-${homeworkTheme ?? 'any'}`;
-  await test.step('сид пазла темы домашки', async () => {
-    await pgQuery(
-      `INSERT INTO puzzles (id, fen, moves, rating, themes, source)
-       VALUES ($1, 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 2 3',
-               'f3f7', 1500, $2, 'lichess')
-       ON CONFLICT (id) DO UPDATE SET themes = EXCLUDED.themes`,
-      [puzzleId, homeworkTheme ?? ''],
-    );
   });
 
   // ── 4. UI /study: карточка занятия с кнопкой «Начать занятие» ──
@@ -247,25 +239,7 @@ test('занятие v2: расписание → урок → уведомле�
     }
   });
 
-  // ── 8. Домашка: solved-попытка пазла темы → reconciliation ──
-  await test.step('домашка отражается через reconciliation', async () => {
-    const ar = await request.post(`${API_URL}/puzzles/${puzzleId}/attempt`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { result: 'solved', timeMs: 4200 },
-    });
-    expect(ar.ok(), `attempt: ${ar.status()} ${await ar.text()}`).toBeTruthy();
-
-    // GET /study/session для активной сессии делает reconcile on-demand.
-    const session = await getSession(request, token);
-    const hw = session!.tasks.find(
-      (t) => t.role === 'homework' && t.type === 'puzzle_theme',
-    );
-    expect(hw, 'homework puzzle_theme').toBeTruthy();
-    expect(hw!.doneCount, 'solved-попытка засчитана в домашку').toBeGreaterThan(0);
-    expect(['partial', 'done']).toContain(hw!.status);
-  });
-
-  // ── 9. Завершение урока → сессия completed со score ──
+  // ── 8. Завершение урока → сессия completed со score ──
   await test.step('completeLesson → session completed + score', async () => {
     const cr = await request.post(
       `${API_URL}/lessons/progress/lessons/${lessonId}/complete`,
@@ -283,7 +257,7 @@ test('занятие v2: расписание → урок → уведомле�
     expect(session!.score!, 'score занятия > 0').toBeGreaterThan(0);
   });
 
-  // ── 10. UI: /study показывает завершение, score, домашку, историю ──
+  // ── 9. UI: /study показывает завершение, score, историю ──
   await test.step('/study: completed + score + история', async () => {
     await page.goto('/study');
     await expect(page.getByTestId('study-session-completed')).toBeVisible({

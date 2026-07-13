@@ -22,6 +22,7 @@
     "e2e:rule:mistakes-diary-after-failures": "playwright test tests/mistakes-diary-after-failures.spec.ts",
     "e2e:rule:puzzle-comeback-after-week": "playwright test tests/puzzle-comeback-after-week.spec.ts",
     "e2e:rule:rush-streak-recovery": "playwright test tests/rush-streak-recovery.spec.ts",
+    "e2e:rule:study-flex-schedules": "playwright test tests/study-flex-schedules.spec.ts",
     "e2e:rule:study-v2-flow": "playwright test tests/study-v2-flow.spec.ts"
   },
   "devDependencies": {
