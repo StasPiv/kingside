@@ -51,12 +51,16 @@ if (denied) {
 if (platform === 'discord') {
   const { readFileSync, writeFileSync } = await import('node:fs');
   const token = readFileSync(new URL('./.discord-token', import.meta.url), 'utf8').trim();
-  const chan = /discord\.com\/channels\/\d+\/(\d+)/.exec(url)?.[1];
+  const m = /discord\.com\/channels\/\d+\/(\d+)(?:\/(\d+))?/.exec(url);
+  const chan = m?.[1];
+  const replyTo = m?.[2]; // id сообщения в url → публикуем как «ответить», не в общий поток
   if (!chan) { console.error(`[error] в url черновика нет id канала: ${url}`); process.exit(1); }
+  const payload = { content: text };
+  if (replyTo) payload.message_reference = { message_id: replyTo, fail_if_not_exists: false };
   const res = await fetch(`https://discord.com/api/v9/channels/${chan}/messages`, {
     method: 'POST',
     headers: { Authorization: token, 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36' },
-    body: JSON.stringify({ content: text }),
+    body: JSON.stringify(payload),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) { console.error(`[error] Discord API ${res.status}: ${body.message || ''}`); process.exit(1); }
