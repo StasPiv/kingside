@@ -516,8 +516,24 @@ button[data-testid='study-session-recheck']:hover:not(:disabled) {
   background: var(--bg-elevated);
 }
 
+/* KS-4931: глобальный `button` (base.css) даёт accent-фон + белый
+   текст; одно только `color: var(--danger)` давало красный текст на
+   синем фоне (не читается в светлой теме). Деструктивное действие —
+   danger-outline: нейтральный фон поверхности, красные текст и рамка,
+   hover — мягкая красная заливка. Токены работают в обеих темах. */
 .study-schedule-delete {
-  color: var(--danger);
+  background: var(--bg-surface);
+  /* --c-f87171 перемаплен по темам: dark #f87171 (светло-красный на
+     тёмной поверхности, ~5:1), light #dc2626 (тёмно-красный на светлой,
+     ~4.9:1). Чистый --danger (#ef4444) на тёмном --bg-surface давал
+     ~3.5:1 — ниже AA. */
+  color: var(--c-f87171);
+  border: 1px solid var(--c-f87171);
+}
+
+.study-schedule-delete:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--c-f87171);
 }
 
 /* ── KS-4929 / ADR-163: имя тренировки на /study ──────────── */
