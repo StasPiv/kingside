@@ -38,6 +38,18 @@ RUN curl -fsSL -o /tmp/sf.tar \
     && rm -rf /tmp/sf.tar /tmp/stockfish \
     && stockfish bench 2>&1 | tail -3
 
+# Maia-3 engine для ai-review (KS-4941). Самодостаточный CJS-бандл
+# (tools/maia-dist/maia.cjs, собран esbuild на хосте: всё кроме
+# onnxruntime-web внутри) + ONNX-модель. Изоляция: движок в образе, не
+# монтируется из репо. Врапер `maia` в PATH → используй как
+# `maia --fen "<FEN>" [--elo N] [--top K]`.
+COPY tools/maia-dist/maia.cjs /opt/maia/maia.cjs
+COPY apps/web/public/maia3/maia3_simplified.onnx /opt/maia/model.onnx
+RUN cd /opt/maia && npm init -y >/dev/null 2>&1 && npm install --no-audit --no-fund onnxruntime-web \
+    && printf '#!/bin/bash\nexec node /opt/maia/maia.cjs "$@"\n' > /usr/local/bin/maia \
+    && chmod +x /usr/local/bin/maia \
+    && maia --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" --top 1
+
 RUN npm install -g @anthropic-ai/claude-code@latest
 
 RUN useradd -m -s /bin/bash agent

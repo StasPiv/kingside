@@ -5,6 +5,8 @@ node_modules
 *.md
 apps/web
 !apps/web/package.json
+!apps/web/public/maia3
+!apps/web/public/maia3/**
 !apps/broadcast-worker/package.json
 !apps/matchmaker/package.json
 !apps/e2e/package.json
@@ -17,6 +19,8 @@ tools
 !tools/maia-puzzle-annotation/**
 !tools/maia3
 !tools/maia3/**
+!tools/maia-dist
+!tools/maia-dist/**
 scripts
 infra
 .turbo
