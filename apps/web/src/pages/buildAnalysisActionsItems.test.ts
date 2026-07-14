@@ -49,6 +49,7 @@ function ctx(overrides: Partial<BuildItemsContext> = {}): BuildItemsContext {
     onRunGameReview: vi.fn(),
     gameReviewDisabled: false,
     gameReviewDisabledHint: undefined,
+    onRunPositionReview: vi.fn(),
     liveAnalysisId: null,
     liveIsLive: false,
     liveIsStarting: false,

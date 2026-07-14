@@ -12,7 +12,7 @@
  * Тонкая стилизация — задача layout (KS-4946); здесь только разметка
  * контейнеров/кнопок с data-testid и минимальными inline-отступами.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { createDefaultEngines } from '../../hooks/useGameReview';
@@ -54,6 +54,13 @@ export interface ReviewPanelProps {
   review: ReviewPlayerReviewState;
   /** Уведомление о старте/остановке автопроигрывания (для блокировки ввода). */
   onAutoplayingChange?: (autoplaying: boolean) => void;
+  /**
+   * KS-4949: внешний запуск разбора (из контекстного меню доски).
+   * Каждый инкремент значения > 0 стартует разбор текущей позиции.
+   * Точка входа вынесена из панели в меню — своей кнопки «Разобрать»
+   * панель больше не рендерит, а в idle не занимает места в макете.
+   */
+  startToken?: number;
 }
 
 export function ReviewPanel({
@@ -61,6 +68,7 @@ export function ReviewPanel({
   elo,
   review,
   onAutoplayingChange,
+  startToken = 0,
 }: ReviewPanelProps) {
   const { t } = useTranslation();
   const reducedMotion = usePrefersReducedMotion();
@@ -88,8 +96,23 @@ export function ReviewPanel({
     onAutoplayingChange?.(player.isAutoplaying);
   }, [player.isAutoplaying, onAutoplayingChange]);
 
+  // KS-4949: запуск разбора приходит извне (пункт контекстного меню
+  // доски), а не из своей кнопки. Каждый инкремент startToken стартует
+  // разбор текущей позиции. currentFen читаем через ref, чтобы эффект
+  // не перезапускался на смену позиции — только на явный запуск.
+  const runRef = useRef(posReview.run);
+  runRef.current = posReview.run;
+  const currentFenRef = useRef(currentFen);
+  currentFenRef.current = currentFen;
+  useEffect(() => {
+    if (startToken > 0) void runRef.current(currentFenRef.current);
+  }, [startToken]);
+
   const { status } = posReview;
   const hasPlan = status === 'ready' && !!posReview.plan;
+
+  // В idle панель не занимает места в макете (точка входа — в меню доски).
+  if (status === 'idle') return null;
 
   return (
     <section
@@ -97,8 +120,6 @@ export function ReviewPanel({
       data-testid="review-panel"
       style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}
     >
-      <h3 style={{ margin: 0 }}>{t('review.panel.title', 'Разбор позиции')}</h3>
-
       {!sfAvailable && (
         <p className="review-panel__note" data-testid="review-panel-no-coi">
           {t(
@@ -108,16 +129,9 @@ export function ReviewPanel({
         </p>
       )}
 
-      {/* --- idle / cancelled / error: запуск --- */}
-      {(status === 'idle' || status === 'cancelled' || status === 'error') && (
+      {/* --- cancelled / error: короткая заметка (перезапуск — из меню) --- */}
+      {(status === 'cancelled' || status === 'error') && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <button
-            type="button"
-            data-testid="review-panel-start"
-            onClick={() => void posReview.run(currentFen)}
-          >
-            {t('review.panel.start', 'Разобрать позицию')}
-          </button>
           {status === 'cancelled' && (
             <span data-testid="review-panel-cancelled">
               {t('review.panel.cancelled', 'Расчёт отменён')}

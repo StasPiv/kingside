@@ -646,6 +646,8 @@ export type BuildItemsContext = {
   onRunGameReview: () => void;
   gameReviewDisabled: boolean;
   gameReviewDisabledHint: string | undefined;
+  /** KS-4949 (ADR-165): запуск разбора текущей позиции (Maia × Stockfish). */
+  onRunPositionReview: () => void;
   /**
    * KS-3755 (ADR-112): live-трансляция анализа. Управление перенесено
    * из верхнего LiveBroadcastControl в эту группу пунктов меню.
@@ -739,6 +741,7 @@ export function buildAnalysisActionsItems(
     onRunGameReview,
     gameReviewDisabled,
     gameReviewDisabledHint,
+    onRunPositionReview,
     liveAnalysisId,
     liveIsLive,
     liveIsStarting,
@@ -817,6 +820,14 @@ export function buildAnalysisActionsItems(
     onClick: onRunGameReview,
     disabled: gameReviewDisabled,
     disabledHint: gameReviewDisabledHint,
+  });
+  // KS-4949 (ADR-165): разбор текущей позиции (Maia × Stockfish) —
+  // запуск из меню доски, интерактивно проигрывается на самой доске.
+  items.push({
+    id: 'analyze-position',
+    group: 'training',
+    label: t('analysis.review.runPositionCta', 'Разобрать позицию'),
+    onClick: onRunPositionReview,
   });
   if (kind === 'analysis' || kind === 'review') {
     items.push({
@@ -2406,6 +2417,14 @@ function AnalysisPageInner({
   const [reviewAutoplaying, setReviewAutoplaying] = useState(false);
   const handleReviewAutoplaying = useCallback(
     (v: boolean) => setReviewAutoplaying(v),
+    [],
+  );
+  // KS-4949: запуск разбора вынесен в контекстное меню доски. Инкремент
+  // токена стартует разбор в ReviewPanel (панель монтируется под доской
+  // и в idle не занимает места, чтобы не ломать вёрстку).
+  const [reviewStartToken, setReviewStartToken] = useState(0);
+  const handleRunPositionReview = useCallback(
+    () => setReviewStartToken((n) => n + 1),
     [],
   );
 
@@ -4894,6 +4913,7 @@ function AnalysisPageInner({
                     onRunGameReview: gameReviewLauncher.trigger,
                     gameReviewDisabled: gameReviewLauncher.disabled,
                     gameReviewDisabledHint: gameReviewLauncher.disabledHint,
+                    onRunPositionReview: handleRunPositionReview,
                     // KS-3755 / ADR-112: broadcast-группа в меню.
                     liveAnalysisId: analysisId ?? null,
                     liveIsLive: liveBroadcast.isLive,
@@ -5065,28 +5085,30 @@ function AnalysisPageInner({
             )}
           </div>
         </div>
-      </div>
 
-      {/* KS-4945 (ADR-165): панель разбора позиции. Автор-режим с
-          движком, не в replay. Тонкая стилизация — layout (KS-4946). */}
-      {showEnginePanel && !isReplay && (
-        <ReviewPanel
-          currentFen={currentFen}
-          elo={maia.elo}
-          review={{
-            makeVariantMove,
-            gotoMove,
-            gotoFirst,
-            setNag,
-            setComment,
-            getHistory: () => history,
-            getCurrentGlobalIndex: () => currentGlobalIndex,
-            getCurrentFen: () => currentFen,
-            currentMove,
-          }}
-          onAutoplayingChange={handleReviewAutoplaying}
-        />
-      )}
+        {/* KS-4949 (ADR-165): разбор запускается из «…»-меню доски.
+            Панель монтируется под доской и в idle не рендерится —
+            вёрстка окна анализа не ломается. Тонкая стилизация — layout. */}
+        {showEnginePanel && !isReplay && (
+          <ReviewPanel
+            currentFen={currentFen}
+            elo={maia.elo}
+            startToken={reviewStartToken}
+            review={{
+              makeVariantMove,
+              gotoMove,
+              gotoFirst,
+              setNag,
+              setComment,
+              getHistory: () => history,
+              getCurrentGlobalIndex: () => currentGlobalIndex,
+              getCurrentFen: () => currentFen,
+              currentMove,
+            }}
+            onAutoplayingChange={handleReviewAutoplaying}
+          />
+        )}
+      </div>
 
       <AnalysisSidebar
         // KS-3908 / ADR-117 C04: производные от studentToolsPolicy.
