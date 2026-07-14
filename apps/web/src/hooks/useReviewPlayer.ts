@@ -42,6 +42,12 @@ export interface UseReviewPlayerOptions {
   timings?: ReviewTimings;
   /** prefers-reduced-motion: анимация off + пошаговый режим (нет авто-адванса). */
   reducedMotion?: boolean;
+  /**
+   * KS-4950: globalIndex узла, из которого запущен разбор (текущая
+   * позиция). Возврат к корню ведёт сюда, а не в начало партии. `-1` —
+   * корень = стартовая позиция.
+   */
+  rootGlobalIndex?: number;
 }
 
 export interface UseReviewPlayerResult {
@@ -67,8 +73,13 @@ export interface UseReviewPlayerResult {
 export function useReviewPlayer(
   options: UseReviewPlayerOptions,
 ): UseReviewPlayerResult {
-  const { plan, review, timings = DEFAULT_REVIEW_TIMINGS, reducedMotion = false } =
-    options;
+  const {
+    plan,
+    review,
+    timings = DEFAULT_REVIEW_TIMINGS,
+    reducedMotion = false,
+    rootGlobalIndex = -1,
+  } = options;
 
   const [status, setStatus] = useState<ReviewPlayerStatus>('idle');
   const [opIndex, setOpIndex] = useState<number>(-1);
@@ -108,8 +119,12 @@ export function useReviewPlayer(
     [],
   );
 
-  const ctxRef = useRef<ApplyOpContext>({ rootFen, fenIndex: fenIndexRef.current });
-  ctxRef.current = { rootFen, fenIndex: fenIndexRef.current };
+  const ctxRef = useRef<ApplyOpContext>({
+    rootFen,
+    fenIndex: fenIndexRef.current,
+    rootGlobalIndex,
+  });
+  ctxRef.current = { rootFen, fenIndex: fenIndexRef.current, rootGlobalIndex };
 
   /** Применить следующую операцию плана. Возвращает false, если план кончился. */
   const advance = useCallback((): boolean => {

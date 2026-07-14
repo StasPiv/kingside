@@ -175,12 +175,36 @@ describe('applyReviewOp', () => {
     expect(calls.makeVariantMove).toEqual([['e7', 'e8', 'q']]);
   });
 
-  it('goto к корню → gotoFirst (стартовая позиция)', () => {
+  it('goto к корню без rootGlobalIndex → gotoFirst (стартовая позиция)', () => {
     const { api, calls } = makeFakeReview({});
     const ctx: ApplyOpContext = { rootFen: ROOT, fenIndex: new Map() };
     // Другой FEN, но тот же positionKey (счётчики ходов игнорируются).
     const op: ReviewPlanOp = { type: 'goto', fen: 'root w - - 9 5' };
     expect(applyReviewOp(op, api, ctx)).toBe(true);
+    expect(calls.gotoFirst).toBe(1);
+  });
+
+  it('KS-4950: goto к корню с rootGlobalIndex → gotoMove на узел запуска, не в начало', () => {
+    const launch = node(12, { fen: 'root w - - 0 1' });
+    const { api, calls } = makeFakeReview({ history: [launch] });
+    const ctx: ApplyOpContext = {
+      rootFen: ROOT,
+      fenIndex: new Map(),
+      rootGlobalIndex: 12,
+    };
+    expect(applyReviewOp({ type: 'goto', fen: ROOT }, api, ctx)).toBe(true);
+    expect(calls.gotoMove).toEqual([launch]); // вернулись к текущей позиции
+    expect(calls.gotoFirst).toBe(0); // НЕ в начало партии
+  });
+
+  it('KS-4950: rootGlobalIndex=-1 (запуск со старта) → gotoFirst', () => {
+    const { api, calls } = makeFakeReview({});
+    const ctx: ApplyOpContext = {
+      rootFen: ROOT,
+      fenIndex: new Map(),
+      rootGlobalIndex: -1,
+    };
+    expect(applyReviewOp({ type: 'goto', fen: ROOT }, api, ctx)).toBe(true);
     expect(calls.gotoFirst).toBe(1);
   });
 

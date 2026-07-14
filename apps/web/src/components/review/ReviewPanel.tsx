@@ -61,6 +61,10 @@ export interface ReviewPanelProps {
    * панель больше не рендерит, а в idle не занимает места в макете.
    */
   startToken?: number;
+  /** KS-4950: инкремент останавливает текущий разбор (пункт «Стоп разбор»). */
+  stopToken?: number;
+  /** KS-4950: активен ли разбор — для смены пункта меню Разобрать⇄Стоп. */
+  onActiveChange?: (active: boolean) => void;
 }
 
 export function ReviewPanel({
@@ -69,8 +73,16 @@ export function ReviewPanel({
   review,
   onAutoplayingChange,
   startToken = 0,
+  stopToken = 0,
+  onActiveChange,
 }: ReviewPanelProps) {
   const reducedMotion = usePrefersReducedMotion();
+  // Актуальный review для чтения текущего узла в момент запуска.
+  const reviewRef = useRef(review);
+  reviewRef.current = review;
+  // KS-4950: узел, из которого запущен разбор (текущая позиция). Возврат
+  // к корню ведёт сюда, а не в начало партии.
+  const [rootGlobalIndex, setRootGlobalIndex] = useState(-1);
 
   // KS-4950: интерактивность важнее исчерпывающей глубины — короткий
   // быстрый обход, чтобы движение фигур начиналось за несколько секунд,
@@ -96,12 +108,22 @@ export function ReviewPanel({
     plan: posReview.plan,
     review,
     reducedMotion,
+    rootGlobalIndex,
   });
 
   // Проброс флага автопроигрывания наверх (блокировка ручного ввода §6).
   useEffect(() => {
     onAutoplayingChange?.(player.isAutoplaying);
   }, [player.isAutoplaying, onAutoplayingChange]);
+
+  // KS-4950: активность разбора (для пункта меню Разобрать⇄Стоп).
+  // Активно, пока идёт расчёт или проигрывание не завершено.
+  const active =
+    posReview.status === 'building' ||
+    (posReview.status === 'ready' && player.status !== 'done');
+  useEffect(() => {
+    onActiveChange?.(active);
+  }, [active, onActiveChange]);
 
   // KS-4950: как только план готов — сразу автопроигрывание, чтобы
   // фигуры двигались по доске сами, ход за ходом (без нажатия «Играть»).
@@ -126,8 +148,25 @@ export function ReviewPanel({
   const currentFenRef = useRef(currentFen);
   currentFenRef.current = currentFen;
   useEffect(() => {
-    if (startToken > 0) void runRef.current(currentFenRef.current);
+    if (startToken > 0) {
+      // Корень разбора = текущая позиция пользователя (узел, из которого
+      // запущено). Возврат к корню в плане приведёт сюда.
+      setRootGlobalIndex(reviewRef.current.getCurrentGlobalIndex());
+      void runRef.current(currentFenRef.current);
+    }
   }, [startToken]);
+
+  // KS-4950: «Стоп разбор» из меню — прерываем расчёт и проигрывание.
+  const cancelRef = useRef(posReview.cancel);
+  cancelRef.current = posReview.cancel;
+  const resetRef = useRef(posReview.reset);
+  resetRef.current = posReview.reset;
+  useEffect(() => {
+    if (stopToken > 0) {
+      cancelRef.current();
+      resetRef.current();
+    }
+  }, [stopToken]);
 
   // KS-4950: разбор показывается ТОЛЬКО на самой доске — фигуры двигаются
   // ход за ходом (автопроигрывание при готовности плана). Никакого

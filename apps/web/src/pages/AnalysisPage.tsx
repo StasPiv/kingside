@@ -648,6 +648,10 @@ export type BuildItemsContext = {
   gameReviewDisabledHint: string | undefined;
   /** KS-4949 (ADR-165): запуск разбора текущей позиции (Maia × Stockfish). */
   onRunPositionReview: () => void;
+  /** KS-4950: остановка идущего разбора. */
+  onStopPositionReview: () => void;
+  /** KS-4950: идёт ли разбор — пункт меню становится «Стоп разбор». */
+  positionReviewActive: boolean;
   /**
    * KS-3755 (ADR-112): live-трансляция анализа. Управление перенесено
    * из верхнего LiveBroadcastControl в эту группу пунктов меню.
@@ -742,6 +746,8 @@ export function buildAnalysisActionsItems(
     gameReviewDisabled,
     gameReviewDisabledHint,
     onRunPositionReview,
+    onStopPositionReview,
+    positionReviewActive,
     liveAnalysisId,
     liveIsLive,
     liveIsStarting,
@@ -821,13 +827,16 @@ export function buildAnalysisActionsItems(
     disabled: gameReviewDisabled,
     disabledHint: gameReviewDisabledHint,
   });
-  // KS-4949 (ADR-165): разбор текущей позиции (Maia × Stockfish) —
+  // KS-4949/4950 (ADR-165): разбор текущей позиции (Maia × Stockfish) —
   // запуск из меню доски, интерактивно проигрывается на самой доске.
+  // Во время разбора пункт становится «Стоп разбор».
   items.push({
     id: 'analyze-position',
     group: 'training',
-    label: t('analysis.review.runPositionCta', 'Разобрать позицию'),
-    onClick: onRunPositionReview,
+    label: positionReviewActive
+      ? t('analysis.review.stopPositionCta', 'Стоп разбор')
+      : t('analysis.review.runPositionCta', 'Разобрать позицию'),
+    onClick: positionReviewActive ? onStopPositionReview : onRunPositionReview,
   });
   if (kind === 'analysis' || kind === 'review') {
     items.push({
@@ -2419,12 +2428,22 @@ function AnalysisPageInner({
     (v: boolean) => setReviewAutoplaying(v),
     [],
   );
-  // KS-4949: запуск разбора вынесен в контекстное меню доски. Инкремент
-  // токена стартует разбор в ReviewPanel (панель монтируется под доской
-  // и в idle не занимает места, чтобы не ломать вёрстку).
+  // KS-4949/4950: запуск/остановка разбора — из контекстного меню доски.
+  // startToken стартует разбор текущей позиции, stopToken прерывает.
+  // reviewActive переключает пункт меню Разобрать⇄Стоп.
   const [reviewStartToken, setReviewStartToken] = useState(0);
+  const [reviewStopToken, setReviewStopToken] = useState(0);
+  const [reviewActive, setReviewActive] = useState(false);
   const handleRunPositionReview = useCallback(
     () => setReviewStartToken((n) => n + 1),
+    [],
+  );
+  const handleStopPositionReview = useCallback(
+    () => setReviewStopToken((n) => n + 1),
+    [],
+  );
+  const handleReviewActiveChange = useCallback(
+    (v: boolean) => setReviewActive(v),
     [],
   );
 
@@ -4914,6 +4933,8 @@ function AnalysisPageInner({
                     gameReviewDisabled: gameReviewLauncher.disabled,
                     gameReviewDisabledHint: gameReviewLauncher.disabledHint,
                     onRunPositionReview: handleRunPositionReview,
+                    onStopPositionReview: handleStopPositionReview,
+                    positionReviewActive: reviewActive,
                     // KS-3755 / ADR-112: broadcast-группа в меню.
                     liveAnalysisId: analysisId ?? null,
                     liveIsLive: liveBroadcast.isLive,
@@ -5094,6 +5115,8 @@ function AnalysisPageInner({
             currentFen={currentFen}
             elo={maia.elo}
             startToken={reviewStartToken}
+            stopToken={reviewStopToken}
+            onActiveChange={handleReviewActiveChange}
             review={{
               makeVariantMove,
               gotoMove,

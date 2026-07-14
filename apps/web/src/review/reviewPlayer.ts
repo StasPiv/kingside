@@ -148,12 +148,19 @@ export interface ApplyOpContext {
   rootFen: string;
   /** positionKey(fen) → globalIndex узла (заполняется по мере записи). */
   fenIndex: Map<string, number>;
+  /**
+   * KS-4950: globalIndex узла, из которого запущен разбор (текущая
+   * позиция пользователя). goto к корню возвращает именно сюда, а не в
+   * начало партии. `-1` — разбор от стартовой позиции (currentMove=null).
+   */
+  rootGlobalIndex?: number;
 }
 
 /**
  * Применяет одну операцию плана к review-actions (ADR §5):
- *   - `goto`: к корню → `gotoFirst` (стартовая позиция, currentMove=null);
- *     иначе поиск узла по записанному globalIndex → `gotoMove`.
+ *   - `goto`: к корню разбора → узел `rootGlobalIndex` (текущая позиция
+ *     пользователя) через `gotoMove`, либо `gotoFirst` если корень —
+ *     стартовая позиция; иначе поиск узла по fenIndex → `gotoMove`.
  *   - `move`: `makeVariantMove` (сам решает ADD_VARIATION/ADD_MOVE/GOTO_MOVE).
  *   - `annotate`: `setNag`/`setComment` на текущем узле (уже закоммичен).
  *
@@ -168,6 +175,16 @@ export function applyReviewOp(
   switch (op.type) {
     case 'goto': {
       if (positionKey(op.fen) === positionKey(ctx.rootFen)) {
+        // Возврат к корню разбора = к узлу, из которого запущен разбор
+        // (текущая позиция), а не в начало партии.
+        const rootGi = ctx.rootGlobalIndex ?? -1;
+        if (rootGi >= 0) {
+          const rootNode = findMoveByGlobalIndex(review.getHistory(), rootGi);
+          if (rootNode) {
+            review.gotoMove(rootNode);
+            return true;
+          }
+        }
         review.gotoFirst();
         return true;
       }
