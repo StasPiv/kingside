@@ -427,6 +427,9 @@ export async function buildReviewPlan(
   // Счётчик стабильных id узлов плана (0,1,2…). goto ссылается на id,
   // а не на FEN — иначе транспозиции ломают навигацию к развилке.
   let nextNodeId = 0;
+  // Разбираемая сторона = кто ходит в корне. За неё берём сильнейшие ходы
+  // Stockfish; за соперника — вероятные человеческие ходы Maia.
+  const rootSide = rootFen.split(' ')[1] === 'b' ? 'b' : 'w';
 
   // Добавить операцию в план и сразу отдать её caller'у (streaming на
   // доску). Пауза внутри onOp задаёт темп проигрывания.
@@ -492,29 +495,32 @@ export async function buildReviewPlan(
       return;
     }
 
-    // Фаза 2: Maia policy узла.
-    const policy = await engines.getMaiaPolicy(fen, elo);
+    // Академичность: за разбираемую сторону берём СИЛЬНЕЙШИЕ ходы
+    // Stockfish (мы играем лучшее); за соперника — вероятные человеческие
+    // ходы Maia (как он реально может ответить).
+    const ourTurn = (fen.split(' ')[1] === 'b' ? 'b' : 'w') === rootSide;
 
-    // KS-4950: стоп-условие §4 «позиция понята» (SF-best==Maia-top и
-    // max(W,D,L)>0.95) УБРАНО — оно ложно срабатывало на ничейных
-    // миттельшпилях (95% draw). По требованию разбор идёт по ходам Maia
-    // ≥ порога, пока такие есть, до аварийных лимитов; нет ходов ≥ порога
-    // → обрыв с оценкой SF (ниже).
-
-    // Кандидаты выбираются ТОЛЬКО по вероятности Maia (§3.1). Stockfish
-    // используется для оценки/WDL и стоп-условия, но НЕ для выбора
-    // ходов-кандидатов. Пометка `both` — если ход Maia совпал с SF-топом
-    // (только для комментария, на отбор не влияет).
-    const maiaCands = selectMaiaCandidates(policy, thresholds).slice(
-      0,
-      limits.maxBranchPerSource,
-    );
-    const sfSet = new Set(nodeEval?.multipv ?? []);
-    const candidates: Array<{ uci: string; source: ReviewMoveSource }> =
-      maiaCands.map((uci) => ({
+    // policy Maia нужна только на ходе соперника (и для % в комментарии).
+    let policy: Record<string, number> = {};
+    let candidates: Array<{ uci: string; source: ReviewMoveSource }>;
+    if (ourTurn) {
+      const sfMoves = (nodeEval?.multipv ?? []).slice(
+        0,
+        limits.maxBranchPerSource,
+      );
+      candidates = sfMoves.map((uci) => ({ uci, source: 'stockfish' }));
+    } else {
+      policy = await engines.getMaiaPolicy(fen, elo);
+      const maiaCands = selectMaiaCandidates(policy, thresholds).slice(
+        0,
+        limits.maxBranchPerSource,
+      );
+      const sfSet = new Set(nodeEval?.multipv ?? []);
+      candidates = maiaCands.map((uci) => ({
         uci,
         source: sfSet.has(uci) ? 'both' : 'maia',
       }));
+    }
     if (candidates.length === 0) {
       // Нет человеческого хода ≥ порога — обрываем ветку и ставим оценку SF
       // на текущем узле (конец разбора этой линии).
