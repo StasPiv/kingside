@@ -15,6 +15,12 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 // findVariationRoot для определения isVariation и currentVariationColor.
 import { findVariationRoot, searchInHistory } from '../utils/ChessHistoryUtils';
 import type { VariationColor } from '../types';
+// KS-4953 (ADR-165 rev4 §7.4): парсинг [%exit …] и счётчик недостроенных.
+import {
+  parseExitTag,
+  countUnfinishedBranches,
+  type ExitKind,
+} from '../utils/exitTag';
 import {
   processMoveHierarchy,
   getMoveClasses,
@@ -136,6 +142,28 @@ export function ReviewMoveList({
       onSetVariationColor,
   );
   const { t } = useTranslation();
+  // KS-4953: локализованная подпись причины завершения ветки.
+  const exitLabel = useCallback(
+    (kind: ExitKind): string => {
+      switch (kind) {
+        case 'theory':
+          return t('review.exit.theory', 'Теория');
+        case 'refuted':
+          return t('review.exit.refuted', 'Наказано');
+        case 'transposition':
+          return t('review.exit.transposition', 'Перестановка');
+        case 'forced':
+          return t('review.exit.forced', 'Вынужденно');
+        case 'limit':
+          return t('review.exit.limit', 'Не достроено');
+        default:
+          return '';
+      }
+    },
+    [t],
+  );
+  // KS-4953: сколько веток осталось недостроено по предохранителю (limit).
+  const unfinishedCount = countUnfinishedBranches(history);
   // KS-2278: режим popup'а определяется устройством (touch + viewport),
   // а не триггером. На desktop (мышь + широкий viewport) даже long-press
   // на гибридном ноутбуке открывает popup. На mobile (touch + узкий
@@ -537,6 +565,9 @@ export function ReviewMoveList({
     if (!move.comment) return null;
 
     const isExpanded = expandedComments.has(move.globalIndex);
+    // KS-4953: причина завершения ветки [%exit …] → цветной бейдж, остальной
+    // текст комментария рядом. Без тега — обычный комментарий.
+    const { kind, text } = parseExitTag(move.comment);
     return (
       <span
         key={`comment-${move.globalIndex}`}
@@ -544,7 +575,16 @@ export function ReviewMoveList({
         data-testid={`review-comment-${move.globalIndex}`}
         onClick={() => toggleCommentExpand(move.globalIndex)}
       >
-        {move.comment}
+        {kind && (
+          <span
+            className={`review-exit review-exit--${kind}`}
+            data-testid={`review-exit-${move.globalIndex}`}
+            data-exit-kind={kind}
+          >
+            {exitLabel(kind)}
+          </span>
+        )}
+        {text ? (kind ? ` ${text}` : text) : ''}
       </span>
     );
   };
@@ -630,6 +670,18 @@ export function ReviewMoveList({
           <div className="review-moves-list">{renderMovesList()}</div>
         )}
       </div>
+      {/* KS-4953: индикатор недостроенных по предохранителю веток (limit). */}
+      {unfinishedCount > 0 && (
+        <div
+          className="review-unfinished"
+          data-testid="review-unfinished"
+          data-count={unfinishedCount}
+        >
+          {t('review.exit.unfinished', '{{count}} веток не достроено (лимит)', {
+            count: unfinishedCount,
+          })}
+        </div>
+      )}
 
       {contextMenu.visible && contextMenu.move && (() => {
         // KS-2283: общий блок actions (comment / promote / truncate / delete)
