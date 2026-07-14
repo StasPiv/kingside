@@ -494,16 +494,12 @@ export async function buildReviewPlan(
 
     // Фаза 2: Maia policy узла.
     const policy = await engines.getMaiaPolicy(fen, elo);
-    const maiaTop = maiaTopMove(policy);
 
-    // Стоп-условие §4.
-    if (
-      nodeEval &&
-      isUnderstood(maiaTop, nodeEval.bestUci, nodeEval.wdl, limits.decidedWdl)
-    ) {
-      markLeaf('understood');
-      return;
-    }
+    // KS-4950: стоп-условие §4 «позиция понята» (SF-best==Maia-top и
+    // max(W,D,L)>0.95) УБРАНО — оно ложно срабатывало на ничейных
+    // миттельшпилях (95% draw). По требованию разбор идёт по ходам Maia
+    // ≥ порога, пока такие есть, до аварийных лимитов; нет ходов ≥ порога
+    // → обрыв с оценкой SF (ниже).
 
     // Кандидаты выбираются ТОЛЬКО по вероятности Maia (§3.1). Stockfish
     // используется для оценки/WDL и стоп-условия, но НЕ для выбора

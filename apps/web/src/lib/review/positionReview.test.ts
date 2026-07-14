@@ -251,42 +251,26 @@ describe('buildReviewPlan — нет ходов Maia ≥ порога → оце
   });
 });
 
-describe('buildReviewPlan — стоп-условие §4', () => {
-  it('корень уже понят (SF==Maia, decided) → только goto, лист understood', async () => {
-    const { engines } = makeEngines({
-      policy: { [ROOT]: { e2e4: 0.9, d2d4: 0.1 } },
-      evals: { [ROOT]: { bestUci: 'e2e4', wdl: { w: 980, d: 15, l: 5 }, multipv: ['e2e4'] } },
-      transitions: {},
-    });
-    const plan = await buildReviewPlan(ROOT, engines);
-    expect(plan.ops).toEqual([{ type: 'goto', toId: REVIEW_ROOT_ID }]);
-    expect(plan.stats.leaves.understood).toBe(1);
-    expect(plan.stats.nodes).toBe(1);
-  });
-
-  it('рекурсия останавливается по §4 на дочернем узле', async () => {
+describe('buildReviewPlan — стоп по «пониманию» убран (KS-4950)', () => {
+  it('ничейная оценка (D>0.95) при SF==Maia всё равно разбирается по Maia', async () => {
     const CHILD = 'child b - - 1 1';
-    // Корень: не понят (исход не decided). Один кандидат e2e4 → CHILD.
-    // CHILD: понят (SF==Maia, decided) → лист.
+    // Ранее max(W,D,L)>0.95 + SF==Maia → understood-стоп на корне и НИ
+    // ОДНОГО хода. Теперь ход Maia e2e4 разбирается (understood убран).
     const { engines } = makeEngines({
-      policy: {
-        [ROOT]: { e2e4: 0.95, d2d4: 0.05 },
-        [CHILD]: { e7e5: 0.9, c7c5: 0.1 },
-      },
+      policy: { [ROOT]: { e2e4: 0.9 }, [CHILD]: { zz: 0.99 } },
       evals: {
-        // SF-топ d2d4 (расходится с Maia e2e4) без перехода → отсеётся;
-        // остаётся чистый Maia-кандидат e2e4.
-        [ROOT]: { bestUci: 'd2d4', wdl: { w: 500, d: 300, l: 200 }, multipv: ['d2d4'] },
-        // eval дочерней позиции (POV соперника) для evalAfterMove:
-        [CHILD]: { bestUci: 'e7e5', wdl: { w: 980, d: 15, l: 5 }, multipv: ['e7e5'] },
+        // SF-топ = Maia-топ (e2e4) и «ничья» 95.3% — раньше это давало
+        // understood; теперь не влияет.
+        [ROOT]: { bestUci: 'e2e4', wdl: { w: 40, d: 953, l: 7 }, multipv: ['e2e4'] },
+        [CHILD]: { bestUci: 'zz', wdl: { w: 40, d: 953, l: 7 }, multipv: ['zz'] },
       },
       transitions: { [ROOT]: { e2e4: CHILD } },
     });
     const plan = await buildReviewPlan(ROOT, engines);
     const moves = plan.ops.filter((o) => o.type === 'move');
-    expect(moves).toHaveLength(1);
-    expect(moves[0]).toMatchObject({ uci: 'e2e4', source: 'maia' });
-    expect(plan.stats.leaves.understood).toBe(1);
+    expect(moves.length).toBeGreaterThanOrEqual(1); // ход разобран, не стоп
+    expect(moves[0]).toMatchObject({ uci: 'e2e4' });
+    expect(plan.stats.leaves.understood).toBe(0); // «понимания» больше нет
   });
 });
 
