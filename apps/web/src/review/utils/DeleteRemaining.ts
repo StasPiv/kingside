@@ -20,11 +20,26 @@ export function deleteRemaining(currentMove: ChessMove, history: ChessMove[]): C
     }
 
     /**
-     * Обрезает основную линию после указанного хода
+     * Обрезает основную линию после указанного хода.
+     *
+     * KS-4960: если целевой ход — последний в главной линии (лист, после
+     * него ходов нет), «Обрезать» удаляет и его самого. Так снимается
+     * единственный оставшийся ход (дерево возвращается к стартовой
+     * позиции) и любой концевой ход главной линии. Для не-последнего
+     * хода поведение прежнее — удаляются только ходы после него.
      */
     function truncateMainLine(globalIndex: number): ChessMove[] {
+        const targetIndex = history.findIndex(move => move.globalIndex === globalIndex);
+        if (targetIndex === history.length - 1) {
+            const kept = history.slice(0, targetIndex).map(move => ({ ...move }));
+            if (kept.length > 0) {
+                kept[kept.length - 1] = { ...kept[kept.length - 1], next: undefined };
+            }
+            return kept;
+        }
+
         const result: ChessMove[] = [];
-        
+
         for (const move of history) {
             if (move.globalIndex === globalIndex) {
                 // Добавляем текущий ход, но очищаем его next и вариации от удаляемых ходов

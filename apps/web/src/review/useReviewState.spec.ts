@@ -453,3 +453,51 @@ describe('useReviewState — KS-3039 root variation (ply=0)', () => {
     expect(result.current.history.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3']);
   });
 });
+
+describe('useReviewState — KS-4960 «Обрезать» удаляет концевой ход главной линии', () => {
+  function setupWithPgn(pgn: string) {
+    const moves = parseAnnotatedPgn(pgn);
+    const { result } = renderHook(() => useReviewState());
+    act(() => {
+      result.current.loadFromPgn(moves);
+    });
+    return result;
+  }
+
+  it('единственный ход главной линии — «Обрезать» удаляет его, дерево пустое', () => {
+    const result = setupWithPgn('1. e4');
+    const only = result.current.history[0];
+
+    act(() => {
+      result.current.truncateRemaining(only);
+    });
+
+    expect(result.current.history).toEqual([]);
+    expect(result.current.currentMove).toBeNull();
+  });
+
+  it('последний ход многоходовой линии — «Обрезать» удаляет его, курсор на предшественнике', () => {
+    const result = setupWithPgn('1. e4 e5 2. Nf3');
+    const last = result.current.history[2];
+
+    act(() => {
+      result.current.truncateRemaining(last);
+    });
+
+    expect(result.current.history.map((m) => m.san)).toEqual(['e4', 'e5']);
+    expect(result.current.currentMove?.san).toBe('e5');
+    expect(result.current.currentMove?.next ?? null).toBeNull();
+  });
+
+  it('не-последний ход — «Обрезать» удаляет ходы после, сам ход остаётся (без регрессий)', () => {
+    const result = setupWithPgn('1. e4 e5 2. Nf3');
+    const e4 = result.current.history[0];
+
+    act(() => {
+      result.current.truncateRemaining(e4);
+    });
+
+    expect(result.current.history.map((m) => m.san)).toEqual(['e4']);
+    expect(result.current.currentMove?.san).toBe('e4');
+  });
+});

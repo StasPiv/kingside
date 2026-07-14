@@ -257,13 +257,18 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
       };
     }
     case 'DELETE_REMAINING': {
-      const updatedHistory = deleteRemainingUtil(action.payload, state.history);
-      const found = searchInHistory(updatedHistory as ChessMove[], action.payload.globalIndex) as ChessMove | null;
-      return {
-        ...state,
-        history: updatedHistory as ChessMove[],
-        currentMove: found ?? state.currentMove,
-      };
+      const updatedHistory = deleteRemainingUtil(action.payload, state.history) as ChessMove[];
+      const found = searchInHistory(updatedHistory, action.payload.globalIndex) as ChessMove | null;
+      if (found) {
+        return { ...state, history: updatedHistory, currentMove: found };
+      }
+      // KS-4960: целевой ход удалён целиком (был последним в главной линии) →
+      // встаём на предшественника, а если ходов не осталось — в стартовую позицию.
+      const idx = state.history.findIndex(m => m.globalIndex === action.payload.globalIndex);
+      const prev = idx > 0
+        ? (searchInHistory(updatedHistory, state.history[idx - 1].globalIndex) as ChessMove | null)
+        : null;
+      return { ...state, history: updatedHistory, currentMove: prev };
     }
     case 'SET_NAG': {
       const move = searchInHistory(state.history, action.payload.globalIndex) as ChessMove | null;
