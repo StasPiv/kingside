@@ -37,40 +37,35 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Порог «человеческого» хода Maia (ADR-165 §3.1). Ход `m` —
- * кандидат, если выполнены ВСЕ условия: `prob ≥ pFloor`, входит в
- * top-p ядро (`≥ pNucleus` кумулятивной массы), `prob ≥ rel·probTop`,
- * и не превышен лимит `nMax` ходов на узел.
+ * Пороги ветвления соперника и точек выхода (ADR-165 rev4 §3-§4).
+ * Ветвим ходы соперника по nucleus-покрытию `pCover` с абсолютным полом
+ * `pFloor` и жёстким потолком `kMax`. Выход: `decisive` (наказание
+ * ошибки) и `nearEqualBand` (теория) — из WDL.
  */
 export interface ReviewThresholds {
-  /** Абсолютный пол вероятности хода. Default 0.10. */
+  /** Кумулятивная масса покрытия ходов соперника (nucleus). Default 0.90. */
+  pCover: number;
+  /** Абсолютный пол вероятности хода соперника. Default 0.08. */
   pFloor: number;
-  /** Кумулятивная масса ядра (top-p). Default 0.85. */
-  pNucleus: number;
-  /** Относительный пол: доля от вероятности топ-хода. Default 0.4. */
-  rel: number;
-  /** Максимум Maia-кандидатов на узел. Default 2. */
-  nMax: number;
+  /** Жёсткий потолок ширины (ходов соперника на узел). Default 3. */
+  kMax: number;
+  /** Ожидаемый счёт за нас ≥ этого → выход `refuted` (наказали ошибку). Default 0.90. */
+  decisive: number;
+  /** Полуширина зоны near-equal вокруг 0.5 (теория). Default 0.10 → [0.40,0.60]. */
+  nearEqualBand: number;
+  /** Горизонт дебюта (полуходы): near-equal + глубина ≥ этого → theory. Default 24. */
+  openingHorizonPly: number;
 }
 
 /**
- * Аварийные лимиты против взрыва дерева (ADR-165 §2/§4) — безопасность,
- * не суть алгоритма.
+ * Щедрые предохранители (ADR-165 rev4 §5). Глубину задаёт `exit()`, НЕ
+ * фиксированный потолок. При достижении лист помечается `[%exit limit]`.
  */
 export interface ReviewLimits {
-  /** Максимальная глубина в полуходах. Default 6. */
-  maxDepth: number;
-  /** Максимум узлов плана (жёсткий стоп). Default 40. */
+  /** Предохранитель по глубине (полуходы). Default 30. */
+  maxPly: number;
+  /** Предохранитель по числу узлов. Default 200. */
   maxNodes: number;
-  /** Максимум ходов на источник (Maia / SF) на узел. Default 2. */
-  maxBranchPerSource: number;
-  /**
-   * Порог «стабильности исхода» §4.2: max(W,D,L)/1000 > this →
-   * позиция decided. Default 0.95.
-   */
-  decidedWdl: number;
-  /** MultiPV для Stockfish на узле. Default 2. */
-  stockfishMultiPv: number;
 }
 
 export interface ReviewConfig {
@@ -81,18 +76,17 @@ export interface ReviewConfig {
 }
 
 export const DEFAULT_REVIEW_THRESHOLDS: ReviewThresholds = {
-  pFloor: 0.1,
-  pNucleus: 0.85,
-  rel: 0.4,
-  nMax: 2,
+  pCover: 0.9,
+  pFloor: 0.08,
+  kMax: 3,
+  decisive: 0.9,
+  nearEqualBand: 0.1,
+  openingHorizonPly: 24,
 };
 
 export const DEFAULT_REVIEW_LIMITS: ReviewLimits = {
-  maxDepth: 6,
-  maxNodes: 40,
-  maxBranchPerSource: 2,
-  decidedWdl: 0.95,
-  stockfishMultiPv: 2,
+  maxPly: 30,
+  maxNodes: 200,
 };
 
 export const DEFAULT_REVIEW_ELO = 1500;
@@ -177,23 +171,27 @@ export type ReviewPlanOp =
    */
   | { type: 'promote' };
 
-export type ReviewStopReason =
-  | 'understood'
-  | 'max_depth'
-  | 'max_nodes'
-  | 'repetition'
-  | 'terminal';
+/** Причина завершения ветки (лист) — ADR-165 rev4 §4. */
+export type ReviewExitKind =
+  | 'theory' // дебют пройден / вынужденно / позиция стабильна
+  | 'refuted' // ошибка соперника наказана до перевеса
+  | 'transposition' // нормализованный FEN уже в дереве
+  | 'limit' // предохранитель maxPly/maxNodes — ветка НЕ достроена
+  | 'terminal'; // мат/пат/нет хода
+
+/** Машинный тег `[%exit …]` в комментарии узла-листа (фронт парсит). */
+export function exitTag(kind: ReviewExitKind): string {
+  return `[%exit ${kind}]`;
+}
 
 export interface ReviewPlanStats {
-  /** Число раскрытых (expand'нутых) узлов. */
+  /** Число раскрытых узлов. */
   nodes: number;
-  /** Число листьев по каждой причине остановки. */
-  leaves: Record<ReviewStopReason, number>;
+  /** Число листьев по каждой причине выхода. */
+  leaves: Record<ReviewExitKind, number>;
   /** Достигнутая максимальная глубина (полуходы). */
-  maxDepthReached: number;
-  /** true — обход упёрся в maxNodes (план, возможно, неполон). */
-  truncatedByNodes: boolean;
-  /** true — SF был недоступен хотя бы на одном узле (Maia-only деградация). */
+  maxPlyReached: number;
+  /** SF был недоступен хотя бы на одном узле. */
   degradedNoSf: boolean;
 }
 
@@ -205,19 +203,16 @@ export interface ReviewPlan {
 }
 
 // ---------------------------------------------------------------------------
-// §3.1 — отбор человеческих кандидатов Maia.
+// §3 — ветвление соперника по nucleus-покрытию.
 // ---------------------------------------------------------------------------
 
 /**
- * ADR-165 §3.1. Отбирает человеческие ходы из policy Maia по порогам
- * `pFloor` / `pNucleus` / `rel` / `nMax`. Возвращает UCI'и best-first.
- *
- * policy отсортирована по убыванию; кандидат проходит, пока: не превышен
- * `nMax`, `prob ≥ pFloor`, `prob ≥ rel·probTop`, и кумулятивная масса
- * ДО хода < `pNucleus` (ход внутри top-p ядра). Первое нарушение любого
- * из порогов обрывает добор (policy монотонна).
+ * ADR-165 rev4 §3. Человеческие ходы соперника через покрытие (nucleus):
+ * берём ходы по убыванию вероятности, пока кумулятивно не покрыто
+ * `pCover`; каждый ≥ `pFloor`; не более `kMax`. Возвращает UCI'и
+ * prob-desc (самый вероятный — первым, он станет главной линией).
  */
-export function selectMaiaCandidates(
+export function selectOpponentMoves(
   policy: Record<string, number>,
   thresholds: ReviewThresholds,
 ): string[] {
@@ -226,38 +221,22 @@ export function selectMaiaCandidates(
     .sort((a, b) => b[1] - a[1]);
   if (entries.length === 0) return [];
 
-  const probTop = entries[0][1];
-  const relFloor = thresholds.rel * probTop;
   const result: string[] = [];
-  let cumBefore = 0;
-
+  let cum = 0;
   for (const [uci, prob] of entries) {
-    if (result.length >= thresholds.nMax) break;
+    if (result.length >= thresholds.kMax) break;
     if (prob < thresholds.pFloor) break;
-    if (prob < relFloor) break;
-    if (cumBefore >= thresholds.pNucleus) break;
+    // Уже покрыли достаточно человеческой массы — хвост не берём.
+    if (result.length > 0 && cum >= thresholds.pCover) break;
     result.push(uci);
-    cumBefore += prob;
+    cum += prob;
   }
   return result;
 }
 
-/** argmax policy Maia (топ-ход человека). `null` — пустая policy. */
-export function maiaTopMove(policy: Record<string, number>): string | null {
-  let best: string | null = null;
-  let bestProb = -Infinity;
-  for (const [uci, prob] of Object.entries(policy)) {
-    if (Number.isFinite(prob) && prob > bestProb) {
-      bestProb = prob;
-      best = uci;
-    }
-  }
-  return best;
-}
-
 /**
- * KS-4950: комментарий с оценкой Stockfish для конца ветки (нет ходов
- * Maia ≥ порога). `score` — POV стороны на ходу; приводим к POV белых.
+ * KS-4950: комментарий с оценкой Stockfish. `score` — POV стороны на
+ * ходу; приводим к POV белых.
  */
 export function formatSfEvalComment(
   score: { type: 'cp' | 'mate'; value: number },
@@ -273,7 +252,7 @@ export function formatSfEvalComment(
 }
 
 // ---------------------------------------------------------------------------
-// §4 — стоп-условие «позиция понята».
+// §4 — точки выхода из дебютной ветки.
 // ---------------------------------------------------------------------------
 
 /** max(W,D,L)/1000 позиции. */
@@ -281,20 +260,37 @@ export function maxOutcomeProb(wdl: Wdl): number {
   return Math.max(wdl.w, wdl.d, wdl.l) / 1000;
 }
 
-/**
- * ADR-165 §4. Позиция «понята» ⟺ ОБА: (1) SF-best == Maia-top,
- * (2) max(W,D,L) > decidedWdl. Если SF недоступен (`bestUci == null`)
- * — понять нельзя (углубляемся до лимитов).
- */
-export function isUnderstood(
-  maiaTop: string | null,
-  sfBest: string | null,
-  wdl: Wdl,
-  decidedWdl: number,
-): boolean {
-  if (!maiaTop || !sfBest) return false;
-  if (maiaTop !== sfBest) return false;
-  return maxOutcomeProb(wdl) > decidedWdl;
+/** Сторона на ходу по FEN. */
+export function sideToMove(fen: string): 'w' | 'b' {
+  return fen.split(' ')[1] === 'b' ? 'b' : 'w';
+}
+
+/** Оба короля покинули исходные клетки (e1/e8) — развились/рокировали. */
+export function bothDeveloped(fen: string): boolean {
+  const board = fen.split(' ')[0];
+  const ranks = board.split('/');
+  if (ranks.length !== 8) return false;
+  // ranks[0] = 8-я (чёрные), ranks[7] = 1-я (белые). Файл 'e' = индекс 4.
+  const fileOf = (rank: string, target: number): string | null => {
+    let file = 0;
+    for (const ch of rank) {
+      if (ch >= '1' && ch <= '8') file += Number(ch);
+      else {
+        if (file === target) return ch;
+        file += 1;
+      }
+      if (file > target) return null;
+    }
+    return null;
+  };
+  const whiteKingE1 = fileOf(ranks[7], 4) === 'K';
+  const blackKingE8 = fileOf(ranks[0], 4) === 'k';
+  return !whiteKingE1 && !blackKingE8;
+}
+
+/** Ожидаемый счёт (win-prob) в зоне near-equal вокруг 0.5 ± band. */
+export function isNearEqual(expScore: number, band: number): boolean {
+  return Math.abs(expScore - 0.5) <= band;
 }
 
 // ---------------------------------------------------------------------------
@@ -412,223 +408,230 @@ export async function buildReviewPlan(
   const ops: ReviewPlanOp[] = [];
   const stats: ReviewPlanStats = {
     nodes: 0,
-    leaves: {
-      understood: 0,
-      max_depth: 0,
-      max_nodes: 0,
-      repetition: 0,
-      terminal: 0,
-    },
-    maxDepthReached: 0,
-    truncatedByNodes: false,
+    leaves: { theory: 0, refuted: 0, transposition: 0, limit: 0, terminal: 0 },
+    maxPlyReached: 0,
     degradedNoSf: false,
   };
+  // Нормализованные FEN всех позиций после НАШИХ ходов — для транспозиций.
   const visited = new Set<string>();
-  // Счётчик стабильных id узлов плана (0,1,2…). goto ссылается на id,
-  // а не на FEN — иначе транспозиции ломают навигацию к развилке.
   let nextNodeId = 0;
-  // Разбираемая сторона = кто ходит в корне. За неё берём сильнейшие ходы
-  // Stockfish; за соперника — вероятные человеческие ходы Maia.
-  const rootSide = rootFen.split(' ')[1] === 'b' ? 'b' : 'w';
 
-  // Добавить операцию в план и сразу отдать её caller'у (streaming на
-  // доску). Пауза внутри onOp задаёт темп проигрывания.
   const emit = async (op: ReviewPlanOp): Promise<void> => {
     if (signal?.aborted) throw new ReviewAbortError();
     ops.push(op);
     await onOp?.(op);
   };
-
-  // Позиционируемся на корне разбора (текущая позиция пользователя).
   await emit({ type: 'goto', toId: REVIEW_ROOT_ID });
 
-  const markLeaf = (reason: ReviewStopReason) => {
-    stats.leaves[reason] += 1;
+  const markLeaf = (kind: ReviewExitKind) => {
+    stats.leaves[kind] += 1;
   };
 
-  /** Оценка узла: WDL POV сделавшего ход (инверсия raw SF POV соперника). */
-  const evalAfterMove = async (
-    childFen: string,
-  ): Promise<Wdl | null> => {
-    const childEval = await engines.analyze(childFen, 1);
-    if (!childEval) return null;
-    // childEval.wdl — POV стороны на ходу в childFen (= соперник
-    // сделавшего ход). Инвертируем к POV сделавшего ход.
-    return invertWdl(childEval.wdl);
+  /** SF-эвал узла (`null` — SF недоступен). */
+  const analyzeNode = async (fen: string): Promise<PositionReviewEval | null> => {
+    const e = await engines.analyze(fen, 1);
+    if (!e) stats.degradedNoSf = true;
+    return e;
   };
 
-  // `parentId` — id узла, чья позиция = `fen` (REVIEW_ROOT_ID для корня).
-  // Возврат к развилке между сиблингами делается goto именно к нему.
-  const expand = async (
+  /** Пометить лист причиной выхода: тег [%exit …] + текст в комментарий. */
+  const emitExitLeaf = async (
+    kind: ReviewExitKind,
+    posFen: string,
+    scoreForRefuted: { type: 'cp' | 'mate'; value: number } | null,
+  ): Promise<void> => {
+    let text = '';
+    if (kind === 'theory') text = 'дебют пройден';
+    else if (kind === 'transposition') text = 'перестановка';
+    else if (kind === 'limit') text = 'обрыв по лимиту';
+    else if (kind === 'refuted') {
+      text = scoreForRefuted
+        ? formatSfEvalComment(scoreForRefuted, sideToMove(posFen) === 'w')
+        : '+-';
+    }
+    await emit({
+      type: 'annotate',
+      comment: `${exitTag(kind)} ${text}`.trim(),
+    });
+    markLeaf(kind);
+  };
+
+  // Наш ход: ровно один сильнейший ход SF. Затем exit ЛИБО ход соперника.
+  const buildOur = async (
+    fen: string,
+    depth: number,
+    _parentId: number,
+  ): Promise<void> => {
+    if (signal?.aborted) throw new ReviewAbortError();
+    stats.maxPlyReached = Math.max(stats.maxPlyReached, depth);
+
+    const nodeEval = await analyzeNode(fen);
+    const best = nodeEval?.bestUci ?? null;
+    if (!best) {
+      markLeaf('terminal'); // мат/пат/SF недоступен — редкий лист
+      return;
+    }
+    const childFen = engines.applyMove(fen, best);
+    if (childFen === null) {
+      markLeaf('terminal');
+      return;
+    }
+    // WDL после нашего хода, POV нас (в childFen ходит соперник).
+    const childEval = await analyzeNode(childFen);
+    const wdlAfterUs = childEval ? invertWdl(childEval.wdl) : null;
+
+    const ourMoveId = nextNodeId++;
+    stats.nodes += 1;
+    onProgress?.(stats.nodes);
+    await emit({
+      type: 'move',
+      id: ourMoveId,
+      uci: best,
+      san: engines.toSan(fen, best),
+      source: 'stockfish',
+      wdlAfter: wdlAfterUs,
+    });
+
+    // Точка выхода — ТОЛЬКО после нашего хода (childFen — ход соперника).
+    // Порядок: transposition → refuted → theory → limit.
+    const normFen = positionKey(childFen);
+    if (visited.has(normFen)) {
+      await emitExitLeaf('transposition', childFen, null);
+      return;
+    }
+    visited.add(normFen);
+
+    const ourExp = wdlAfterUs ? expectedScoreFromWdl(wdlAfterUs) : 0.5;
+    if (ourExp >= thresholds.decisive) {
+      await emitExitLeaf('refuted', childFen, childEval?.score ?? null);
+      return;
+    }
+
+    // Человеческие ходы соперника (nucleus §3) — нужны и для theory, и далее.
+    const oppPolicy = await engines.getMaiaPolicy(childFen, elo);
+    const oppMoves = selectOpponentMoves(oppPolicy, thresholds);
+
+    const nearEqual = isNearEqual(ourExp, thresholds.nearEqualBand);
+    // Горизонт дебюта: соперник сошёлся к одному ходу, либо оба развились
+    // (короли ушли с e1/e8), либо достигнута дебютная глубина.
+    const horizon =
+      oppMoves.length <= 1 ||
+      bothDeveloped(childFen) ||
+      depth + 1 >= thresholds.openingHorizonPly;
+    if (nearEqual && horizon) {
+      await emitExitLeaf('theory', childFen, null);
+      return;
+    }
+
+    // Предохранитель: щедрый лимит, лист помечается [%exit limit].
+    if (depth + 1 >= limits.maxPly || stats.nodes >= limits.maxNodes) {
+      await emitExitLeaf('limit', childFen, null);
+      return;
+    }
+
+    // Иначе — ветвим соперника, дальше ОБЯЗАТЕЛЬНО наш ответ.
+    await buildOpp(childFen, depth + 1, ourMoveId, oppPolicy, oppMoves);
+  };
+
+  // Ход соперника: ветвление по Maia; каждый ответ → наш ход (buildOur).
+  const buildOpp = async (
     fen: string,
     depth: number,
     parentId: number,
+    oppPolicy: Record<string, number>,
+    oppMovesIn: string[],
   ): Promise<void> => {
     if (signal?.aborted) throw new ReviewAbortError();
-    stats.maxDepthReached = Math.max(stats.maxDepthReached, depth);
 
-    if (stats.nodes >= limits.maxNodes) {
-      stats.truncatedByNodes = true;
-      markLeaf('max_nodes');
-      return;
+    let oppMoves = oppMovesIn;
+    let fromMaia = true;
+    if (oppMoves.length === 0) {
+      // Нет человеческого хода — берём сильнейший SF (одиночный), чтобы
+      // сохранить инвариант (у нас всегда есть ответ дальше).
+      const e = await analyzeNode(fen);
+      oppMoves = e?.bestUci ? [e.bestUci] : [];
+      fromMaia = false;
     }
-    if (depth >= limits.maxDepth) {
-      markLeaf('max_depth');
-      return;
-    }
-    const key = positionKey(fen);
-    if (visited.has(key)) {
-      markLeaf('repetition');
-      return;
-    }
-    visited.add(key);
-    stats.nodes += 1;
-    onProgress?.(stats.nodes);
-
-    // Фаза 1: SF-оценка узла (bestmove, WDL, MultiPV-кандидаты).
-    const nodeEval = await engines.analyze(fen, limits.stockfishMultiPv);
-    if (!nodeEval) stats.degradedNoSf = true;
-
-    // Терминал: SF есть, но ходов нет (мат/пат).
-    if (nodeEval && nodeEval.bestUci === null && nodeEval.multipv.length === 0) {
-      markLeaf('terminal');
+    if (oppMoves.length === 0) {
+      markLeaf('terminal'); // пат/нет ходов
       return;
     }
 
-    // Академичность: за разбираемую сторону берём СИЛЬНЕЙШИЕ ходы
-    // Stockfish (мы играем лучшее); за соперника — вероятные человеческие
-    // ходы Maia (как он реально может ответить).
-    const ourTurn = (fen.split(' ')[1] === 'b' ? 'b' : 'w') === rootSide;
-
-    // policy Maia нужна только на ходе соперника (и для % в комментарии).
-    let policy: Record<string, number> = {};
-    let candidates: Array<{ uci: string; source: ReviewMoveSource }>;
-    if (ourTurn) {
-      // За разбираемую сторону — РОВНО один сильнейший ход SF, без
-      // альтернатив (ветвление только у соперника).
-      const best = nodeEval?.bestUci ?? nodeEval?.multipv[0] ?? null;
-      candidates = best ? [{ uci: best, source: 'stockfish' }] : [];
-    } else {
-      policy = await engines.getMaiaPolicy(fen, elo);
-      const maiaCands = selectMaiaCandidates(policy, thresholds).slice(
-        0,
-        limits.maxBranchPerSource,
-      );
-      const sfSet = new Set(nodeEval?.multipv ?? []);
-      candidates = maiaCands.map((uci) => ({
-        uci,
-        source: sfSet.has(uci) ? 'both' : 'maia',
-      }));
-    }
-    if (candidates.length === 0) {
-      // Нет человеческого хода ≥ порога — обрываем ветку и ставим оценку SF
-      // на текущем узле (конец разбора этой линии).
-      if (nodeEval?.score) {
-        const whiteToMove = fen.split(' ')[1] === 'w';
-        await emit({
-          type: 'annotate',
-          comment: formatSfEvalComment(nodeEval.score, whiteToMove),
-        });
-      }
-      markLeaf('terminal');
-      return;
-    }
-
-    // Фаза 3: оценка+WDL каждого кандидата (последовательно).
-    const evaluated: Array<{
+    // Оценка каждого хода соперника (POV соперника) для NAG.
+    const evald: Array<{
       uci: string;
       san: string;
-      source: ReviewMoveSource;
       childFen: string;
-      wdlAfter: Wdl | null;
+      oppWdl: Wdl | null;
+      oppExp: number;
       maiaProb: number | null;
     }> = [];
-    for (const cand of candidates) {
-      const childFen = engines.applyMove(fen, cand.uci);
-      if (childFen === null) continue; // нелегальный — пропуск
-      const wdlAfter = await evalAfterMove(childFen);
-      evaluated.push({
-        uci: cand.uci,
-        san: engines.toSan(fen, cand.uci),
-        source: cand.source,
-        childFen,
-        wdlAfter,
-        maiaProb: Number.isFinite(policy[cand.uci]) ? policy[cand.uci] : null,
+    for (const uci of oppMoves) {
+      const cf = engines.applyMove(fen, uci);
+      if (cf === null) continue;
+      const ce = await analyzeNode(cf); // POV нас (cf — наш ход)
+      const oppWdl = ce ? invertWdl(ce.wdl) : null; // POV соперника
+      evald.push({
+        uci,
+        san: engines.toSan(fen, uci),
+        childFen: cf,
+        oppWdl,
+        oppExp: oppWdl ? expectedScoreFromWdl(oppWdl) : 0.5,
+        maiaProb: Number.isFinite(oppPolicy[uci]) ? oppPolicy[uci] : null,
       });
     }
-    if (evaluated.length === 0) {
+    if (evald.length === 0) {
       markLeaf('terminal');
       return;
     }
 
-    // Лучший кандидат = max expected-score POV сделавшего ход (для ΔWDL).
-    // Заодно индекс сильнейшего — его повысим до главной линии (§ повышение).
-    let bestE = -Infinity;
-    let strongestIdx = -1;
-    let strongestE = -Infinity;
-    evaluated.forEach((e, idx) => {
-      if (!e.wdlAfter) return;
-      const es = expectedScoreFromWdl(e.wdlAfter);
-      bestE = Math.max(bestE, es);
-      if (es > strongestE + 1e-9) {
-        strongestE = es;
-        strongestIdx = idx;
-      }
-    });
+    // Лучший ответ соперника = max его expected-score (сильнейшая защита).
+    const bestOppE = Math.max(...evald.map((e) => e.oppExp));
 
-    // Фаза 4: сначала ШИРИНА — выводим ВСЕ ходы-альтернативы этого узла
-    // (они не тратят бюджет узлов и появляются всегда, даже при исчерпании
-    // лимита в глубоких ветках), затем ГЛУБИНА — рекурсия по каждому.
-    // Иначе первая ветка уходила бы в глубину до конца, съедая maxNodes, и
-    // альтернативы 1-го хода не появлялись бы вовсе.
+    // Пасс 1 (ширина): все ходы соперника + аннотации Maia%/WDL/NAG.
     const childIds: number[] = [];
-
-    // Пасс 1 (ширина): все сиблинги как варианты от развилки.
-    for (let i = 0; i < evaluated.length; i++) {
-      const e = evaluated[i];
+    for (let i = 0; i < evald.length; i++) {
+      const e = evald[i];
       if (i > 0) await emit({ type: 'goto', toId: parentId });
-      const childId = nextNodeId++;
-      childIds.push(childId);
+      const id = nextNodeId++;
+      childIds.push(id);
+      stats.nodes += 1;
       await emit({
         type: 'move',
-        id: childId,
+        id,
         uci: e.uci,
         san: e.san,
-        source: e.source,
-        wdlAfter: e.wdlAfter,
+        source: fromMaia ? 'maia' : 'stockfish',
+        wdlAfter: e.oppWdl,
       });
-      // Аннотация: резкое падение WDL относительно лучшего кандидата.
-      if (e.wdlAfter && bestE > -Infinity) {
-        const lossE = Math.max(0, bestE - expectedScoreFromWdl(e.wdlAfter));
-        const nag = nagForLossE(lossE);
-        if (nag !== null) {
-          const maiaPct =
-            e.maiaProb !== null ? Math.round(e.maiaProb * 100) : null;
-          const outcomePct = Math.round((maxOutcomeProb(e.wdlAfter) || 0) * 100);
-          const maiaPart = maiaPct !== null ? `Maia ${maiaPct}%, ` : '';
-          await emit({
-            type: 'annotate',
-            nag,
-            comment: `${e.san} (${maiaPart}${outcomePct}%)`,
-          });
-        }
-      }
-      // Повышение: сильнейший по оценке ход становится главной линией
-      // (первый сиблинг уже главный — повышаем, только если сильнее он).
-      if (i === strongestIdx && strongestIdx > 0) {
-        await emit({ type: 'promote' });
+      // Аннотация хода соперника: Maia% + WDL, NAG если ошибка.
+      const lossE = Math.max(0, bestOppE - e.oppExp);
+      const nag = nagForLossE(lossE);
+      const maiaPct = e.maiaProb !== null ? Math.round(e.maiaProb * 100) : null;
+      const outcomePct = e.oppWdl
+        ? Math.round(maxOutcomeProb(e.oppWdl) * 100)
+        : null;
+      const parts: string[] = [];
+      if (maiaPct !== null) parts.push(`Maia ${maiaPct}%`);
+      if (outcomePct !== null) parts.push(`${outcomePct}%`);
+      if (parts.length > 0 || nag !== null) {
+        await emit({
+          type: 'annotate',
+          nag: nag ?? undefined,
+          comment: parts.length > 0 ? `${e.san} (${parts.join(', ')})` : undefined,
+        });
       }
     }
 
-    // Пасс 2 (глубина): углубляемся в каждый сиблинг по очереди. При
-    // единственном кандидате currentMove уже на нём — goto не нужен.
-    const multi = evaluated.length > 1;
-    for (let i = 0; i < evaluated.length; i++) {
+    // Пасс 2 (глубина): наш ответ на каждый ход соперника.
+    const multi = evald.length > 1;
+    for (let i = 0; i < evald.length; i++) {
       if (multi) await emit({ type: 'goto', toId: childIds[i] });
-      await expand(evaluated[i].childFen, depth + 1, childIds[i]);
+      await buildOur(evald[i].childFen, depth + 1, childIds[i]);
     }
   };
 
-  await expand(rootFen, 0, REVIEW_ROOT_ID);
+  // Корень = наш ход (разбираемая сторона = кто ходит в корне).
+  await buildOur(rootFen, 0, REVIEW_ROOT_ID);
   return { rootFen, elo, ops, stats };
 }

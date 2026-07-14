@@ -35,7 +35,8 @@ describe('usePositionReview', () => {
 
     expect(result.current.status).toBe('ready');
     expect(result.current.plan?.rootFen).toBe(ROOT);
-    expect(result.current.plan?.stats.leaves.understood).toBe(1);
+    // applyMove=null → наш ход не построить → лист terminal.
+    expect(result.current.plan?.stats.leaves.terminal).toBe(1);
   });
 
   it('ошибка движка → status error', async () => {

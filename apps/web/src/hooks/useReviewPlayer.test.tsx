@@ -19,9 +19,8 @@ function planWith(ops: ReviewPlanOp[]): ReviewPlan {
     ops,
     stats: {
       nodes: 0,
-      leaves: { understood: 0, max_depth: 0, max_nodes: 0, repetition: 0, terminal: 0 },
-      maxDepthReached: 0,
-      truncatedByNodes: false,
+      leaves: { theory: 0, refuted: 0, transposition: 0, limit: 0, terminal: 0 },
+      maxPlyReached: 0,
       degradedNoSf: false,
     },
   };

@@ -119,28 +119,9 @@ export function ReviewPanel({
     () => createReviewEngines(engines, { sfEnabled: sfAvailable }),
     [engines, sfAvailable],
   );
-  const config = useMemo(() => {
-    const base = defaultReviewConfig(elo);
-    return {
-      ...base,
-      // Кандидаты — только ходы Maia с вероятностью ≥15%. Нет таких —
-      // ветка обрывается с оценкой SF (см. buildReviewPlan). rel/nucleus
-      // отключены (0 / 1) — фильтр только по абсолютному порогу 15%.
-      thresholds: {
-        ...base.thresholds,
-        pFloor: 0.15,
-        pNucleus: 1,
-        rel: 0,
-        nMax: 6,
-      },
-      limits: {
-        ...base.limits,
-        maxDepth: 10,
-        maxNodes: 100,
-        maxBranchPerSource: 6,
-      },
-    };
-  }, [elo]);
+  // ADR-165 rev4: пороги/лимиты — из defaultReviewConfig (nucleus-ветвление
+  // соперника, глубину задают точки выхода §4, щедрые предохранители §5).
+  const config = useMemo(() => defaultReviewConfig(elo), [elo]);
 
   // Навигация плана: id узла → globalIndex; корень = текущая позиция.
   const idIndexRef = useRef<Map<number, number>>(new Map());
