@@ -2446,6 +2446,12 @@ function AnalysisPageInner({
     (v: boolean) => setReviewActive(v),
     [],
   );
+  // KS-4950: оценка от разбора для градусника (основной движок выключен).
+  const [reviewEvalLine, setReviewEvalLine] = useState<EvalLine | null>(null);
+  const handleReviewEval = useCallback(
+    (line: EvalLine | null) => setReviewEvalLine(line),
+    [],
+  );
 
   // KS-3680/KS-3685: контроллер AI-комментария позиции теперь поднят
   // ниже, после объявления `displayedLines`, чтобы пробросить лучшую
@@ -4759,7 +4765,9 @@ function AnalysisPageInner({
             boardContainerRef={boardContainerRef}
             boardOptions={boardOptions}
             annotationsKey={annotationsKey}
-            displayedLines={displayedLines}
+            displayedLines={
+              reviewActive && reviewEvalLine ? [reviewEvalLine] : displayedLines
+            }
             evalIsBlackTurn={evalIsBlackTurn}
             pendingPromotion={pendingPromotion}
             onPromotionChoice={handlePromotionChoice}
@@ -5117,6 +5125,7 @@ function AnalysisPageInner({
             startToken={reviewStartToken}
             stopToken={reviewStopToken}
             onActiveChange={handleReviewActiveChange}
+            onEvalChange={handleReviewEval}
             review={{
               makeVariantMove,
               gotoMove,

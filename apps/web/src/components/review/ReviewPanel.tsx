@@ -30,7 +30,9 @@ import {
 import {
   createReviewEngines,
   isStockfishAvailable,
+  stmEvalLineFromWdlAfter,
 } from '../../lib/review/reviewEnginesAdapter';
+import type { EvalLine } from '../../hooks/useStockfish';
 
 /** movetime Stockfish на узел разбора (мс). */
 const REVIEW_MOVETIME_MS = 1000;
@@ -82,6 +84,11 @@ export interface ReviewPanelProps {
   stopToken?: number;
   /** KS-4950: активен ли разбор — для смены пункта меню Разобрать⇄Стоп. */
   onActiveChange?: (active: boolean) => void;
+  /**
+   * KS-4950: текущая оценка разбора для градусника (EvalBar) — основной
+   * движок выключен, оценку даёт сам разбор. `null` — сбросить.
+   */
+  onEvalChange?: (line: EvalLine | null) => void;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -94,11 +101,14 @@ export function ReviewPanel({
   startToken = 0,
   stopToken = 0,
   onActiveChange,
+  onEvalChange,
 }: ReviewPanelProps) {
   const reducedMotion = usePrefersReducedMotion();
 
   const reviewRef = useRef(review);
   reviewRef.current = review;
+  const onEvalChangeRef = useRef(onEvalChange);
+  onEvalChangeRef.current = onEvalChange;
 
   // Выделенный промис-драйвер SF+Maia на время жизни панели.
   const engines = useMemo(() => createDefaultEngines(REVIEW_MOVETIME_MS), []);
@@ -156,6 +166,10 @@ export function ReviewPanel({
       if (op.type === 'move') {
         const gi = reviewApi.getCurrentGlobalIndex();
         if (gi >= 0) idIndexRef.current.set(op.id, gi);
+        // Градусник: оценка текущей позиции по WDL хода (основной движок off).
+        if (op.wdlAfter) {
+          onEvalChangeRef.current?.(stmEvalLineFromWdlAfter(op.wdlAfter));
+        }
       }
     },
     [reviewApi],
@@ -183,6 +197,7 @@ export function ReviewPanel({
         idIndex: idIndexRef.current,
         rootGlobalIndex: rootGiRef.current,
       };
+      onEvalChangeRef.current?.(null);
       void runRef.current(currentFenRef.current);
     }
   }, [startToken]);
@@ -196,6 +211,7 @@ export function ReviewPanel({
     if (stopToken > 0) {
       cancelRef.current();
       resetRef.current();
+      onEvalChangeRef.current?.(null);
     }
   }, [stopToken]);
 

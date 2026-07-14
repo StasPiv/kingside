@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Wdl } from '@kingside/shared';
 
-import { createReviewEngines } from './reviewEnginesAdapter';
+import { createReviewEngines, stmEvalLineFromWdlAfter } from './reviewEnginesAdapter';
 import type { ReviewEngines, SfPositionResult, MaiaPolicy } from '../../hooks/useGameReview';
 
 const W: Wdl = { w: 600, d: 300, l: 100 };
@@ -90,5 +90,22 @@ describe('createReviewEngines', () => {
     const a = createReviewEngines(fakeEngines());
     expect(a.toSan(START, 'e2e4')).toBe('e4');
     expect(a.toSan(START, 'g1f3')).toBe('Nf3');
+  });
+});
+
+describe('stmEvalLineFromWdlAfter (KS-4950 градусник)', () => {
+  it('ход в выигранную позицию → минус для стороны на ходу (соперника)', () => {
+    // wdlAfter POV сделавшего ход — выигрыш; на доске ходит соперник → cp < 0.
+    const line = stmEvalLineFromWdlAfter({ w: 950, d: 30, l: 20 });
+    expect(line.score.type).toBe('cp');
+    expect(line.score.value).toBeLessThan(0);
+  });
+  it('ход в проигранную позицию → плюс для соперника', () => {
+    const line = stmEvalLineFromWdlAfter({ w: 20, d: 30, l: 950 });
+    expect(line.score.value).toBeGreaterThan(0);
+  });
+  it('равная позиция → около нуля', () => {
+    const line = stmEvalLineFromWdlAfter({ w: 250, d: 500, l: 250 });
+    expect(Math.abs(line.score.value)).toBeLessThan(30);
   });
 });

@@ -9,13 +9,33 @@
  * (`degradedNoSf`), а панель показывает явное сообщение.
  */
 import { Chess } from 'chess.js';
+import { expectedScoreFromWdl, invertWdl, type Wdl } from '@kingside/shared';
 
 import { uciToSan } from '../maia/uciToSan';
+import type { EvalLine } from '../../hooks/useStockfish';
 import type { ReviewEngines } from '../../hooks/useGameReview';
 import type {
   PositionReviewEngines,
   PositionReviewEval,
 } from './positionReview';
+
+/** Крутизна сигмоиды cp→% в EvalBar (см. utils/chessFormat.evalToPercent). */
+const EVAL_BAR_K = 0.004;
+
+/**
+ * KS-4950: синтез строки оценки для EvalBar из WDL хода разбора.
+ * `wdlAfter` — POV сделавшего ход; текущая позиция на доске — ход
+ * соперника, поэтому берём expected-score POV стороны на ходу
+ * (`invertWdl`) и переводим в cp обратной сигмоидой EvalBar. Знак —
+ * POV side-to-move (как у Stockfish), EvalBar сам развернёт по
+ * `isBlackTurn`.
+ */
+export function stmEvalLineFromWdlAfter(wdlAfter: Wdl): EvalLine {
+  const eStm = expectedScoreFromWdl(invertWdl(wdlAfter));
+  const clamped = Math.min(0.995, Math.max(0.005, eStm));
+  const cp = Math.round(Math.log(clamped / (1 - clamped)) / EVAL_BAR_K);
+  return { depth: 1, multipv: 1, score: { type: 'cp', value: cp }, pv: '' };
+}
 
 /**
  * true — Stockfish доступен (crossOriginIsolated + SharedArrayBuffer).
