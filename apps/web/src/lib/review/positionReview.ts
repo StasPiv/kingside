@@ -167,7 +167,13 @@ export type ReviewPlanOp =
       wdlAfter: Wdl | null;
     }
   /** Аннотировать текущий узел (NAG + комментарий). */
-  | { type: 'annotate'; nag?: number; comment?: string };
+  | { type: 'annotate'; nag?: number; comment?: string }
+  /**
+   * KS-4950: повысить текущий узел до главной линии (promoteVariation).
+   * Эмитится, когда среди кандидатов-сиблингов этот ход сильнее по оценке,
+   * чем первый (ставший главным) — сильнейший ход становится основным.
+   */
+  | { type: 'promote' };
 
 export type ReviewStopReason =
   | 'understood'
@@ -527,12 +533,19 @@ export async function buildReviewPlan(
     }
 
     // Лучший кандидат = max expected-score POV сделавшего ход (для ΔWDL).
+    // Заодно индекс сильнейшего — его повысим до главной линии (§ повышение).
     let bestE = -Infinity;
-    for (const e of evaluated) {
-      if (e.wdlAfter) {
-        bestE = Math.max(bestE, expectedScoreFromWdl(e.wdlAfter));
+    let strongestIdx = -1;
+    let strongestE = -Infinity;
+    evaluated.forEach((e, idx) => {
+      if (!e.wdlAfter) return;
+      const es = expectedScoreFromWdl(e.wdlAfter);
+      bestE = Math.max(bestE, es);
+      if (es > strongestE + 1e-9) {
+        strongestE = es;
+        strongestIdx = idx;
       }
-    }
+    });
 
     // Фаза 4: единый DFS-проход — запись хода в дерево + рекурсия вглубь.
     // Player воспроизводит поток: goto (возврат к развилке) → move
@@ -566,6 +579,11 @@ export async function buildReviewPlan(
             comment: `${e.san} (${maiaPart}${outcomePct}%)`,
           });
         }
+      }
+      // Повышение: сильнейший по оценке ход становится главной линией
+      // (первый сиблинг уже главный — повышаем, только если сильнее он).
+      if (i === strongestIdx && strongestIdx > 0) {
+        await emit({ type: 'promote' });
       }
       await expand(e.childFen, depth + 1, childId);
     }

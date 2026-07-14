@@ -78,6 +78,7 @@ function makeStatefulReview(): {
       calls.setNag.push([gi, n]);
     },
     setComment: () => {},
+    promoteVariation: () => {},
     getHistory: () => history,
     getCurrentGlobalIndex: () => (current ? current.globalIndex : -1),
     getCurrentFen: () => (current ? current.fen : ROOT),

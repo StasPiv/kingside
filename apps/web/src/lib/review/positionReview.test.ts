@@ -371,6 +371,35 @@ describe('buildReviewPlan — ветвление и аннотации', () => {
     expect(moves.map((m) => m.uci)).toEqual(['m1']); // sfx не разбирается
   });
 
+  it('KS-4950: сильнейший по оценке сиблинг повышается до главной (promote)', async () => {
+    const CH_A = 'afterA b - - 0 1'; // слабый ход
+    const CH_B = 'afterB b - - 0 1'; // сильный ход
+    const { engines } = makeEngines({
+      policy: {
+        [ROOT]: { a: 0.6, b: 0.4 }, // a первым (главная), b — вариация
+        [CH_A]: { zz: 0.99 },
+        [CH_B]: { zz: 0.99 },
+      },
+      evals: {
+        [ROOT]: { bestUci: 'a', wdl: { w: 500, d: 300, l: 200 }, multipv: ['a', 'b'] },
+        // POV соперника: после a соперник выигрывает (a слабый), после b — проигрывает (b сильный).
+        [CH_A]: { bestUci: 'zz', wdl: { w: 900, d: 50, l: 50 }, multipv: ['zz'] },
+        [CH_B]: { bestUci: 'zz', wdl: { w: 50, d: 50, l: 900 }, multipv: ['zz'] },
+      },
+      transitions: { [ROOT]: { a: CH_A, b: CH_B } },
+    });
+    const plan = await buildReviewPlan(ROOT, engines);
+    // Есть promote, и он идёт ПОСЛЕ хода b (сильнейшего сиблинга).
+    const promoteIdx = plan.ops.findIndex((o) => o.type === 'promote');
+    expect(promoteIdx).toBeGreaterThan(0);
+    const bMoveIdx = plan.ops.findIndex(
+      (o) => o.type === 'move' && (o as any).uci === 'b',
+    );
+    expect(bMoveIdx).toBeGreaterThanOrEqual(0);
+    expect(promoteIdx).toBeGreaterThan(bMoveIdx);
+    // Для одиночного набора кандидатов (без второго сиблинга) promote не эмитится.
+  });
+
   it('резкое падение WDL у слабого хода → NAG-аннотация', async () => {
     const GOOD = 'good b - - 0 1'; // сильный ход: сохраняет перевес
     const BAD = 'bad b - - 0 1'; // слабый ход: отдаёт партию

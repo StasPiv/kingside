@@ -132,6 +132,7 @@ export function ReviewPanel({
       gotoFirst: () => reviewRef.current.gotoFirst(),
       setNag: (gi, n) => reviewRef.current.setNag(gi, n),
       setComment: (gi, c) => reviewRef.current.setComment(gi, c),
+      promoteVariation: (m) => reviewRef.current.promoteVariation(m),
       getHistory: () => reviewRef.current.getHistory(),
       getCurrentGlobalIndex: () => reviewRef.current.getCurrentGlobalIndex(),
       getCurrentFen: () => reviewRef.current.getCurrentFen(),

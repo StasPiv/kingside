@@ -131,6 +131,7 @@ function makeFakeReview(opts: {
     gotoFirst: number;
     setNag: Array<[number, number[]]>;
     setComment: Array<[number, string]>;
+    promoteVariation: ChessMove[];
   };
 } {
   const calls = {
@@ -139,6 +140,7 @@ function makeFakeReview(opts: {
     gotoFirst: 0,
     setNag: [] as Array<[number, number[]]>,
     setComment: [] as Array<[number, string]>,
+    promoteVariation: [] as ChessMove[],
   };
   const api: ReviewPlayerReviewApi = {
     makeVariantMove: (f, t, p) => {
@@ -156,6 +158,9 @@ function makeFakeReview(opts: {
     },
     setComment: (gi, c) => {
       calls.setComment.push([gi, c]);
+    },
+    promoteVariation: (m) => {
+      calls.promoteVariation.push(m);
     },
     getHistory: () => opts.history ?? [],
     getCurrentGlobalIndex: () => opts.currentGlobalIndex ?? -1,
@@ -241,6 +246,14 @@ describe('applyReviewOp', () => {
     expect(applyReviewOp(op, api, ctx)).toBe(true);
     expect(calls.setNag).toEqual([[3, [4]]]);
     expect(calls.setComment).toEqual([[3, 'e5 (Maia 40%, 90%)']]);
+  });
+
+  it('KS-4950: promote → promoteVariation на текущем узле', () => {
+    const cur = node(5);
+    const { api, calls } = makeFakeReview({ history: [cur], currentGlobalIndex: 5 });
+    const ctx: ApplyOpContext = { idIndex: new Map() };
+    expect(applyReviewOp({ type: 'promote' }, api, ctx)).toBe(true);
+    expect(calls.promoteVariation).toEqual([cur]);
   });
 
   it('annotate без текущего узла (index -1) → false', () => {

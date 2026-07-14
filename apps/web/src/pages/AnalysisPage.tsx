@@ -5123,6 +5123,7 @@ function AnalysisPageInner({
               gotoFirst,
               setNag,
               setComment,
+              promoteVariation: (m) => promoteVariation(m as ChessMove),
               getHistory: () => history,
               getCurrentGlobalIndex: () => currentGlobalIndex,
               getCurrentFen: () => currentFen,

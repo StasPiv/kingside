@@ -142,6 +142,8 @@ export interface ReviewPlayerReviewApi {
   gotoFirst: () => void;
   setNag: (globalIndex: number, nags: number[]) => void;
   setComment: (globalIndex: number, comment: string) => void;
+  /** KS-4950: повысить узел до главной линии (сильнейший ход). */
+  promoteVariation: (move: ChessMove) => void;
   getHistory: () => readonly ChessMove[];
   getCurrentGlobalIndex: () => number;
   getCurrentFen: () => string;
@@ -212,6 +214,14 @@ export function applyReviewOp(
       if (gi < 0) return false;
       if (typeof op.nag === 'number') review.setNag(gi, [op.nag]);
       if (op.comment) review.setComment(gi, op.comment);
+      return true;
+    }
+    case 'promote': {
+      const gi = review.getCurrentGlobalIndex();
+      if (gi < 0) return false;
+      const node = findMoveByGlobalIndex(review.getHistory(), gi);
+      if (!node) return false;
+      review.promoteVariation(node);
       return true;
     }
     default:
