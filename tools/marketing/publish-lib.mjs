@@ -104,9 +104,18 @@ export function discordWritable(url) {
   return !!row && row[3]?.trim() === 'да';
 }
 
+export const MAX_COMMENT_LEN = 280; // формат Твиттера (KS-4954): комментарий ≤280 символов
+
 export function addDraft({ platform, url, text, subreddit, note }, { now = new Date(), state } = {}) {
   if (platform === 'discord' && !discordWritable(url)) {
     throw new Error('канал Discord закрыт для записи (discord-sources-analysis.tsv) — только мониторинг, черновик не создан');
+  }
+  // KS-4954: комментарий должен соблюдать формат Твиттера — не более 280 символов.
+  // Ограничение на этапе генерации: слишком длинный черновик не создаётся, текст
+  // переписывается в лимит (а не молча обрезается посреди предложения).
+  const len = [...(text ?? '')].length; // по кодовым точкам, как считает Твиттер
+  if (len > MAX_COMMENT_LEN) {
+    throw new Error(`комментарий ${len} символов > ${MAX_COMMENT_LEN} (формат Твиттера, KS-4954) — черновик не создан, перепиши короче`);
   }
   const s = state ?? loadDrafts();
   const id = `d${Object.keys(s).length + 1}-${dayKey(now).replaceAll('-', '')}`;

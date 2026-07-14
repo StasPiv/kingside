@@ -67,6 +67,14 @@ const id2 = addDraft({ platform: 'x', url: 'u', text: 'orig' }, { now: NOON, sta
 resolveDraft(id2, 'Мой вариант текста', { now: NOON, state: d });
 check('правка → approved с текстом основателя', d[id2].status === 'approved' && d[id2].text === 'Мой вариант текста');
 
+// KS-4954: лимит ≤280 символов на этапе генерации
+check('280 символов — черновик создаётся', (() => {
+  try { addDraft({ platform: 'x', url: 'u', text: 'z'.repeat(280) }, { now: NOON, state: {} }); return true; } catch { return false; }
+})());
+check('281 символ — addDraft отклоняет (>280)', (() => {
+  try { addDraft({ platform: 'x', url: 'u', text: 'z'.repeat(281) }, { now: NOON, state: {} }); return false; } catch { return true; }
+})());
+
 const id3 = addDraft({ platform: 'x', url: 'u', text: 't' }, { now: NOON, state: d });
 resolveDraft(id3, 'skip', { now: NOON, state: d });
 check('«skip» → skipped', d[id3].status === 'skipped');
