@@ -26,8 +26,8 @@ import {
   isStockfishAvailable,
 } from '../../lib/review/reviewEnginesAdapter';
 
-/** KS-4950: movetime Stockfish на узел для интерактивного разбора (мс). */
-const REVIEW_MOVETIME_MS = 300;
+/** movetime Stockfish на узел разбора (мс). */
+const REVIEW_MOVETIME_MS = 1000;
 
 /** prefers-reduced-motion: анимация off + пошаговый режим. */
 function usePrefersReducedMotion(): boolean {
@@ -99,7 +99,7 @@ export function ReviewPanel({
     const base = defaultReviewConfig(elo);
     return {
       ...base,
-      limits: { ...base.limits, maxDepth: 4, maxNodes: 12 },
+      limits: { ...base.limits, maxDepth: 4, maxNodes: 100 },
     };
   }, [elo]);
 
