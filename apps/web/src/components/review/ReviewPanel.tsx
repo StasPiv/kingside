@@ -21,6 +21,7 @@ import {
 
 import { createDefaultEngines } from '../../hooks/useGameReview';
 import { usePositionReview } from '../../hooks/usePositionReview';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import {
   applyReviewOp,
   effectiveHoldMs,
@@ -312,20 +313,32 @@ function ReviewHud({
   onClose: () => void;
   onShowRare: () => void;
 }) {
+  // KS-4959: на мобильном HUD прячется за нижней панелью (.mobile-bottom-bar
+  // 56px, z-index 90). Поднимаем над ней и по z-index, растягиваем по ширине.
+  const isMobile = useIsMobile();
   const overlay: CSSProperties = {
     position: 'fixed',
-    left: '50%',
-    bottom: 16,
-    transform: 'translateX(-50%)',
-    zIndex: 40,
+    zIndex: 200,
     background: '#1b2130',
     color: '#e2e8f0',
     border: '1px solid #334155',
     borderRadius: 8,
     padding: 12,
     fontSize: 13,
-    maxWidth: 460,
     boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+    ...(isMobile
+      ? {
+          left: 8,
+          right: 8,
+          bottom: 'calc(72px + env(safe-area-inset-bottom))',
+          maxWidth: 'none',
+        }
+      : {
+          left: '50%',
+          bottom: 16,
+          transform: 'translateX(-50%)',
+          maxWidth: 460,
+        }),
   };
 
   if (uiState === 'config') {
