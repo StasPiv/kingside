@@ -154,6 +154,8 @@ import { AnalysisBoard } from './analysis/AnalysisBoard';
 // archive tree + ReviewMoveList + mobile tabs. На FR4 большая часть
 // props переедет в AnalysisContext.
 import { AnalysisSidebar } from './analysis/AnalysisSidebar';
+// KS-4945 (ADR-165): панель разбора позиции (Maia × Stockfish).
+import { ReviewPanel } from '../components/review/ReviewPanel';
 import {
   composeArrowLayers,
   mergeSquareStyleLayers,
@@ -2398,6 +2400,14 @@ function AnalysisPageInner({
   // (localStorage `analysis.maia.elo` → 1500).
   const maia = useMaiaAnalysis({ fen: currentFen });
   const { sortMode, setSortMode } = useEngineSortMode();
+
+  // KS-4945 (ADR-165 §6): на автопроигрывании разбора ручной ввод и
+  // навигация блокируются (кроме Pause/Step внутри панели).
+  const [reviewAutoplaying, setReviewAutoplaying] = useState(false);
+  const handleReviewAutoplaying = useCallback(
+    (v: boolean) => setReviewAutoplaying(v),
+    [],
+  );
 
   // KS-3680/KS-3685: контроллер AI-комментария позиции теперь поднят
   // ниже, после объявления `displayedLines`, чтобы пробросить лучшую
@@ -4729,10 +4739,10 @@ function AnalysisPageInner({
                 Поведение onClick (single tap) полностью совместимо со
                 старой обычной <button>. Скорость авто-tick'а берётся
                 из `BoardSettingsContext.navAutoRepeatSpeed` (настройки). */}
-            <NavButton onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')} testId="analysis-nav-first">&#x21E4;</NavButton>
-            <NavButton onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')} testId="analysis-nav-prev">&#x2190;</NavButton>
-            <NavButton onClick={handleArrowRight} disabled={isAtEnd} title={t('review.forward')} testId="analysis-nav-next">&#x2192;</NavButton>
-            <NavButton onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')} testId="analysis-nav-last">&#x21E5;</NavButton>
+            <NavButton onClick={gotoFirst} disabled={isAtStart || reviewAutoplaying} title={t('review.toStart')} testId="analysis-nav-first">&#x21E4;</NavButton>
+            <NavButton onClick={gotoPrevious} disabled={isAtStart || reviewAutoplaying} title={t('review.back')} testId="analysis-nav-prev">&#x2190;</NavButton>
+            <NavButton onClick={handleArrowRight} disabled={isAtEnd || reviewAutoplaying} title={t('review.forward')} testId="analysis-nav-next">&#x2192;</NavButton>
+            <NavButton onClick={gotoLast} disabled={isAtEnd || reviewAutoplaying} title={t('review.toEnd')} testId="analysis-nav-last">&#x21E5;</NavButton>
             <button
               className="analysis-flip-btn"
               onClick={flipBoardOrientation}
@@ -5056,6 +5066,27 @@ function AnalysisPageInner({
           </div>
         </div>
       </div>
+
+      {/* KS-4945 (ADR-165): панель разбора позиции. Автор-режим с
+          движком, не в replay. Тонкая стилизация — layout (KS-4946). */}
+      {showEnginePanel && !isReplay && (
+        <ReviewPanel
+          currentFen={currentFen}
+          elo={maia.elo}
+          review={{
+            makeVariantMove,
+            gotoMove,
+            gotoFirst,
+            setNag,
+            setComment,
+            getHistory: () => history,
+            getCurrentGlobalIndex: () => currentGlobalIndex,
+            getCurrentFen: () => currentFen,
+            currentMove,
+          }}
+          onAutoplayingChange={handleReviewAutoplaying}
+        />
+      )}
 
       <AnalysisSidebar
         // KS-3908 / ADR-117 C04: производные от studentToolsPolicy.

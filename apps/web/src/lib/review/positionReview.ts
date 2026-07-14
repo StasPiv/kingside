@@ -342,12 +342,29 @@ export function unionCandidates(
  * План — линейный поток операций с `goto` для возврата к точкам
  * ветвления (дерево иммутабельно, player резолвит FEN в globalIndex).
  */
+export interface BuildReviewPlanOptions {
+  /** Отмена расчёта до записи в дерево (ADR §7 «Отмена»). */
+  signal?: AbortSignal;
+  /** Прогресс построения: вызывается после раскрытия каждого узла. */
+  onProgress?: (nodes: number) => void;
+}
+
+/** Бросается `buildReviewPlan` при отмене через `signal`. */
+export class ReviewAbortError extends Error {
+  constructor() {
+    super('Review build aborted');
+    this.name = 'AbortError';
+  }
+}
+
 export async function buildReviewPlan(
   rootFen: string,
   engines: PositionReviewEngines,
   config: ReviewConfig = defaultReviewConfig(),
+  options: BuildReviewPlanOptions = {},
 ): Promise<ReviewPlan> {
   const { thresholds, limits, elo } = config;
+  const { signal, onProgress } = options;
   const ops: ReviewPlanOp[] = [];
   const stats: ReviewPlanStats = {
     nodes: 0,
@@ -383,6 +400,7 @@ export async function buildReviewPlan(
   };
 
   const expand = async (fen: string, depth: number): Promise<void> => {
+    if (signal?.aborted) throw new ReviewAbortError();
     stats.maxDepthReached = Math.max(stats.maxDepthReached, depth);
 
     if (stats.nodes >= limits.maxNodes) {
@@ -401,6 +419,7 @@ export async function buildReviewPlan(
     }
     visited.add(key);
     stats.nodes += 1;
+    onProgress?.(stats.nodes);
 
     // Фаза 1: SF-оценка узла (bestmove, WDL, MultiPV-кандидаты).
     const nodeEval = await engines.analyze(fen, limits.stockfishMultiPv);

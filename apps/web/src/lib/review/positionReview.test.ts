@@ -16,6 +16,7 @@ import {
   unionCandidates,
   buildReviewPlan,
   defaultReviewConfig,
+  ReviewAbortError,
   DEFAULT_REVIEW_THRESHOLDS,
   type PositionReviewEngines,
   type PositionReviewEval,
@@ -384,6 +385,44 @@ describe('buildReviewPlan — ветвление и аннотации', () => {
     // NAG стоит (blunder/mistake) и комментарий содержит SAN.
     expect(annotations[0].nag).toBeDefined();
     expect(annotations[0].comment).toContain('b');
+  });
+});
+
+describe('buildReviewPlan — отмена и прогресс (§7)', () => {
+  it('signal.aborted → ReviewAbortError', async () => {
+    const { engines } = makeEngines({
+      policy: { [ROOT]: { e2e4: 0.9 } },
+      evals: { [ROOT]: { bestUci: 'e2e4', wdl: { w: 400, d: 300, l: 300 }, multipv: ['e2e4'] } },
+      transitions: {},
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      buildReviewPlan(ROOT, engines, defaultReviewConfig(), {
+        signal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(ReviewAbortError);
+  });
+
+  it('onProgress вызывается по мере раскрытия узлов', async () => {
+    const N = 4;
+    const fens = Array.from({ length: N }, (_, i) => `pr${i} w - - 0 1`);
+    const policy: Record<string, Record<string, number>> = {};
+    const evals: Record<string, PositionReviewEval | null> = {};
+    const transitions: Record<string, Record<string, string>> = {};
+    for (let i = 0; i < N; i++) {
+      policy[fens[i]] = { m: 0.99 };
+      evals[fens[i]] = { bestUci: 'm', wdl: { w: 400, d: 300, l: 300 }, multipv: ['m'] };
+      if (i + 1 < N) transitions[fens[i]] = { m: fens[i + 1] };
+    }
+    const { engines } = makeEngines({ policy, evals, transitions });
+    const seen: number[] = [];
+    await buildReviewPlan(fens[0], engines, {
+      ...defaultReviewConfig(),
+      limits: { ...defaultReviewConfig().limits, maxDepth: 10 },
+    }, { onProgress: (n) => seen.push(n) });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[seen.length - 1]).toBe(Math.max(...seen)); // монотонно растёт
   });
 });
 
