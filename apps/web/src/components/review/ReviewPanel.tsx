@@ -29,6 +29,14 @@ import {
 /** movetime Stockfish на узел разбора (мс). */
 const REVIEW_MOVETIME_MS = 1000;
 
+/** Тайминги проигрывания на доске — паузы больше, чтобы не мельтешило. */
+const REVIEW_TIMINGS = {
+  animateMoveMs: 300,
+  holdMoveMs: 1800,
+  holdKeyMs: 2800,
+  resetMs: 300,
+};
+
 /** prefers-reduced-motion: анимация off + пошаговый режим. */
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState<boolean>(() => {
@@ -109,6 +117,7 @@ export function ReviewPanel({
     review,
     reducedMotion,
     rootGlobalIndex,
+    timings: REVIEW_TIMINGS,
   });
 
   // Проброс флага автопроигрывания наверх (блокировка ручного ввода §6).
