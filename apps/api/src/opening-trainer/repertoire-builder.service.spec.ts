@@ -3,6 +3,7 @@ import {
   RepertoirePgnError,
   RepertoireLimitExceededError,
   splitPgnIntoGames,
+  extractSetupFen,
 } from './repertoire-builder.service';
 import { OPENING_REPERTOIRE_LIMITS } from '@kingside/shared';
 
@@ -473,5 +474,50 @@ describe('KS-3325: buildTreeFromSources (multi-source)', () => {
         { sourceId: 'a', pgn: '[Event "x"]\n' },
       ]),
     ).toThrow(/no playable moves/i);
+  });
+});
+
+describe('RepertoireBuilderService — KS-4965: старт от [SetUp]/[FEN]', () => {
+  const SETUP_FEN =
+    'r2qkb1r/pp1n1pp1/2p1pn1p/3pNb2/3P1BP1/3BP3/PPPN1P1P/R2QK2R b KQkq - 0 8';
+  // PGN, который отдаёт наш разбор позиции: заголовок [SetUp "1"] + [FEN].
+  const PGN_WITH_FEN =
+    `[Event "New Analysis"]\n[SetUp "1"]\n[FEN "${SETUP_FEN}"]\n\n8... Bxd3 9. cxd3`;
+
+  it('корень дерева = FEN заголовка, ходы применяются (не «Illegal move at startpos»)', () => {
+    const tree = builder.buildTree(PGN_WITH_FEN);
+    expect(tree.rootFen).toBe(SETUP_FEN);
+    // 8...Bxd3 9.cxd3 → 2 ребра, корневой узел = позиция из FEN.
+    expect(tree.meta.edgeCount).toBe(2);
+    expect(tree.nodes[SETUP_FEN]).toBeDefined();
+    expect(tree.nodes[SETUP_FEN].edges.length).toBe(1);
+  });
+
+  it('multi-source: FEN первого источника задаёт корень', () => {
+    const tree = builder.buildTreeFromSources([
+      { sourceId: 's1', pgn: PGN_WITH_FEN },
+    ]);
+    expect(tree.rootFen).toBe(SETUP_FEN);
+    expect(tree.meta.edgeCount).toBe(2);
+  });
+
+  it('регрессия: обычный PGN без FEN стартует от начальной позиции', () => {
+    const tree = builder.buildTree('1. e4 e5 2. Nf3');
+    expect(tree.rootFen).toBe(STARTING_FEN);
+    expect(tree.meta.edgeCount).toBe(3);
+  });
+
+  it('extractSetupFen: null без FEN, нормализованный FEN с ним, [SetUp "0"] игнор', () => {
+    expect(extractSetupFen('1. e4 e5')).toBeNull();
+    expect(extractSetupFen(PGN_WITH_FEN)).toBe(SETUP_FEN);
+    expect(
+      extractSetupFen(`[SetUp "0"]\n[FEN "${SETUP_FEN}"]\n\n1. e4`),
+    ).toBeNull();
+  });
+
+  it('extractSetupFen: битый [FEN] → понятная ошибка', () => {
+    expect(() =>
+      extractSetupFen('[FEN "not-a-valid-fen"]\n\n1. e4'),
+    ).toThrow(RepertoirePgnError);
   });
 });

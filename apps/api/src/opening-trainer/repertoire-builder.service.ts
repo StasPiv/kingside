@@ -87,6 +87,35 @@ function stripHeaders(pgn: string): string {
   return pgn.replace(/^\[[^\]]*\][ \t]*\r?\n?/gm, '');
 }
 
+const SETUP_FEN_RE = /\[FEN\s+"([^"]+)"\]/i;
+const SETUP_FLAG_RE = /\[SetUp\s+"([^"]+)"\]/i;
+
+/**
+ * KS-4965. Стартовая позиция партии из PGN-заголовка `[FEN "..."]`
+ * (PGN-стандарт §9.7). Такой PGN отдаёт наш разбор позиции — он всегда
+ * с `[FEN]`. Возвращает НОРМАЛИЗОВАННЫЙ через chess.js FEN (чтобы совпал
+ * с `chess.fen()` первого хода и корневой узел дерева связался с рёбрами),
+ * либо `null` для обычного PGN с начальной позиции.
+ *
+ * `[SetUp "0"]` явно означает начальную позицию — `[FEN]` игнорируется.
+ * Битый `[FEN]` — понятная ошибка вместо «Illegal move at startpos».
+ */
+export function extractSetupFen(pgn: string): string | null {
+  if (typeof pgn !== 'string') return null;
+  const setup = SETUP_FLAG_RE.exec(pgn);
+  if (setup && setup[1].trim() === '0') return null;
+  const m = SETUP_FEN_RE.exec(pgn);
+  if (!m) return null;
+  const raw = m[1].trim();
+  try {
+    return new Chess(raw).fen();
+  } catch (err) {
+    throw new RepertoirePgnError(
+      `Invalid [FEN] header "${raw}": ${(err as Error).message}`,
+    );
+  }
+}
+
 /**
  * KS-3325 / ADR-078. Разбивает многопартийный PGN на массив отдельных
  * PGN-строк (по одной партии в каждой).
@@ -484,10 +513,12 @@ export class RepertoireBuilderService {
    * — фиксит баг multi-game PGN (без сброса chess-instance после `1-0`).
    */
   buildTree(pgn: string): RepertoireTree {
+    // KS-4965: корень дерева = стартовая позиция из [FEN] заголовка (если есть).
+    const rootFen = extractSetupFen(pgn) ?? new Chess().fen();
     return this.buildTreeInternal(
       pgn,
       null /* sourceId — backward-compat, sourceIds не проставляются */,
-      this.createEmptyTree(),
+      this.createEmptyTree(rootFen),
     );
   }
 
@@ -513,7 +544,9 @@ export class RepertoireBuilderService {
     if (!Array.isArray(sources) || sources.length === 0) {
       throw new RepertoirePgnError('At least one source is required');
     }
-    const tree = this.createEmptyTree();
+    // KS-4965: корень дерева = стартовая позиция из [FEN] первого источника.
+    const rootFen = extractSetupFen(sources[0].pgn) ?? new Chess().fen();
+    const tree = this.createEmptyTree(rootFen);
     for (const src of sources) {
       this.buildTreeInternal(src.pgn, src.sourceId, tree);
     }
@@ -525,8 +558,7 @@ export class RepertoireBuilderService {
     return tree;
   }
 
-  private createEmptyTree(): RepertoireTree {
-    const rootFen = new Chess().fen();
+  private createEmptyTree(rootFen: string = new Chess().fen()): RepertoireTree {
     return {
       rootFen,
       nodes: { [rootFen]: { fen: rootFen, edges: [] } },
@@ -563,6 +595,10 @@ export class RepertoireBuilderService {
       );
     }
 
+    // KS-4965: стартовая позиция из [FEN] заголовка (splitPgnIntoGames
+    // ниже срезает заголовки, поэтому FEN достаём из сырого pgn ДО split).
+    const setupFen = extractSetupFen(pgn);
+
     // 2. KS-3325: split на отдельные партии. Каждую — fresh chess.
     const games = splitPgnIntoGames(pgn);
     if (games.length === 0) {
@@ -576,7 +612,7 @@ export class RepertoireBuilderService {
       const tokens = tokenize(movetext);
       if (tokens.length === 0) continue; // empty game между result-токенами
 
-      const chess = new Chess();
+      const chess = setupFen ? new Chess(setupFen) : new Chess();
       const ctx: BuildContext = { root: tree, chess, sourceId };
       parseTokens(tokens, 0, ctx, 0);
     }
