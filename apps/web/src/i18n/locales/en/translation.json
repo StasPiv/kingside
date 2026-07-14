@@ -1541,6 +1541,8 @@
     "promote": "Promote",
     "truncate": "Truncate",
     "delete": "Delete",
+    "undo": "Undo",
+    "redo": "Redo",
     "moves": "Moves",
     "exportPgn": "Export PGN",
     "copyPgn": "Copy PGN to clipboard",

@@ -6,6 +6,7 @@ import { addVariationToHistory } from './utils/AddVariationToHistory';
 import {
   findVariationRoot,
   linkAllMovesRecursively,
+  safeClone,
   searchInHistory,
 } from './utils/ChessHistoryUtils';
 import { promoteVariationLink } from './utils/PromoteVariationLink';
@@ -349,14 +350,143 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
   }
 }
 
+/* -------------------------------------------------------------------------
+ * KS-4961 — Отменить/Вернуть (Undo/Redo) для дерева анализа.
+ *
+ * Обёртка над reducer'ом ведёт стек снимков дерева. Снимок делается ПЕРЕД
+ * применением мутирующего действия (add/variation/promote/delete/truncate/
+ * nag/comment/variation-color/annotations). Навигация (goto-*) дерево не
+ * меняет и в стек не пишется. LOAD_* и SET_INITIAL_FEN задают новый
+ * контекст и очищают оба стека.
+ *
+ * Снимок хранит дерево без next/previous (их вырезает safeClone) — при
+ * восстановлении связи и currentMove перестраиваются по globalIndex.
+ * ----------------------------------------------------------------------- */
+
+/** Действия, меняющие дерево (пишутся в стек отмены). */
+const UNDOABLE_ACTIONS = new Set<ReviewAction['type']>([
+  'ADD_MOVE',
+  'ADD_VARIATION',
+  'PROMOTE_VARIATION',
+  'DELETE_VARIATION',
+  'DELETE_REMAINING',
+  'SET_NAG',
+  'SET_COMMENT',
+  'SET_VARIATION_COLOR',
+  'SET_ANNOTATIONS',
+]);
+
+/** Действия, задающие новый контекст (сбрасывают историю отмен). */
+const RESET_ACTIONS = new Set<ReviewAction['type']>([
+  'LOAD_MOVES',
+  'LOAD_FROM_PGN',
+  'SET_INITIAL_FEN',
+]);
+
+/** Глубина стека отмены/возврата. */
+const MAX_UNDO_DEPTH = 100;
+
+type ReviewSnapshot = {
+  history: ChessMove[];
+  currentGlobalIndex: number | null;
+  nextGlobalIndex: number;
+  initialFen: string;
+  initialAnnotations?: NodeAnnotations;
+  annotationsByIndex: Record<number, NodeAnnotations>;
+};
+
+function makeSnapshot(s: ReviewState): ReviewSnapshot {
+  return {
+    history: safeClone(s.history) as ChessMove[],
+    currentGlobalIndex: s.currentMove ? s.currentMove.globalIndex : null,
+    nextGlobalIndex: s.nextGlobalIndex,
+    initialFen: s.initialFen,
+    initialAnnotations: s.initialAnnotations
+      ? (safeClone(s.initialAnnotations) as NodeAnnotations)
+      : undefined,
+    annotationsByIndex: safeClone(s.annotationsByIndex) as Record<number, NodeAnnotations>,
+  };
+}
+
+function restoreSnapshot(snap: ReviewSnapshot): ReviewState {
+  const history = safeClone(snap.history) as ChessMove[];
+  linkAllMovesRecursively(history);
+  const currentMove =
+    snap.currentGlobalIndex != null
+      ? (searchInHistory(history, snap.currentGlobalIndex) as ChessMove | null)
+      : null;
+  return {
+    history,
+    currentMove,
+    nextGlobalIndex: snap.nextGlobalIndex,
+    initialFen: snap.initialFen,
+    initialAnnotations: snap.initialAnnotations
+      ? (safeClone(snap.initialAnnotations) as NodeAnnotations)
+      : undefined,
+    annotationsByIndex: safeClone(snap.annotationsByIndex) as Record<number, NodeAnnotations>,
+  };
+}
+
+type UndoableState = {
+  past: ReviewSnapshot[];
+  present: ReviewState;
+  future: ReviewSnapshot[];
+};
+
+type UndoableAction = ReviewAction | { type: 'UNDO' } | { type: 'REDO' };
+
+function undoableReducer(state: UndoableState, action: UndoableAction): UndoableState {
+  if (action.type === 'UNDO') {
+    if (state.past.length === 0) return state;
+    const snapshot = state.past[state.past.length - 1];
+    return {
+      past: state.past.slice(0, -1),
+      present: restoreSnapshot(snapshot),
+      future: [makeSnapshot(state.present), ...state.future],
+    };
+  }
+  if (action.type === 'REDO') {
+    if (state.future.length === 0) return state;
+    const snapshot = state.future[0];
+    return {
+      past: [...state.past, makeSnapshot(state.present)],
+      present: restoreSnapshot(snapshot),
+      future: state.future.slice(1),
+    };
+  }
+
+  const isUndoable = UNDOABLE_ACTIONS.has(action.type);
+  // Снимок делаем ДО мутации: SET_NAG/SET_COMMENT/SET_VARIATION_COLOR меняют
+  // узлы дерева in-place, снимок после уже содержал бы новое значение.
+  const snapshotBefore = isUndoable ? makeSnapshot(state.present) : null;
+  const nextPresent = reducer(state.present, action);
+  if (nextPresent === state.present) return state; // no-op — стек не трогаем
+
+  if (RESET_ACTIONS.has(action.type)) {
+    return { past: [], present: nextPresent, future: [] };
+  }
+  if (isUndoable && snapshotBefore) {
+    const past = [...state.past, snapshotBefore];
+    if (past.length > MAX_UNDO_DEPTH) past.shift();
+    return { past, present: nextPresent, future: [] };
+  }
+  // Навигация и прочие немутирующие действия — стек без изменений.
+  return { ...state, present: nextPresent };
+}
+
 export function useReviewState() {
-  const [state, dispatch] = useReducer(reducer, {
-    history: [],
-    currentMove: null,
-    nextGlobalIndex: 0,
-    initialFen: INITIAL_FEN,
-    annotationsByIndex: {},
+  const [wrapped, dispatch] = useReducer(undoableReducer, {
+    past: [],
+    present: {
+      history: [],
+      currentMove: null,
+      nextGlobalIndex: 0,
+      initialFen: INITIAL_FEN,
+      annotationsByIndex: {},
+    },
+    future: [],
   });
+  const state = wrapped.present;
 
   const loadMoves = useCallback((apiMoves: ApiMove[]) => {
     dispatch({ type: 'LOAD_MOVES', payload: apiMoves });
@@ -537,6 +667,12 @@ export function useReviewState() {
     [state.currentMove],
   );
 
+  // KS-4961: Отменить/Вернуть.
+  const undo = useCallback(() => dispatch({ type: 'UNDO' }), []);
+  const redo = useCallback(() => dispatch({ type: 'REDO' }), []);
+  const canUndo = wrapped.past.length > 0;
+  const canRedo = wrapped.future.length > 0;
+
   const currentFen = state.currentMove?.fen ?? state.initialFen;
   const currentGlobalIndex = state.currentMove?.globalIndex ?? -1;
   /**
@@ -581,5 +717,10 @@ export function useReviewState() {
     initialAnnotations: state.initialAnnotations,
     annotationsByIndex: state.annotationsByIndex,
     setAnnotationsForCurrent,
+    /** KS-4961: Отменить/Вернуть операции с деревом. */
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   };
 }

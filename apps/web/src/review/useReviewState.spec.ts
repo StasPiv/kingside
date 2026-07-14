@@ -501,3 +501,105 @@ describe('useReviewState — KS-4960 «Обрезать» удаляет кон�
     expect(result.current.currentMove?.san).toBe('e4');
   });
 });
+
+describe('useReviewState — KS-4961 Отменить/Вернуть (Undo/Redo)', () => {
+  function setupWithPgn(pgn: string) {
+    const moves = parseAnnotatedPgn(pgn);
+    const { result } = renderHook(() => useReviewState());
+    act(() => {
+      result.current.loadFromPgn(moves);
+    });
+    return result;
+  }
+
+  it('добавление хода → Отменить убирает его, Вернуть возвращает', () => {
+    const { result } = renderHook(() => useReviewState());
+    expect(result.current.canUndo).toBe(false);
+
+    act(() => {
+      result.current.makeVariantMove('e2', 'e4');
+    });
+    expect(result.current.history.map((m) => m.san)).toEqual(['e4']);
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
+
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.history).toEqual([]);
+    expect(result.current.currentMove).toBeNull();
+    expect(result.current.canRedo).toBe(true);
+
+    act(() => {
+      result.current.redo();
+    });
+    expect(result.current.history.map((m) => m.san)).toEqual(['e4']);
+    expect(result.current.currentMove?.san).toBe('e4');
+  });
+
+  it('SET_NAG (мутация узла in-place) корректно отменяется', () => {
+    const result = setupWithPgn('1. e4 e5');
+    const e4Index = result.current.history[0].globalIndex;
+
+    act(() => {
+      result.current.setNag(e4Index, [1]);
+    });
+    expect(result.current.history[0].nags).toEqual([1]);
+
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.history[0].nags).toBeUndefined();
+
+    act(() => {
+      result.current.redo();
+    });
+    expect(result.current.history[0].nags).toEqual([1]);
+  });
+
+  it('«Обрезать» единственного хода отменяется — дерево восстанавливается', () => {
+    const result = setupWithPgn('1. e4');
+    const only = result.current.history[0];
+
+    act(() => {
+      result.current.truncateRemaining(only);
+    });
+    expect(result.current.history).toEqual([]);
+
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.history.map((m) => m.san)).toEqual(['e4']);
+  });
+
+  it('новое действие после Отменить очищает стек Вернуть', () => {
+    const { result } = renderHook(() => useReviewState());
+    act(() => {
+      result.current.makeVariantMove('e2', 'e4');
+    });
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.canRedo).toBe(true);
+
+    act(() => {
+      result.current.makeVariantMove('d2', 'd4');
+    });
+    expect(result.current.canRedo).toBe(false);
+    expect(result.current.history.map((m) => m.san)).toEqual(['d4']);
+  });
+
+  it('навигация (gotoFirst/gotoLast) не пишется в стек отмены', () => {
+    const result = setupWithPgn('1. e4 e5');
+    // loadFromPgn — RESET, стек пуст.
+    expect(result.current.canUndo).toBe(false);
+
+    act(() => {
+      result.current.gotoFirst();
+    });
+    act(() => {
+      result.current.gotoLast();
+    });
+    expect(result.current.canUndo).toBe(false);
+  });
+});

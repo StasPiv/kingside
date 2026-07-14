@@ -1438,6 +1438,8 @@ function AnalysisPageInner({
     setVariationColor,
     // KS-2152
     currentAnnotations, initialAnnotations, annotationsByIndex, setAnnotationsForCurrent,
+    // KS-4961: Отменить/Вернуть операции с деревом.
+    undo, redo, canUndo, canRedo,
   } = useReviewState();
 
   // KS-3747 / ADR-111 §7: подключение к «full» live-трансляции.
@@ -3497,6 +3499,19 @@ function AnalysisPageInner({
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // KS-4961: Отменить/Вернуть (Ctrl/Cmd+Z, Ctrl+Y / Ctrl/Cmd+Shift+Z).
+      // Не перехватываем в полях ввода (редактор комментариев, заголовок).
+      const target = e.target as HTMLElement | null;
+      const inEditable = !!target && (
+        target.tagName === 'INPUT'
+        || target.tagName === 'TEXTAREA'
+        || target.isContentEditable
+      );
+      if ((e.ctrlKey || e.metaKey) && !inEditable) {
+        const key = e.key.toLowerCase();
+        if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+        if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); return; }
+      }
       // Пока открыт variation chooser — он сам управляет клавиатурой
       if (variationChooser) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); gotoPrevious(); }
@@ -3506,7 +3521,7 @@ function AnalysisPageInner({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gotoPrevious, handleArrowRight, gotoFirst, gotoLast, variationChooser]);
+  }, [gotoPrevious, handleArrowRight, gotoFirst, gotoLast, variationChooser, undo, redo]);
 
   // Close overflow menu on click outside
   useEffect(() => {
@@ -4793,6 +4808,27 @@ function AnalysisPageInner({
             <NavButton onClick={gotoPrevious} disabled={isAtStart || reviewAutoplaying} title={t('review.back')} testId="analysis-nav-prev">&#x2190;</NavButton>
             <NavButton onClick={handleArrowRight} disabled={isAtEnd || reviewAutoplaying} title={t('review.forward')} testId="analysis-nav-next">&#x2192;</NavButton>
             <NavButton onClick={gotoLast} disabled={isAtEnd || reviewAutoplaying} title={t('review.toEnd')} testId="analysis-nav-last">&#x21E5;</NavButton>
+            {/* KS-4961: Отменить/Вернуть операции с деревом анализа. */}
+            <button
+              type="button"
+              className="analysis-flip-btn"
+              onClick={undo}
+              disabled={!canUndo || reviewAutoplaying}
+              title={t('review.undo', 'Отменить') + ' (Ctrl+Z)'}
+              data-testid="analysis-undo"
+            >
+              ↶
+            </button>
+            <button
+              type="button"
+              className="analysis-flip-btn"
+              onClick={redo}
+              disabled={!canRedo || reviewAutoplaying}
+              title={t('review.redo', 'Вернуть') + ' (Ctrl+Y)'}
+              data-testid="analysis-redo"
+            >
+              ↷
+            </button>
             <button
               className="analysis-flip-btn"
               onClick={flipBoardOrientation}
