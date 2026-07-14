@@ -359,6 +359,13 @@ export interface BuildReviewPlanOptions {
   signal?: AbortSignal;
   /** Прогресс построения: вызывается после раскрытия каждого узла. */
   onProgress?: (nodes: number) => void;
+  /**
+   * KS-4950: вызывается на КАЖДУЮ операцию по мере её появления (не после
+   * полной сборки). Caller применяет ход к доске сразу и держит паузу —
+   * фигуры двигаются в процессе разбора, а не «накопили → проиграли».
+   * Если вернёт промис — `buildReviewPlan` его дождётся (пауза задаёт темп).
+   */
+  onOp?: (op: ReviewPlanOp) => void | Promise<void>;
 }
 
 /** Бросается `buildReviewPlan` при отмене через `signal`. */
@@ -376,7 +383,7 @@ export async function buildReviewPlan(
   options: BuildReviewPlanOptions = {},
 ): Promise<ReviewPlan> {
   const { thresholds, limits, elo } = config;
-  const { signal, onProgress } = options;
+  const { signal, onProgress, onOp } = options;
   const ops: ReviewPlanOp[] = [];
   const stats: ReviewPlanStats = {
     nodes: 0,
@@ -396,8 +403,16 @@ export async function buildReviewPlan(
   // а не на FEN — иначе транспозиции ломают навигацию к развилке.
   let nextNodeId = 0;
 
+  // Добавить операцию в план и сразу отдать её caller'у (streaming на
+  // доску). Пауза внутри onOp задаёт темп проигрывания.
+  const emit = async (op: ReviewPlanOp): Promise<void> => {
+    if (signal?.aborted) throw new ReviewAbortError();
+    ops.push(op);
+    await onOp?.(op);
+  };
+
   // Позиционируемся на корне разбора (текущая позиция пользователя).
-  ops.push({ type: 'goto', toId: REVIEW_ROOT_ID });
+  await emit({ type: 'goto', toId: REVIEW_ROOT_ID });
 
   const markLeaf = (reason: ReviewStopReason) => {
     stats.leaves[reason] += 1;
@@ -526,9 +541,9 @@ export async function buildReviewPlan(
     for (let i = 0; i < evaluated.length; i++) {
       const e = evaluated[i];
       // Возврат к точке ветвления (этому узлу) перед 2-м и след. сиблингами.
-      if (i > 0) ops.push({ type: 'goto', toId: parentId });
+      if (i > 0) await emit({ type: 'goto', toId: parentId });
       const childId = nextNodeId++;
-      ops.push({
+      await emit({
         type: 'move',
         id: childId,
         uci: e.uci,
@@ -545,7 +560,7 @@ export async function buildReviewPlan(
             e.maiaProb !== null ? Math.round(e.maiaProb * 100) : null;
           const outcomePct = Math.round((maxOutcomeProb(e.wdlAfter) || 0) * 100);
           const maiaPart = maiaPct !== null ? `Maia ${maiaPct}%, ` : '';
-          ops.push({
+          await emit({
             type: 'annotate',
             nag,
             comment: `${e.san} (${maiaPart}${outcomePct}%)`,

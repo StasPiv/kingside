@@ -20,6 +20,7 @@ import {
   type PositionReviewEngines,
   type ReviewConfig,
   type ReviewPlan,
+  type ReviewPlanOp,
 } from '../lib/review/positionReview';
 
 export type PositionReviewStatus =
@@ -33,6 +34,11 @@ export interface UsePositionReviewOptions {
   engines: PositionReviewEngines;
   /** Конфиг порогов/лимитов. По умолчанию — `defaultReviewConfig()`. */
   config?: ReviewConfig;
+  /**
+   * KS-4950: применяется на каждую операцию по мере расчёта (ход сразу
+   * ложится на доску). Пауза внутри задаёт темп. Если промис — дожидаемся.
+   */
+  onOp?: (op: ReviewPlanOp) => void | Promise<void>;
 }
 
 export interface UsePositionReviewResult {
@@ -63,6 +69,9 @@ export function usePositionReview(
   // последний вызов run — предыдущие результаты игнорируются.
   const runIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  // onOp через ref — чтобы `run` не пересоздавался на каждый рендер.
+  const onOpRef = useRef(options.onOp);
+  onOpRef.current = options.onOp;
 
   const run = useCallback(
     async (fen: string): Promise<ReviewPlan | null> => {
@@ -84,6 +93,7 @@ export function usePositionReview(
             onProgress: (nodes) => {
               if (runId === runIdRef.current) setBuiltNodes(nodes);
             },
+            onOp: (op) => onOpRef.current?.(op),
           },
         );
         if (runId !== runIdRef.current) return null; // устарел

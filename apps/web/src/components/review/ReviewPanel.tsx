@@ -1,26 +1,32 @@
 /**
- * KS-4945 (ADR-165 §6). UI-панель разбора позиции на AnalysisPage.
+ * KS-4945/4949/4950 (ADR-165 §5-§6). Невидимый контроллер разбора позиции.
  *
- * Оркестратор (`usePositionReview`) + проигрыватель (`useReviewPlayer`)
- * связаны здесь с движками через адаптер `createReviewEngines` поверх
- * промис-драйвера `createDefaultEngines` (SF UCI_ShowWDL + Maia).
+ * Разбор показывается ТОЛЬКО на самой доске: ходы применяются к дереву
+ * по мере расчёта (streaming через `onOp`), а не «накопили план → потом
+ * проиграли». Фигуры двигаются с первого же посчитанного хода —
+ * независимо от глубины/числа узлов. Никакого видимого интерфейса.
  *
- * Состояния: idle → [Разобрать] → building (прогресс узлов + Отмена) →
- * ready (Play/Pause/Step/повтор/скорость + подпись + «узел i из N»).
- * no_coi: Stockfish недоступен → явное сообщение, разбор идёт по Maia.
- *
- * Тонкая стилизация — задача layout (KS-4946); здесь только разметка
- * контейнеров/кнопок с data-testid и минимальными inline-отступами.
+ * Запуск/остановка — из «…»-меню доски (startToken/stopToken). Возврат к
+ * развилке идёт по стабильному id узла плана (idIndex), корень разбора —
+ * текущая позиция пользователя (rootGlobalIndex).
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createDefaultEngines } from '../../hooks/useGameReview';
 import { usePositionReview } from '../../hooks/usePositionReview';
 import {
-  useReviewPlayer,
-  type ReviewPlayerReviewState,
-} from '../../hooks/useReviewPlayer';
-import { defaultReviewConfig } from '../../lib/review/positionReview';
+  applyReviewOp,
+  effectiveHoldMs,
+  holdMsForOp,
+  type ApplyOpContext,
+  type ReviewPlayerReviewApi,
+  type ReviewTimings,
+} from '../../review/reviewPlayer';
+import type { ChessMove } from '../../review/types';
+import {
+  defaultReviewConfig,
+  type ReviewPlanOp,
+} from '../../lib/review/positionReview';
 import {
   createReviewEngines,
   isStockfishAvailable,
@@ -29,15 +35,18 @@ import {
 /** movetime Stockfish на узел разбора (мс). */
 const REVIEW_MOVETIME_MS = 1000;
 
-/** Тайминги проигрывания на доске — паузы больше, чтобы не мельтешило. */
-const REVIEW_TIMINGS = {
+/** Тайминги проигрывания на доске — паузы, чтобы фигуры не мельтешили. */
+const REVIEW_TIMINGS: ReviewTimings = {
   animateMoveMs: 300,
   holdMoveMs: 1800,
   holdKeyMs: 2800,
   resetMs: 300,
 };
 
-/** prefers-reduced-motion: анимация off + пошаговый режим. */
+/** Минимальная пауза, чтобы React успел закоммитить ход до чтения индекса. */
+const COMMIT_MIN_MS = 60;
+
+/** prefers-reduced-motion: без анимации/пауз (ходы применяются мгновенно). */
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState<boolean>(() => {
     if (typeof matchMedia === 'undefined') return false;
@@ -53,27 +62,29 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+/** Live-читатели/действия useReviewState. */
+export interface ReviewPanelReviewState extends ReviewPlayerReviewApi {
+  currentMove: ChessMove | null;
+}
+
 export interface ReviewPanelProps {
   /** FEN текущей позиции доски — корень разбора. */
   currentFen: string;
   /** ELO уровня Maia (рейтинг игрока или 1500). */
   elo: number;
-  /** Actions/читатели useReviewState для записи плана в дерево. */
-  review: ReviewPlayerReviewState;
-  /** Уведомление о старте/остановке автопроигрывания (для блокировки ввода). */
-  onAutoplayingChange?: (autoplaying: boolean) => void;
-  /**
-   * KS-4949: внешний запуск разбора (из контекстного меню доски).
-   * Каждый инкремент значения > 0 стартует разбор текущей позиции.
-   * Точка входа вынесена из панели в меню — своей кнопки «Разобрать»
-   * панель больше не рендерит, а в idle не занимает места в макете.
-   */
+  /** Actions/читатели useReviewState для записи разбора в дерево. */
+  review: ReviewPanelReviewState;
+  /** Идёт разбор — блокировать ручной ввод/навигацию. */
+  onAutoplayingChange?: (active: boolean) => void;
+  /** KS-4949: инкремент запускает разбор текущей позиции (пункт меню). */
   startToken?: number;
-  /** KS-4950: инкремент останавливает текущий разбор (пункт «Стоп разбор»). */
+  /** KS-4950: инкремент останавливает разбор (пункт «Стоп разбор»). */
   stopToken?: number;
   /** KS-4950: активен ли разбор — для смены пункта меню Разобрать⇄Стоп. */
   onActiveChange?: (active: boolean) => void;
 }
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function ReviewPanel({
   currentFen,
@@ -85,16 +96,11 @@ export function ReviewPanel({
   onActiveChange,
 }: ReviewPanelProps) {
   const reducedMotion = usePrefersReducedMotion();
-  // Актуальный review для чтения текущего узла в момент запуска.
+
   const reviewRef = useRef(review);
   reviewRef.current = review;
-  // KS-4950: узел, из которого запущен разбор (текущая позиция). Возврат
-  // к корню ведёт сюда, а не в начало партии.
-  const [rootGlobalIndex, setRootGlobalIndex] = useState(-1);
 
-  // KS-4950: интерактивность важнее исчерпывающей глубины — короткий
-  // быстрый обход, чтобы движение фигур начиналось за несколько секунд,
-  // а не после полной 2-минутной сборки. Меньше movetime + жёстче лимиты.
+  // Выделенный промис-драйвер SF+Maia на время жизни панели.
   const engines = useMemo(() => createDefaultEngines(REVIEW_MOVETIME_MS), []);
   useEffect(() => () => engines.terminate(), [engines]);
 
@@ -111,61 +117,76 @@ export function ReviewPanel({
     };
   }, [elo]);
 
-  const posReview = usePositionReview({ engines: adapter, config });
-  const player = useReviewPlayer({
-    plan: posReview.plan,
-    review,
-    reducedMotion,
-    rootGlobalIndex,
-    timings: REVIEW_TIMINGS,
+  // Навигация плана: id узла → globalIndex; корень = текущая позиция.
+  const idIndexRef = useRef<Map<number, number>>(new Map());
+  const rootGiRef = useRef(-1);
+  const ctxRef = useRef<ApplyOpContext>({
+    idIndex: idIndexRef.current,
+    rootGlobalIndex: -1,
   });
 
-  // Проброс флага автопроигрывания наверх (блокировка ручного ввода §6).
-  useEffect(() => {
-    onAutoplayingChange?.(player.isAutoplaying);
-  }, [player.isAutoplaying, onAutoplayingChange]);
+  const reviewApi = useMemo<ReviewPlayerReviewApi>(
+    () => ({
+      makeVariantMove: (f, t, p) => reviewRef.current.makeVariantMove(f, t, p),
+      gotoMove: (m) => reviewRef.current.gotoMove(m),
+      gotoFirst: () => reviewRef.current.gotoFirst(),
+      setNag: (gi, n) => reviewRef.current.setNag(gi, n),
+      setComment: (gi, c) => reviewRef.current.setComment(gi, c),
+      getHistory: () => reviewRef.current.getHistory(),
+      getCurrentGlobalIndex: () => reviewRef.current.getCurrentGlobalIndex(),
+      getCurrentFen: () => reviewRef.current.getCurrentFen(),
+    }),
+    [],
+  );
 
-  // KS-4950: активность разбора (для пункта меню Разобрать⇄Стоп).
-  // Активно, пока идёт расчёт или проигрывание не завершено.
-  const active =
-    posReview.status === 'building' ||
-    (posReview.status === 'ready' && player.status !== 'done');
+  const reducedRef = useRef(reducedMotion);
+  reducedRef.current = reducedMotion;
+
+  // Streaming: применяем каждую операцию к доске сразу, держим паузу,
+  // затем (для хода) фиксируем id узла → globalIndex после коммита React.
+  const onOp = useCallback(
+    async (op: ReviewPlanOp) => {
+      applyReviewOp(op, reviewApi, ctxRef.current);
+      const base = holdMsForOp(op, REVIEW_TIMINGS, reducedRef.current);
+      const hold = reducedRef.current
+        ? COMMIT_MIN_MS
+        : Math.max(COMMIT_MIN_MS, effectiveHoldMs(base, 1));
+      await sleep(hold);
+      if (op.type === 'move') {
+        const gi = reviewApi.getCurrentGlobalIndex();
+        if (gi >= 0) idIndexRef.current.set(op.id, gi);
+      }
+    },
+    [reviewApi],
+  );
+
+  const posReview = usePositionReview({ engines: adapter, config, onOp });
+
+  // Активность разбора = идёт расчёт/проигрывание. Блокирует ручной ввод.
+  const active = posReview.status === 'building';
   useEffect(() => {
     onActiveChange?.(active);
-  }, [active, onActiveChange]);
+    onAutoplayingChange?.(active);
+  }, [active, onActiveChange, onAutoplayingChange]);
 
-  // KS-4950: как только план готов — сразу автопроигрывание, чтобы
-  // фигуры двигались по доске сами, ход за ходом (без нажатия «Играть»).
-  const playRef = useRef(player.play);
-  playRef.current = player.play;
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (posReview.status === 'ready' && !autoStartedRef.current) {
-      autoStartedRef.current = true;
-      playRef.current();
-    } else if (posReview.status !== 'ready') {
-      autoStartedRef.current = false;
-    }
-  }, [posReview.status]);
-
-  // KS-4949: запуск разбора приходит извне (пункт контекстного меню
-  // доски), а не из своей кнопки. Каждый инкремент startToken стартует
-  // разбор текущей позиции. currentFen читаем через ref, чтобы эффект
-  // не перезапускался на смену позиции — только на явный запуск.
+  // KS-4949: запуск из меню. Корень разбора = текущая позиция.
   const runRef = useRef(posReview.run);
   runRef.current = posReview.run;
   const currentFenRef = useRef(currentFen);
   currentFenRef.current = currentFen;
   useEffect(() => {
     if (startToken > 0) {
-      // Корень разбора = текущая позиция пользователя (узел, из которого
-      // запущено). Возврат к корню в плане приведёт сюда.
-      setRootGlobalIndex(reviewRef.current.getCurrentGlobalIndex());
+      idIndexRef.current = new Map();
+      rootGiRef.current = reviewRef.current.getCurrentGlobalIndex();
+      ctxRef.current = {
+        idIndex: idIndexRef.current,
+        rootGlobalIndex: rootGiRef.current,
+      };
       void runRef.current(currentFenRef.current);
     }
   }, [startToken]);
 
-  // KS-4950: «Стоп разбор» из меню — прерываем расчёт и проигрывание.
+  // KS-4950: «Стоп разбор» — прерываем расчёт/проигрывание.
   const cancelRef = useRef(posReview.cancel);
   cancelRef.current = posReview.cancel;
   const resetRef = useRef(posReview.reset);
@@ -177,10 +198,6 @@ export function ReviewPanel({
     }
   }, [stopToken]);
 
-  // KS-4950: разбор показывается ТОЛЬКО на самой доске — фигуры двигаются
-  // ход за ходом (автопроигрывание при готовности плана). Никакого
-  // видимого интерфейса: ни панели, ни кнопок, ни статусной строки.
-  // Компонент — невидимый контроллер: запуск из «…»-меню доски, дальше
-  // ходы сами применяются к дереву и анимируются на доске.
+  // Разбор виден только на доске — своего интерфейса у панели нет.
   return null;
 }
