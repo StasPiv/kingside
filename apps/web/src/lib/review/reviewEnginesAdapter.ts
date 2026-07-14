@@ -23,16 +23,20 @@ import type {
 const EVAL_BAR_K = 0.004;
 
 /**
- * KS-4950: синтез строки оценки для EvalBar из WDL хода разбора.
- * `wdlAfter` — POV сделавшего ход; текущая позиция на доске — ход
- * соперника, поэтому берём expected-score POV стороны на ходу
- * (`invertWdl`) и переводим в cp обратной сигмоидой EvalBar. Знак —
- * POV side-to-move (как у Stockfish), EvalBar сам развернёт по
- * `isBlackTurn`.
+ * KS-4950: строка оценки для EvalBar из WDL хода разбора — ВСЕГДА с точки
+ * зрения белых. `wdlAfter` — POV сделавшего ход; приводим к POV белых по
+ * цвету ходившего (`moverIsWhite`) и переводим expected-score в cp
+ * обратной сигмоидой EvalBar. Строка отдаётся с `isBlackTurn=false` —
+ * без повторной инверсии на стороне EvalBar (иначе оценка скачет по
+ * чётности полухода).
  */
-export function stmEvalLineFromWdlAfter(wdlAfter: Wdl): EvalLine {
-  const eStm = expectedScoreFromWdl(invertWdl(wdlAfter));
-  const clamped = Math.min(0.995, Math.max(0.005, eStm));
+export function whiteEvalLineFromWdlAfter(
+  wdlAfter: Wdl,
+  moverIsWhite: boolean,
+): EvalLine {
+  const whiteWdl = moverIsWhite ? wdlAfter : invertWdl(wdlAfter);
+  const eWhite = expectedScoreFromWdl(whiteWdl);
+  const clamped = Math.min(0.995, Math.max(0.005, eWhite));
   const cp = Math.round(Math.log(clamped / (1 - clamped)) / EVAL_BAR_K);
   return { depth: 1, multipv: 1, score: { type: 'cp', value: cp }, pv: '' };
 }

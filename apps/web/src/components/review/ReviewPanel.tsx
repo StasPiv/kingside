@@ -30,7 +30,7 @@ import {
 import {
   createReviewEngines,
   isStockfishAvailable,
-  stmEvalLineFromWdlAfter,
+  whiteEvalLineFromWdlAfter,
 } from '../../lib/review/reviewEnginesAdapter';
 import type { EvalLine } from '../../hooks/useStockfish';
 
@@ -166,9 +166,15 @@ export function ReviewPanel({
       if (op.type === 'move') {
         const gi = reviewApi.getCurrentGlobalIndex();
         if (gi >= 0) idIndexRef.current.set(op.id, gi);
-        // Градусник: оценка текущей позиции по WDL хода (основной движок off).
+        // Градусник: оценка с точки зрения белых (основной движок off).
+        // wdlAfter — POV ходившего; цвет ходившего = обратный стороне на
+        // ходу в позиции ПОСЛЕ хода (childFen).
         if (op.wdlAfter) {
-          onEvalChangeRef.current?.(stmEvalLineFromWdlAfter(op.wdlAfter));
+          const childStm = reviewApi.getCurrentFen().split(' ')[1];
+          const moverIsWhite = childStm === 'b';
+          onEvalChangeRef.current?.(
+            whiteEvalLineFromWdlAfter(op.wdlAfter, moverIsWhite),
+          );
         }
       }
     },

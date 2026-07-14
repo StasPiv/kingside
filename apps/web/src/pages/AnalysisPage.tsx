@@ -4768,7 +4768,11 @@ function AnalysisPageInner({
             displayedLines={
               reviewActive && reviewEvalLine ? [reviewEvalLine] : displayedLines
             }
-            evalIsBlackTurn={evalIsBlackTurn}
+            /* KS-4950: строка разбора уже с точки зрения белых — EvalBar не
+               должен инвертировать её по стороне на ходу (иначе скачет). */
+            evalIsBlackTurn={
+              reviewActive && reviewEvalLine ? false : evalIsBlackTurn
+            }
             pendingPromotion={pendingPromotion}
             onPromotionChoice={handlePromotionChoice}
             onPromotionCancel={handlePromotionCancel}
