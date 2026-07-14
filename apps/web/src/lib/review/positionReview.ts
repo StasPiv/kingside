@@ -444,16 +444,20 @@ export async function buildReviewPlan(
       return;
     }
 
-    // Кандидаты = Maia ∪ SF (ветвление ≤ maxBranchPerSource на источник).
+    // Кандидаты выбираются ТОЛЬКО по вероятности Maia (§3.1). Stockfish
+    // используется для оценки/WDL и стоп-условия, но НЕ для выбора
+    // ходов-кандидатов. Пометка `both` — если ход Maia совпал с SF-топом
+    // (только для комментария, на отбор не влияет).
     const maiaCands = selectMaiaCandidates(policy, thresholds).slice(
       0,
       limits.maxBranchPerSource,
     );
-    const sfCands = (nodeEval?.multipv ?? []).slice(
-      0,
-      limits.maxBranchPerSource,
-    );
-    const candidates = unionCandidates(maiaCands, sfCands);
+    const sfSet = new Set(nodeEval?.multipv ?? []);
+    const candidates: Array<{ uci: string; source: ReviewMoveSource }> =
+      maiaCands.map((uci) => ({
+        uci,
+        source: sfSet.has(uci) ? 'both' : 'maia',
+      }));
     if (candidates.length === 0) {
       markLeaf('terminal');
       return;

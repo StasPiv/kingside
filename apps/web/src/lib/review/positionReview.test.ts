@@ -315,11 +315,11 @@ describe('buildReviewPlan — аварийные лимиты §2', () => {
 });
 
 describe('buildReviewPlan — ветвление и аннотации', () => {
-  it('Maia ∪ SF: две ветки при расхождении, goto между ними', async () => {
+  it('кандидаты только по Maia: два человеческих хода → две ветки, goto между ними', async () => {
     const CH_E4 = 'afterE4 b - - 0 1';
     const CH_D4 = 'afterD4 b - - 0 1';
-    // Корень: Maia топ e2e4, SF топ d2d4 — расхождение → обе ветки.
-    // Оба ребёнка сразу «понятны» (терминальные листья по §4).
+    // Maia даёт два вероятных хода (e2e4, d2d4) — обе ветки. SF-топ
+    // (e2e4) лишь помечает source='both', на отбор не влияет.
     const decidedChild: PositionReviewEval = {
       bestUci: 'zz',
       wdl: { w: 980, d: 10, l: 10 },
@@ -327,12 +327,12 @@ describe('buildReviewPlan — ветвление и аннотации', () => {
     };
     const { engines } = makeEngines({
       policy: {
-        [ROOT]: { e2e4: 0.9, d2d4: 0.1 },
+        [ROOT]: { e2e4: 0.5, d2d4: 0.4 },
         [CH_E4]: { zz: 0.99 },
         [CH_D4]: { zz: 0.99 },
       },
       evals: {
-        [ROOT]: { bestUci: 'd2d4', wdl: { w: 500, d: 300, l: 200 }, multipv: ['d2d4'] },
+        [ROOT]: { bestUci: 'e2e4', wdl: { w: 500, d: 300, l: 200 }, multipv: ['e2e4'] },
         [CH_E4]: decidedChild,
         [CH_D4]: decidedChild,
       },
@@ -341,16 +341,33 @@ describe('buildReviewPlan — ветвление и аннотации', () => {
     const plan = await buildReviewPlan(ROOT, engines);
     const moves = plan.ops.filter((o) => o.type === 'move');
     expect(moves.map((m: any) => m.uci).sort()).toEqual(['d2d4', 'e2e4']);
-    // e2e4 — только Maia-кандидат, d2d4 — только SF (расхождение §2).
+    // Оба — Maia-кандидаты; e2e4 совпал с SF-топом → 'both', d2d4 → 'maia'.
     const e4 = moves.find((m: any) => m.uci === 'e2e4') as any;
     const d4 = moves.find((m: any) => m.uci === 'd2d4') as any;
-    expect(e4.source).toBe('maia');
-    expect(d4.source).toBe('stockfish');
+    expect(e4.source).toBe('both');
+    expect(d4.source).toBe('maia');
     // Возврат к развилке между сиблингами.
     const gotoRoots = plan.ops.filter(
       (o) => o.type === 'goto' && o.fen === ROOT,
     );
     expect(gotoRoots.length).toBeGreaterThanOrEqual(2); // начальный + возврат
+  });
+
+  it('SF-ход НЕ становится кандидатом, если его нет в Maia policy', async () => {
+    const CH = 'afterMaia b - - 0 1';
+    // Maia уверенно даёт один ход (m1); SF-топ (sfx) другой, но в Maia
+    // его нет → в кандидаты не попадает. Разбирается только m1.
+    const { engines } = makeEngines({
+      policy: { [ROOT]: { m1: 0.95, m2: 0.05 }, [CH]: { zz: 0.99 } },
+      evals: {
+        [ROOT]: { bestUci: 'sfx', wdl: { w: 500, d: 300, l: 200 }, multipv: ['sfx', 'm1'] },
+        [CH]: { bestUci: 'zz', wdl: { w: 980, d: 10, l: 10 }, multipv: ['zz'] },
+      },
+      transitions: { [ROOT]: { m1: CH } },
+    });
+    const plan = await buildReviewPlan(ROOT, engines);
+    const moves = plan.ops.filter((o) => o.type === 'move') as any[];
+    expect(moves.map((m) => m.uci)).toEqual(['m1']); // sfx не разбирается
   });
 
   it('резкое падение WDL у слабого хода → NAG-аннотация', async () => {
