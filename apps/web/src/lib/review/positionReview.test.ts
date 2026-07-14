@@ -376,119 +376,97 @@ describe('buildReviewPlan — ветвление и аннотации', () => {
     expect(moves.find((m) => m.uci === 'm2').source).toBe('maia');
   });
 
-  it('SF-ход НЕ становится кандидатом, если его нет в Maia policy', async () => {
-    const CH = 'afterMaia b - - 0 1';
-    // Maia уверенно даёт один ход (m1); SF-топ (sfx) другой, но в Maia
-    // его нет → в кандидаты не попадает. Разбирается только m1.
+  it('за нашу сторону — РОВНО один сильнейший ход SF, без альтернатив', async () => {
+    // Корень — наш ход: SF даёт 2 линии (a, b), но берём только лучшую a.
+    const CH = 'ch b - - 0 1';
     const { engines } = makeEngines({
-      policy: { [ROOT]: { m1: 0.95, m2: 0.05 }, [CH]: { zz: 0.99 } },
-      evals: {
-        [ROOT]: { bestUci: 'sfx', wdl: { w: 500, d: 300, l: 200 }, multipv: ['sfx', 'm1'] },
-        [CH]: { bestUci: 'zz', wdl: { w: 980, d: 10, l: 10 }, multipv: ['zz'] },
-      },
-      transitions: { [ROOT]: { m1: CH } },
-    });
-    const plan = await buildReviewPlan(ROOT, engines);
-    const moves = plan.ops.filter((o) => o.type === 'move') as any[];
-    expect(moves.map((m) => m.uci)).toEqual(['m1']); // sfx не разбирается
-  });
-
-  it('KS-4950: ширина раньше глубины — обе альтернативы 1-го хода до внуков', async () => {
-    const CH_A = 'chA b - - 0 1';
-    const CH_B = 'chB b - - 0 1';
-    const GA = 'gA w - - 0 2';
-    const GB = 'gB w - - 0 2';
-    const decided: PositionReviewEval = {
-      bestUci: 'zz',
-      wdl: { w: 980, d: 10, l: 10 },
-      multipv: ['zz'],
-    };
-    const { engines } = makeEngines({
-      // Корень — наш ход: два сильнейших хода SF (a, b). Дети — ход
-      // соперника, ответы по Maia (ga, gb).
-      policy: {
-        [CH_A]: { ga: 0.9 },
-        [CH_B]: { gb: 0.9 },
-      },
+      policy: { [CH]: { zz: 0.99 } },
       evals: {
         [ROOT]: { bestUci: 'a', wdl: { w: 500, d: 300, l: 200 }, multipv: ['a', 'b'] },
-        [CH_A]: { bestUci: 'x', wdl: { w: 400, d: 300, l: 300 }, multipv: ['x'] },
-        [CH_B]: { bestUci: 'x', wdl: { w: 400, d: 300, l: 300 }, multipv: ['x'] },
-        [GA]: decided,
-        [GB]: decided,
+        [CH]: { bestUci: 'zz', wdl: { w: 500, d: 300, l: 200 }, multipv: ['zz'] },
       },
-      transitions: { [ROOT]: { a: CH_A, b: CH_B }, [CH_A]: { ga: GA }, [CH_B]: { gb: GB } },
+      transitions: { [ROOT]: { a: CH } },
+    });
+    const plan = await buildReviewPlan(ROOT, engines);
+    const ourMoves = (plan.ops.filter((o) => o.type === 'move') as any[]).filter(
+      (m) => m.source === 'stockfish',
+    );
+    // Только a — второй SF-ход b НЕ разбирается за нашу сторону.
+    expect(ourMoves.map((m) => m.uci)).toEqual(['a']);
+  });
+
+  it('KS-4950: ширина раньше глубины — ответы соперника до наших ответных ходов', async () => {
+    const CH = 'ch b - - 0 1'; // соперник ветвится (m1, m2)
+    const OM1 = 'om1 w - - 0 2';
+    const OM2 = 'om2 w - - 0 2';
+    const L1 = 'l1 b - - 0 3';
+    const L2 = 'l2 b - - 0 3';
+    const { engines } = makeEngines({
+      policy: { [CH]: { m1: 0.5, m2: 0.4 } },
+      evals: {
+        [ROOT]: { bestUci: 'a', wdl: { w: 500, d: 300, l: 200 }, multipv: ['a'] },
+        [CH]: { bestUci: 'm1', wdl: { w: 500, d: 300, l: 200 }, multipv: ['m1'] },
+        [OM1]: { bestUci: 'x1', wdl: { w: 500, d: 300, l: 200 }, multipv: ['x1'] },
+        [OM2]: { bestUci: 'x2', wdl: { w: 500, d: 300, l: 200 }, multipv: ['x2'] },
+        [L1]: { bestUci: 'zz', wdl: { w: 980, d: 10, l: 10 }, multipv: ['zz'] },
+        [L2]: { bestUci: 'zz', wdl: { w: 980, d: 10, l: 10 }, multipv: ['zz'] },
+      },
+      transitions: { [ROOT]: { a: CH }, [CH]: { m1: OM1, m2: OM2 }, [OM1]: { x1: L1 }, [OM2]: { x2: L2 } },
     });
     const plan = await buildReviewPlan(ROOT, engines);
     const idx = (uci: string) =>
       plan.ops.findIndex((o) => o.type === 'move' && (o as any).uci === uci);
-    // Обе альтернативы 1-го хода (a, b) выведены ДО внуков (ga, gb).
-    expect(idx('a')).toBeGreaterThanOrEqual(0);
-    expect(idx('b')).toBeGreaterThanOrEqual(0);
-    expect(Math.max(idx('a'), idx('b'))).toBeLessThan(Math.min(idx('ga'), idx('gb')));
+    // Оба ответа соперника (m1, m2) выведены ДО наших ответных ходов (x1, x2).
+    expect(Math.max(idx('m1'), idx('m2'))).toBeLessThan(Math.min(idx('x1'), idx('x2')));
   });
 
-  it('KS-4950: сильнейший по оценке сиблинг повышается до главной (promote)', async () => {
-    const CH_A = 'afterA b - - 0 1'; // слабый ход
-    const CH_B = 'afterB b - - 0 1'; // сильный ход
+  it('KS-4950: сильнейший ответ соперника повышается до главной (promote)', async () => {
+    // Ветвление у соперника (CH): ma слабее, mb сильнее по оценке.
+    const CH = 'ch b - - 0 1';
+    const A_MA = 'ama w - - 0 2';
+    const A_MB = 'amb w - - 0 2';
     const { engines } = makeEngines({
-      policy: {
-        [ROOT]: { a: 0.6, b: 0.4 }, // a первым (главная), b — вариация
-        [CH_A]: { zz: 0.99 },
-        [CH_B]: { zz: 0.99 },
-      },
+      policy: { [CH]: { ma: 0.5, mb: 0.4 } }, // ma первым, mb — вариация
       evals: {
-        [ROOT]: { bestUci: 'a', wdl: { w: 500, d: 300, l: 200 }, multipv: ['a', 'b'] },
-        // POV соперника: после a соперник выигрывает (a слабый), после b — проигрывает (b сильный).
-        [CH_A]: { bestUci: 'zz', wdl: { w: 900, d: 50, l: 50 }, multipv: ['zz'] },
-        [CH_B]: { bestUci: 'zz', wdl: { w: 50, d: 50, l: 900 }, multipv: ['zz'] },
+        [ROOT]: { bestUci: 'a', wdl: { w: 500, d: 300, l: 200 }, multipv: ['a'] },
+        [CH]: { bestUci: 'ma', wdl: { w: 500, d: 300, l: 200 }, multipv: ['ma'] },
+        // POV нашей стороны после ответа соперника: ma нам выгоднее (мы
+        // выигрываем) → сильнейший для соперника = mb (нам хуже).
+        [A_MA]: { bestUci: 'zz', wdl: { w: 900, d: 50, l: 50 }, multipv: ['zz'] },
+        [A_MB]: { bestUci: 'zz', wdl: { w: 50, d: 50, l: 900 }, multipv: ['zz'] },
       },
-      transitions: { [ROOT]: { a: CH_A, b: CH_B } },
+      transitions: { [ROOT]: { a: CH }, [CH]: { ma: A_MA, mb: A_MB } },
     });
     const plan = await buildReviewPlan(ROOT, engines);
-    // Есть promote, и он идёт ПОСЛЕ хода b (сильнейшего сиблинга).
     const promoteIdx = plan.ops.findIndex((o) => o.type === 'promote');
-    expect(promoteIdx).toBeGreaterThan(0);
-    const bMoveIdx = plan.ops.findIndex(
-      (o) => o.type === 'move' && (o as any).uci === 'b',
+    const mbIdx = plan.ops.findIndex(
+      (o) => o.type === 'move' && (o as any).uci === 'mb',
     );
-    expect(bMoveIdx).toBeGreaterThanOrEqual(0);
-    expect(promoteIdx).toBeGreaterThan(bMoveIdx);
-    // Для одиночного набора кандидатов (без второго сиблинга) promote не эмитится.
+    expect(promoteIdx).toBeGreaterThan(0);
+    expect(promoteIdx).toBeGreaterThan(mbIdx);
   });
 
-  it('резкое падение WDL у слабого хода → NAG-аннотация', async () => {
-    const GOOD = 'good b - - 0 1'; // сильный ход: сохраняет перевес
-    const BAD = 'bad b - - 0 1'; // слабый ход: отдаёт партию
-    // POV сделавшего ход: evalAfterMove инвертирует POV соперника.
-    // GOOD-ребёнок POV соперника = проигрывает → invert → мы выигрываем.
-    // BAD-ребёнок POV соперника = выигрывает → invert → мы проигрываем.
+  it('резкое падение WDL у слабого ответа соперника → NAG-аннотация', async () => {
+    // Ветвление у соперника: mg сильный, mb слабый (отдаёт партию).
+    const CH = 'ch b - - 0 1';
+    const A_MG = 'amg w - - 0 2';
+    const A_MB = 'amb w - - 0 2';
     const { engines } = makeEngines({
-      policy: { [ROOT]: { g: 0.6, b: 0.4 }, [GOOD]: { zz: 0.99 }, [BAD]: { zz: 0.99 } },
+      policy: { [CH]: { mg: 0.6, mb: 0.4 } },
       evals: {
-        [ROOT]: { bestUci: 'g', wdl: { w: 500, d: 200, l: 300 }, multipv: ['g', 'b'] },
-        [GOOD]: { bestUci: 'zz', wdl: { w: 950, d: 30, l: 20 }, multipv: ['zz'] }, // соперник ~проигрывает после нашего g? нет
-        [BAD]: { bestUci: 'zz', wdl: { w: 950, d: 30, l: 20 }, multipv: ['zz'] },
+        [ROOT]: { bestUci: 'a', wdl: { w: 500, d: 300, l: 200 }, multipv: ['a'] },
+        [CH]: { bestUci: 'mg', wdl: { w: 500, d: 200, l: 300 }, multipv: ['mg'] },
+        // POV нашей стороны: после mg мы проигрываем (сильная защита),
+        // после mb мы выигрываем (соперник отдал) → mb получает NAG.
+        [A_MG]: { bestUci: 'zz', wdl: { w: 900, d: 50, l: 50 }, multipv: ['zz'] },
+        [A_MB]: { bestUci: 'zz', wdl: { w: 50, d: 50, l: 900 }, multipv: ['zz'] },
       },
-      transitions: { [ROOT]: { g: GOOD, b: BAD } },
+      transitions: { [ROOT]: { a: CH }, [CH]: { mg: A_MG, mb: A_MB } },
     });
-    // Настроим так, чтобы g был силён, b слаб: сделаем eval GOOD POV
-    // соперника = проигрывает (l высок), BAD POV соперника = выигрывает.
-    engines.analyze = async (fen) => {
-      if (fen === ROOT)
-        return { bestUci: 'g', wdl: { w: 500, d: 200, l: 300 }, multipv: ['g', 'b'] };
-      if (fen === GOOD)
-        return { bestUci: 'zz', wdl: { w: 50, d: 50, l: 900 }, multipv: ['zz'] }; // соперник проигрывает → мы выигрываем
-      if (fen === BAD)
-        return { bestUci: 'zz', wdl: { w: 900, d: 50, l: 50 }, multipv: ['zz'] }; // соперник выигрывает → мы проигрываем
-      return null;
-    };
     const plan = await buildReviewPlan(ROOT, engines);
     const annotations = plan.ops.filter((o) => o.type === 'annotate') as any[];
     expect(annotations.length).toBeGreaterThanOrEqual(1);
-    // NAG стоит (blunder/mistake) и комментарий содержит SAN.
-    expect(annotations[0].nag).toBeDefined();
-    expect(annotations[0].comment).toContain('b');
+    expect(annotations.some((a) => typeof a.nag === 'number')).toBe(true);
   });
 });
 

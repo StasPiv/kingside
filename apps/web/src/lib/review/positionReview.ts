@@ -504,11 +504,10 @@ export async function buildReviewPlan(
     let policy: Record<string, number> = {};
     let candidates: Array<{ uci: string; source: ReviewMoveSource }>;
     if (ourTurn) {
-      const sfMoves = (nodeEval?.multipv ?? []).slice(
-        0,
-        limits.maxBranchPerSource,
-      );
-      candidates = sfMoves.map((uci) => ({ uci, source: 'stockfish' }));
+      // За разбираемую сторону — РОВНО один сильнейший ход SF, без
+      // альтернатив (ветвление только у соперника).
+      const best = nodeEval?.bestUci ?? nodeEval?.multipv[0] ?? null;
+      candidates = best ? [{ uci: best, source: 'stockfish' }] : [];
     } else {
       policy = await engines.getMaiaPolicy(fen, elo);
       const maiaCands = selectMaiaCandidates(policy, thresholds).slice(
