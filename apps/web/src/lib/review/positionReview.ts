@@ -547,15 +547,19 @@ export async function buildReviewPlan(
       }
     });
 
-    // Фаза 4: единый DFS-проход — запись хода в дерево + рекурсия вглубь.
-    // Player воспроизводит поток: goto (возврат к развилке) → move
-    // (makeVariantMove, currentMove встаёт на ребёнка) → annotate →
-    // ходы более глубокой ветки продолжают этого ребёнка.
+    // Фаза 4: сначала ШИРИНА — выводим ВСЕ ходы-альтернативы этого узла
+    // (они не тратят бюджет узлов и появляются всегда, даже при исчерпании
+    // лимита в глубоких ветках), затем ГЛУБИНА — рекурсия по каждому.
+    // Иначе первая ветка уходила бы в глубину до конца, съедая maxNodes, и
+    // альтернативы 1-го хода не появлялись бы вовсе.
+    const childIds: number[] = [];
+
+    // Пасс 1 (ширина): все сиблинги как варианты от развилки.
     for (let i = 0; i < evaluated.length; i++) {
       const e = evaluated[i];
-      // Возврат к точке ветвления (этому узлу) перед 2-м и след. сиблингами.
       if (i > 0) await emit({ type: 'goto', toId: parentId });
       const childId = nextNodeId++;
+      childIds.push(childId);
       await emit({
         type: 'move',
         id: childId,
@@ -585,7 +589,14 @@ export async function buildReviewPlan(
       if (i === strongestIdx && strongestIdx > 0) {
         await emit({ type: 'promote' });
       }
-      await expand(e.childFen, depth + 1, childId);
+    }
+
+    // Пасс 2 (глубина): углубляемся в каждый сиблинг по очереди. При
+    // единственном кандидате currentMove уже на нём — goto не нужен.
+    const multi = evaluated.length > 1;
+    for (let i = 0; i < evaluated.length; i++) {
+      if (multi) await emit({ type: 'goto', toId: childIds[i] });
+      await expand(evaluated[i].childFen, depth + 1, childIds[i]);
     }
   };
 

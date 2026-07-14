@@ -371,6 +371,43 @@ describe('buildReviewPlan — ветвление и аннотации', () => {
     expect(moves.map((m) => m.uci)).toEqual(['m1']); // sfx не разбирается
   });
 
+  it('KS-4950: ширина раньше глубины — обе альтернативы 1-го хода до внуков', async () => {
+    const CH_A = 'chA b - - 0 1';
+    const CH_B = 'chB b - - 0 1';
+    const GA = 'gA w - - 0 2';
+    const GB = 'gB w - - 0 2';
+    const decided: PositionReviewEval = {
+      bestUci: 'zz',
+      wdl: { w: 980, d: 10, l: 10 },
+      multipv: ['zz'],
+    };
+    const { engines } = makeEngines({
+      policy: {
+        [ROOT]: { a: 0.5, b: 0.4 }, // две альтернативы 1-го хода
+        [CH_A]: { ga: 0.9 },
+        [CH_B]: { gb: 0.9 },
+        [GA]: { zz: 0.99 },
+        [GB]: { zz: 0.99 },
+      },
+      evals: {
+        [ROOT]: { bestUci: 'a', wdl: { w: 500, d: 300, l: 200 }, multipv: ['a'] },
+        // Не «понято» (SF-топ ≠ Maia-топ) → узлы углубляются к внукам.
+        [CH_A]: { bestUci: 'x', wdl: { w: 400, d: 300, l: 300 }, multipv: ['x'] },
+        [CH_B]: { bestUci: 'x', wdl: { w: 400, d: 300, l: 300 }, multipv: ['x'] },
+        [GA]: decided,
+        [GB]: decided,
+      },
+      transitions: { [ROOT]: { a: CH_A, b: CH_B }, [CH_A]: { ga: GA }, [CH_B]: { gb: GB } },
+    });
+    const plan = await buildReviewPlan(ROOT, engines);
+    const idx = (uci: string) =>
+      plan.ops.findIndex((o) => o.type === 'move' && (o as any).uci === uci);
+    // Обе альтернативы 1-го хода (a, b) выведены ДО внуков (ga, gb).
+    expect(idx('a')).toBeGreaterThanOrEqual(0);
+    expect(idx('b')).toBeGreaterThanOrEqual(0);
+    expect(Math.max(idx('a'), idx('b'))).toBeLessThan(Math.min(idx('ga'), idx('gb')));
+  });
+
   it('KS-4950: сильнейший по оценке сиблинг повышается до главной (promote)', async () => {
     const CH_A = 'afterA b - - 0 1'; // слабый ход
     const CH_B = 'afterB b - - 0 1'; // сильный ход
