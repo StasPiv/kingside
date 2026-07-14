@@ -123,7 +123,21 @@ export function ReviewPanel({
     const base = defaultReviewConfig(elo);
     return {
       ...base,
-      limits: { ...base.limits, maxDepth: 10, maxNodes: 100 },
+      // Шире отбор Maia — больше ходов-кандидатов на узел (было .10/.85/.4/2).
+      thresholds: {
+        ...base.thresholds,
+        pFloor: 0.05,
+        pNucleus: 0.9,
+        rel: 0.2,
+        nMax: 4,
+      },
+      // maxBranchPerSource ограничивает кандидатов на узел — поднимаем до nMax.
+      limits: {
+        ...base.limits,
+        maxDepth: 10,
+        maxNodes: 100,
+        maxBranchPerSource: 4,
+      },
     };
   }, [elo]);
 
