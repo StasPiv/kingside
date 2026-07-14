@@ -16,6 +16,7 @@ import {
   unionCandidates,
   buildReviewPlan,
   defaultReviewConfig,
+  REVIEW_ROOT_ID,
   ReviewAbortError,
   DEFAULT_REVIEW_THRESHOLDS,
   type PositionReviewEngines,
@@ -216,7 +217,7 @@ describe('buildReviewPlan — стоп-условие §4', () => {
       transitions: {},
     });
     const plan = await buildReviewPlan(ROOT, engines);
-    expect(plan.ops).toEqual([{ type: 'goto', fen: ROOT }]);
+    expect(plan.ops).toEqual([{ type: 'goto', toId: REVIEW_ROOT_ID }]);
     expect(plan.stats.leaves.understood).toBe(1);
     expect(plan.stats.nodes).toBe(1);
   });
@@ -348,7 +349,7 @@ describe('buildReviewPlan — ветвление и аннотации', () => {
     expect(d4.source).toBe('maia');
     // Возврат к развилке между сиблингами.
     const gotoRoots = plan.ops.filter(
-      (o) => o.type === 'goto' && o.fen === ROOT,
+      (o) => o.type === 'goto' && o.toId === REVIEW_ROOT_ID,
     );
     expect(gotoRoots.length).toBeGreaterThanOrEqual(2); // начальный + возврат
   });

@@ -142,12 +142,24 @@ export interface PositionReviewEngines {
 
 export type ReviewMoveSource = 'maia' | 'stockfish' | 'both';
 
+/** Идентификатор корня разбора (текущая позиция) в потоке операций. */
+export const REVIEW_ROOT_ID = -1;
+
 export type ReviewPlanOp =
-  /** Навигация к точке ветвления (по FEN; player резолвит в globalIndex). */
-  | { type: 'goto'; fen: string }
-  /** Применить ход в дерево (makeVariantMove) от текущего узла. */
+  /**
+   * Навигация к узлу-развилке по стабильному id узла плана (НЕ по FEN —
+   * при транспозициях одна позиция = несколько узлов, поиск по FEN дал бы
+   * неоднозначность). `toId === REVIEW_ROOT_ID` — корень разбора.
+   */
+  | { type: 'goto'; toId: number }
+  /**
+   * Применить ход в дерево (makeVariantMove) от текущего узла. `id` —
+   * стабильный идентификатор создаваемого узла; goto к нему возвращает
+   * ровно сюда.
+   */
   | {
       type: 'move';
+      id: number;
       uci: string;
       san: string;
       source: ReviewMoveSource;
@@ -380,9 +392,12 @@ export async function buildReviewPlan(
     degradedNoSf: false,
   };
   const visited = new Set<string>();
+  // Счётчик стабильных id узлов плана (0,1,2…). goto ссылается на id,
+  // а не на FEN — иначе транспозиции ломают навигацию к развилке.
+  let nextNodeId = 0;
 
-  // Позиционируемся на корне.
-  ops.push({ type: 'goto', fen: rootFen });
+  // Позиционируемся на корне разбора (текущая позиция пользователя).
+  ops.push({ type: 'goto', toId: REVIEW_ROOT_ID });
 
   const markLeaf = (reason: ReviewStopReason) => {
     stats.leaves[reason] += 1;
@@ -399,7 +414,13 @@ export async function buildReviewPlan(
     return invertWdl(childEval.wdl);
   };
 
-  const expand = async (fen: string, depth: number): Promise<void> => {
+  // `parentId` — id узла, чья позиция = `fen` (REVIEW_ROOT_ID для корня).
+  // Возврат к развилке между сиблингами делается goto именно к нему.
+  const expand = async (
+    fen: string,
+    depth: number,
+    parentId: number,
+  ): Promise<void> => {
     if (signal?.aborted) throw new ReviewAbortError();
     stats.maxDepthReached = Math.max(stats.maxDepthReached, depth);
 
@@ -504,10 +525,12 @@ export async function buildReviewPlan(
     // ходы более глубокой ветки продолжают этого ребёнка.
     for (let i = 0; i < evaluated.length; i++) {
       const e = evaluated[i];
-      // Возврат к точке ветвления перед вторым и последующими сиблингами.
-      if (i > 0) ops.push({ type: 'goto', fen });
+      // Возврат к точке ветвления (этому узлу) перед 2-м и след. сиблингами.
+      if (i > 0) ops.push({ type: 'goto', toId: parentId });
+      const childId = nextNodeId++;
       ops.push({
         type: 'move',
+        id: childId,
         uci: e.uci,
         san: e.san,
         source: e.source,
@@ -529,10 +552,10 @@ export async function buildReviewPlan(
           });
         }
       }
-      await expand(e.childFen, depth + 1);
+      await expand(e.childFen, depth + 1, childId);
     }
   };
 
-  await expand(rootFen, 0);
+  await expand(rootFen, 0, REVIEW_ROOT_ID);
   return { rootFen, elo, ops, stats };
 }

@@ -17,7 +17,11 @@
  * `annotate` применяется уже на другом тике — к моменту её вызова React
  * закоммитил move и `currentGlobalIndex` указывает на новый узел.
  */
-import { positionKey, type ReviewPlan, type ReviewPlanOp } from '../lib/review/positionReview';
+import {
+  REVIEW_ROOT_ID,
+  type ReviewPlan,
+  type ReviewPlanOp,
+} from '../lib/review/positionReview';
 import type { ChessMove } from './types';
 
 // ---------------------------------------------------------------------------
@@ -144,23 +148,26 @@ export interface ReviewPlayerReviewApi {
 }
 
 export interface ApplyOpContext {
-  /** FEN корня разбора — goto к нему = переход в стартовую позицию. */
-  rootFen: string;
-  /** positionKey(fen) → globalIndex узла (заполняется по мере записи). */
-  fenIndex: Map<string, number>;
+  /**
+   * id узла плана → globalIndex созданного узла (заполняется по мере
+   * записи ходов). Навигация к развилке идёт по id, а НЕ по FEN —
+   * иначе транспозиции дают неоднозначность и ход применяется не от того
+   * узла.
+   */
+  idIndex: Map<number, number>;
   /**
    * KS-4950: globalIndex узла, из которого запущен разбор (текущая
-   * позиция пользователя). goto к корню возвращает именно сюда, а не в
-   * начало партии. `-1` — разбор от стартовой позиции (currentMove=null).
+   * позиция пользователя). goto к корню (REVIEW_ROOT_ID) возвращает
+   * именно сюда, а не в начало партии. `-1` — корень = стартовая позиция.
    */
   rootGlobalIndex?: number;
 }
 
 /**
  * Применяет одну операцию плана к review-actions (ADR §5):
- *   - `goto`: к корню разбора → узел `rootGlobalIndex` (текущая позиция
- *     пользователя) через `gotoMove`, либо `gotoFirst` если корень —
- *     стартовая позиция; иначе поиск узла по fenIndex → `gotoMove`.
+ *   - `goto`: к корню (REVIEW_ROOT_ID) → узел `rootGlobalIndex` (текущая
+ *     позиция) через `gotoMove`, либо `gotoFirst` если корень —
+ *     стартовая позиция; иначе поиск узла по `idIndex[toId]` → `gotoMove`.
  *   - `move`: `makeVariantMove` (сам решает ADD_VARIATION/ADD_MOVE/GOTO_MOVE).
  *   - `annotate`: `setNag`/`setComment` на текущем узле (уже закоммичен).
  *
@@ -174,7 +181,7 @@ export function applyReviewOp(
 ): boolean {
   switch (op.type) {
     case 'goto': {
-      if (positionKey(op.fen) === positionKey(ctx.rootFen)) {
+      if (op.toId === REVIEW_ROOT_ID) {
         // Возврат к корню разбора = к узлу, из которого запущен разбор
         // (текущая позиция), а не в начало партии.
         const rootGi = ctx.rootGlobalIndex ?? -1;
@@ -188,7 +195,7 @@ export function applyReviewOp(
         review.gotoFirst();
         return true;
       }
-      const gi = ctx.fenIndex.get(positionKey(op.fen));
+      const gi = ctx.idIndex.get(op.toId);
       if (gi === undefined) return false;
       const node = findMoveByGlobalIndex(review.getHistory(), gi);
       if (!node) return false;

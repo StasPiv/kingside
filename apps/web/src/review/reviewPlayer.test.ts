@@ -18,7 +18,7 @@ import {
   type ReviewPlayerReviewApi,
   type ApplyOpContext,
 } from './reviewPlayer';
-import type { ReviewPlan, ReviewPlanOp } from '../lib/review/positionReview';
+import { REVIEW_ROOT_ID, type ReviewPlan, type ReviewPlanOp } from '../lib/review/positionReview';
 import type { ChessMove } from './types';
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ describe('holdMsForOp / effectiveHoldMs (§6)', () => {
   const T = DEFAULT_REVIEW_TIMINGS; // animate 220, holdMove 900, holdKey 1800, reset 0
 
   it('move = animate + holdMove', () => {
-    expect(holdMsForOp({ type: 'move', uci: 'e2e4', san: 'e4', source: 'maia', wdlAfter: null }, T)).toBe(
+    expect(holdMsForOp({ type: 'move', id: 0, uci: 'e2e4', san: 'e4', source: 'maia', wdlAfter: null }, T)).toBe(
       1120,
     );
   });
@@ -50,11 +50,11 @@ describe('holdMsForOp / effectiveHoldMs (§6)', () => {
     expect(holdMsForOp({ type: 'annotate', nag: 2 }, T)).toBe(1800);
   });
   it('goto = reset', () => {
-    expect(holdMsForOp({ type: 'goto', fen: 'x' }, T)).toBe(0);
+    expect(holdMsForOp({ type: 'goto', toId: 0 }, T)).toBe(0);
   });
   it('reduced-motion обнуляет слайд', () => {
     expect(
-      holdMsForOp({ type: 'move', uci: 'e2e4', san: 'e4', source: 'maia', wdlAfter: null }, T, true),
+      holdMsForOp({ type: 'move', id: 0, uci: 'e2e4', san: 'e4', source: 'maia', wdlAfter: null }, T, true),
     ).toBe(900);
   });
   it('множитель скорости делит паузу', () => {
@@ -169,67 +169,74 @@ const ROOT = 'root w - - 0 1';
 describe('applyReviewOp', () => {
   it('move → makeVariantMove с распарсенным UCI', () => {
     const { api, calls } = makeFakeReview({});
-    const ctx: ApplyOpContext = { rootFen: ROOT, fenIndex: new Map() };
-    const op: ReviewPlanOp = { type: 'move', uci: 'e7e8q', san: 'e8=Q', source: 'stockfish', wdlAfter: null };
+    const ctx: ApplyOpContext = { idIndex: new Map() };
+    const op: ReviewPlanOp = { type: 'move', id: 0, uci: 'e7e8q', san: 'e8=Q', source: 'stockfish', wdlAfter: null };
     expect(applyReviewOp(op, api, ctx)).toBe(true);
     expect(calls.makeVariantMove).toEqual([['e7', 'e8', 'q']]);
   });
 
   it('goto к корню без rootGlobalIndex → gotoFirst (стартовая позиция)', () => {
     const { api, calls } = makeFakeReview({});
-    const ctx: ApplyOpContext = { rootFen: ROOT, fenIndex: new Map() };
-    // Другой FEN, но тот же positionKey (счётчики ходов игнорируются).
-    const op: ReviewPlanOp = { type: 'goto', fen: 'root w - - 9 5' };
+    const ctx: ApplyOpContext = { idIndex: new Map() };
+    const op: ReviewPlanOp = { type: 'goto', toId: REVIEW_ROOT_ID };
     expect(applyReviewOp(op, api, ctx)).toBe(true);
     expect(calls.gotoFirst).toBe(1);
   });
 
   it('KS-4950: goto к корню с rootGlobalIndex → gotoMove на узел запуска, не в начало', () => {
-    const launch = node(12, { fen: 'root w - - 0 1' });
+    const launch = node(12);
     const { api, calls } = makeFakeReview({ history: [launch] });
-    const ctx: ApplyOpContext = {
-      rootFen: ROOT,
-      fenIndex: new Map(),
-      rootGlobalIndex: 12,
-    };
-    expect(applyReviewOp({ type: 'goto', fen: ROOT }, api, ctx)).toBe(true);
+    const ctx: ApplyOpContext = { idIndex: new Map(), rootGlobalIndex: 12 };
+    expect(applyReviewOp({ type: 'goto', toId: REVIEW_ROOT_ID }, api, ctx)).toBe(true);
     expect(calls.gotoMove).toEqual([launch]); // вернулись к текущей позиции
     expect(calls.gotoFirst).toBe(0); // НЕ в начало партии
   });
 
   it('KS-4950: rootGlobalIndex=-1 (запуск со старта) → gotoFirst', () => {
     const { api, calls } = makeFakeReview({});
-    const ctx: ApplyOpContext = {
-      rootFen: ROOT,
-      fenIndex: new Map(),
-      rootGlobalIndex: -1,
-    };
-    expect(applyReviewOp({ type: 'goto', fen: ROOT }, api, ctx)).toBe(true);
+    const ctx: ApplyOpContext = { idIndex: new Map(), rootGlobalIndex: -1 };
+    expect(applyReviewOp({ type: 'goto', toId: REVIEW_ROOT_ID }, api, ctx)).toBe(true);
     expect(calls.gotoFirst).toBe(1);
   });
 
-  it('goto к развилке → поиск узла по fenIndex и gotoMove', () => {
-    const fork = node(7, { fen: 'forkpos w - - 3 4' });
+  it('goto к развилке → поиск узла по idIndex и gotoMove', () => {
+    const fork = node(7);
     const { api, calls } = makeFakeReview({ history: [fork] });
-    const fenIndex = new Map<string, number>();
-    fenIndex.set('forkpos w - -', 7); // positionKey первых 4 полей
-    const ctx: ApplyOpContext = { rootFen: ROOT, fenIndex };
-    const op: ReviewPlanOp = { type: 'goto', fen: 'forkpos w - - 3 4' };
+    const idIndex = new Map<number, number>();
+    idIndex.set(3, 7); // узел плана #3 → globalIndex 7
+    const ctx: ApplyOpContext = { idIndex };
+    const op: ReviewPlanOp = { type: 'goto', toId: 3 };
     expect(applyReviewOp(op, api, ctx)).toBe(true);
     expect(calls.gotoMove).toEqual([fork]);
   });
 
+  it('KS-4950: транспозиция — узлы с одинаковой позицией, goto по id ведёт к нужному', () => {
+    // Два узла имеют одинаковый FEN (транспозиция), но разные globalIndex.
+    // Навигация по id обязана вернуть РОВНО тот узел, что записан для id,
+    // а не «последний с этим FEN» (как было бы при поиске по FEN).
+    const early = node(4, { fen: 'same w - - 0 5' });
+    const late = node(9, { fen: 'same w - - 0 12' });
+    const { api, calls } = makeFakeReview({ history: [early, late] });
+    const idIndex = new Map<number, number>();
+    idIndex.set(2, 4); // узел плана #2 → ранний
+    idIndex.set(7, 9); // узел плана #7 → поздний
+    const ctx: ApplyOpContext = { idIndex };
+    expect(applyReviewOp({ type: 'goto', toId: 2 }, api, ctx)).toBe(true);
+    expect(applyReviewOp({ type: 'goto', toId: 7 }, api, ctx)).toBe(true);
+    expect(calls.gotoMove).toEqual([early, late]); // каждый id → свой узел
+  });
+
   it('goto к неизвестной развилке → false, без навигации', () => {
     const { api, calls } = makeFakeReview({ history: [] });
-    const ctx: ApplyOpContext = { rootFen: ROOT, fenIndex: new Map() };
-    expect(applyReviewOp({ type: 'goto', fen: 'unknown b - - 0 1' }, api, ctx)).toBe(false);
+    const ctx: ApplyOpContext = { idIndex: new Map() };
+    expect(applyReviewOp({ type: 'goto', toId: 99 }, api, ctx)).toBe(false);
     expect(calls.gotoMove).toHaveLength(0);
     expect(calls.gotoFirst).toBe(0);
   });
 
   it('annotate → setNag + setComment на текущем узле', () => {
     const { api, calls } = makeFakeReview({ currentGlobalIndex: 3 });
-    const ctx: ApplyOpContext = { rootFen: ROOT, fenIndex: new Map() };
+    const ctx: ApplyOpContext = { idIndex: new Map() };
     const op: ReviewPlanOp = { type: 'annotate', nag: 4, comment: 'e5 (Maia 40%, 90%)' };
     expect(applyReviewOp(op, api, ctx)).toBe(true);
     expect(calls.setNag).toEqual([[3, [4]]]);
@@ -238,15 +245,15 @@ describe('applyReviewOp', () => {
 
   it('annotate без текущего узла (index -1) → false', () => {
     const { api, calls } = makeFakeReview({ currentGlobalIndex: -1 });
-    const ctx: ApplyOpContext = { rootFen: ROOT, fenIndex: new Map() };
+    const ctx: ApplyOpContext = { idIndex: new Map() };
     expect(applyReviewOp({ type: 'annotate', nag: 2 }, api, ctx)).toBe(false);
     expect(calls.setNag).toHaveLength(0);
   });
 
   it('move с битым UCI → false, makeVariantMove не вызывается', () => {
     const { api, calls } = makeFakeReview({});
-    const ctx: ApplyOpContext = { rootFen: ROOT, fenIndex: new Map() };
-    const op = { type: 'move', uci: 'e2', san: '?', source: 'maia', wdlAfter: null } as ReviewPlanOp;
+    const ctx: ApplyOpContext = { idIndex: new Map() };
+    const op = { type: 'move', id: 0, uci: 'e2', san: '?', source: 'maia', wdlAfter: null } as ReviewPlanOp;
     expect(applyReviewOp(op, api, ctx)).toBe(false);
     expect(calls.makeVariantMove).toHaveLength(0);
   });
@@ -273,11 +280,11 @@ function planWith(ops: ReviewPlanOp[]): ReviewPlan {
 
 describe('reviewProgress / totalReviewNodes', () => {
   const plan = planWith([
-    { type: 'goto', fen: ROOT },
-    { type: 'move', uci: 'e2e4', san: 'e4', source: 'maia', wdlAfter: null },
+    { type: 'goto', toId: REVIEW_ROOT_ID },
+    { type: 'move', id: 0, uci: 'e2e4', san: 'e4', source: 'maia', wdlAfter: null },
     { type: 'annotate', nag: 2 },
-    { type: 'goto', fen: ROOT },
-    { type: 'move', uci: 'd2d4', san: 'd4', source: 'stockfish', wdlAfter: null },
+    { type: 'goto', toId: REVIEW_ROOT_ID },
+    { type: 'move', id: 1, uci: 'd2d4', san: 'd4', source: 'stockfish', wdlAfter: null },
   ]);
 
   it('total = число move-операций', () => {

@@ -9,7 +9,7 @@
  * блокировка ручного ввода на автопроигрывании.
  *
  * Защита от гонки async dispatch (ADR §7): ровно одна операция за тик.
- * `move` пишет узел, а `fenIndex` (positionKey→globalIndex для goto к
+ * `move` пишет узел, а `idIndex` (id узла плана→globalIndex для goto к
  * развилкам) обновляется пост-коммит-эффектом, когда React уже применил
  * dispatch и `currentFen`/`currentGlobalIndex` актуальны.
  */
@@ -26,7 +26,7 @@ import {
   type ReviewPlayerReviewApi,
   type ReviewTimings,
 } from '../review/reviewPlayer';
-import { positionKey, type ReviewPlan } from '../lib/review/positionReview';
+import type { ReviewPlan } from '../lib/review/positionReview';
 import type { ChessMove } from '../review/types';
 
 export type ReviewPlayerStatus = 'idle' | 'playing' | 'paused' | 'done';
@@ -101,9 +101,8 @@ export function useReviewPlayer(
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
   const accRef = useRef(0);
-  const fenIndexRef = useRef<Map<string, number>>(new Map());
-
-  const rootFen = plan?.rootFen ?? '';
+  // id узла плана → globalIndex созданного узла (для goto к развилке).
+  const idIndexRef = useRef<Map<number, number>>(new Map());
 
   const reviewApi = useMemo<ReviewPlayerReviewApi>(
     () => ({
@@ -120,11 +119,10 @@ export function useReviewPlayer(
   );
 
   const ctxRef = useRef<ApplyOpContext>({
-    rootFen,
-    fenIndex: fenIndexRef.current,
+    idIndex: idIndexRef.current,
     rootGlobalIndex,
   });
-  ctxRef.current = { rootFen, fenIndex: fenIndexRef.current, rootGlobalIndex };
+  ctxRef.current = { idIndex: idIndexRef.current, rootGlobalIndex };
 
   /** Применить следующую операцию плана. Возвращает false, если план кончился. */
   const advance = useCallback((): boolean => {
@@ -141,19 +139,15 @@ export function useReviewPlayer(
   }, [plan, reviewApi]);
 
   // Пост-коммит-эффект: после применения `move`-операции React уже
-  // закоммитил dispatch — записываем positionKey(currentFen)→globalIndex
-  // для последующих goto к этой развилке (ADR §5, защита от гонки §7).
+  // закоммитил dispatch — записываем id узла плана → globalIndex созданного
+  // узла, чтобы goto к развилке нашёл РОВНО тот узел (без FEN-неоднозначности
+  // при транспозициях). Защита от гонки async dispatch (ADR §7).
   useEffect(() => {
     if (!plan || opIndex < 0 || opIndex >= plan.ops.length) return;
     const op = plan.ops[opIndex];
     if (op.type === 'move') {
       const gi = reviewRef.current.getCurrentGlobalIndex();
-      if (gi >= 0) {
-        fenIndexRef.current.set(
-          positionKey(reviewRef.current.getCurrentFen()),
-          gi,
-        );
-      }
+      if (gi >= 0) idIndexRef.current.set(op.id, gi);
     }
   }, [opIndex, plan]);
 

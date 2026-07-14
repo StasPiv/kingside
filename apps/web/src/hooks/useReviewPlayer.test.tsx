@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 import { useReviewPlayer, type ReviewPlayerReviewState } from './useReviewPlayer';
-import type { ReviewPlan, ReviewPlanOp } from '../lib/review/positionReview';
+import { REVIEW_ROOT_ID, type ReviewPlan, type ReviewPlanOp } from '../lib/review/positionReview';
 import type { ChessMove } from '../review/types';
 
 const ROOT = 'root w - - 0 1';
@@ -89,11 +89,11 @@ function makeStatefulReview(): {
 }
 
 const PLAN = planWith([
-  { type: 'goto', fen: ROOT },
-  { type: 'move', uci: 'e2e4', san: 'e4', source: 'maia', wdlAfter: null },
+  { type: 'goto', toId: REVIEW_ROOT_ID },
+  { type: 'move', id: 0, uci: 'e2e4', san: 'e4', source: 'maia', wdlAfter: null },
   { type: 'annotate', nag: 2, comment: 'x' },
-  { type: 'goto', fen: ROOT },
-  { type: 'move', uci: 'd2d4', san: 'd4', source: 'stockfish', wdlAfter: null },
+  { type: 'goto', toId: REVIEW_ROOT_ID },
+  { type: 'move', id: 1, uci: 'd2d4', san: 'd4', source: 'stockfish', wdlAfter: null },
 ]);
 
 describe('useReviewPlayer — пошаговый режим (reduced-motion)', () => {
