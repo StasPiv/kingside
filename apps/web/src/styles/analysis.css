@@ -2371,38 +2371,46 @@ body[data-sidebar-font-size='lg'] { --analysis-sidebar-font-scale: 1.18; }
   }
 
   /* KS-1183/KS-1185: Large nav buttons for touch.
-     KS-3392: tap-области ≥44×44, увеличенный gap. */
+     KS-3392: tap-области ≥44×44, увеличенный gap.
+     KS-4962: после добавления ↶/↷ (KS-4961) ряд из 8 кнопок
+     [⇤ ← → ⇥ ↶ ↷ ⇅ …] перестал влезать в 390px — крайняя «…»
+     подрезалась. Уплотняем (min-width 40, gap 4) + разрешаем
+     перенос (flex-wrap) как страховку на узких экранах: ничего
+     не режется, при нехватке ширины ряд переносится на 2 строки. */
   .analysis-board-controls {
-    height: 48px;
-    gap: 8px;
+    min-height: 48px;
+    gap: 4px;
     align-items: center;
+    align-content: center;
     justify-content: center;
-    padding: 0 4px;
+    flex-wrap: wrap;
+    padding: 4px;
   }
 
   .analysis-board-controls button {
     padding: 8px 0;
     font-size: 18px;
-    min-width: 48px;
+    min-width: 40px;
     height: 44px;
-    flex: 1;
-    max-width: 64px;
+    flex: 1 1 auto;
+    max-width: 56px;
   }
 
   /* KS-3392: «в конец» (⇥) — палец при быстром тапе «вперёд» (→)
      соскакивал на соседнюю и партия прыгала в конец. Отделяем «в
-     конец» увеличенным зазором (gap 8 + margin 16 = 24px), разбивая
-     ряд на две группы: [⇤ ← →] | [⇥ ⇅ S M L]. Промах по «вперёд»
-     попадает в пустой зазор, а не в «в конец». */
+     конец» увеличенным зазором, разбивая ряд на две группы:
+     [⇤ ← →] | [⇥ …]. Промах по «вперёд» попадает в пустой зазор,
+     а не в «в конец». KS-4962: 16→10px — компенсирует уплотнение. */
   .analysis-board-controls [data-testid='analysis-nav-last'] {
-    margin-left: 16px;
+    margin-left: 10px;
   }
 
   .analysis-flip-btn {
     font-size: 18px !important;
     padding: 8px 0 !important;
-    flex: 1 !important;
-    max-width: 64px !important;
+    flex: 1 1 auto !important;
+    min-width: 40px !important;
+    max-width: 56px !important;
   }
 
   .analysis-controls-spacer {
