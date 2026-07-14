@@ -34,8 +34,6 @@ export class StudyLessonBuilderService {
   private readonly logger = new Logger(StudyLessonBuilderService.name);
   /** Маркер персонального курса занятий в description. */
   static readonly COURSE_MARKER = 'kingside:study-personal-course';
-  /** Ротация: уроки персонального курса старше N дней удаляются (§2.2). */
-  static readonly LESSON_TTL_DAYS = 30;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -53,7 +51,7 @@ export class StudyLessonBuilderService {
     material: LessonMaterial,
   ): Promise<{ lessonId: string; courseId: string; courseSlug: string; themeLabel: string }> {
     const course = await this.ensurePersonalCourse(userId, lang);
-    await this.rotateOldLessons(course.id);
+    await this.rotateOldLessons(course.id, userId);
 
     // KS-4918: тема выбирается с ФАКТИЧЕСКИМ наличием задач в окне —
     // иначе puzzle-шаг пуст и прогресс урока блокируется.
@@ -292,16 +290,42 @@ export class StudyLessonBuilderService {
     return { id: created.id, slug: created.slug };
   }
 
-  /** Ротация: удаляем уроки курса старше TTL (история — в StudySession). */
-  private async rotateOldLessons(courseId: string): Promise<void> {
-    const threshold = new Date(
-      Date.now() - StudyLessonBuilderService.LESSON_TTL_DAYS * 86_400_000,
-    );
+  /**
+   * KS-4955: персональный курс — транзитный носитель ТЕКУЩЕГО занятия;
+   * история со score/темой хранится в StudySession (getHistory), урок для
+   * неё не нужен и из истории не переоткрывается. Держим в курсе только
+   * уроки активных (незавершённых) сессий — иначе завершённые занятия
+   * копятся и на странице курса выглядят как дубли «Занятие: <тема>» ×N
+   * (баг: «после прохождения занятие создаётся снова»). Новый урок
+   * создаётся уже после ротации, поэтому под удаление не попадает.
+   * Удаление урока каскадит его шаги и прогресс (onDelete: Cascade);
+   * StudySession.lessonId — скалярное поле без FK, ссылки не ломаются.
+   */
+  private async rotateOldLessons(
+    courseId: string,
+    userId: string,
+  ): Promise<void> {
+    const active = await this.prisma.studySession.findMany({
+      where: {
+        userId,
+        status: { in: ['planned', 'notified', 'in_progress'] },
+        lessonId: { not: null },
+      },
+      select: { lessonId: true },
+    });
+    const keep = active
+      .map((s) => s.lessonId)
+      .filter((id): id is string => !!id);
     const removed = await this.prisma.lesson.deleteMany({
-      where: { courseId, createdAt: { lt: threshold } },
+      where: {
+        courseId,
+        ...(keep.length > 0 ? { id: { notIn: keep } } : {}),
+      },
     });
     if (removed.count > 0) {
-      this.logger.log(`rotated ${removed.count} old study lesson(s) in course ${courseId}`);
+      this.logger.log(
+        `rotated ${removed.count} completed study lesson(s) in course ${courseId}`,
+      );
     }
   }
 
