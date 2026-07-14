@@ -99,7 +99,7 @@ export function ReviewPanel({
     const base = defaultReviewConfig(elo);
     return {
       ...base,
-      limits: { ...base.limits, maxDepth: 4, maxNodes: 100 },
+      limits: { ...base.limits, maxDepth: 10, maxNodes: 100 },
     };
   }, [elo]);
 
