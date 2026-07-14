@@ -87,7 +87,7 @@ export function createReviewEngines(
       const multipv = best
         ? [best, ...fromWdlMap.filter((m) => m !== best)]
         : fromWdlMap;
-      return { bestUci: best, wdl: r.wdlBefore, multipv };
+      return { bestUci: best, wdl: r.wdlBefore, multipv, score: r.topScore ?? null };
     },
 
     applyMove(fen, uci) {

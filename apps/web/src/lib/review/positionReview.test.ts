@@ -16,6 +16,7 @@ import {
   unionCandidates,
   buildReviewPlan,
   defaultReviewConfig,
+  formatSfEvalComment,
   REVIEW_ROOT_ID,
   ReviewAbortError,
   DEFAULT_REVIEW_THRESHOLDS,
@@ -208,6 +209,47 @@ function makeEngines(spec: {
 }
 
 const ROOT = 'root w - - 0 1';
+
+describe('formatSfEvalComment', () => {
+  it('cp POV белых на ходу — как есть', () => {
+    expect(formatSfEvalComment({ type: 'cp', value: 123 }, true)).toBe('SF +1.23');
+    expect(formatSfEvalComment({ type: 'cp', value: -50 }, true)).toBe('SF -0.50');
+  });
+  it('cp POV чёрных на ходу — инверсия к белым', () => {
+    expect(formatSfEvalComment({ type: 'cp', value: 200 }, false)).toBe('SF -2.00');
+  });
+  it('мат', () => {
+    expect(formatSfEvalComment({ type: 'mate', value: 3 }, true)).toBe('SF #3');
+    expect(formatSfEvalComment({ type: 'mate', value: 2 }, false)).toBe('SF #-2');
+  });
+});
+
+describe('buildReviewPlan — нет ходов Maia ≥ порога → оценка SF, обрыв', () => {
+  it('все ходы < pFloor → annotate с оценкой SF, лист terminal', async () => {
+    const { engines } = makeEngines({
+      policy: { [ROOT]: { a: 0.1, b: 0.1 } }, // оба < 0.15
+      evals: {
+        [ROOT]: {
+          bestUci: 'a',
+          wdl: { w: 400, d: 300, l: 300 },
+          multipv: ['a'],
+          score: { type: 'cp', value: 80 },
+        },
+      },
+      transitions: {},
+    });
+    const config = {
+      ...defaultReviewConfig(),
+      thresholds: { ...defaultReviewConfig().thresholds, pFloor: 0.15, rel: 0, pNucleus: 1 },
+    };
+    const plan = await buildReviewPlan(ROOT, engines, config);
+    const ann = plan.ops.find((o) => o.type === 'annotate') as any;
+    expect(ann).toBeDefined();
+    expect(ann.comment).toContain('SF');
+    expect(plan.ops.filter((o) => o.type === 'move')).toHaveLength(0);
+    expect(plan.stats.leaves.terminal).toBe(1);
+  });
+});
 
 describe('buildReviewPlan — стоп-условие §4', () => {
   it('корень уже понят (SF==Maia, decided) → только goto, лист understood', async () => {

@@ -118,6 +118,8 @@ export interface PositionReviewEval {
   wdl: Wdl;
   /** Первые ходы top-MultiPV линий, best-first (для SF-кандидатов). */
   multipv: string[];
+  /** cp/mate оценка позиции POV стороны на ходу (для «оценки SF» на конце ветки). */
+  score?: { type: 'cp' | 'mate'; value: number } | null;
 }
 
 /**
@@ -251,6 +253,23 @@ export function maiaTopMove(policy: Record<string, number>): string | null {
     }
   }
   return best;
+}
+
+/**
+ * KS-4950: комментарий с оценкой Stockfish для конца ветки (нет ходов
+ * Maia ≥ порога). `score` — POV стороны на ходу; приводим к POV белых.
+ */
+export function formatSfEvalComment(
+  score: { type: 'cp' | 'mate'; value: number },
+  whiteToMove: boolean,
+): string {
+  const sign = whiteToMove ? 1 : -1;
+  if (score.type === 'mate') {
+    const m = sign * score.value;
+    return m >= 0 ? `SF #${m}` : `SF #-${Math.abs(m)}`;
+  }
+  const cp = (sign * score.value) / 100;
+  return `SF ${cp >= 0 ? '+' : ''}${cp.toFixed(2)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -501,6 +520,15 @@ export async function buildReviewPlan(
         source: sfSet.has(uci) ? 'both' : 'maia',
       }));
     if (candidates.length === 0) {
+      // Нет человеческого хода ≥ порога — обрываем ветку и ставим оценку SF
+      // на текущем узле (конец разбора этой линии).
+      if (nodeEval?.score) {
+        const whiteToMove = fen.split(' ')[1] === 'w';
+        await emit({
+          type: 'annotate',
+          comment: formatSfEvalComment(nodeEval.score, whiteToMove),
+        });
+      }
       markLeaf('terminal');
       return;
     }

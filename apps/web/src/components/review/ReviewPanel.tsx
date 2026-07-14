@@ -123,20 +123,21 @@ export function ReviewPanel({
     const base = defaultReviewConfig(elo);
     return {
       ...base,
-      // Шире отбор Maia — больше ходов-кандидатов на узел (было .10/.85/.4/2).
+      // Кандидаты — только ходы Maia с вероятностью ≥15%. Нет таких —
+      // ветка обрывается с оценкой SF (см. buildReviewPlan). rel/nucleus
+      // отключены (0 / 1) — фильтр только по абсолютному порогу 15%.
       thresholds: {
         ...base.thresholds,
-        pFloor: 0.05,
-        pNucleus: 0.9,
-        rel: 0.2,
-        nMax: 4,
+        pFloor: 0.15,
+        pNucleus: 1,
+        rel: 0,
+        nMax: 6,
       },
-      // maxBranchPerSource ограничивает кандидатов на узел — поднимаем до nMax.
       limits: {
         ...base.limits,
         maxDepth: 10,
         maxNodes: 100,
-        maxBranchPerSource: 4,
+        maxBranchPerSource: 6,
       },
     };
   }, [elo]);
