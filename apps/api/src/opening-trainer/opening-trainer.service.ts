@@ -549,10 +549,16 @@ export class OpeningTrainerService {
       currentFen: tree.rootFen,
     });
 
-    // Если играем чёрными — бот делает первый ход (белыми).
+    // KS-4966: бот делает первый ход, только если пользователь НЕ на ходу
+    // в корневой позиции. Сторона к ходу берётся из rootFen — репертуар из
+    // PGN с [FEN] может начинаться ходом чёрных (напр. «… b … 8»). Раньше
+    // жёстко считалось «корень = ход белых», и тренировка за чёрных из
+    // такого FEN ломалась (бот ходил вместо пользователя).
+    const rootSide: 'white' | 'black' =
+      new Chess(tree.rootFen).turn() === 'w' ? 'white' : 'black';
     let initialBotMove: StartOpeningTrainerSessionResponse['initialBotMove'] =
       null;
-    if (side === 'black') {
+    if (side !== rootSide) {
       const rootEdges = tree.nodes[tree.rootFen]?.edges ?? [];
       // KS-3278: всегда cycle (см. handleLineComplete) — на старте сессии
       // playedLines пустой, разница не критична, но соблюдаем единый паттерн.
@@ -1019,7 +1025,13 @@ export class OpeningTrainerService {
     //     ... нет, если path длина 0 — ход белых, играет ЮЗЕР (если он white).
     //     Игрок играет когда path.length % 2 === 0 для white, == 1 для black.
     //   userSide='black' → инверсно.
-    const userPliesAreEven = session.side === 'white';
+    // KS-4966: чётность ply считается от стороны к ходу в КОРНЕ (rootFen),
+    // а не от «корень = белые». Репертуар из PGN с [FEN] может начинаться
+    // ходом чёрных — тогда индекс 0 в пути это ход чёрных, и очередь
+    // пользователь/бот инвертируется.
+    const restartRootSide: 'white' | 'black' =
+      new Chess(tree.rootFen).turn() === 'w' ? 'white' : 'black';
+    const userPliesAreEven = session.side === restartRootSide;
     const isUserTurn =
       restartPath.length % 2 === (userPliesAreEven ? 0 : 1);
 

@@ -531,6 +531,35 @@ describe('OpeningTrainerService — full flow (KS-3272)', () => {
     expect(start.session.currentPath).toEqual(['e2e4']);
   });
 
+  it('KS-4966: корень из [FEN] с ходом чёрных, side=black — ходит пользователь (initialBotMove=null)', async () => {
+    const { svc } = makeService();
+    const FEN = 'r2qkb1r/pp1n1pp1/2p1pn1p/3pNb2/3P1BP1/3BP3/PPPN1P1P/R2QK2R b KQkq - 0 8';
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: `[SetUp "1"]\n[FEN "${FEN}"]\n\n8... Bxd3 9. cxd3`,
+      side: 'black',
+    });
+    expect(r.tree.rootFen).toBe(FEN);
+    const start = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    // Чёрные на ходу в корне и пользователь играет чёрными → первый ход его.
+    expect(start.initialBotMove).toBeNull();
+    expect(start.session.currentFen).toBe(FEN);
+  });
+
+  it('KS-4966: корень из [FEN] с ходом чёрных, side=white — первый ход делает бот (чёрными)', async () => {
+    const { svc } = makeService();
+    const FEN = 'r2qkb1r/pp1n1pp1/2p1pn1p/3pNb2/3P1BP1/3BP3/PPPN1P1P/R2QK2R b KQkq - 0 8';
+    const r = await svc.createRepertoire('u-1', {
+      title: 't',
+      pgn: `[SetUp "1"]\n[FEN "${FEN}"]\n\n8... Bxd3 9. cxd3`,
+      side: 'white',
+    });
+    const start = await svc.startSession('u-1', r.id, { mode: 'learn' });
+    // Чёрные на ходу в корне, пользователь белыми → бот (чёрные) ходит первым.
+    expect(start.initialBotMove).not.toBeNull();
+    expect(start.initialBotMove!.moveSan).toBe('Bxd3');
+  });
+
   it('correct user-move → +10, бот отвечает, session обновляется', async () => {
     const { svc } = makeService();
     const r = await svc.createRepertoire('u-1', {
