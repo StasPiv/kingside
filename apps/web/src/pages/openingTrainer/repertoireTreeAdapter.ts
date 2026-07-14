@@ -36,6 +36,35 @@ interface BuildCtx {
   tree: RepertoireTree;
   linesByPath: Map<string, OpeningLineProgressDto>;
   nextGlobalIndex: () => number;
+  /**
+   * KS-4967. Смещение полуходов от стартовой позиции до `rootFen`.
+   * ReviewMoveList выводит номер и сторону из `move.ply`
+   * (moveNumber = ceil(ply/2), белые — нечётный ply). Для репертуара
+   * из PGN с [FEN] rootFen может быть не startpos, поэтому абсолютный
+   * ply = basePlyOffset + длина пути. Для startpos offset = 0.
+   */
+  basePlyOffset: number;
+}
+
+/**
+ * KS-4967. База полуходов до rootFen: сколько полуходов сыграно от
+ * стартовой позиции до неё. Из FEN берём номер полного хода (поле 6)
+ * и сторону (поле 2):
+ *   - белые к ходу, полный ход F → сыграно 2·(F−1) полуходов;
+ *   - чёрные к ходу, полный ход F → сыграно 2·(F−1)+1 полуход.
+ * Абсолютный ply первого хода = offset + 1, что даёт корректную
+ * нумерацию (напр. rootFen «… b … 8» → первый ход «8…», второй «9.»).
+ * Для startpos (w, 1) и нераспознанного FEN (напр. литерал 'start')
+ * возвращаем 0 — нумерация как прежде.
+ */
+export function basePlyOffsetFromRootFen(rootFen: string): number {
+  const parts = rootFen.trim().split(/\s+/);
+  const side = parts[1];
+  const fullmove = Number.parseInt(parts[5], 10);
+  if ((side !== 'w' && side !== 'b') || Number.isNaN(fullmove) || fullmove < 1) {
+    return 0;
+  }
+  return side === 'b' ? 2 * (fullmove - 1) + 1 : 2 * (fullmove - 1);
 }
 
 function buildSequence(
@@ -66,7 +95,7 @@ function buildSequence(
     const altEdges = visibleEdges.slice(1);
 
     const mainPath = [...currentPath, mainEdge.moveUci];
-    const ply = mainPath.length;
+    const ply = ctx.basePlyOffset + mainPath.length;
     const variations: GameMove[][] = altEdges.map((edge) => {
       // Variation начинается с alt-edge'а; его FEN — childFen.
       const altMove: GameMove = makeMove(ctx, edge, currentPath, ply);
@@ -136,6 +165,7 @@ export function repertoireTreeToGameMoves(
     tree,
     linesByPath,
     nextGlobalIndex: () => counter++,
+    basePlyOffset: basePlyOffsetFromRootFen(tree.rootFen),
   };
   return buildSequence(ctx, tree.rootFen, [], new Set());
 }
