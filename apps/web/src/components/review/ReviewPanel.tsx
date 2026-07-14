@@ -13,7 +13,6 @@
  * контейнеров/кнопок с data-testid и минимальными inline-отступами.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 
 import { createDefaultEngines } from '../../hooks/useGameReview';
 import { usePositionReview } from '../../hooks/usePositionReview';
@@ -27,7 +26,8 @@ import {
   isStockfishAvailable,
 } from '../../lib/review/reviewEnginesAdapter';
 
-const SPEEDS: readonly number[] = [0.5, 1, 1.5, 2];
+/** KS-4950: movetime Stockfish на узел для интерактивного разбора (мс). */
+const REVIEW_MOVETIME_MS = 300;
 
 /** prefers-reduced-motion: анимация off + пошаговый режим. */
 function usePrefersReducedMotion(): boolean {
@@ -70,11 +70,12 @@ export function ReviewPanel({
   onAutoplayingChange,
   startToken = 0,
 }: ReviewPanelProps) {
-  const { t } = useTranslation();
   const reducedMotion = usePrefersReducedMotion();
 
-  // Выделенный промис-драйвер SF+Maia на время жизни панели.
-  const engines = useMemo(() => createDefaultEngines(), []);
+  // KS-4950: интерактивность важнее исчерпывающей глубины — короткий
+  // быстрый обход, чтобы движение фигур начиналось за несколько секунд,
+  // а не после полной 2-минутной сборки. Меньше movetime + жёстче лимиты.
+  const engines = useMemo(() => createDefaultEngines(REVIEW_MOVETIME_MS), []);
   useEffect(() => () => engines.terminate(), [engines]);
 
   const sfAvailable = useMemo(() => isStockfishAvailable(), []);
@@ -82,7 +83,13 @@ export function ReviewPanel({
     () => createReviewEngines(engines, { sfEnabled: sfAvailable }),
     [engines, sfAvailable],
   );
-  const config = useMemo(() => defaultReviewConfig(elo), [elo]);
+  const config = useMemo(() => {
+    const base = defaultReviewConfig(elo);
+    return {
+      ...base,
+      limits: { ...base.limits, maxDepth: 4, maxNodes: 12 },
+    };
+  }, [elo]);
 
   const posReview = usePositionReview({ engines: adapter, config });
   const player = useReviewPlayer({
@@ -96,6 +103,20 @@ export function ReviewPanel({
     onAutoplayingChange?.(player.isAutoplaying);
   }, [player.isAutoplaying, onAutoplayingChange]);
 
+  // KS-4950: как только план готов — сразу автопроигрывание, чтобы
+  // фигуры двигались по доске сами, ход за ходом (без нажатия «Играть»).
+  const playRef = useRef(player.play);
+  playRef.current = player.play;
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (posReview.status === 'ready' && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      playRef.current();
+    } else if (posReview.status !== 'ready') {
+      autoStartedRef.current = false;
+    }
+  }, [posReview.status]);
+
   // KS-4949: запуск разбора приходит извне (пункт контекстного меню
   // доски), а не из своей кнопки. Каждый инкремент startToken стартует
   // разбор текущей позиции. currentFen читаем через ref, чтобы эффект
@@ -108,141 +129,10 @@ export function ReviewPanel({
     if (startToken > 0) void runRef.current(currentFenRef.current);
   }, [startToken]);
 
-  const { status } = posReview;
-  const hasPlan = status === 'ready' && !!posReview.plan;
-
-  // В idle панель не занимает места в макете (точка входа — в меню доски).
-  if (status === 'idle') return null;
-
-  return (
-    <section
-      className="review-panel"
-      data-testid="review-panel"
-      style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}
-    >
-      {!sfAvailable && (
-        <p className="review-panel__note" data-testid="review-panel-no-coi">
-          {t(
-            'review.panel.noCoi',
-            'Stockfish недоступен в этом браузере — разбор строится только по Maia.',
-          )}
-        </p>
-      )}
-
-      {/* --- cancelled / error: короткая заметка (перезапуск — из меню) --- */}
-      {(status === 'cancelled' || status === 'error') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {status === 'cancelled' && (
-            <span data-testid="review-panel-cancelled">
-              {t('review.panel.cancelled', 'Расчёт отменён')}
-            </span>
-          )}
-          {status === 'error' && (
-            <span className="error" data-testid="review-panel-error">
-              {posReview.error ?? t('review.panel.error', 'Ошибка расчёта')}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* --- building: прогресс + отмена --- */}
-      {status === 'building' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span data-testid="review-panel-building">
-            {t('review.panel.building', 'Расчёт плана…')}{' '}
-            {t('review.panel.nodes', 'узлов')}: {posReview.builtNodes}
-          </span>
-          <button
-            type="button"
-            data-testid="review-panel-cancel"
-            onClick={posReview.cancel}
-          >
-            {t('review.panel.cancel', 'Отмена')}
-          </button>
-        </div>
-      )}
-
-      {/* --- ready: контролы проигрывателя --- */}
-      {hasPlan && (
-        <div
-          className="review-panel__player"
-          data-testid="review-panel-player"
-          style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
-        >
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              data-testid="review-panel-playpause"
-              onClick={() =>
-                player.isAutoplaying ? player.pause() : player.play()
-              }
-            >
-              {player.isAutoplaying
-                ? t('review.panel.pause', 'Пауза')
-                : t('review.panel.play', 'Играть')}
-            </button>
-            <button
-              type="button"
-              data-testid="review-panel-step"
-              onClick={player.step}
-            >
-              {t('review.panel.step', 'Шаг')}
-            </button>
-            <button
-              type="button"
-              data-testid="review-panel-replay"
-              onClick={player.replay}
-            >
-              {t('review.panel.replay', 'Повтор')}
-            </button>
-            {!reducedMotion && (
-              <div
-                role="group"
-                aria-label={t('review.panel.speed', 'Скорость')}
-                style={{ display: 'flex', gap: 2 }}
-              >
-                {SPEEDS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    data-testid={`review-panel-speed-${s}`}
-                    aria-pressed={player.speed === s}
-                    onClick={() => player.setSpeed(s)}
-                  >
-                    ×{s}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div
-            className="review-panel__progress"
-            data-testid="review-panel-progress"
-          >
-            {t('review.panel.node', 'узел')} {player.progress.current}{' '}
-            {t('review.panel.of', 'из')} {player.progress.total}
-          </div>
-
-          {player.currentComment && (
-            <div
-              className="review-panel__caption"
-              data-testid="review-panel-caption"
-            >
-              {player.currentComment}
-            </div>
-          )}
-
-          <button
-            type="button"
-            data-testid="review-panel-new"
-            onClick={posReview.reset}
-            style={{ alignSelf: 'flex-start' }}
-          >
-            {t('review.panel.new', 'Новый разбор')}
-          </button>
-        </div>
-      )}
-    </section>
-  );
+  // KS-4950: разбор показывается ТОЛЬКО на самой доске — фигуры двигаются
+  // ход за ходом (автопроигрывание при готовности плана). Никакого
+  // видимого интерфейса: ни панели, ни кнопок, ни статусной строки.
+  // Компонент — невидимый контроллер: запуск из «…»-меню доски, дальше
+  // ходы сами применяются к дереву и анимируются на доске.
+  return null;
 }
