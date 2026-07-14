@@ -43,28 +43,34 @@ import {
  * ошибки) и `nearEqualBand` (теория) — из WDL.
  */
 export interface ReviewThresholds {
-  /** Кумулятивная масса покрытия ходов соперника (nucleus). Default 0.90. */
+  /** Кумулятивная масса покрытия ходов соперника (nucleus). */
   pCover: number;
-  /** Абсолютный пол вероятности хода соперника. Default 0.08. */
+  /** Абсолютный пол вероятности хода соперника (P_min). */
   pFloor: number;
-  /** Жёсткий потолок ширины (ходов соперника на узел). Default 3. */
+  /** Жёсткий потолок ширины (ходов соперника на узел). */
   kMax: number;
-  /** Ожидаемый счёт за нас ≥ этого → выход `refuted` (наказали ошибку). Default 0.90. */
+  /** Ожидаемый счёт за нас ≥ этого → выход `refuted`. Default 0.90. */
   decisive: number;
-  /** Полуширина зоны near-equal вокруг 0.5 (теория). Default 0.10 → [0.40,0.60]. */
+  /** Полуширина зоны near-equal вокруг 0.5 (теория). Default 0.10. */
   nearEqualBand: number;
   /** Горизонт дебюта (полуходы): near-equal + глубина ≥ этого → theory. Default 24. */
   openingHorizonPly: number;
+  /**
+   * ADR-165 rev5 §4. Порог редкости линии: pathProb (произведение
+   * вероятностей ходов соперника по пути) < этого → выход `rare`. Default 0.03.
+   */
+  pathProbMin: number;
 }
 
 /**
- * Щедрые предохранители (ADR-165 rev4 §5). Глубину задаёт `exit()`, НЕ
- * фиксированный потолок. При достижении лист помечается `[%exit limit]`.
+ * Границы конечности (ADR-165 rev5 §4). `dTarget` — целевая глубина в
+ * ПОЛНЫХ ходах (главная граница); `maxNodes` — глобальный предохранитель
+ * (budget). Глубину линии задаёт dTarget/theory/refuted, а не режущий maxPly.
  */
 export interface ReviewLimits {
-  /** Предохранитель по глубине (полуходы). Default 30. */
-  maxPly: number;
-  /** Предохранитель по числу узлов. Default 200. */
+  /** Целевая глубина репертуара в полных ходах. Default 10. */
+  dTarget: number;
+  /** Глобальный предохранитель по числу узлов (budget N_max). Default 300. */
   maxNodes: number;
 }
 
@@ -75,18 +81,32 @@ export interface ReviewConfig {
   elo: number;
 }
 
+/** Пресеты глубины/ширины (ADR-165 rev5 §6). */
+export type ReviewPreset = 'brief' | 'standard' | 'detailed';
+
+/** Пороги пресета: (dTarget, pFloor=P_min, pCover, kMax). */
+export const REVIEW_PRESETS: Record<
+  ReviewPreset,
+  { dTarget: number; pFloor: number; pCover: number; kMax: number }
+> = {
+  brief: { dTarget: 8, pFloor: 0.15, pCover: 0.85, kMax: 2 },
+  standard: { dTarget: 10, pFloor: 0.1, pCover: 0.9, kMax: 3 },
+  detailed: { dTarget: 12, pFloor: 0.07, pCover: 0.92, kMax: 4 },
+};
+
 export const DEFAULT_REVIEW_THRESHOLDS: ReviewThresholds = {
-  pCover: 0.9,
-  pFloor: 0.08,
-  kMax: 3,
+  pCover: REVIEW_PRESETS.standard.pCover,
+  pFloor: REVIEW_PRESETS.standard.pFloor,
+  kMax: REVIEW_PRESETS.standard.kMax,
   decisive: 0.9,
   nearEqualBand: 0.1,
   openingHorizonPly: 24,
+  pathProbMin: 0.03,
 };
 
 export const DEFAULT_REVIEW_LIMITS: ReviewLimits = {
-  maxPly: 30,
-  maxNodes: 200,
+  dTarget: REVIEW_PRESETS.standard.dTarget,
+  maxNodes: 300,
 };
 
 export const DEFAULT_REVIEW_ELO = 1500;
@@ -97,6 +117,52 @@ export function defaultReviewConfig(elo: number = DEFAULT_REVIEW_ELO): ReviewCon
     limits: { ...DEFAULT_REVIEW_LIMITS },
     elo,
   };
+}
+
+/** Конфиг под пресет (§6). Прочие пороги — из умолчаний. */
+export function reviewConfigForPreset(
+  preset: ReviewPreset,
+  elo: number = DEFAULT_REVIEW_ELO,
+): ReviewConfig {
+  const p = REVIEW_PRESETS[preset];
+  return {
+    thresholds: {
+      ...DEFAULT_REVIEW_THRESHOLDS,
+      pFloor: p.pFloor,
+      pCover: p.pCover,
+      kMax: p.kMax,
+    },
+    limits: { ...DEFAULT_REVIEW_LIMITS, dTarget: p.dTarget },
+    elo,
+  };
+}
+
+/**
+ * ADR-165 rev5 §6/§8.3. Оценка ожидаемого числа позиций ДО построения —
+ * из `dTarget`, ширины (`kMax`, `pCover`, `pFloor`) и отсечения по
+ * `pathProbMin`. Грубая верхняя оценка для подписи «~Y позиций».
+ */
+export function estimateReviewSize(config: ReviewConfig): number {
+  const { kMax, pCover, pathProbMin } = config.thresholds;
+  const { dTarget } = config.limits;
+  // Репрезентативная вероятность частого хода соперника (около половины
+  // массы покрытия). Близка у всех пресетов → монотонность оценки задают
+  // ширина `kMax` и глубина `dTarget`, а не побочная зависимость от них.
+  const repProb = Math.min(0.9, Math.max(0.05, pCover / 2));
+  // Глубина (полные ходы), где pathProb падает ниже порога редкости.
+  const rareDepth = Math.max(
+    1,
+    Math.floor(Math.log(pathProbMin) / Math.log(repProb)),
+  );
+  const effDepth = Math.max(1, Math.min(dTarget, rareDepth));
+  // На каждом полном ходу: наш ход (1) + соперник (до kMax ветвей).
+  let positions = 0;
+  let level = 1;
+  for (let d = 0; d < effDepth; d++) {
+    positions += level * 2;
+    level *= Math.max(1, kMax);
+  }
+  return positions;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,12 +237,14 @@ export type ReviewPlanOp =
    */
   | { type: 'promote' };
 
-/** Причина завершения ветки (лист) — ADR-165 rev4 §4. */
+/** Причина завершения ветки (лист) — ADR-165 rev4/rev5 §4. */
 export type ReviewExitKind =
   | 'theory' // дебют пройден / вынужденно / позиция стабильна
   | 'refuted' // ошибка соперника наказана до перевеса
   | 'transposition' // нормализованный FEN уже в дереве
-  | 'limit' // предохранитель maxPly/maxNodes — ветка НЕ достроена
+  | 'depth' // достигнута целевая глубина D_target (rev5)
+  | 'rare' // pathProb < P_path_min — редкая линия опущена (rev5)
+  | 'budget' // глобальный предохранитель N_max (rev5)
   | 'terminal'; // мат/пат/нет хода
 
 /** Машинный тег `[%exit …]` в комментарии узла-листа (фронт парсит). */
@@ -408,12 +476,19 @@ export async function buildReviewPlan(
   const ops: ReviewPlanOp[] = [];
   const stats: ReviewPlanStats = {
     nodes: 0,
-    leaves: { theory: 0, refuted: 0, transposition: 0, limit: 0, terminal: 0 },
+    leaves: {
+      theory: 0,
+      refuted: 0,
+      transposition: 0,
+      depth: 0,
+      rare: 0,
+      budget: 0,
+      terminal: 0,
+    },
     maxPlyReached: 0,
     degradedNoSf: false,
   };
-  // Нормализованные FEN всех позиций после НАШИХ ходов — для транспозиций.
-  const visited = new Set<string>();
+  const visited = new Set<string>(); // норм. FEN после наших ходов
   let nextNodeId = 0;
 
   const emit = async (op: ReviewPlanOp): Promise<void> => {
@@ -427,56 +502,96 @@ export async function buildReviewPlan(
     stats.leaves[kind] += 1;
   };
 
-  /** SF-эвал узла (`null` — SF недоступен). */
   const analyzeNode = async (fen: string): Promise<PositionReviewEval | null> => {
     const e = await engines.analyze(fen, 1);
     if (!e) stats.degradedNoSf = true;
     return e;
   };
 
-  /** Пометить лист причиной выхода: тег [%exit …] + текст в комментарий. */
   const emitExitLeaf = async (
     kind: ReviewExitKind,
     posFen: string,
-    scoreForRefuted: { type: 'cp' | 'mate'; value: number } | null,
+    opts?: {
+      score?: { type: 'cp' | 'mate'; value: number } | null;
+      fullMove?: number;
+    },
   ): Promise<void> => {
     let text = '';
-    if (kind === 'theory') text = 'дебют пройден';
-    else if (kind === 'transposition') text = 'перестановка';
-    else if (kind === 'limit') text = 'обрыв по лимиту';
-    else if (kind === 'refuted') {
-      text = scoreForRefuted
-        ? formatSfEvalComment(scoreForRefuted, sideToMove(posFen) === 'w')
-        : '+-';
+    switch (kind) {
+      case 'theory':
+        text = 'дебют пройден';
+        break;
+      case 'transposition':
+        text = 'перестановка';
+        break;
+      case 'depth':
+        text = opts?.fullMove
+          ? `конец репертуара, ход ${opts.fullMove}`
+          : 'конец репертуара';
+        break;
+      case 'rare':
+        text = 'редкая линия, опущена';
+        break;
+      case 'budget':
+        text = 'лимит объёма';
+        break;
+      case 'terminal':
+        text = 'конец игры';
+        break;
+      case 'refuted':
+        text = opts?.score
+          ? formatSfEvalComment(opts.score, sideToMove(posFen) === 'w')
+          : '+-';
+        break;
     }
-    await emit({
-      type: 'annotate',
-      comment: `${exitTag(kind)} ${text}`.trim(),
-    });
+    await emit({ type: 'annotate', comment: `${exitTag(kind)} ${text}`.trim() });
     markLeaf(kind);
   };
 
-  // Наш ход: ровно один сильнейший ход SF. Затем exit ЛИБО ход соперника.
-  const buildOur = async (
-    fen: string,
-    depth: number,
-    _parentId: number,
-  ): Promise<void> => {
-    if (signal?.aborted) throw new ReviewAbortError();
-    stats.maxPlyReached = Math.max(stats.maxPlyReached, depth);
+  // ---- Приоритетная очередь по pathProb (ADR-165 rev5 §8.2) ----
+  type Task =
+    | { kind: 'our'; fen: string; depth: number; parentId: number; pathProb: number }
+    | {
+        kind: 'opp';
+        fen: string;
+        depth: number;
+        parentId: number;
+        pathProb: number;
+        oppPolicy: Record<string, number>;
+        oppMoves: string[];
+      };
+  const frontier: Task[] = [];
+  const pushTask = (t: Task) => frontier.push(t);
+  const popMaxTask = (): Task | undefined => {
+    if (frontier.length === 0) return undefined;
+    // Частые линии первыми: max pathProb, tie — меньшая глубина.
+    let best = 0;
+    for (let i = 1; i < frontier.length; i++) {
+      const a = frontier[i];
+      const b = frontier[best];
+      if (a.pathProb > b.pathProb + 1e-12) best = i;
+      else if (Math.abs(a.pathProb - b.pathProb) <= 1e-12 && a.depth < b.depth)
+        best = i;
+    }
+    return frontier.splice(best, 1)[0];
+  };
 
-    const nodeEval = await analyzeNode(fen);
+  const processOur = async (task: Extract<Task, { kind: 'our' }>) => {
+    stats.maxPlyReached = Math.max(stats.maxPlyReached, task.depth);
+    await emit({ type: 'goto', toId: task.parentId });
+
+    const nodeEval = await analyzeNode(task.fen);
     const best = nodeEval?.bestUci ?? null;
     if (!best) {
-      markLeaf('terminal'); // мат/пат/SF недоступен — редкий лист
+      // Наш король под матом/пат — реальный конец игры (редко в дебюте).
+      await emitExitLeaf('terminal', task.fen);
       return;
     }
-    const childFen = engines.applyMove(fen, best);
+    const childFen = engines.applyMove(task.fen, best);
     if (childFen === null) {
-      markLeaf('terminal');
+      await emitExitLeaf('terminal', task.fen);
       return;
     }
-    // WDL после нашего хода, POV нас (в childFen ходит соперник).
     const childEval = await analyzeNode(childFen);
     const wdlAfterUs = childEval ? invertWdl(childEval.wdl) : null;
 
@@ -487,114 +602,127 @@ export async function buildReviewPlan(
       type: 'move',
       id: ourMoveId,
       uci: best,
-      san: engines.toSan(fen, best),
+      san: engines.toSan(task.fen, best),
       source: 'stockfish',
       wdlAfter: wdlAfterUs,
     });
 
-    // Точка выхода — ТОЛЬКО после нашего хода (childFen — ход соперника).
-    // Порядок: transposition → refuted → theory → limit.
+    // Выход — только после нашего хода. Порядок §4:
+    // transposition → refuted → theory → depth → rare → budget.
     const normFen = positionKey(childFen);
     if (visited.has(normFen)) {
-      await emitExitLeaf('transposition', childFen, null);
+      await emitExitLeaf('transposition', childFen);
       return;
     }
     visited.add(normFen);
 
     const ourExp = wdlAfterUs ? expectedScoreFromWdl(wdlAfterUs) : 0.5;
     if (ourExp >= thresholds.decisive) {
-      await emitExitLeaf('refuted', childFen, childEval?.score ?? null);
+      await emitExitLeaf('refuted', childFen, { score: childEval?.score ?? null });
       return;
     }
 
-    // Человеческие ходы соперника (nucleus §3) — нужны и для theory, и далее.
     const oppPolicy = await engines.getMaiaPolicy(childFen, elo);
     const oppMoves = selectOpponentMoves(oppPolicy, thresholds);
 
     const nearEqual = isNearEqual(ourExp, thresholds.nearEqualBand);
-    // Горизонт дебюта: соперник сошёлся к одному ходу, либо оба развились
-    // (короли ушли с e1/e8), либо достигнута дебютная глубина.
     const horizon =
       oppMoves.length <= 1 ||
       bothDeveloped(childFen) ||
-      depth + 1 >= thresholds.openingHorizonPly;
+      task.depth + 1 >= thresholds.openingHorizonPly;
     if (nearEqual && horizon) {
-      await emitExitLeaf('theory', childFen, null);
+      await emitExitLeaf('theory', childFen);
       return;
     }
 
-    // Предохранитель: щедрый лимит, лист помечается [%exit limit].
-    if (depth + 1 >= limits.maxPly || stats.nodes >= limits.maxNodes) {
-      await emitExitLeaf('limit', childFen, null);
+    // depth: наш ход № ≥ D_target (полные ходы) → конец репертуара.
+    const ourMoveNumber = Math.floor(task.depth / 2) + 1;
+    if (ourMoveNumber >= limits.dTarget) {
+      await emitExitLeaf('depth', childFen, { fullMove: ourMoveNumber });
       return;
     }
 
-    // Иначе — ветвим соперника, дальше ОБЯЗАТЕЛЬНО наш ответ.
-    await buildOpp(childFen, depth + 1, ourMoveId, oppPolicy, oppMoves);
+    // rare: путь к позиции реже порога → опускаем редкий хвост.
+    if (task.pathProb < thresholds.pathProbMin) {
+      await emitExitLeaf('rare', childFen);
+      return;
+    }
+
+    // budget: глобальный предохранитель.
+    if (stats.nodes >= limits.maxNodes) {
+      await emitExitLeaf('budget', childFen);
+      return;
+    }
+
+    // Иначе — ход соперника (в очередь, тот же pathProb).
+    pushTask({
+      kind: 'opp',
+      fen: childFen,
+      depth: task.depth + 1,
+      parentId: ourMoveId,
+      pathProb: task.pathProb,
+      oppPolicy,
+      oppMoves,
+    });
   };
 
-  // Ход соперника: ветвление по Maia; каждый ответ → наш ход (buildOur).
-  const buildOpp = async (
-    fen: string,
-    depth: number,
-    parentId: number,
-    oppPolicy: Record<string, number>,
-    oppMovesIn: string[],
-  ): Promise<void> => {
-    if (signal?.aborted) throw new ReviewAbortError();
+  const processOpp = async (task: Extract<Task, { kind: 'opp' }>) => {
+    // budget-предохранитель: родительский наш ход становится листом budget.
+    if (stats.nodes >= limits.maxNodes) {
+      await emit({ type: 'goto', toId: task.parentId });
+      await emitExitLeaf('budget', task.fen);
+      return;
+    }
 
-    let oppMoves = oppMovesIn;
+    let oppMoves = task.oppMoves;
     let fromMaia = true;
     if (oppMoves.length === 0) {
-      // Нет человеческого хода — берём сильнейший SF (одиночный), чтобы
-      // сохранить инвариант (у нас всегда есть ответ дальше).
-      const e = await analyzeNode(fen);
+      const e = await analyzeNode(task.fen);
       oppMoves = e?.bestUci ? [e.bestUci] : [];
       fromMaia = false;
     }
     if (oppMoves.length === 0) {
-      markLeaf('terminal'); // пат/нет ходов
+      await emit({ type: 'goto', toId: task.parentId });
+      await emitExitLeaf('terminal', task.fen);
       return;
     }
 
-    // Оценка каждого хода соперника (POV соперника) для NAG.
     const evald: Array<{
       uci: string;
       san: string;
       childFen: string;
       oppWdl: Wdl | null;
       oppExp: number;
-      maiaProb: number | null;
+      prob: number;
     }> = [];
     for (const uci of oppMoves) {
-      const cf = engines.applyMove(fen, uci);
+      const cf = engines.applyMove(task.fen, uci);
       if (cf === null) continue;
-      const ce = await analyzeNode(cf); // POV нас (cf — наш ход)
+      const ce = await analyzeNode(cf); // POV нас
       const oppWdl = ce ? invertWdl(ce.wdl) : null; // POV соперника
+      const prob = Number.isFinite(task.oppPolicy[uci])
+        ? task.oppPolicy[uci]
+        : 1;
       evald.push({
         uci,
-        san: engines.toSan(fen, uci),
+        san: engines.toSan(task.fen, uci),
         childFen: cf,
         oppWdl,
         oppExp: oppWdl ? expectedScoreFromWdl(oppWdl) : 0.5,
-        maiaProb: Number.isFinite(oppPolicy[uci]) ? oppPolicy[uci] : null,
+        prob,
       });
     }
     if (evald.length === 0) {
-      markLeaf('terminal');
+      await emit({ type: 'goto', toId: task.parentId });
+      await emitExitLeaf('terminal', task.fen);
       return;
     }
 
-    // Лучший ответ соперника = max его expected-score (сильнейшая защита).
     const bestOppE = Math.max(...evald.map((e) => e.oppExp));
 
-    // Пасс 1 (ширина): все ходы соперника + аннотации Maia%/WDL/NAG.
-    const childIds: number[] = [];
-    for (let i = 0; i < evald.length; i++) {
-      const e = evald[i];
-      if (i > 0) await emit({ type: 'goto', toId: parentId });
+    for (const e of evald) {
+      await emit({ type: 'goto', toId: task.parentId });
       const id = nextNodeId++;
-      childIds.push(id);
       stats.nodes += 1;
       await emit({
         type: 'move',
@@ -604,10 +732,9 @@ export async function buildReviewPlan(
         source: fromMaia ? 'maia' : 'stockfish',
         wdlAfter: e.oppWdl,
       });
-      // Аннотация хода соперника: Maia% + WDL, NAG если ошибка.
       const lossE = Math.max(0, bestOppE - e.oppExp);
       const nag = nagForLossE(lossE);
-      const maiaPct = e.maiaProb !== null ? Math.round(e.maiaProb * 100) : null;
+      const maiaPct = fromMaia ? Math.round(e.prob * 100) : null;
       const outcomePct = e.oppWdl
         ? Math.round(maxOutcomeProb(e.oppWdl) * 100)
         : null;
@@ -621,17 +748,25 @@ export async function buildReviewPlan(
           comment: parts.length > 0 ? `${e.san} (${parts.join(', ')})` : undefined,
         });
       }
-    }
-
-    // Пасс 2 (глубина): наш ответ на каждый ход соперника.
-    const multi = evald.length > 1;
-    for (let i = 0; i < evald.length; i++) {
-      if (multi) await emit({ type: 'goto', toId: childIds[i] });
-      await buildOur(evald[i].childFen, depth + 1, childIds[i]);
+      // Наш ответ — в очередь, pathProb домножается на частоту хода.
+      pushTask({
+        kind: 'our',
+        fen: e.childFen,
+        depth: task.depth + 1,
+        parentId: id,
+        pathProb: task.pathProb * e.prob,
+      });
     }
   };
 
-  // Корень = наш ход (разбираемая сторона = кто ходит в корне).
-  await buildOur(rootFen, 0, REVIEW_ROOT_ID);
+  // Корень = наш ход. Строим по приоритету pathProb (частые линии первыми).
+  pushTask({ kind: 'our', fen: rootFen, depth: 0, parentId: REVIEW_ROOT_ID, pathProb: 1 });
+  for (;;) {
+    if (signal?.aborted) throw new ReviewAbortError();
+    const task = popMaxTask();
+    if (!task) break;
+    if (task.kind === 'our') await processOur(task);
+    else await processOpp(task);
+  }
   return { rootFen, elo, ops, stats };
 }

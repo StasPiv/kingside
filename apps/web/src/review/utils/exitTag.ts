@@ -12,9 +12,13 @@ export type ExitKind =
   | 'refuted'
   | 'transposition'
   | 'forced'
+  | 'depth'
+  | 'rare'
+  | 'budget'
   | 'limit';
 
-const EXIT_RE = /\[%exit\s+(theory|refuted|transposition|forced|limit)\]\s*/i;
+const EXIT_RE =
+  /\[%exit\s+(theory|refuted|transposition|forced|depth|rare|budget|limit)\]\s*/i;
 
 export interface ParsedExit {
   /** Причина завершения ветки, либо null если тега нет. */
@@ -55,7 +59,12 @@ export function countUnfinishedBranches(
     const node = stack.pop();
     if (!node || seen.has(node)) continue;
     seen.add(node);
-    if (parseExitTag(node.comment).kind === 'limit') count += 1;
+      {
+      // «Недостроено» = предохранитель (budget/limit). rare — намеренно
+      // опущенная редкая линия, считается отдельно (не «недостроено»).
+      const k = parseExitTag(node.comment).kind;
+      if (k === 'budget' || k === 'limit') count += 1;
+    }
     if (node.next) stack.push(node.next);
     if (node.variations) {
       for (const v of node.variations) stack.push(...v);

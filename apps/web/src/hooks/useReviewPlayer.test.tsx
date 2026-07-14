@@ -19,7 +19,7 @@ function planWith(ops: ReviewPlanOp[]): ReviewPlan {
     ops,
     stats: {
       nodes: 0,
-      leaves: { theory: 0, refuted: 0, transposition: 0, limit: 0, terminal: 0 },
+      leaves: { theory: 0, refuted: 0, transposition: 0, depth: 0, rare: 0, budget: 0, terminal: 0 },
       maxPlyReached: 0,
       degradedNoSf: false,
     },

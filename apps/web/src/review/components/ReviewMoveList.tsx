@@ -154,6 +154,11 @@ export function ReviewMoveList({
           return t('review.exit.transposition', 'Перестановка');
         case 'forced':
           return t('review.exit.forced', 'Вынужденно');
+        case 'depth':
+          return t('review.exit.depth', 'Конец репертуара');
+        case 'rare':
+          return t('review.exit.rare', 'Редкая линия');
+        case 'budget':
         case 'limit':
           return t('review.exit.limit', 'Не достроено');
         default:

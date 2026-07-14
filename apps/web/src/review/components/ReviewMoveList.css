@@ -504,9 +504,18 @@
   background: rgba(148, 163, 184, 0.2);
   color: #cbd5e1;
 }
-.review-exit--limit {
+.review-exit--limit,
+.review-exit--budget {
   background: rgba(245, 158, 11, 0.2);
   color: #fcd34d;
+}
+.review-exit--depth {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+.review-exit--rare {
+  background: rgba(148, 163, 184, 0.16);
+  color: #94a3b8;
 }
 
 /* KS-4953: индикатор недостроенных по предохранителю веток. */

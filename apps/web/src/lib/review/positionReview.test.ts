@@ -19,6 +19,8 @@ import {
   exitTag,
   buildReviewPlan,
   defaultReviewConfig,
+  reviewConfigForPreset,
+  estimateReviewSize,
   ReviewAbortError,
   DEFAULT_REVIEW_THRESHOLDS,
   type PositionReviewEngines,
@@ -97,7 +99,9 @@ describe('утилиты выхода', () => {
 
   it('exitTag', () => {
     expect(exitTag('theory')).toBe('[%exit theory]');
-    expect(exitTag('limit')).toBe('[%exit limit]');
+    expect(exitTag('depth')).toBe('[%exit depth]');
+    expect(exitTag('rare')).toBe('[%exit rare]');
+    expect(exitTag('budget')).toBe('[%exit budget]');
   });
 
   it('formatSfEvalComment', () => {
@@ -272,19 +276,60 @@ describe('buildReviewPlan — инвариант очередности и то�
     expect(ann).toBeDefined();
   });
 
-  it('limit: щедрый предохранитель, лист помечен [%exit limit], не режется рано', async () => {
-    // Бесконечная не-стабильная цепочка (ourExp вне near-equal, соперник 1 ход,
-    // не developed) — обрывается по maxPly с меткой limit.
+  // Цепочка: наш ход 'k', соперник один ход 'm', позиция не near-equal и не
+  // decisive (theory/refuted не срабатывают) — доходит до depth/budget.
+  const chainEngines = (): PositionReviewEngines => ({
+    getMaiaPolicy: async () => ({ m: 0.9 }),
+    analyze: async () => ({
+      bestUci: 'k',
+      wdl: { w: 700, d: 200, l: 100 }, // ourExp ~0.2 — не near-equal, не decisive
+      multipv: ['k'],
+      score: { type: 'cp', value: -150 },
+    }),
+    applyMove: (fen) => {
+      const n = Number(fen.match(/#(\d+)/)?.[1] ?? '0') + 1;
+      return `p#${n} ${n % 2 === 0 ? 'w' : 'b'} - - 0 1`;
+    },
+    toSan: (_f, u) => u,
+  });
+
+  it('depth: достигнут D_target → [%exit depth], не режется рано', async () => {
+    const plan = await buildReviewPlan('p#0 w - - 0 1', chainEngines(), {
+      ...defaultReviewConfig(),
+      limits: { dTarget: 3, maxNodes: 500 },
+    });
+    expect(plan.stats.leaves.depth).toBeGreaterThanOrEqual(1);
+    expect(plan.stats.maxPlyReached).toBeGreaterThanOrEqual(4); // дошёл до 3-го хода
+    const ann = plan.ops.find(
+      (o) => o.type === 'annotate' && (o as any).comment?.includes('[%exit depth]'),
+    );
+    expect(ann).toBeDefined();
+  });
+
+  it('budget: глобальный предохранитель → [%exit budget]', async () => {
+    const plan = await buildReviewPlan('p#0 w - - 0 1', chainEngines(), {
+      ...defaultReviewConfig(),
+      limits: { dTarget: 50, maxNodes: 4 },
+    });
+    expect(plan.stats.leaves.budget).toBeGreaterThanOrEqual(1);
+    expect(plan.stats.nodes).toBeLessThanOrEqual(6); // близко к budget, не разбегается
+    const ann = plan.ops.find(
+      (o) => o.type === 'annotate' && (o as any).comment?.includes('[%exit budget]'),
+    );
+    expect(ann).toBeDefined();
+  });
+
+  it('rare: pathProb ниже порога → [%exit rare]', async () => {
+    // Соперник даёт ход с prob 0.2; после 3 таких pathProb=0.008 < 0.03 → rare.
     const engines: PositionReviewEngines = {
-      getMaiaPolicy: async () => ({ m: 0.9, m2: 0.5 }), // 2 хода → не forced-theory
+      getMaiaPolicy: async () => ({ m: 0.2, m2: 0.2 }),
       analyze: async () => ({
         bestUci: 'k',
-        wdl: { w: 700, d: 200, l: 100 }, // ourExp ~0.8 — не near-equal, не decisive
+        wdl: { w: 700, d: 200, l: 100 },
         multipv: ['k'],
-        score: { type: 'cp', value: 150 },
+        score: { type: 'cp', value: -150 },
       }),
       applyMove: (fen) => {
-        // каждый ход даёт новую позицию (глубина растёт, без транспозиций)
         const n = Number(fen.match(/#(\d+)/)?.[1] ?? '0') + 1;
         return `p#${n} ${n % 2 === 0 ? 'w' : 'b'} - - 0 1`;
       },
@@ -292,14 +337,33 @@ describe('buildReviewPlan — инвариант очередности и то�
     };
     const plan = await buildReviewPlan('p#0 w - - 0 1', engines, {
       ...defaultReviewConfig(),
-      limits: { maxPly: 8, maxNodes: 500 },
+      thresholds: { ...defaultReviewConfig().thresholds, pathProbMin: 0.03 },
+      limits: { dTarget: 50, maxNodes: 500 },
     });
-    expect(plan.stats.leaves.limit).toBeGreaterThanOrEqual(1);
-    expect(plan.stats.maxPlyReached).toBeGreaterThanOrEqual(8); // дошёл до лимита, не срезан на 6
+    expect(plan.stats.leaves.rare).toBeGreaterThanOrEqual(1);
     const ann = plan.ops.find(
-      (o) => o.type === 'annotate' && (o as any).comment?.includes('[%exit limit]'),
+      (o) => o.type === 'annotate' && (o as any).comment?.includes('[%exit rare]'),
     );
     expect(ann).toBeDefined();
+  });
+});
+
+describe('пресеты и оценка размера (§6/§8.3)', () => {
+  it('пресеты: Подробно глубже/шире Кратко', () => {
+    const brief = reviewConfigForPreset('brief');
+    const detailed = reviewConfigForPreset('detailed');
+    expect(detailed.limits.dTarget).toBeGreaterThan(brief.limits.dTarget);
+    expect(detailed.thresholds.kMax).toBeGreaterThan(brief.thresholds.kMax);
+    expect(detailed.thresholds.pFloor).toBeLessThan(brief.thresholds.pFloor);
+  });
+
+  it('estimateReviewSize: положительна и растёт от Кратко к Подробно', () => {
+    const b = estimateReviewSize(reviewConfigForPreset('brief'));
+    const s = estimateReviewSize(reviewConfigForPreset('standard'));
+    const d = estimateReviewSize(reviewConfigForPreset('detailed'));
+    expect(b).toBeGreaterThan(0);
+    expect(s).toBeGreaterThanOrEqual(b);
+    expect(d).toBeGreaterThanOrEqual(s);
   });
 });
 
@@ -384,42 +448,59 @@ function pgnRepertoireEngines(pgn: string): { engines: PositionReviewEngines; ro
   return { engines, rootFen: START };
 }
 
-describe('buildReviewPlan — реальный PGN /tmp/KS-4951-example.pgn (§7.5)', () => {
-  it('нет листьев-ходов соперника; каждый лист помечен [%exit]; глубина не режется на 12-м ходу', async () => {
+describe('buildReviewPlan — реальный PGN /tmp/KS-4951-example.pgn (§8.6)', () => {
+  const totalLeaves = (p: Awaited<ReturnType<typeof buildReviewPlan>>) =>
+    p.stats.leaves.theory +
+    p.stats.leaves.refuted +
+    p.stats.leaves.transposition +
+    p.stats.leaves.depth +
+    p.stats.leaves.rare +
+    p.stats.leaves.budget +
+    p.stats.leaves.terminal;
+
+  it('конечно; каждый лист помечен [%exit]; нет листьев-ходов соперника; оценка ≈ факт', async () => {
     const pgn = readFileSync('/tmp/KS-4951-example.pgn', 'utf8');
     const { engines, rootFen } = pgnRepertoireEngines(pgn);
-    const plan = await buildReviewPlan(rootFen, engines, {
-      ...defaultReviewConfig(),
-      // просторный горизонт/лимит — чтобы дебют не резался искусственно
-      thresholds: { ...defaultReviewConfig().thresholds, openingHorizonPly: 40 },
-      limits: { maxPly: 40, maxNodes: 400 },
-    });
+    const config = reviewConfigForPreset('standard');
+    const estimate = estimateReviewSize(config);
 
-    const total =
-      plan.stats.leaves.theory +
-      plan.stats.leaves.refuted +
-      plan.stats.leaves.transposition +
-      plan.stats.leaves.limit +
-      plan.stats.leaves.terminal;
+    const plan = await buildReviewPlan(rootFen, engines, config);
+
+    const total = totalLeaves(plan);
     expect(total).toBeGreaterThan(0);
-    // Реальный дебют без матов — терминалов нет.
-    expect(plan.stats.leaves.terminal).toBe(0);
+    expect(plan.stats.leaves.terminal).toBe(0); // дебют без матов
 
-    // Каждый лист помечен [%exit] и ему предшествует ход НАШЕЙ стороны
-    // (stockfish) — значит ни одна ветка не кончается ходом соперника.
+    // Каждый лист помечен [%exit], перед ним — ход НАШЕЙ стороны (stockfish):
+    // ни одна ветка не кончается ходом соперника.
     const exitAnnotates = plan.ops.filter(
-      (o) => o.type === 'annotate' && typeof (o as any).comment === 'string' && (o as any).comment.includes('[%exit'),
+      (o) =>
+        o.type === 'annotate' &&
+        typeof (o as any).comment === 'string' &&
+        (o as any).comment.includes('[%exit'),
     );
-    // Число [%exit]-меток = число нетерминальных листьев.
-    expect(exitAnnotates.length).toBe(total - plan.stats.leaves.terminal);
+    expect(exitAnnotates.length).toBe(total);
     for (const ann of exitAnnotates) {
       const idx = plan.ops.indexOf(ann);
-      const prevMove = [...plan.ops.slice(0, idx)].reverse().find((o) => o.type === 'move') as any;
+      const prevMove = [...plan.ops.slice(0, idx)]
+        .reverse()
+        .find((o) => o.type === 'move') as any;
       expect(prevMove?.source).toBe('stockfish');
     }
 
-    // Глубина не режется на 12-м ходу (ply 24): дерево уходит глубже прежнего
-    // maxDepth=6/12 — доходит минимум до ~середины дебюта.
-    expect(plan.stats.maxPlyReached).toBeGreaterThanOrEqual(12);
+    // Конечность: узлов не больше глобального предохранителя.
+    expect(plan.stats.nodes).toBeLessThanOrEqual(config.limits.maxNodes);
+    // Оценка размера в разумном порядке от факта (грубая, но не абсурдная).
+    expect(estimate).toBeGreaterThan(0);
+    expect(plan.stats.nodes).toBeLessThanOrEqual(estimate * 6 + 20);
+  });
+
+  it('Подробно даёт дерево не мельче Кратко', async () => {
+    const pgn = readFileSync('/tmp/KS-4951-example.pgn', 'utf8');
+    const { engines, rootFen } = pgnRepertoireEngines(pgn);
+    const brief = await buildReviewPlan(rootFen, engines, reviewConfigForPreset('brief'));
+    const { engines: e2 } = pgnRepertoireEngines(pgn);
+    const detailed = await buildReviewPlan(rootFen, e2, reviewConfigForPreset('detailed'));
+    expect(detailed.stats.maxPlyReached).toBeGreaterThanOrEqual(brief.stats.maxPlyReached);
+    expect(totalLeaves(detailed)).toBeGreaterThanOrEqual(totalLeaves(brief));
   });
 });
