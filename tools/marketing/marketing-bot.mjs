@@ -113,6 +113,30 @@ if (cmd === 'start') {
   const chatId = requireChat(state);
   await send(chatId, rest.join(' ').slice(0, 280));
   console.log('отправлено');
+} else if (cmd === 'brief') {
+  // Доставка сводки (daily/weekly/monthly) пользователю в этот же бот
+  // (@kingside_marketing_bot). Аргумент — путь к md-файлу сводки.
+  // Telegram-лимит 4096 символов на сообщение → режем на части по абзацам.
+  const chatId = requireChat(state);
+  const path = rest[0];
+  if (!path) { console.error('нужен путь к файлу сводки: node marketing-bot.mjs brief <path>'); process.exit(2); }
+  let body;
+  try { body = readFileSync(path, 'utf8'); }
+  catch (e) { console.error(`не читается файл сводки «${path}»: ${e.message}`); process.exit(2); }
+  const MAX = 3900;
+  const chunks = [];
+  let cur = '';
+  for (const para of body.split('\n')) {
+    if ((cur + '\n' + para).length > MAX) { if (cur) chunks.push(cur); cur = para; }
+    else cur = cur ? cur + '\n' + para : para;
+  }
+  if (cur) chunks.push(cur);
+  const name = path.split('/').pop();
+  await send(chatId, `📋 Сводка: ${name} (${chunks.length} ч.)`);
+  for (let i = 0; i < chunks.length; i++) {
+    await send(chatId, chunks.length > 1 ? `[${i + 1}/${chunks.length}]\n${chunks[i]}` : chunks[i]);
+  }
+  console.log(`сводка ${name} отправлена в чат ${chatId} (${chunks.length} сообщений)`);
 } else if (cmd === 'poll' || cmd === 'listen') {
   const chatId = requireChat(state);
   const LISTEN_LOCK = join(SESSIONS_DIR, 'bot-listen.lock');
@@ -170,6 +194,6 @@ if (cmd === 'start') {
     if (!(await handleReplies(updates))) console.log('новых ответов нет');
   }
 } else {
-  console.error('Использование: node tools/marketing/marketing-bot.mjs <start | send <draft-id> | poll | listen | notify "текст">');
+  console.error('Использование: node tools/marketing/marketing-bot.mjs <start | send <draft-id> | brief <path> | poll | listen | notify "текст">');
   process.exit(2);
 }
