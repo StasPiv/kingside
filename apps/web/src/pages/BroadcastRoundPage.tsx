@@ -225,6 +225,21 @@ export function guardStaleSnapshot(
     if (!prevG) return g;
     let out = g;
 
+    // KS-4968: стабильная идентичность партии. Снимок прямого потока на
+    // новом ходе может прийти без server `id` (а иногда и без
+    // `lichessGameId`) — см. `mergeStreamedGames` extra-stream ветку.
+    // Раньше guard брал такой fresh как есть и терял идентификатор,
+    // который уже был в prev: карточка становилась некликабельной
+    // (`isClickable` требует `id`), а ссылка на партию «сбивалась» ровно
+    // при поступлении хода (в сортировке «свежий ход первым» — верхняя
+    // карточка). Переносим идентификаторы из prev, если fresh их не несёт.
+    if (!out.id && prevG.id) {
+      out = { ...out, id: prevG.id };
+    }
+    if (!out.lichessGameId && prevG.lichessGameId) {
+      out = { ...out, lichessGameId: prevG.lichessGameId };
+    }
+
     const prevLen = prevG.pgn?.length ?? 0;
     if ((out.pgn?.length ?? 0) < prevLen) {
       out = {

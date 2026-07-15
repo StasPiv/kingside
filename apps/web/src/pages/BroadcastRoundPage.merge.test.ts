@@ -289,4 +289,28 @@ describe('guardStaleSnapshot (KS-4889)', () => {
     expect(out).toHaveLength(2);
     expect(out[1].pgn).toBe('1. d4');
   });
+
+  // KS-4968: стабильная ссылка/идентификатор при новом ходе.
+  it('fresh без id (снимок прямого потока) сохраняет id из prev при новом ходе', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4' })];
+    const fresh = [srvGame({ id: '', lichessGameId: 'lg1', pgn: '1. e4 e5' })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.id).toBe('u1'); // ссылка не сбивается — карточка остаётся кликабельной
+    expect(g.pgn).toBe('1. e4 e5'); // новый ход применён
+  });
+
+  it('fresh без lichessGameId сохраняет его из prev', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4' })];
+    const fresh = [srvGame({ id: 'u1', lichessGameId: null, pgn: '1. e4 e5' })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.lichessGameId).toBe('lg1');
+  });
+
+  it('fresh со своим id не перезатирается значением prev', () => {
+    const prev = [srvGame({ id: 'u1', lichessGameId: 'lg1', pgn: '1. e4' })];
+    const fresh = [srvGame({ id: 'u2', lichessGameId: 'lg2', pgn: '1. e4 e5' })];
+    const [g] = guardStaleSnapshot(prev, fresh, NOW);
+    expect(g.id).toBe('u2');
+    expect(g.lichessGameId).toBe('lg2');
+  });
 });
