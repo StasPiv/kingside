@@ -11,6 +11,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { App } from './App';
 import { initClientLogger } from './utils/clientLogger';
 import { initGA4 } from './utils/analytics';
+import { captureFirstTouchAttribution } from './utils/registrationAttribution';
 import './i18n';
 import { attachLessonsResourceLoader } from './i18n/lessonsResourceLoader';
 // KS-3682: окно консоли для проверки SF-trace через window.__sfTrace.
@@ -22,6 +23,10 @@ import './styles.css';
 
 initClientLogger();
 initGA4();
+// KS-4970: фиксируем исходный источник визита (landing/referrer/utm) до
+// любого перехода на OAuth-провайдера, чтобы событие регистрации несло
+// исходную страницу/канал, а не домен провайдера.
+captureFirstTouchAttribution();
 attachLessonsResourceLoader();
 
 // KS-3766 / ADR-112: разовая чистка легаси-ключа localStorage, в котором

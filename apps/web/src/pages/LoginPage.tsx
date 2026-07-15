@@ -9,6 +9,7 @@ import {
   consumeAuthReturnUrl,
   setAuthReturnUrl,
 } from '../utils/authReturnUrl';
+import { markLoginStart } from '../utils/registrationAttribution';
 import type { TelegramAuthResponse } from '@kingside/shared';
 
 interface TelegramUser {
@@ -80,15 +81,19 @@ export function LoginPage() {
     setTelegramLoading(true);
     api
       .post<TelegramAuthResponse>('/auth/telegram', telegramData)
-      .then(({ accessToken, refreshToken, requiresUsernameSetup: needsSetup }) => {
+      .then(({ accessToken, refreshToken, requiresUsernameSetup: needsSetup, isNewUser }) => {
         setTelegramData(null);
         if (needsSetup) {
           // Redirect to OAuthCallbackPage which handles pending users correctly.
           // LoginPage is wrapped in GuestRoute which unmounts it when loading=true,
           // so any local state (requiresUsernameSetup) would be lost. OAuthCallbackPage
           // is not wrapped in GuestRoute and survives the loading cycle.
+          // KS-4970: пробрасываем isNewUser (у Telegram он есть в ответе),
+          // чтобы OAuthCallbackPage отправил событие регистрации после
+          // успешного username-setup именно для нового аккаунта.
+          const newUserFlag = isNewUser ? '&isNewUser=true' : '';
           navigate(
-            `/oauth/callback?accessToken=${encodeURIComponent(accessToken)}&refreshToken=${encodeURIComponent(refreshToken)}&requiresUsernameSetup=true`,
+            `/oauth/callback?accessToken=${encodeURIComponent(accessToken)}&refreshToken=${encodeURIComponent(refreshToken)}&requiresUsernameSetup=true${newUserFlag}`,
             { replace: true },
           );
         } else {
@@ -109,10 +114,13 @@ export function LoginPage() {
   }, [telegramData, loginWithTokens, navigate, t]);
 
   const handleOAuth = (provider: string) => {
+    // KS-4970: фиксируем провайдера и страницу входа до редиректа на OAuth.
+    markLoginStart(provider);
     setLoadingProvider(provider);
   };
 
   const handleTelegramLogin = () => {
+    markLoginStart('telegram');
     redirectToTelegramOAuth();
   };
 

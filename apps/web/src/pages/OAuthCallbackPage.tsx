@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { UsernameSetupModal } from '../components/UsernameSetupModal';
 import { consumeAuthReturnUrl } from '../utils/authReturnUrl';
+import { emitRegistrationEvent } from '../utils/registrationAttribution';
 
 export function OAuthCallbackPage() {
   const [searchParams] = useSearchParams();
@@ -12,6 +13,10 @@ export function OAuthCallbackPage() {
   const { t } = useTranslation();
   const [initialized, setInitialized] = useState(false);
   const [requiresUsernameSetup, setRequiresUsernameSetup] = useState(false);
+  // KS-4970: признак нового аккаунта (Telegram отдаёт в ответе, OAuth —
+  // в query redirect'а). Сохраняем в state: useLayoutEffect чистит query
+  // через replaceState, после чего searchParams опустеет.
+  const [isNewUser, setIsNewUser] = useState(false);
   // KS-2785 (v2): сохраняем accessToken в state. После того как
   // useLayoutEffect очистит query через replaceState, `searchParams`
   // станет пустым — модалка UsernameSetupModal достанет токен отсюда.
@@ -70,6 +75,7 @@ export function OAuthCallbackPage() {
     const refreshToken = searchParams.get('refreshToken');
     const error = searchParams.get('error');
     const needsSetup = searchParams.get('requiresUsernameSetup') === 'true';
+    const newUser = searchParams.get('isNewUser') === 'true';
 
     console.log('[OAuthCallback] init effect', {
       hasAccessToken: !!accessToken,
@@ -91,6 +97,9 @@ export function OAuthCallbackPage() {
 
     if (needsSetup) {
       setRequiresUsernameSetup(true);
+    }
+    if (newUser) {
+      setIsNewUser(true);
     }
 
     console.log('[OAuthCallback] calling loginWithTokens');
@@ -126,6 +135,13 @@ export function OAuthCallbackPage() {
   }, [initialized, loading, user, navigate, t, requiresUsernameSetup]);
 
   const handleUsernameSetupSuccess = async () => {
+    // KS-4970: username-setup успешно завершён — для нового аккаунта это
+    // момент реального создания пользователя. Отправляем событие
+    // регистрации с исходным источником. Для существующего пользователя
+    // (isNewUser=false) событие не шлётся.
+    if (isNewUser) {
+      emitRegistrationEvent();
+    }
     await refreshUser();
     // KS-2110: после username-setup тоже возвращаем на returnUrl.
     const target = consumeAuthReturnUrl() ?? '/';
