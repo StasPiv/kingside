@@ -46,11 +46,14 @@ export class AuthService {
         where: { id: byProvider.id },
         data: { lastSeenAt: new Date() },
       });
-      return this.generateTokens(
-        byProvider.id,
-        byProvider.username,
-        byProvider.requiresUsernameSetup,
-      );
+      return {
+        ...this.generateTokens(
+          byProvider.id,
+          byProvider.username,
+          byProvider.requiresUsernameSetup,
+        ),
+        isNewUser: false,
+      };
     }
 
     // 2. Find by email (link accounts)
@@ -67,16 +70,22 @@ export class AuthService {
             lastSeenAt: new Date(),
           },
         });
-        return this.generateTokens(
-          byEmail.id,
-          byEmail.username,
-          byEmail.requiresUsernameSetup,
-        );
+        return {
+          ...this.generateTokens(
+            byEmail.id,
+            byEmail.username,
+            byEmail.requiresUsernameSetup,
+          ),
+          isNewUser: false,
+        };
       }
     }
 
     // 3. New user — wait for username setup (same as Telegram pending flow)
-    return this.generatePendingOAuthTokens(profile);
+    return {
+      ...this.generatePendingOAuthTokens(profile),
+      isNewUser: true,
+    };
   }
 
   private buildBaseUsername(profile: OAuthProfile): string {

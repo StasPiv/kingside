@@ -134,6 +134,7 @@ export class OAuthCallbackController {
       accessToken: string;
       refreshToken: string;
       requiresUsernameSetup: boolean;
+      isNewUser: boolean;
     },
   ) {
     const url = new URL('/oauth/callback', this.resolveFrontendOrigin());
@@ -142,6 +143,7 @@ export class OAuthCallbackController {
     if (tokens.requiresUsernameSetup) {
       url.searchParams.set('requiresUsernameSetup', 'true');
     }
+    url.searchParams.set('isNewUser', tokens.isNewUser ? 'true' : 'false');
     this.logger.log(
       `[OAuth] redirect to ${url.origin}/oauth/callback?accessToken=...`,
     );

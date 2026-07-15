@@ -67,6 +67,48 @@ describe('OAuthCallbackController.googleCallback (KS-2788)', () => {
     );
   });
 
+  it('KS-4971: новый аккаунт → redirect содержит isNewUser=true', async () => {
+    const auth = {
+      findOrCreateOAuthUser: jest.fn().mockResolvedValue({
+        accessToken: 'jwt-access',
+        refreshToken: 'jwt-refresh',
+        requiresUsernameSetup: true,
+        isNewUser: true,
+      }),
+    } as unknown as AuthService;
+    const ctrl = new OAuthCallbackController(auth);
+    const res = makeRes();
+    const req = {
+      user: { provider: 'google', providerId: 'new-1', email: 'x@e.com' },
+      headers: {},
+    };
+    await ctrl.googleCallback(req as never, res as never);
+    expect(res.redirect).toHaveBeenCalledWith(
+      expect.stringContaining('isNewUser=true'),
+    );
+  });
+
+  it('KS-4971: существующий аккаунт → redirect содержит isNewUser=false', async () => {
+    const auth = {
+      findOrCreateOAuthUser: jest.fn().mockResolvedValue({
+        accessToken: 'jwt-access',
+        refreshToken: 'jwt-refresh',
+        requiresUsernameSetup: false,
+        isNewUser: false,
+      }),
+    } as unknown as AuthService;
+    const ctrl = new OAuthCallbackController(auth);
+    const res = makeRes();
+    const req = {
+      user: { provider: 'google', providerId: 'old-1', email: 'y@e.com' },
+      headers: {},
+    };
+    await ctrl.googleCallback(req as never, res as never);
+    expect(res.redirect).toHaveBeenCalledWith(
+      expect.stringContaining('isNewUser=false'),
+    );
+  });
+
   it('error flow (findOrCreateOAuthUser бросает): 302 на /login с no-store', async () => {
     const ctrl = new OAuthCallbackController(makeAuthServiceFail());
     const res = makeRes();
