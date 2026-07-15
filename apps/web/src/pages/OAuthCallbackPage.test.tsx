@@ -50,20 +50,31 @@ vi.mock('../context/AuthContext', () => ({
 vi.mock('../components/UsernameSetupModal', () => ({
   UsernameSetupModal: ({
     accessToken,
+    onSuccess,
   }: {
     accessToken?: string;
+    onSuccess: () => void;
   }) => (
     <div
       data-testid="username-setup-modal"
       data-access-token={accessToken ?? ''}
-    />
+    >
+      <button data-testid="setup-success" onClick={() => onSuccess()} />
+    </div>
   ),
+}));
+
+const emitRegistrationEventMock = vi.fn();
+vi.mock('../utils/registrationAttribution', () => ({
+  emitRegistrationEvent: (...args: unknown[]) =>
+    emitRegistrationEventMock(...args),
 }));
 
 import { OAuthCallbackPage } from './OAuthCallbackPage';
 
 beforeEach(() => {
   navigateMock.mockReset();
+  emitRegistrationEventMock.mockReset();
   authState.user = null;
   authState.loading = false;
   authState.loginWithTokens = vi.fn();
@@ -155,6 +166,30 @@ describe('<OAuthCallbackPage> KS-2785 v2', () => {
       expect(navigateMock).toHaveBeenCalled();
     });
     expect(authState.loginWithTokens).not.toHaveBeenCalled();
+  });
+
+  // KS-4970: событие регистрации для нового аккаунта (Google/Facebook/Telegram).
+  it('isNewUser=true + успех username-setup → шлёт событие регистрации один раз', async () => {
+    searchParamsState.search =
+      'accessToken=AT&refreshToken=RT&requiresUsernameSetup=true&isNewUser=true';
+    renderWithProviders(<OAuthCallbackPage />);
+    const btn = await waitFor(() => screen.getByTestId('setup-success'));
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(emitRegistrationEventMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('isNewUser=false + успех username-setup → событие регистрации НЕ шлётся', async () => {
+    searchParamsState.search =
+      'accessToken=AT&refreshToken=RT&requiresUsernameSetup=true&isNewUser=false';
+    renderWithProviders(<OAuthCallbackPage />);
+    const btn = await waitFor(() => screen.getByTestId('setup-success'));
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(authState.refreshUser).toHaveBeenCalled();
+    });
+    expect(emitRegistrationEventMock).not.toHaveBeenCalled();
   });
 });
 
