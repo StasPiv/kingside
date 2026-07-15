@@ -10,18 +10,10 @@
  * развилке идёт по стабильному id узла плана (idIndex), корень разбора —
  * текущая позиция пользователя (rootGlobalIndex).
  */
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createDefaultEngines } from '../../hooks/useGameReview';
 import { usePositionReview } from '../../hooks/usePositionReview';
-import { useIsMobile } from '../../hooks/useIsMobile';
 import {
   applyReviewOp,
   effectiveHoldMs,
@@ -313,67 +305,48 @@ function ReviewHud({
   onClose: () => void;
   onShowRare: () => void;
 }) {
-  // KS-4959: на мобильном HUD прячется за нижней панелью (.mobile-bottom-bar
-  // 56px, z-index 90). Поднимаем над ней и по z-index, растягиваем по ширине.
-  const isMobile = useIsMobile();
-  const overlay: CSSProperties = {
-    position: 'fixed',
-    zIndex: 200,
-    background: '#1b2130',
-    color: '#e2e8f0',
-    border: '1px solid #334155',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 13,
-    boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
-    ...(isMobile
-      ? {
-          left: 8,
-          right: 8,
-          bottom: 'calc(72px + env(safe-area-inset-bottom))',
-          maxWidth: 'none',
-        }
-      : {
-          left: '50%',
-          bottom: 16,
-          transform: 'translateX(-50%)',
-          maxWidth: 460,
-        }),
-  };
-
+  // KS-4959: на мобильном HUD прячется за нижней панелью (.mobile-bottom-bar,
+  // z-index 90) — позиционирование/адаптив вынесены в CSS (styles/review.css,
+  // media-query), здесь только структура и модификаторы состояния.
   if (uiState === 'config') {
     return (
-      <div style={overlay} className="review-hud" data-testid="review-hud-config">
-        <div style={{ marginBottom: 8, fontWeight: 600 }}>Разбор репертуара</div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+      <div
+        className="review-hud review-hud--config"
+        data-testid="review-hud-config"
+      >
+        <div className="review-hud__title">Разбор репертуара</div>
+        <div className="review-hud__presets">
           {(['brief', 'standard', 'detailed'] as ReviewPreset[]).map((p) => (
             <button
               key={p}
               type="button"
+              className="review-hud__preset"
               data-testid={`review-preset-${p}`}
               aria-pressed={preset === p}
               onClick={() => onPreset(p)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 6,
-                border: '1px solid #334155',
-                background: preset === p ? '#2563eb' : 'transparent',
-                color: '#e2e8f0',
-                cursor: 'pointer',
-              }}
             >
               {PRESET_LABELS[p]}
             </button>
           ))}
         </div>
-        <div style={{ marginBottom: 10 }} data-testid="review-estimate">
+        <div className="review-hud__estimate" data-testid="review-estimate">
           ~{estimate} позиций, до {dTarget}-го хода
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" data-testid="review-hud-start" onClick={onStart}>
+        <div className="review-hud__actions">
+          <button
+            type="button"
+            className="review-hud__btn review-hud__btn--primary"
+            data-testid="review-hud-start"
+            onClick={onStart}
+          >
             Начать разбор
           </button>
-          <button type="button" data-testid="review-hud-cancel" onClick={onClose}>
+          <button
+            type="button"
+            className="review-hud__btn"
+            data-testid="review-hud-cancel"
+            onClick={onClose}
+          >
             Отмена
           </button>
         </div>
@@ -383,13 +356,21 @@ function ReviewHud({
 
   if (uiState === 'building') {
     return (
-      <div style={overlay} className="review-hud" data-testid="review-hud-progress">
-        построено {builtNodes} из ~{estimate} позиций
+      <div
+        className="review-hud review-hud--building"
+        data-testid="review-hud-progress"
+      >
+        <div>
+          <span className="review-hud__progress-text">
+            построено {builtNodes} из ~{estimate} позиций
+          </span>
+          <div className="review-hud__progress-bar" aria-hidden="true" />
+        </div>
         <button
           type="button"
+          className="review-hud__btn"
           data-testid="review-hud-stop"
           onClick={onClose}
-          style={{ marginLeft: 10 }}
         >
           Стоп
         </button>
@@ -411,22 +392,28 @@ function ReviewHud({
   const depthMoves = s ? Math.ceil(s.maxPlyReached / 2) : 0;
   const omitted = s ? s.leaves.rare + s.leaves.budget : 0;
   return (
-    <div style={overlay} className="review-hud" data-testid="review-hud-done">
-      <div data-testid="review-summary">
+    <div className="review-hud review-hud--done" data-testid="review-hud-done">
+      <div className="review-hud__summary" data-testid="review-summary">
         Готово: {variants} вариантов, глубина до хода {depthMoves}
         {omitted > 0 ? `, опущено ${omitted}` : ''}
       </div>
-      <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+      <div className="review-hud__actions review-hud__actions--done">
         {s && s.leaves.rare > 0 && (
           <button
             type="button"
+            className="review-hud__btn"
             data-testid="review-show-rare"
             onClick={onShowRare}
           >
             Показать редкие линии
           </button>
         )}
-        <button type="button" data-testid="review-hud-close" onClick={onClose}>
+        <button
+          type="button"
+          className="review-hud__btn"
+          data-testid="review-hud-close"
+          onClick={onClose}
+        >
           Закрыть
         </button>
       </div>

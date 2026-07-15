@@ -1,0 +1,238 @@
+/**
+ * KS-4946 (ADR-165 rev5 §6). Стили HUD алгоритмического разбора позиции.
+ *
+ * DOM/логику делает frontend (ReviewPanel.tsx → ReviewHud). Здесь — только
+ * CSS: оформление плавающей панели «подачи границы разбора» (пресеты →
+ * оценка → прогресс → итог), адаптив desktop/mobile через media-query
+ * (без JS-ветвления), анимация появления и её отключение при
+ * prefers-reduced-motion.
+ *
+ * Цвета — только семантические токены палитры (tokens.css), обе темы.
+ * Хардкод-hex, ранее живший inline в ReviewHud, вынесен сюда на токены.
+ *
+ * Маркеры «ключевой позиции»/«опровержения»/«редкой линии» пишутся в
+ * дерево партии как NAG + [%exit …] и рендерятся штатным move-list
+ * (review-move-list, цвет вариаций — ADR-038): отдельного слоя на доске
+ * не создают и с overlay ADR-108b не конфликтуют.
+ */
+
+/* ─── плавающая панель (оверлей поверх доски) ─────────────────── */
+
+.review-hud {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-slate);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: var(--shadow-lg);
+  /* desktop: по центру снизу, ограниченная ширина */
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(460px, calc(100vw - 24px));
+  animation: review-hud-in 180ms ease-out;
+}
+
+/* mobile: KS-4959 — HUD над нижней панелью (.mobile-bottom-bar 56px,
+   z-index 90), тянется по ширине, учитывает safe-area. */
+@media (max-width: 768px) {
+  .review-hud {
+    left: 8px;
+    right: 8px;
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    transform: none;
+    width: auto;
+    max-width: none;
+    padding: 12px 14px;
+  }
+}
+
+@keyframes review-hud-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* mobile: transform не сдвигает по X — своя кривая появления */
+@media (max-width: 768px) {
+  @keyframes review-hud-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ─── заголовок / строки-подписи ─────────────────────────────── */
+
+.review-hud__title {
+  margin-bottom: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.review-hud__estimate {
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+}
+
+.review-hud__summary {
+  color: var(--text-primary);
+}
+
+/* ─── переключатель пресетов (Кратко / Стандарт / Подробно) ───── */
+
+.review-hud__presets {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.review-hud__preset {
+  flex: 1 1 0;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border-slate);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+}
+
+.review-hud__preset:hover {
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+
+.review-hud__preset[aria-pressed='true'] {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+/* ─── ряд действий и кнопки ───────────────────────────────────── */
+
+.review-hud__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-hud__actions--done {
+  margin-top: 10px;
+}
+
+.review-hud__btn {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border-slate);
+  background: var(--bg-surface-alt);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    filter 140ms ease;
+}
+
+.review-hud__btn:hover {
+  border-color: var(--border-accent);
+}
+
+.review-hud__btn--primary {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.review-hud__btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  filter: none;
+}
+
+.review-hud__btn:focus-visible,
+.review-hud__preset:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* ─── прогресс расчёта ────────────────────────────────────────── */
+
+.review-hud--building {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.review-hud__progress-text {
+  color: var(--text-secondary);
+}
+
+/* тонкая indeterminate-полоса под текстом прогресса */
+.review-hud__progress-bar {
+  position: relative;
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.review-hud__progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 40%;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  animation: review-hud-scan 1100ms ease-in-out infinite;
+}
+
+@keyframes review-hud-scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+/* ─── prefers-reduced-motion: гасим всю анимацию/слайд ─────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .review-hud {
+    animation: none;
+  }
+  .review-hud__preset,
+  .review-hud__btn {
+    transition: none;
+  }
+  .review-hud__progress-bar::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
