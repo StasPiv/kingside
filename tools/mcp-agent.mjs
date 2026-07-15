@@ -71,6 +71,20 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { siteUrl: { type: 'string' } } } },
   { name: 'gsc_sites', description: 'Google Search Console — список property-ей, к которым у сервис-аккаунта есть доступ, и уровень прав.',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'ga_run_report', description: 'Google Analytics 4 (Data API runReport) — статистика по ресурсу kingside.site (property 533107685). metrics: имена метрик GA4 (напр. sessions, activeUsers, screenPageViews, engagedSessions, conversions). dimensions: имена разбивки (напр. sessionSourceMedium, pagePath, country, deviceCategory, date). dateRanges или startDate/endDate (форматы GA: "28daysAgo","today","2026-07-01"). limit ≤ 100000. orderBys/dimensionFilter — проксируются как есть. dimensions=[] даёт суммарные числа.',
+    inputSchema: { type: 'object', properties: {
+      metrics: { type: 'array', items: { type: 'string' }, description: 'Метрики GA4, напр. ["sessions","activeUsers"]' },
+      dimensions: { type: 'array', items: { type: 'string' }, description: 'Разбивка, напр. ["sessionSourceMedium"]' },
+      startDate: { type: 'string', description: 'GA-формат: "28daysAgo" | "2026-07-01"' },
+      endDate: { type: 'string', description: 'GA-формат: "today" | "2026-07-13"' },
+      dateRanges: { type: 'array', items: { type: 'object' }, description: 'Альтернатива startDate/endDate: [{startDate,endDate}]' },
+      limit: { type: 'number' },
+      orderBys: { type: 'array', items: { type: 'object' } },
+      dimensionFilter: { type: 'object' },
+      propertyId: { type: 'string', description: 'Опционально, по умолчанию 533107685' },
+    } } },
+  { name: 'ga_metadata', description: 'Google Analytics 4 — список доступных для ресурса метрик и параметров (dimensions/metrics с описаниями). Для проверки какие имена можно передать в ga_run_report.',
+    inputSchema: { type: 'object', properties: { propertyId: { type: 'string' } } } },
   { name: 'deploy', description: 'Запустить деплой одного сервиса на AWS — атомарно, один scope за вызов. scope (обязателен): frontend | api | game-service | broadcast-service | archive-service | tactic-worker | synthetic-bot | prerender-service. ЗАПРЕЩЕНО: "all", "workers", "" (auto) — webhook вернёт 400. Если нужно несколько сервисов — несколько последовательных вызовов с явным scope.',
     inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['frontend', 'api', 'game-service', 'broadcast-service', 'archive-service', 'tactic-worker', 'synthetic-bot', 'prerender-service'] } }, required: ['scope'] } },
   { name: 'npm_install', description: 'Запустить npm install на хосте (после изменения package.json).',
@@ -253,6 +267,15 @@ async function call(name, args) {
       return webhookPost('/gsc/sitemaps', { siteUrl: args.siteUrl });
     case 'gsc_sites':
       return webhookPost('/gsc/sites', {});
+    case 'ga_run_report':
+      return webhookPost('/ga/run-report', {
+        metrics: args.metrics, dimensions: args.dimensions,
+        startDate: args.startDate, endDate: args.endDate, dateRanges: args.dateRanges,
+        limit: args.limit, orderBys: args.orderBys, dimensionFilter: args.dimensionFilter,
+        propertyId: args.propertyId,
+      });
+    case 'ga_metadata':
+      return webhookPost('/ga/metadata', { propertyId: args.propertyId });
     case 'deploy':
       return webhookPost('/deploy', { scope: args.scope || '' });
     case 'npm_install':

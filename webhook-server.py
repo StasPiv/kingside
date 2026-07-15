@@ -1094,7 +1094,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_PROJECT",
         "ROLE_COMMIT", "ROLE_GIT_READ", "ROLE_DEPLOY_FRONTEND",
         "ROLE_READ_APPS_WEB",
-        "ROLE_GSC",
+        "ROLE_GSC", "ROLE_GA",
     ],
     "coordinator": [
         "ROLE_READ_PROJECT",
@@ -1159,6 +1159,8 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/gsc/search-analytics": "ROLE_GSC",
     "/gsc/sitemaps": "ROLE_GSC",
     "/gsc/sites": "ROLE_GSC",
+    "/ga/run-report": "ROLE_GA",
+    "/ga/metadata": "ROLE_GA",
     "/test-hints": "ROLE_TEST_HINTS",
 }
 
@@ -1270,6 +1272,112 @@ def handle_gsc_sitemaps(handler, payload):
 
 def handle_gsc_sites(handler, payload):
     code, body = _gsc_request("GET", "https://www.googleapis.com/webmasters/v3/sites")
+    handler.send_response(code); handler.send_header("Content-Type", "application/json"); handler.end_headers()
+    handler.wfile.write(json.dumps(body, ensure_ascii=False).encode())
+
+
+# ---------------------------------------------------------------------------
+# Google Analytics 4 (Data API v1) — тот же сервис-аккаунт что GSC, но
+# отдельный OAuth-scope analytics.readonly. Property ID из env.
+# ---------------------------------------------------------------------------
+GA_PROPERTY_ID = os.environ.get("GA_PROPERTY_ID", "533107685")
+_ga_creds = None
+
+def _ga_token() -> str | None:
+    """OAuth-токен сервис-аккаунта со scope analytics.readonly."""
+    global _ga_creds
+    if not GSC_KEY_FILE or not os.path.exists(GSC_KEY_FILE):
+        return None
+    try:
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request as _GReq
+        if _ga_creds is None:
+            _ga_creds = service_account.Credentials.from_service_account_file(
+                GSC_KEY_FILE,
+                scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+            )
+        if not _ga_creds.valid:
+            _ga_creds.refresh(_GReq())
+        return _ga_creds.token
+    except Exception as e:
+        log(f"GA token error: {e}")
+        return None
+
+
+def _ga_request(url: str, body: dict) -> tuple[int, dict | str]:
+    token = _ga_token()
+    if not token:
+        return 503, {"error": "GA service account not configured"}
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            err_body = json.loads(e.read())
+        except Exception:
+            err_body = str(e)
+        return e.code, err_body
+    except Exception as e:
+        return 500, {"error": str(e)}
+
+
+def handle_ga_run_report(handler, payload):
+    """POST /ga/run-report — GA4 Data API runReport.
+
+    Тело: dateRanges/dimensions/metrics/limit/orderBys/dimensionFilter —
+    как есть проксируется в API (маркетинг сам строит запрос). property
+    берётся из payload.propertyId или env GA_PROPERTY_ID.
+    """
+    prop = str(payload.get("propertyId") or GA_PROPERTY_ID).strip()
+    if not prop:
+        handler.send_response(400); handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "missing propertyId"}).encode()); return
+    date_ranges = payload.get("dateRanges") or [
+        {"startDate": payload.get("startDate") or "28daysAgo",
+         "endDate": payload.get("endDate") or "today"},
+    ]
+    body_req = {
+        "dateRanges": date_ranges,
+        "dimensions": [{"name": d} for d in (payload.get("dimensions") or [])],
+        "metrics": [{"name": m} for m in (payload.get("metrics") or ["sessions"])],
+        "limit": str(payload.get("limit") or 25),
+    }
+    for k in ("orderBys", "dimensionFilter", "metricFilter", "keepEmptyRows"):
+        if payload.get(k) is not None:
+            body_req[k] = payload[k]
+    code, body = _ga_request(
+        f"https://analyticsdata.googleapis.com/v1beta/properties/{prop}:runReport",
+        body_req,
+    )
+    handler.send_response(code); handler.send_header("Content-Type", "application/json"); handler.end_headers()
+    handler.wfile.write(json.dumps(body, ensure_ascii=False).encode())
+
+
+def handle_ga_metadata(handler, payload):
+    """POST /ga/metadata — список доступных dimensions/metrics для property."""
+    prop = str(payload.get("propertyId") or GA_PROPERTY_ID).strip()
+    token = _ga_token()
+    if not token:
+        handler.send_response(503); handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "GA not configured"}).encode()); return
+    req = urllib.request.Request(
+        f"https://analyticsdata.googleapis.com/v1beta/properties/{prop}/metadata",
+        method="GET",
+    )
+    req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            code, body = r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try: body = json.loads(e.read())
+        except Exception: body = str(e)
+        code = e.code
+    except Exception as e:
+        code, body = 500, {"error": str(e)}
     handler.send_response(code); handler.send_header("Content-Type", "application/json"); handler.end_headers()
     handler.wfile.write(json.dumps(body, ensure_ascii=False).encode())
 
@@ -3170,6 +3278,21 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 handle_gsc_sitemaps(self, payload)
             else:
                 handle_gsc_sites(self, payload)
+            return
+
+        if path in ("/ga/run-report", "/ga/metadata"):
+            if not self._check_role(path):
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            if path == "/ga/run-report":
+                handle_ga_run_report(self, payload)
+            else:
+                handle_ga_metadata(self, payload)
             return
 
         if path == "/feedback/notify":
