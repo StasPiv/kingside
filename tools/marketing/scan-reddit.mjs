@@ -91,7 +91,7 @@ saveSeen(seen);
 
 const top = candidates.slice(0, cfg.maxCandidatesPerTick || 8);
 writeFileSync(INBOX, JSON.stringify({ network: 'reddit', ts: now, items: top }, null, 2));
-const funnelStr = `прочитано ${funnel.read} → видены ${funnel.dedup}, без ключевых слов ${funnel.keyword}, не вопрос ${funnel['not-question']}, комментарии ${funnel.comments}${funnel.skippedSubs.length ? `, сабы-пропуск ${funnel.skippedSubs.join(',')}` : ''} → прошло ${candidates.length}`;
+const funnelStr = `прочитано ${funnel.read} → дубли ${funnel.dedup}, без ключевых слов ${funnel.keyword}, не вопрос ${funnel['not-question']}, комментарии ${funnel.comments}${funnel.skippedSubs.length ? `, сабы-пропуск ${funnel.skippedSubs.join(',')}` : ''} → прошло ${candidates.length}`;
 const ts = new Date().toISOString();
 if (top.length === 0) {
   console.log(`[scan-reddit] ${ts} — новых нет, агента не бужу. ${funnelStr}`);

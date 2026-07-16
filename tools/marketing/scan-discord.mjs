@@ -67,7 +67,7 @@ async function main() {
   saveSeen(seen);
   const top = candidates.slice(0, cfg.maxCandidatesPerTick || 6);
   writeFileSync(INBOX, JSON.stringify({ network: 'discord', ts: now, items: top }, null, 2));
-  const funnelStr = `прочитано ${funnel.read} → видены ${funnel.dedup}, без ключевых слов ${funnel.keyword}, старые ${funnel.old}, боты ${funnel.bot}, пустые ${funnel.empty} → прошло ${candidates.length}`;
+  const funnelStr = `прочитано ${funnel.read} → дубли ${funnel.dedup}, без ключевых слов ${funnel.keyword}, старые ${funnel.old}, боты ${funnel.bot}, пустые ${funnel.empty} → прошло ${candidates.length}`;
   const ts = new Date().toISOString();
   if (top.length === 0) {
     console.log(`[scan-discord] ${ts} — новых нет, агента не бужу. ${funnelStr}`);
