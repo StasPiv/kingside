@@ -1,7 +1,16 @@
 {
   "_comment": "Источники и дедуп-параметры скана. Контентного отсева ЗДЕСЬ НЕТ — семантику («это запрос инструмента или мем?») решает LLM-агент по criteria.md. Скан отдаёт агенту ВСЕ новые (не виденные) посты. maxCandidatesPerTick — только страховочный потолок на тик.",
   "reddit": {
-    "subreddits": ["r/chess", "r/chessbeginners", "r/chesspuzzles", "r/AnarchyChess"],
+    "subreddits": [
+      "r/chess",
+      "r/chessbeginners",
+      "r/chesspuzzles",
+      "r/AnarchyChess",
+      "r/chesscom",
+      "r/lichess",
+      "r/chessindia",
+      "r/tournamentchess"
+    ],
     "sort": "new",
     "maxCandidatesPerTick": 40
   },
@@ -10,12 +19,32 @@
       "chess app recommendation",
       "how to improve chess",
       "best chess site",
-      "learn chess beginner"
+      "learn chess beginner",
+      "chess.com alternative",
+      "lichess alternative",
+      "chess.com paywall",
+      "best chess app",
+      "chess analysis app",
+      "app to analyze my chess games",
+      "chess puzzle app",
+      "chess opening trainer app",
+      "where to learn chess",
+      "how to get better at chess"
     ],
     "maxCandidatesPerTick": 40
   },
   "discord": {
-    "channels": [],
+    "channels": [
+      "1289745677949079574",
+      "352965935809691658",
+      "352970737562288128",
+      "312182842576601088",
+      "1049845663556444170",
+      "1031921238567817297",
+      "1039987259186880634",
+      "692509042421006355",
+      "1232819041790459994"
+    ],
     "maxCandidatesPerTick": 40
   }
 }
