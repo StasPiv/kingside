@@ -21,14 +21,15 @@ const TOKEN = process.env.WEBHOOK_AUTH_TOKEN || '';
 const loadSeen = () => { try { return new Set(JSON.parse(readFileSync(SEEN, 'utf8'))); } catch { return new Set(); } };
 const saveSeen = (s) => writeFileSync(SEEN, JSON.stringify([...s].slice(-2000)));
 
-function passes(t, now) {
+// null — прошёл; иначе причина отсева (для воронки в логе).
+function rejectReason(t, now) {
   if (t.date && t.date !== '?' && cfg.maxAgeHours) {
     const ts = Date.parse(t.date.replace(' ', 'T') + ':00Z');
-    if (ts && (now - ts) / 3_600_000 > cfg.maxAgeHours) return false;
+    if (ts && (now - ts) / 3_600_000 > cfg.maxAgeHours) return 'old';
   }
   const hay = (t.text || '').toLowerCase();
-  if (cfg.keywordsAny?.length && !cfg.keywordsAny.some((k) => hay.includes(k.toLowerCase()))) return false;
-  return true;
+  if (cfg.keywordsAny?.length && !cfg.keywordsAny.some((k) => hay.includes(k.toLowerCase()))) return 'keyword';
+  return null;
 }
 
 async function poke(count) {
@@ -47,6 +48,7 @@ guardOrExit('x');
 const now = Date.now();
 const seen = loadSeen();
 const candidates = [];
+const funnel = { read: 0, dedup: 0, keyword: 0, old: 0 };
 try {
   await withSession('x', async (page) => {
     for (const q of cfg.searchQueries || []) {
@@ -55,8 +57,11 @@ try {
           { waitUntil: 'domcontentloaded', timeout: 45000 });
         await jitter(2500, 5000);
         for (const t of await extractTweets(page)) {
-          if (!t.url || seen.has(t.url)) continue;
-          if (!passes(t, now)) continue;
+          if (!t.url) continue;
+          funnel.read++;
+          if (seen.has(t.url)) { funnel.dedup++; continue; }
+          const rej = rejectReason(t, now);
+          if (rej) { funnel[rej]++; continue; }
           candidates.push({ query: q, author: t.author, text: t.text, date: t.date, url: t.url });
           seen.add(t.url);
         }
@@ -73,9 +78,11 @@ saveSeen(seen);
 
 const top = candidates.slice(0, cfg.maxCandidatesPerTick || 6);
 writeFileSync(INBOX, JSON.stringify({ network: 'x', ts: now, items: top }, null, 2));
+const funnelStr = `прочитано ${funnel.read} → видены ${funnel.dedup}, без ключевых слов ${funnel.keyword}, старые ${funnel.old} → прошло ${candidates.length}`;
+const ts = new Date().toISOString();
 if (top.length === 0) {
-  console.log(`[scan-x] ${new Date().toISOString()} — новых нет, агента не бужу`);
+  console.log(`[scan-x] ${ts} — новых нет, агента не бужу. ${funnelStr}`);
   process.exit(0);
 }
 await poke(top.length);
-console.log(`[scan-x] ${new Date().toISOString()} — ${top.length} кандидат(ов), агент разбужен`);
+console.log(`[scan-x] ${ts} — ${top.length} кандидат(ов), агент разбужен. ${funnelStr}`);

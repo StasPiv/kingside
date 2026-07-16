@@ -29,15 +29,15 @@ const loadSeen = () => { try { return new Set(JSON.parse(readFileSync(SEEN, 'utf
 const saveSeen = (s) => writeFileSync(SEEN, JSON.stringify([...s].slice(-2000)));
 const QUESTION_RE = /\?|how|what|which|why|recommend|help|stuck|beginner|improve/i;
 
-function passes(item) {
-  const sc = Number(String(item.score).replace(/\D+/g, ''));
+// Возвращает null если прошёл, иначе причину отсева (для воронки в логе).
+function rejectReason(item) {
   const cm = Number(String(item.comments).replace(/\D+/g, '')) || 0;
-  if (cfg.minComments != null && cm < cfg.minComments) return false;
-  if (cfg.maxComments != null && cm > cfg.maxComments) return false;
+  if (cfg.minComments != null && cm < cfg.minComments) return 'comments';
+  if (cfg.maxComments != null && cm > cfg.maxComments) return 'comments';
   const hay = (item.title || '').toLowerCase();
-  if (cfg.keywordsAny?.length && !cfg.keywordsAny.some((k) => hay.includes(k.toLowerCase()))) return false;
-  if (cfg.titleMustBeQuestionOrHelp && !QUESTION_RE.test(item.title || '')) return false;
-  return true;
+  if (cfg.keywordsAny?.length && !cfg.keywordsAny.some((k) => hay.includes(k.toLowerCase()))) return 'keyword';
+  if (cfg.titleMustBeQuestionOrHelp && !QUESTION_RE.test(item.title || '')) return 'not-question';
+  return null;
 }
 
 async function poke(count) {
@@ -57,19 +57,24 @@ guardOrExit('reddit');
 const now = Date.now();
 const seen = loadSeen();
 const candidates = [];
+// Воронка отсева (для лога): чтобы «новых нет» было прозрачным.
+const funnel = { read: 0, dedup: 0, keyword: 0, 'not-question': 0, comments: 0, skippedSubs: [] };
 try {
   await withSession('reddit', async (page) => {
     const sort = cfg.sort || 'new';
     const blocked = loadBlockedSubs();
     for (const sub of cfg.subreddits) {
       const clean = sub.replace(/^\/?(r\/)?/, '');
-      if (blocked[clean.toLowerCase()]) { console.error(`[scan-reddit] r/${clean} в blocked — пропуск`); continue; }
+      if (blocked[clean.toLowerCase()]) { funnel.skippedSubs.push(`r/${clean}(blocked)`); continue; }
       try {
         await page.goto(`https://old.reddit.com/r/${clean}/${sort === 'hot' ? '' : sort}`,
           { waitUntil: 'domcontentloaded', timeout: 45000 });
         for (const it of await extractRedditListing(page)) {
-          if (!it.url || seen.has(it.url)) continue;
-          if (!passes(it)) continue;
+          if (!it.url) continue;
+          funnel.read++;
+          if (seen.has(it.url)) { funnel.dedup++; continue; }
+          const rej = rejectReason(it);
+          if (rej) { funnel[rej]++; continue; }
           candidates.push({ subreddit: `r/${clean}`, title: it.title, score: it.score, comments: it.comments, url: it.url });
           seen.add(it.url);
         }
@@ -86,9 +91,11 @@ saveSeen(seen);
 
 const top = candidates.slice(0, cfg.maxCandidatesPerTick || 8);
 writeFileSync(INBOX, JSON.stringify({ network: 'reddit', ts: now, items: top }, null, 2));
+const funnelStr = `прочитано ${funnel.read} → видены ${funnel.dedup}, без ключевых слов ${funnel.keyword}, не вопрос ${funnel['not-question']}, комментарии ${funnel.comments}${funnel.skippedSubs.length ? `, сабы-пропуск ${funnel.skippedSubs.join(',')}` : ''} → прошло ${candidates.length}`;
+const ts = new Date().toISOString();
 if (top.length === 0) {
-  console.log(`[scan-reddit] ${new Date().toISOString()} — новых нет, агента не бужу`);
+  console.log(`[scan-reddit] ${ts} — новых нет, агента не бужу. ${funnelStr}`);
   process.exit(0);
 }
 await poke(top.length);
-console.log(`[scan-reddit] ${new Date().toISOString()} — ${top.length} кандидат(ов), агент разбужен`);
+console.log(`[scan-reddit] ${ts} — ${top.length} кандидат(ов), агент разбужен. ${funnelStr}`);
