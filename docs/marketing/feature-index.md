@@ -30,8 +30,9 @@
 - **Workshop** — работа с PGN-файлами — `/workshop` — ADR-011
 
 ## Обучение
-- **User courses** — свои курсы: редактор, шаги, пазлы, прогресс — `/lobby` (курсы) — ADR-026,029,049; docs/features/user-courses.md
-- **Lessons / drills (system)** — системные уроки, SM-2 повторение — — ADR-024,025; docs/user/drills.md
+- **User courses** — свои курсы: редактор, шаги, пазлы, прогресс — `/lessons/my`, каталог `/lessons/discover` — ADR-026,029,049; docs/features/user-courses.md
+- **Lessons (system)** — системные уроки, SM-2 повторение — `/lessons` — ADR-024,025; docs/user/drills.md
+- **Mistakes diary** — тренировка своих ошибок — `/puzzles/mistakes` — ADR-032
 - **Coach page + lectures** — тренер: курсы, лекции live/запись, голос — `/coach/:username` — ADR-113,115,118,120
 
 ## Прочее
