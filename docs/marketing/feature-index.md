@@ -17,17 +17,17 @@
 - **Analyze PGN online** — вставить PGN, получить анализ — `/analyze-pgn-online` — —
 - **Archive** — база мастерских партий, поиск по позиции, дерево дебютов — `/archive` — ADR-013,014,033
 - **Positional metrics** — динамика позиционных факторов по ходам — (в /analysis) — ADR-107,122
-- **AI-комментарии ходов** — ЧАСТИЧНО, не рекламировать как готовое — — ADR-102,103,108
+- **AI-комментарии ходов** — ЧАСТИЧНО, не рекламировать как готовое — (в `/analysis`, отдельного URL нет) — ADR-102,103,108
 
 ## Тренировка
 - **Puzzles** — тактика — `/puzzles`, `/daily`, `/puzzle-rush` — —
 - **Puzzles from your games** — пазлы из своих зевков (PGN → задачи) — `/puzzles-from-your-games` — ADR-041,044,050
 - **Precision training** — держать перевес против движка, 5-звёзд оценка — `/precision` — ADR-048,065,079
-- **Opening Trainer** — тренировка дебютов из своего/системного PGN — `/opening-trainer`? — ADR-077,078,084
+- **Opening Trainer** — тренировка дебютов из своего/системного PGN — `/opening-trainer` — ADR-077,078,084
 - **Tactical drills** — микро-упражнения на паттерны, sprint+лидерборд — `/drills` — ADR-035,043
 - **Guess the Move** — угадать ход мастера, сравнение точности — `/guess` — ADR-086,089
 - **Blind-board** — визуализация: найти фигуру по ходу движка — `/blind-board` — ADR-088
-- **Workshop** — `/workshop` — ADR-011,467
+- **Workshop** — работа с PGN-файлами — `/workshop` — ADR-011
 
 ## Обучение
 - **User courses** — свои курсы: редактор, шаги, пазлы, прогресс — `/lobby` (курсы) — ADR-026,029,049; docs/features/user-courses.md
