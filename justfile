@@ -240,3 +240,16 @@ marketing-bot-restart:
 
 marketing-bot-logs:
     tail -50 logs/marketing-bot.log
+
+# Webhook stack автостарт (user-systemd). После установки стеком управляет
+# systemctl --user {start,stop,restart} kingside-webhook — не `just webhook`
+# напрямую (иначе systemd не знает о ручной остановке).
+webhook-install:
+    #!/usr/bin/env bash
+    mkdir -p ~/.config/systemd/user
+    cp scripts/systemd/kingside-webhook.service ~/.config/systemd/user/
+    loginctl enable-linger $USER 2>/dev/null || true
+    systemctl --user daemon-reload
+    systemctl --user enable kingside-webhook.service
+    echo "enabled: $(systemctl --user is-enabled kingside-webhook.service)"
+    echo "Старт: systemctl --user start kingside-webhook"

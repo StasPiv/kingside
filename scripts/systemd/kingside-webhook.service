@@ -1,0 +1,19 @@
+[Unit]
+# KS: автостарт webhook-стека (трекер + webhook-server + SSH-туннель + агенты)
+# через существующий `just webhook`. Установка: just webhook-install.
+Description=Kingside webhook stack (tracker + webhook + tunnel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/pivovartsev/work/kingside
+# Docker поднимается системным менеджером; ждём сокет до старта стека.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do docker info >/dev/null 2>&1 && exit 0; sleep 2; done; echo "docker недоступен" >&2; exit 1'
+ExecStart=/snap/bin/just webhook
+ExecStop=/snap/bin/just webhook-stop
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target
