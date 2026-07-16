@@ -234,10 +234,13 @@ export function resolveReply(reply, { now = new Date(), state } = {}) {
     return { id, draft: s[id] };
   };
   const r = reply.trim();
-  const m = /^(d\d+-\d{8})\s+([\s\S]+)$/.exec(r);
+  // id-префикс: публикации — d<N>-<ГГГГММДД>, предложения источников — src<N>-<ГГГГММДД>.
+  // «id verb» (src61-20260716 ok) и «id» отдельной строкой без глагола (= ok).
+  const idRe = /^((?:d|src)\d+-\d{8})(?:\s+([\s\S]+))?$/;
+  const m = idRe.exec(r);
   if (m) {
     if (!s[m[1]]) return { error: `черновик ${m[1]} не найден` };
-    resolveDraft(m[1], m[2], { now, state: s });
+    resolveDraft(m[1], m[2] ? m[2] : 'ok', { now, state: s });
     return done(m[1]);
   }
   const pending = Object.entries(s).filter(([, d]) => d.status === 'pending' && now.getTime() - d.sentAt <= DRAFT_TTL_MS);
