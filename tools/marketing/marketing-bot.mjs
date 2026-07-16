@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { SESSIONS_DIR } from './session-lib.mjs';
-import { loadDrafts, resolveReply } from './publish-lib.mjs';
+import { loadDrafts, resolveReply, addSource } from './publish-lib.mjs';
 
 const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -154,7 +154,13 @@ if (cmd === 'start') {
         continue;
       }
       console.log(`${new Date().toISOString()} черновик ${r.id} → ${r.draft.status}`);
-      if (r.draft.status === 'approved') {
+      if (r.draft.status === 'approved' && r.draft.kind === 'source-add') {
+        // Одобрено добавление источника мониторинга — дописываем в конфиг.
+        const res = addSource(r.draft.sourceType, r.draft.sourceValue);
+        await send(chatId, res.added ? `✅ Источник добавлен в мониторинг: ${res.key}`
+          : res.dup ? `${res.key} уже в списке.` : `⚠️ не добавлен: ${res.error || 'ошибка'}`);
+        console.log(`source-add ${r.id}: ${JSON.stringify(res)}`);
+      } else if (r.draft.status === 'approved') {
         const { stdout, stderr, code } = await run('node', [join(HERE, 'publish.mjs'), r.id]).catch((e) => e);
         const ok = (stdout || '').includes('Опубликовано');
         await send(chatId, ok ? `✅ ${r.id} опубликован: ${r.draft.url}` : `⚠️ ${r.id} не опубликован: ${(stderr || stdout || '').trim().slice(0, 200)}`);

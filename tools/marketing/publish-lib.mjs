@@ -22,6 +22,7 @@ import { SESSIONS_DIR } from './session-lib.mjs';
 
 const ACTIONS_STATE = join(SESSIONS_DIR, 'actions-state.json');
 const DRAFTS_STATE = join(SESSIONS_DIR, 'drafts-state.json');
+const BLOCKED_SUBS = join(SESSIONS_DIR, 'blocked-subreddits.json');
 const PUBLISHED_MD = join(dirname(fileURLToPath(import.meta.url)), 'briefs', 'published.md');
 
 export const DRAFT_TTL_MS = 4 * 60 * 60 * 1000; // 4 часа (ADR §4)
@@ -94,6 +95,77 @@ export function resumePlatform(platform, { state } = {}) {
 
 export function loadDrafts() { return load(DRAFTS_STATE); }
 export function saveDrafts(state) { save(DRAFTS_STATE, state); }
+
+// Черновик-предложение нового источника мониторинга. Пользователь одобряет
+// `ok` в Telegram → листенер вызывает addSource и дописывает в конфиг.
+export function addSourceProposal({ sourceType, sourceValue, note }, { now = new Date(), state } = {}) {
+  const s = state ?? loadDrafts();
+  const id = `src${Object.keys(s).length + 1}-${dayKey(now).replaceAll('-', '')}`;
+  s[id] = {
+    kind: 'source-add', sourceType, sourceValue,
+    platform: sourceType, url: '', note,
+    text: `Предложение: добавить источник [${sourceType}] «${sourceValue}» в мониторинг.${note ? ` ${note}` : ''}`,
+    status: 'pending', sentAt: now.getTime(),
+  };
+  if (!state) save(DRAFTS_STATE, s);
+  return id;
+}
+
+// --- Добавление источника мониторинга (по одобрению пользователя) ---
+// Дописывает value в prefilter-config.json. sourceType:
+//   'subreddit' → reddit.subreddits, 'x-query' → x.searchQueries,
+//   'discord-channel' → discord.channels. Дедуп. Возвращает {added, network, key}.
+export function addSource(sourceType, value) {
+  const CFG = join(dirname(fileURLToPath(import.meta.url)), 'prefilter-config.json');
+  const cfg = JSON.parse(readFileSync(CFG, 'utf8'));
+  const map = {
+    'subreddit': ['reddit', 'subreddits', (v) => (v.startsWith('r/') ? v : `r/${v.replace(/^\/?(r\/)?/, '')}`)],
+    'x-query': ['x', 'searchQueries', (v) => v.trim()],
+    'discord-channel': ['discord', 'channels', (v) => v.trim()],
+  };
+  const spec = map[sourceType];
+  if (!spec) return { added: false, error: `неизвестный тип источника: ${sourceType}` };
+  const [network, field, norm] = spec;
+  const val = norm(value);
+  cfg[network][field] = cfg[network][field] || [];
+  if (cfg[network][field].some((x) => x.toLowerCase() === val.toLowerCase())) {
+    return { added: false, network, key: val, dup: true };
+  }
+  cfg[network][field].push(val);
+  writeFileSync(CFG, JSON.stringify(cfg, null, 2) + '\n');
+  return { added: true, network, key: val };
+}
+
+// --- Blocked subreddits (куда аккаунт не может постить) ---
+// Автопополняется при отказе публикации; scan-reddit оттуда не предлагает.
+export function loadBlockedSubs() {
+  const s = load(BLOCKED_SUBS);
+  return s && typeof s === 'object' ? s : {};
+}
+export function addBlockedSub(sub, reason) {
+  if (!sub) return;
+  const key = sub.replace(/^\/?(r\/)?/, '').toLowerCase();
+  const s = loadBlockedSubs();
+  s[key] = { reason: reason || 'нет доступа', at: Date.now() };
+  save(BLOCKED_SUBS, s);
+}
+
+// Проверяет страницу reddit после отправки комментария на явный отказ
+// (карма/бан/сабреддит закрыт). Возвращает строку-причину или null.
+// Ratelimit («doing that too much») НЕ блокирует — временный.
+export async function detectRedditPostDenied(page) {
+  try {
+    const err = await page.$$eval('.error, .status, span.error', (els) =>
+      els.map((e) => e.textContent.trim()).filter(Boolean).join(' | '));
+    const t = (err || '').toLowerCase();
+    if (!t) return null;
+    if (/too much|try again|ratelimit/.test(t)) return null; // временный лимит
+    if (/karma|not allowed|isn.t allowed|banned|must be a member|restricted|only approved|private/.test(t)) {
+      return err.slice(0, 200);
+    }
+    return null;
+  } catch { return null; }
+}
 
 /** Discord: канал открыт на запись по discord-sources-analysis.tsv (колонка «запись»). */
 export function discordWritable(url) {

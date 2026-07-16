@@ -18,6 +18,7 @@ import { jitter } from './browse-lib.mjs';
 import {
   loadDrafts, saveDrafts, actionDenied, recordAction, haltPlatform, resumePlatform,
   detectChallenge, fillRedditComment, fillXReply, appendPublished,
+  detectRedditPostDenied, addBlockedSub,
 } from './publish-lib.mjs';
 
 const [arg1, arg2] = process.argv.slice(2);
@@ -111,6 +112,14 @@ try {
     else if (platform === 'x') await fillXReply(page, text);
     else throw new Error(`Платформа ${platform} браузерным контуром не публикуется`);
     await jitter(3000, 6000); // дождаться обработки отправки
+    // Reddit: отказ по карме/бану/закрытому сабу → в blocked, scan туда больше не лезет.
+    if (platform === 'reddit') {
+      const denied = await detectRedditPostDenied(page);
+      if (denied) {
+        addBlockedSub(subreddit, denied);
+        throw Object.assign(new Error(`Отказ публикации в r/${subreddit}: ${denied}. Сабреддит добавлен в blocked.`), { code: 6 });
+      }
+    }
     recordAction(platform, { subreddit });
     appendPublished({ platform, url, note: draft.note });
     draft.status = 'published';
@@ -121,5 +130,5 @@ try {
 } catch (e) {
   console.error(`[error] ${e.message}`);
   if (e instanceof LoggedOutError) { haltPlatform(platform, 'разлогин'); process.exit(3); }
-  process.exit(e.code === 5 ? 5 : 1);
+  process.exit(e.code === 5 ? 5 : e.code === 6 ? 6 : 1);
 }

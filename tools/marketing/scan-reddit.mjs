@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withSession, LoggedOutError } from './session-lib.mjs';
 import { extractRedditListing, guardOrExit, recordRead, jitter } from './browse-lib.mjs';
+import { loadBlockedSubs } from './publish-lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const cfg = JSON.parse(readFileSync(join(HERE, 'prefilter-config.json'), 'utf8')).reddit;
@@ -59,8 +60,10 @@ const candidates = [];
 try {
   await withSession('reddit', async (page) => {
     const sort = cfg.sort || 'new';
+    const blocked = loadBlockedSubs();
     for (const sub of cfg.subreddits) {
       const clean = sub.replace(/^\/?(r\/)?/, '');
+      if (blocked[clean.toLowerCase()]) { console.error(`[scan-reddit] r/${clean} в blocked — пропуск`); continue; }
       try {
         await page.goto(`https://old.reddit.com/r/${clean}/${sort === 'hot' ? '' : sort}`,
           { waitUntil: 'domcontentloaded', timeout: 45000 });
