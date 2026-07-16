@@ -25,10 +25,9 @@ export function pragueHour(now = new Date()) {
   return Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/Prague' }).format(now));
 }
 
-/** null — можно; строка — причина отказа. Инъекция now/state — для проверок. */
+/** null — можно; строка — причина отказа. Инъекция now/state — для проверок.
+ * Часы активности задаёт РАСПИСАНИЕ КРОНА (диапазон часов), не этот скрипт. */
 export function readDenied(platform, { now = new Date(), state } = {}) {
-  const h = pragueHour(now);
-  if (h < 7 || h >= 22) return `вне часов активности (07–22 Prague, сейчас ${h}ч)`; // окно = рабочие часы пользователя (13.07)
   const s = state ?? loadReadsState();
   const last = s[platform]?.lastRead || 0;
   const minAgo = (now.getTime() - last) / 60000;
