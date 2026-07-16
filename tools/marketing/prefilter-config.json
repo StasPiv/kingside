@@ -1,18 +1,9 @@
 {
-  "_comment": "Детерминированный префильтр (0 токенов). Правь на лету — следующий крон-тик работает по-новому. LLM-модерация выживших — отдельно, в criteria.md.",
+  "_comment": "Источники и дедуп-параметры скана. Контентного отсева ЗДЕСЬ НЕТ — семантику («это запрос инструмента или мем?») решает LLM-агент по criteria.md. Скан отдаёт агенту ВСЕ новые (не виденные) посты. maxCandidatesPerTick — только страховочный потолок на тик.",
   "reddit": {
     "subreddits": ["r/chess", "r/chessbeginners", "r/chesspuzzles", "r/AnarchyChess"],
     "sort": "new",
-    "maxAgeHours": 12,
-    "minComments": 0,
-    "maxComments": 40,
-    "keywordsAny": [
-      "beginner", "improve", "opening", "puzzle", "rating", "elo", "tactic",
-      "analy", "blunder", "endgame", "app", "site", "platform", "learn",
-      "recommend", "which", "how do i", "how to", "help", "stuck"
-    ],
-    "titleMustBeQuestionOrHelp": true,
-    "maxCandidatesPerTick": 8
+    "maxCandidatesPerTick": 40
   },
   "x": {
     "searchQueries": [
@@ -21,14 +12,10 @@
       "best chess site",
       "learn chess beginner"
     ],
-    "maxAgeHours": 12,
-    "keywordsAny": ["chess", "puzzle", "opening", "beginner", "improve", "tactic", "app", "site"],
-    "maxCandidatesPerTick": 6
+    "maxCandidatesPerTick": 40
   },
   "discord": {
     "channels": [],
-    "maxAgeHours": 24,
-    "keywordsAny": ["chess", "puzzle", "improve", "beginner", "app", "recommend"],
-    "maxCandidatesPerTick": 6
+    "maxCandidatesPerTick": 40
   }
 }

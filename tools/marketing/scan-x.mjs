@@ -25,17 +25,6 @@ const TOKEN = process.env.WEBHOOK_AUTH_TOKEN || '';
 const loadSeen = () => { try { return new Set(JSON.parse(readFileSync(SEEN, 'utf8'))); } catch { return new Set(); } };
 const saveSeen = (s) => writeFileSync(SEEN, JSON.stringify([...s].slice(-2000)));
 
-// null — прошёл; иначе причина отсева (для воронки в логе).
-function rejectReason(t, now) {
-  if (t.date && t.date !== '?' && cfg.maxAgeHours) {
-    const ts = Date.parse(t.date.replace(' ', 'T') + ':00Z');
-    if (ts && (now - ts) / 3_600_000 > cfg.maxAgeHours) return 'old';
-  }
-  const hay = (t.text || '').toLowerCase();
-  if (cfg.keywordsAny?.length && !cfg.keywordsAny.some((k) => hay.includes(k.toLowerCase()))) return 'keyword';
-  return null;
-}
-
 async function poke(count) {
   const msg = `[CRON x] ${count} кандидат(ов) в tools/marketing/sessions/inbox-x.json. `
     + `Отмодерируй по tools/marketing/criteria.md, черновики → marketing-bot send. Мусор молча отбрось.`;
@@ -52,7 +41,8 @@ guardOrExit('x');
 const now = Date.now();
 const seen = loadSeen();
 const candidates = [];
-const funnel = { read: 0, dedup: 0, keyword: 0, old: 0 };
+// Единственный отсев — дедуп. Latest-поиск уже отдаёт свежие; семантику решает LLM.
+const funnel = { read: 0, dedup: 0 };
 try {
   await withSession('x', async (page) => {
     for (const q of cfg.searchQueries || []) {
@@ -64,11 +54,9 @@ try {
           if (!t.url) continue;
           funnel.read++;
           if (seen.has(t.url)) { funnel.dedup++; dumpItem('dedup', t); continue; }
-          const rej = rejectReason(t, now);
-          if (rej) { funnel[rej]++; dumpItem(rej, t); continue; }
           candidates.push({ query: q, author: t.author, text: t.text, date: t.date, url: t.url });
           seen.add(t.url);
-          dumpItem('PASS', t);
+          dumpItem('NEW', t);
         }
       } catch (e) { console.error(`[scan-x] "${q}": ${e.message}`); }
       await jitter(2000, 5000);
@@ -81,9 +69,9 @@ try {
 }
 saveSeen(seen);
 
-const top = candidates.slice(0, cfg.maxCandidatesPerTick || 6);
+const top = candidates.slice(0, cfg.maxCandidatesPerTick || 40);
 writeFileSync(INBOX, JSON.stringify({ network: 'x', ts: now, items: top }, null, 2));
-const funnelStr = `прочитано ${funnel.read} → дубли ${funnel.dedup}, без ключевых слов ${funnel.keyword}, старые ${funnel.old} → прошло ${candidates.length}`;
+const funnelStr = `прочитано ${funnel.read} → дубли ${funnel.dedup} → новых ${candidates.length}`;
 const ts = new Date().toISOString();
 if (top.length === 0) {
   console.log(`[scan-x] ${ts} — новых нет, агента не бужу. ${funnelStr}`);

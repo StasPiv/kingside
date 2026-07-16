@@ -32,18 +32,6 @@ const TOKEN = process.env.WEBHOOK_AUTH_TOKEN || '';
 
 const loadSeen = () => { try { return new Set(JSON.parse(readFileSync(SEEN, 'utf8'))); } catch { return new Set(); } };
 const saveSeen = (s) => writeFileSync(SEEN, JSON.stringify([...s].slice(-2000)));
-const QUESTION_RE = /\?|how|what|which|why|recommend|help|stuck|beginner|improve/i;
-
-// Возвращает null если прошёл, иначе причину отсева (для воронки в логе).
-function rejectReason(item) {
-  const cm = Number(String(item.comments).replace(/\D+/g, '')) || 0;
-  if (cfg.minComments != null && cm < cfg.minComments) return 'comments';
-  if (cfg.maxComments != null && cm > cfg.maxComments) return 'comments';
-  const hay = (item.title || '').toLowerCase();
-  if (cfg.keywordsAny?.length && !cfg.keywordsAny.some((k) => hay.includes(k.toLowerCase()))) return 'keyword';
-  if (cfg.titleMustBeQuestionOrHelp && !QUESTION_RE.test(item.title || '')) return 'not-question';
-  return null;
-}
 
 async function poke(count) {
   const msg = `[CRON reddit] ${count} кандидат(ов) в tools/marketing/sessions/inbox-reddit.json. `
@@ -62,8 +50,9 @@ guardOrExit('reddit');
 const now = Date.now();
 const seen = loadSeen();
 const candidates = [];
-// Воронка отсева (для лога): чтобы «новых нет» было прозрачным.
-const funnel = { read: 0, dedup: 0, keyword: 0, 'not-question': 0, comments: 0, skippedSubs: [] };
+// Единственный отсев — дедуп (уже видели) и заблокированные сабы. Семантику
+// («это запрос инструмента или мем?») решает LLM-агент по criteria.md.
+const funnel = { read: 0, dedup: 0, skippedSubs: [] };
 try {
   await withSession('reddit', async (page) => {
     const sort = cfg.sort || 'new';
@@ -79,11 +68,9 @@ try {
           funnel.read++;
           it.sub = clean;
           if (seen.has(it.url)) { funnel.dedup++; dumpItem('dedup', it); continue; }
-          const rej = rejectReason(it);
-          if (rej) { funnel[rej]++; dumpItem(rej, it); continue; }
           candidates.push({ subreddit: `r/${clean}`, title: it.title, score: it.score, comments: it.comments, url: it.url });
           seen.add(it.url);
-          dumpItem('PASS', it);
+          dumpItem('NEW', it);
         }
       } catch (e) { console.error(`[scan-reddit] r/${clean}: ${e.message}`); }
       await jitter(2000, 5000);
@@ -96,9 +83,9 @@ try {
 }
 saveSeen(seen);
 
-const top = candidates.slice(0, cfg.maxCandidatesPerTick || 8);
+const top = candidates.slice(0, cfg.maxCandidatesPerTick || 40);
 writeFileSync(INBOX, JSON.stringify({ network: 'reddit', ts: now, items: top }, null, 2));
-const funnelStr = `прочитано ${funnel.read} → дубли ${funnel.dedup}, без ключевых слов ${funnel.keyword}, не вопрос ${funnel['not-question']}, комментарии ${funnel.comments}${funnel.skippedSubs.length ? `, сабы-пропуск ${funnel.skippedSubs.join(',')}` : ''} → прошло ${candidates.length}`;
+const funnelStr = `прочитано ${funnel.read} → дубли ${funnel.dedup}${funnel.skippedSubs.length ? `, сабы-пропуск ${funnel.skippedSubs.join(',')}` : ''} → новых ${candidates.length}`;
 const ts = new Date().toISOString();
 if (top.length === 0) {
   console.log(`[scan-reddit] ${ts} — новых нет, агента не бужу. ${funnelStr}`);
