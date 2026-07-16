@@ -10,7 +10,7 @@
  * вне окна крон-тик тихо выходит. Префильтр — prefilter-config.json.
  * Дедуп — seen-reddit.json. Inbox читает агент по пинку.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withSession, LoggedOutError } from './session-lib.mjs';
@@ -18,6 +18,11 @@ import { extractRedditListing, guardOrExit, recordRead, jitter } from './browse-
 import { loadBlockedSubs } from './publish-lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Дамп всех прочитанных с вердиктом — что именно бот видел и почему отсеял.
+const ITEMS_LOG = join(HERE, '..', '..', 'logs', 'scan-reddit-items.log');
+const dumpItem = (verdict, it) => {
+  try { appendFileSync(ITEMS_LOG, `${new Date().toISOString()}\t${verdict}\tr/${it.sub}\t${(it.title || '').slice(0, 120)}\t${it.url}\n`); } catch { /* лог не критичен */ }
+};
 const cfg = JSON.parse(readFileSync(join(HERE, 'prefilter-config.json'), 'utf8')).reddit;
 const SESSIONS = join(HERE, 'sessions');
 const SEEN = join(SESSIONS, 'seen-reddit.json');
@@ -72,11 +77,13 @@ try {
         for (const it of await extractRedditListing(page)) {
           if (!it.url) continue;
           funnel.read++;
-          if (seen.has(it.url)) { funnel.dedup++; continue; }
+          it.sub = clean;
+          if (seen.has(it.url)) { funnel.dedup++; dumpItem('dedup', it); continue; }
           const rej = rejectReason(it);
-          if (rej) { funnel[rej]++; continue; }
+          if (rej) { funnel[rej]++; dumpItem(rej, it); continue; }
           candidates.push({ subreddit: `r/${clean}`, title: it.title, score: it.score, comments: it.comments, url: it.url });
           seen.add(it.url);
+          dumpItem('PASS', it);
         }
       } catch (e) { console.error(`[scan-reddit] r/${clean}: ${e.message}`); }
       await jitter(2000, 5000);

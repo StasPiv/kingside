@@ -4,12 +4,16 @@
  * → пинок агента при непустом результате. См. scan-reddit.mjs.
  * Discord щадящий: реже всех (config channels пуст → скан ничего не делает).
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectMessages } from '../discord-read.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const ITEMS_LOG = join(HERE, '..', '..', 'logs', 'scan-discord-items.log');
+const dumpItem = (verdict, m) => {
+  try { appendFileSync(ITEMS_LOG, `${new Date().toISOString()}\t${verdict}\t${m.channel || '?'}\t${(m.text || '').replace(/\s+/g, ' ').slice(0, 120)}\t${m.url}\n`); } catch { /* лог не критичен */ }
+};
 const cfg = JSON.parse(readFileSync(join(HERE, 'prefilter-config.json'), 'utf8')).discord;
 const SESSIONS = join(HERE, 'sessions');
 const SEEN = join(SESSIONS, 'seen-discord.json');
@@ -56,11 +60,12 @@ async function main() {
     catch (e) { console.error(`[scan-discord] ${ch}: ${e.message}`); continue; }
     for (const m of msgs) {
       funnel.read++;
-      if (seen.has(m.url)) { funnel.dedup++; continue; }
+      if (seen.has(m.url)) { funnel.dedup++; dumpItem('dedup', m); continue; }
       const rej = rejectReason(m, now);
-      if (rej) { funnel[rej]++; continue; }
+      if (rej) { funnel[rej]++; dumpItem(rej, m); continue; }
       candidates.push(m);
       seen.add(m.url);
+      dumpItem('PASS', m);
     }
     await new Promise((r) => setTimeout(r, 1500));
   }

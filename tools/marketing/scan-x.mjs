@@ -4,13 +4,17 @@
  * свежие твиты (не syndication-кэш). extractTweets → префильтр → inbox-x.json
  * → пинок агента при непустом результате. См. scan-reddit.mjs.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withSession, LoggedOutError } from './session-lib.mjs';
 import { extractTweets, guardOrExit, recordRead, jitter } from './browse-lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const ITEMS_LOG = join(HERE, '..', '..', 'logs', 'scan-x-items.log');
+const dumpItem = (verdict, t) => {
+  try { appendFileSync(ITEMS_LOG, `${new Date().toISOString()}\t${verdict}\t@${t.author}\t${(t.text || '').replace(/\s+/g, ' ').slice(0, 120)}\t${t.url}\n`); } catch { /* лог не критичен */ }
+};
 const cfg = JSON.parse(readFileSync(join(HERE, 'prefilter-config.json'), 'utf8')).x;
 const SESSIONS = join(HERE, 'sessions');
 const SEEN = join(SESSIONS, 'seen-x.json');
@@ -59,11 +63,12 @@ try {
         for (const t of await extractTweets(page)) {
           if (!t.url) continue;
           funnel.read++;
-          if (seen.has(t.url)) { funnel.dedup++; continue; }
+          if (seen.has(t.url)) { funnel.dedup++; dumpItem('dedup', t); continue; }
           const rej = rejectReason(t, now);
-          if (rej) { funnel[rej]++; continue; }
+          if (rej) { funnel[rej]++; dumpItem(rej, t); continue; }
           candidates.push({ query: q, author: t.author, text: t.text, date: t.date, url: t.url });
           seen.add(t.url);
+          dumpItem('PASS', t);
         }
       } catch (e) { console.error(`[scan-x] "${q}": ${e.message}`); }
       await jitter(2000, 5000);
