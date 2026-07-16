@@ -106,8 +106,24 @@ async function readTimeline(name) {
   }
 }
 
-const names = process.argv.slice(2);
-if (!names.length) {
+// Структурный сбор таймлайна (для scan-x / префильтра). Кэш как в readTimeline.
+export async function collectTimeline(name) {
+  const clean = name.replace(/^@/, '');
+  try {
+    const { html } = await fetchTimeline(clean);
+    const tweets = parseEntries(html, clean);
+    writeFileSync(cachePath(clean), JSON.stringify({ at: Date.now(), tweets }));
+    return tweets;
+  } catch (e) {
+    try { return JSON.parse(readFileSync(cachePath(clean), 'utf8')).tweets || []; }
+    catch { throw e; }
+  }
+}
+
+import { pathToFileURL } from 'node:url';
+const _direct = import.meta.url === pathToFileURL(process.argv[1] || '').href;
+const names = _direct ? process.argv.slice(2) : [];
+if (_direct && !names.length) {
   console.error('Использование: node tools/x-read.mjs <screen_name> [ещё...]');
   process.exit(2);
 }

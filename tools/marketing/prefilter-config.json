@@ -1,0 +1,30 @@
+{
+  "_comment": "Детерминированный префильтр (0 токенов). Правь на лету — следующий крон-тик работает по-новому. LLM-модерация выживших — отдельно, в criteria.md.",
+  "reddit": {
+    "subreddits": ["r/chess", "r/chessbeginners", "r/chesspuzzles", "r/AnarchyChess"],
+    "sort": "new",
+    "maxAgeHours": 12,
+    "minComments": 0,
+    "maxComments": 40,
+    "keywordsAny": [
+      "beginner", "improve", "opening", "puzzle", "rating", "elo", "tactic",
+      "analy", "blunder", "endgame", "app", "site", "platform", "learn",
+      "recommend", "which", "how do i", "how to", "help", "stuck"
+    ],
+    "titleMustBeQuestionOrHelp": true,
+    "maxCandidatesPerTick": 8
+  },
+  "x": {
+    "accounts": ["chesscom", "lichess", "GMHikaru"],
+    "maxAgeHours": 6,
+    "minLikes": 3,
+    "keywordsAny": ["chess", "puzzle", "opening", "beginner", "improve", "tactic"],
+    "maxCandidatesPerTick": 6
+  },
+  "discord": {
+    "channels": [],
+    "maxAgeHours": 24,
+    "keywordsAny": ["chess", "puzzle", "improve", "beginner", "app", "recommend"],
+    "maxCandidatesPerTick": 6
+  }
+}

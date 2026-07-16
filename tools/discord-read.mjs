@@ -82,16 +82,34 @@ async function read(channelId, limit) {
   }
 }
 
-const [cmd, arg, n] = process.argv.slice(2);
-try {
-  if (cmd === 'me') await me();
-  else if (cmd === 'channels' && arg) await channels(arg);
-  else if (cmd === 'read' && arg) await read(arg, Number(n) || 30);
-  else {
-    console.error('Использование: node tools/discord-read.mjs <me | channels <guild_id> | read <channel_id> [N]>');
-    process.exit(2);
+// Структурный сбор сообщений канала (для scan-discord / префильтра).
+export async function collectMessages(channelId, limit = 50) {
+  const chan = await api(`/channels/${channelId}`);
+  const guildId = chan.guild_id || '@me';
+  const msgs = await api(`/channels/${channelId}/messages?limit=${Math.min(limit, 100)}`);
+  return msgs.map((m) => ({
+    channelId,
+    author: m.author?.username || '',
+    bot: !!m.author?.bot,
+    text: m.content || '',
+    ts: m.timestamp ? Date.parse(m.timestamp) : 0,
+    url: `https://discord.com/channels/${guildId}/${channelId}/${m.id}`,
+  }));
+}
+
+import { pathToFileURL } from 'node:url';
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  const [cmd, arg, n] = process.argv.slice(2);
+  try {
+    if (cmd === 'me') await me();
+    else if (cmd === 'channels' && arg) await channels(arg);
+    else if (cmd === 'read' && arg) await read(arg, Number(n) || 30);
+    else {
+      console.error('Использование: node tools/discord-read.mjs <me | channels <guild_id> | read <channel_id> [N]>');
+      process.exit(2);
+    }
+  } catch (e) {
+    console.error(`[error] ${e.message}`);
+    process.exit(1);
   }
-} catch (e) {
-  console.error(`[error] ${e.message}`);
-  process.exit(1);
 }

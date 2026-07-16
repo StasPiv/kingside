@@ -86,17 +86,35 @@ function score(body) {
   return m ? m[1].trim() : '?';
 }
 
-async function listSubreddit(sub, sort) {
+// Собирает треды сабреддита в структурный массив (для --json / префильтра).
+export async function collectSubreddit(sub, sort) {
   const html = await get(`https://old.reddit.com/${sub}/${sort}/`);
   const rows = things(html).filter((t) => (attr(t.tag, 'class') || t.tag).includes('link'));
-  console.log(`# ${sub} (${sort}) — ${rows.length} тредов\n`);
+  const items = [];
   for (const t of rows) {
     const permalink = attr(t.tag, 'data-permalink');
     if (!permalink) continue;
     const title = /<a class="title[^>]*>([\s\S]*?)<\/a>/.exec(t.body);
-    const comments = attr(t.tag, 'data-comments-count');
-    console.log(`• ${title ? htmlToText(title[1]) : '(без заголовка)'}`);
-    console.log(`  score=${score(t.body)} comments=${comments ?? '?'} https://old.reddit.com${permalink}\n`);
+    const sc = score(t.body);
+    items.push({
+      subreddit: sub,
+      title: title ? htmlToText(title[1]) : '',
+      score: /^-?\d+$/.test(sc) ? Number(sc) : null,
+      comments: Number(attr(t.tag, 'data-comments-count') || 0),
+      author: attr(t.tag, 'data-author') || '',
+      timestamp: Number(attr(t.tag, 'data-timestamp') || 0), // мс epoch
+      url: `https://old.reddit.com${permalink}`,
+    });
+  }
+  return items;
+}
+
+async function listSubreddit(sub, sort) {
+  const items = await collectSubreddit(sub, sort);
+  console.log(`# ${sub} (${sort}) — ${items.length} тредов\n`);
+  for (const t of items) {
+    console.log(`• ${t.title || '(без заголовка)'}`);
+    console.log(`  score=${t.score ?? '?'} comments=${t.comments} ${t.url}\n`);
   }
 }
 
@@ -144,19 +162,23 @@ async function listUserComments(name) {
   if (!rows.length) console.log('(комментариев нет или профиль пуст)');
 }
 
-const arg = process.argv[2];
-const sort = process.argv[3] || 'hot';
-if (!arg) {
-  console.error('Использование: node tools/reddit-read.mjs <r/subreddit [hot|new|top|rising] | user <name> | url-треда>');
-  process.exit(2);
-}
-try {
-  if (arg === 'user' && process.argv[3]) await listUserComments(process.argv[3].replace(/^u\//, ''));
-  else if (/^(https?:\/\/)?(www\.|old\.|new\.)?reddit\.com\/user\//.test(arg)) {
-    await listUserComments(arg.replace(/\/+$/, '').split('/user/')[1].split('/')[0]);
-  } else if (/^r\//.test(arg)) await listSubreddit(arg, sort);
-  else await readThread(arg);
-} catch (e) {
-  console.error(`[error] ${e.message}`);
-  process.exit(1);
+// CLI-блок только при прямом запуске (не при import из scan-скриптов).
+import { pathToFileURL } from 'node:url';
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  const arg = process.argv[2];
+  const sort = process.argv[3] || 'hot';
+  if (!arg) {
+    console.error('Использование: node tools/reddit-read.mjs <r/subreddit [hot|new|top|rising] | user <name> | url-треда>');
+    process.exit(2);
+  }
+  try {
+    if (arg === 'user' && process.argv[3]) await listUserComments(process.argv[3].replace(/^u\//, ''));
+    else if (/^(https?:\/\/)?(www\.|old\.|new\.)?reddit\.com\/user\//.test(arg)) {
+      await listUserComments(arg.replace(/\/+$/, '').split('/user/')[1].split('/')[0]);
+    } else if (/^r\//.test(arg)) await listSubreddit(arg, sort);
+    else await readThread(arg);
+  } catch (e) {
+    console.error(`[error] ${e.message}`);
+    process.exit(1);
+  }
 }
