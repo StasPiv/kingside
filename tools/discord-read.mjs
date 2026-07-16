@@ -82,6 +82,21 @@ async function read(channelId, limit) {
   }
 }
 
+// Список серверов аккаунта (для открывателя источников).
+export async function listGuilds() {
+  const guilds = await api('/users/@me/guilds');
+  return guilds.map((g) => ({ id: g.id, name: g.name }));
+}
+
+// Текстовые каналы сервера (type 0/5), которые аккаунт может читать.
+export async function listTextChannels(guildId) {
+  const chs = await api(`/guilds/${guildId}/channels`);
+  return chs
+    .filter((c) => c.type === 0 || c.type === 5)
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    .map((c) => ({ id: c.id, name: c.name, topic: c.topic || '' }));
+}
+
 // Структурный сбор сообщений канала (для scan-discord / префильтра).
 export async function collectMessages(channelId, limit = 50) {
   const chan = await api(`/channels/${channelId}`);

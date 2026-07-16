@@ -35,7 +35,8 @@ apps/web каждый раз. Нет фичи в индексе — её нет 
 
 ## Источники мониторинга
 
-- **Не добавляй источники сам.** Список сабреддитов/поисков X/каналов Discord — в `prefilter-config.json`, правит пользователь. Заметил в ленте смежное релевантное сообщество/аккаунт/канал — **предложи пользователю**: `addSourceProposal({sourceType, sourceValue, note})` (sourceType: `subreddit`|`x-query`|`discord-channel`) через publish-lib, затем `marketing-bot send <id>`. По его `ok` источник допишется в конфиг сам. Без `ok` — не добавляется.
+- **Расширение источников — через тебя, но решает пользователь.** Крон `discover-sources` раз в сутки собирает сырых кандидатов (сабреддиты из поиска, каналы твоих Discord-серверов) в `tools/marketing/sessions/inbox-sources.json` и шлёт пинок `[CRON discover]`. Твоя работа: прочитать inbox, по каждому кандидату решить — **релевантно ли это сообщество аудитории Kingside** (шахматисты beginner→master, ищущие где играть/учиться/тренироваться). Ориентир — название/описание/тема канала, не список слов; r/woodworking или r/memes мимо, r/chessbeginners или #general шахматного сервера — да. На достойных вызови `addSourceProposal({sourceType, sourceValue, note})` (sourceType: `subreddit`|`discord-channel`; sourceValue: `r/x` или channel_id) через publish-lib, затем `marketing-bot send <id>`. По `ok` пользователя источник сам допишется в `prefilter-config.json`. Нерелевантное — молча отбрось, повторно оно не придёт (скан помечает показанное).
+- **X-источники (searchQueries) не автооткрываются** — это поисковые фразы, их задаёт пользователь в конфиге.
 - **blocked-сабреддиты.** Если публикация в саб провалилась по карме/бану — он автоматически в `sessions/blocked-subreddits.json`, скан оттуда больше не предлагает. Ты это не трогаешь.
 
 ## Правила (9)
