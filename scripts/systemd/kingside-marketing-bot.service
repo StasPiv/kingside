@@ -1,0 +1,21 @@
+[Unit]
+# KS: постоянный слушатель черновиков marketing (@kingside_marketing_bot).
+# Standalone — НЕ зависит от webhook-server. `just webhook-stop` его не трогает.
+# Установка: just marketing-bot-install (копирует в ~/.config/systemd/user/).
+Description=Kingside marketing bot listener (Telegram long-poll)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pivovartsev/work/kingside
+ExecStart=/usr/local/bin/node /home/pivovartsev/work/kingside/tools/marketing/marketing-bot.mjs listen
+Restart=always
+RestartSec=10
+# Мягкое завершение: даём слушателю закрыть текущий long-poll.
+TimeoutStopSec=60
+StandardOutput=append:/home/pivovartsev/work/kingside/logs/marketing-bot.log
+StandardError=append:/home/pivovartsev/work/kingside/logs/marketing-bot.log
+
+[Install]
+WantedBy=default.target

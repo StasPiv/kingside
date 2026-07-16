@@ -220,3 +220,23 @@ webhook-stop:
     pgrep -f "python3 tools/tracker/main.py" | xargs -r kill 2>/dev/null || true
     pkill -f "ssh.*kamatera-chess.*9877" 2>/dev/null || true
     echo "Webhook, трекер, туннель и контейнеры остановлены"
+
+# Marketing bot listener (standalone user-systemd, независим от webhook)
+marketing-bot-install:
+    #!/usr/bin/env bash
+    mkdir -p ~/.config/systemd/user
+    cp scripts/systemd/kingside-marketing-bot.service ~/.config/systemd/user/
+    loginctl enable-linger $USER 2>/dev/null || true
+    systemctl --user daemon-reload
+    systemctl --user enable --now kingside-marketing-bot.service
+    systemctl --user --no-pager status kingside-marketing-bot.service | head -6
+
+marketing-bot-status:
+    systemctl --user --no-pager status kingside-marketing-bot.service | head -12
+
+marketing-bot-restart:
+    systemctl --user restart kingside-marketing-bot.service
+    systemctl --user --no-pager status kingside-marketing-bot.service | head -6
+
+marketing-bot-logs:
+    tail -50 logs/marketing-bot.log
