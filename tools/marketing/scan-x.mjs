@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * KS: крон-скан X. collectTimeline(accounts) → префильтр → inbox-x.json →
- * пинок агента только при непустом результате. См. scan-reddit.mjs.
+ * KS: крон-скан X ПОД СЕССИЕЙ (browse, ADR-161) — Latest-поиск по запросам,
+ * свежие твиты (не syndication-кэш). extractTweets → префильтр → inbox-x.json
+ * → пинок агента при непустом результате. См. scan-reddit.mjs.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectTimeline } from '../x-read.mjs';
+import { withSession, LoggedOutError } from './session-lib.mjs';
+import { extractTweets, guardOrExit, recordRead, jitter } from './browse-lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const cfg = JSON.parse(readFileSync(join(HERE, 'prefilter-config.json'), 'utf8')).x;
@@ -20,10 +22,10 @@ const loadSeen = () => { try { return new Set(JSON.parse(readFileSync(SEEN, 'utf
 const saveSeen = (s) => writeFileSync(SEEN, JSON.stringify([...s].slice(-2000)));
 
 function passes(t, now) {
-  if (t.rt) return false; // ретвиты пропускаем
-  if (cfg.maxAgeHours && t.ts && (now - t.ts) / 3_600_000 > cfg.maxAgeHours) return false;
-  const likes = Number(t.likes) || 0;
-  if (cfg.minLikes != null && likes < cfg.minLikes) return false;
+  if (t.date && t.date !== '?' && cfg.maxAgeHours) {
+    const ts = Date.parse(t.date.replace(' ', 'T') + ':00Z');
+    if (ts && (now - ts) / 3_600_000 > cfg.maxAgeHours) return false;
+  }
   const hay = (t.text || '').toLowerCase();
   if (cfg.keywordsAny?.length && !cfg.keywordsAny.some((k) => hay.includes(k.toLowerCase()))) return false;
   return true;
@@ -40,31 +42,40 @@ async function poke(count) {
   if (!res.ok) throw new Error(`poke failed: ${res.status} ${await res.text()}`);
 }
 
-async function main() {
-  const now = Date.now();
-  const seen = loadSeen();
-  const candidates = [];
-  for (const acc of cfg.accounts) {
-    let tweets;
-    try { tweets = await collectTimeline(acc); }
-    catch (e) { console.error(`[scan-x] @${acc}: ${e.message}`); continue; }
-    for (const t of tweets) {
-      if (seen.has(t.url)) continue;
-      if (!passes(t, now)) continue;
-      candidates.push({ account: acc, text: t.text, likes: t.likes, rts: t.rts, date: t.date, url: t.url });
-      seen.add(t.url);
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  saveSeen(seen);
-  const top = candidates.slice(0, cfg.maxCandidatesPerTick || 6);
-  writeFileSync(INBOX, JSON.stringify({ network: 'x', ts: now, items: top }, null, 2));
-  if (top.length === 0) {
-    console.log(`[scan-x] ${new Date().toISOString()} — новых нет, агента не бужу`);
-    return;
-  }
-  await poke(top.length);
-  console.log(`[scan-x] ${new Date().toISOString()} — ${top.length} кандидат(ов), агент разбужен`);
-}
+guardOrExit('x');
 
-main().catch((e) => { console.error(`[scan-x] fatal: ${e.message}`); process.exit(1); });
+const now = Date.now();
+const seen = loadSeen();
+const candidates = [];
+try {
+  await withSession('x', async (page) => {
+    for (const q of cfg.searchQueries || []) {
+      try {
+        await page.goto(`https://x.com/search?q=${encodeURIComponent(q)}&f=live`,
+          { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await jitter(2500, 5000);
+        for (const t of await extractTweets(page)) {
+          if (!t.url || seen.has(t.url)) continue;
+          if (!passes(t, now)) continue;
+          candidates.push({ query: q, author: t.author, text: t.text, date: t.date, url: t.url });
+          seen.add(t.url);
+        }
+      } catch (e) { console.error(`[scan-x] "${q}": ${e.message}`); }
+      await jitter(2000, 5000);
+    }
+    recordRead('x');
+  });
+} catch (e) {
+  console.error(`[scan-x] ${e instanceof LoggedOutError ? 'РАЗЛОГИН — нужен повторный захват сессии' : e.message}`);
+  process.exit(e instanceof LoggedOutError ? 3 : 1);
+}
+saveSeen(seen);
+
+const top = candidates.slice(0, cfg.maxCandidatesPerTick || 6);
+writeFileSync(INBOX, JSON.stringify({ network: 'x', ts: now, items: top }, null, 2));
+if (top.length === 0) {
+  console.log(`[scan-x] ${new Date().toISOString()} — новых нет, агента не бужу`);
+  process.exit(0);
+}
+await poke(top.length);
+console.log(`[scan-x] ${new Date().toISOString()} — ${top.length} кандидат(ов), агент разбужен`);

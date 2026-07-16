@@ -15,10 +15,14 @@
     "maxCandidatesPerTick": 8
   },
   "x": {
-    "accounts": ["chesscom", "lichess", "GMHikaru"],
-    "maxAgeHours": 6,
-    "minLikes": 3,
-    "keywordsAny": ["chess", "puzzle", "opening", "beginner", "improve", "tactic"],
+    "searchQueries": [
+      "chess app recommendation",
+      "how to improve chess",
+      "best chess site",
+      "learn chess beginner"
+    ],
+    "maxAgeHours": 12,
+    "keywordsAny": ["chess", "puzzle", "opening", "beginner", "improve", "tactic", "app", "site"],
     "maxCandidatesPerTick": 6
   },
   "discord": {
