@@ -97,6 +97,7 @@ if (platform === 'discord') {
 }
 
 try {
+  // waitMs: одобренный ответ не бросаем при коллизии со сканом — ждём до 2 мин освобождения замка
   await withSession(platform, async (page) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await jitter();
@@ -126,7 +127,7 @@ try {
     draft.publishedAt = Date.now();
     saveDrafts(drafts);
     console.log(`Опубликовано: ${url} (${platform}). Записано в published.md, счётчики обновлены.`);
-  });
+  }, { waitMs: 120000 });
 } catch (e) {
   console.error(`[error] ${e.message}`);
   if (e instanceof LoggedOutError) { haltPlatform(platform, 'разлогин'); process.exit(3); }

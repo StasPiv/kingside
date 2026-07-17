@@ -85,17 +85,33 @@ export async function assertLoggedIn(page, platform) {
   return ok;
 }
 
-function acquireLock(platform) {
+// Пытается взять lock один раз. Возвращает release() или null, если занято
+// свежим замком (не протухшим). Протухший от упавшего процесса — снимает.
+function tryAcquireLock(platform) {
   const p = lockPath(platform);
   if (existsSync(p)) {
     const age = Date.now() - statSync(p).mtimeMs;
-    if (age < LOCK_STALE_MS) {
-      throw new Error(`Платформа ${platform} занята (${p}, ${Math.round(age / 60000)} мин). Параллельные сессии из одного state запрещены (ADR-161 §2.2).`);
-    }
+    if (age < LOCK_STALE_MS) return null;
     unlinkSync(p); // протухший lock от упавшего процесса
   }
-  writeFileSync(p, String(process.pid), { flag: 'wx' });
+  try { writeFileSync(p, String(process.pid), { flag: 'wx' }); }
+  catch { return null; } // гонка: другой процесс успел создать между проверкой и записью
   return () => { try { unlinkSync(p); } catch { /* уже снят */ } };
+}
+
+// waitMs>0 — ждать освобождения (для публикации: одобренный ответ терять нельзя).
+// waitMs=0 — как раньше: занято → сразу ошибка (для частых сканов, они пропустят тик).
+async function acquireLock(platform, waitMs = 0) {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const release = tryAcquireLock(platform);
+    if (release) return release;
+    if (Date.now() >= deadline) {
+      const age = Math.round((Date.now() - statSync(lockPath(platform)).mtimeMs) / 60000);
+      throw new Error(`Платформа ${platform} занята (${lockPath(platform)}, ${age} мин). Параллельные сессии из одного state запрещены (ADR-161 §2.2).`);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 }
 
 /** Обратная запись состояния + права 0600. Вызывается после КАЖДОГО использования. */
@@ -114,13 +130,13 @@ export async function saveState(context, platform) {
  *  - ВСЕГДА пишет storageState обратно (даже если fn упал — cookie могли обновиться);
  *  - снимает lock и закрывает браузер.
  */
-export async function withSession(platform, fn, { chromium, headless = true } = {}) {
+export async function withSession(platform, fn, { chromium, headless = true, waitMs = 0 } = {}) {
   if (!chromium) ({ chromium } = await import('playwright'));
   const sp = statePath(platform);
   if (!existsSync(sp)) {
     throw new Error(`Нет ${sp} — сессия не перенесена. Порядок: tools/marketing/sessions/README.md`);
   }
-  const release = acquireLock(platform);
+  const release = await acquireLock(platform, waitMs);
   const browser = await chromium.launch({ headless });
   try {
     const context = await browser.newContext({
