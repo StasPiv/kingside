@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectMessages, whoAmI } from '../discord-read.mjs';
+import { collectMessages, whoAmI, listDMChannels } from '../discord-read.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const cfg = JSON.parse(readFileSync(join(HERE, 'prefilter-config.json'), 'utf8')).discord;
@@ -42,21 +42,19 @@ async function poke(count) {
 }
 
 async function main() {
-  if (!cfg.channels?.length) {
-    console.log('[scan-inbox-discord] channels пуст — скан пропущен');
-    return;
-  }
   let me;
   try { me = await whoAmI(); }
   catch (e) { console.error(`[scan-inbox-discord] whoAmI: ${e.message}`); process.exit(1); }
 
   const seen = loadSeen();
   const items = [];
-  const funnel = { read: 0, dedup: 0, 'not-to-us': 0, own: 0 };
-  for (const ch of cfg.channels) {
+  const funnel = { read: 0, dedup: 0, 'not-to-us': 0, own: 0, dm: 0 };
+
+  // 1) Отслеживаемые каналы: входящее = реплай нам или упоминание нас.
+  for (const ch of (cfg.channels || [])) {
     let msgs;
     try { msgs = await collectMessages(ch, 50); }
-    catch (e) { console.error(`[scan-inbox-discord] ${ch}: ${e.message}`); continue; }
+    catch (e) { console.error(`[scan-inbox-discord] channel ${ch}: ${e.message}`); continue; }
     for (const m of msgs) {
       funnel.read++;
       if (m.authorId === me.id) { funnel.own++; continue; } // наше же сообщение
@@ -69,9 +67,29 @@ async function main() {
     }
     await new Promise((r) => setTimeout(r, 1200));
   }
+
+  // 2) Личка (DM/групповые DM): любое сообщение не от нас — входящее.
+  let dms = [];
+  try { dms = await listDMChannels(); }
+  catch (e) { console.error(`[scan-inbox-discord] DM-список: ${e.message}`); }
+  for (const dm of dms) {
+    let msgs;
+    try { msgs = await collectMessages(dm.id, 30); }
+    catch (e) { console.error(`[scan-inbox-discord] dm ${dm.id}: ${e.message}`); continue; }
+    for (const m of msgs) {
+      funnel.read++;
+      if (m.authorId === me.id) { funnel.own++; continue; }
+      if (seen.has(m.url)) { funnel.dedup++; dumpItem('dedup', m); continue; }
+      funnel.dm++;
+      items.push({ from: m.author, text: m.text, url: m.url, kind: dm.kind });
+      seen.add(m.url);
+      dumpItem(`NEW-${dm.kind}`, m);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
   saveSeen(seen);
   writeFileSync(INBOX, JSON.stringify({ network: 'discord-inbox', ts: Date.now(), items }, null, 2));
-  const funnelStr = `прочитано ${funnel.read} → наши ${funnel.own}, не нам ${funnel['not-to-us']}, дубли ${funnel.dedup} → новых ${items.length}`;
+  const funnelStr = `прочитано ${funnel.read} → наши ${funnel.own}, не нам ${funnel['not-to-us']}, дубли ${funnel.dedup}, из них личка ${funnel.dm} → новых ${items.length}`;
   const ts = new Date().toISOString();
   if (items.length === 0) {
     console.log(`[scan-inbox-discord] ${ts} — новых ответов нет. ${funnelStr}`);

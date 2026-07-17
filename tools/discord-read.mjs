@@ -123,6 +123,19 @@ export async function whoAmI() {
   return { id: u.id, username: u.username };
 }
 
+// Личные диалоги аккаунта (DM=type 1, групповые DM=type 3) — для мониторинга
+// личек. Возвращает [{id, kind, withWhom}].
+export async function listDMChannels() {
+  const chans = await api('/users/@me/channels');
+  return (chans || [])
+    .filter((c) => c.type === 1 || c.type === 3)
+    .map((c) => ({
+      id: c.id,
+      kind: c.type === 3 ? 'group-dm' : 'dm',
+      withWhom: (c.recipients || []).map((r) => r.username).join(', ') || '?',
+    }));
+}
+
 import { pathToFileURL } from 'node:url';
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   const [cmd, arg, n] = process.argv.slice(2);
