@@ -98,6 +98,8 @@ export async function listTextChannels(guildId) {
 }
 
 // Структурный сбор сообщений канала (для scan-discord / префильтра).
+// Включает адресата ответа (refAuthorId) и упоминания (mentions) — для
+// детекта реплаев на наши сообщения в scan-inbox-discord.
 export async function collectMessages(channelId, limit = 50) {
   const chan = await api(`/channels/${channelId}`);
   const guildId = chan.guild_id || '@me';
@@ -105,11 +107,20 @@ export async function collectMessages(channelId, limit = 50) {
   return msgs.map((m) => ({
     channelId,
     author: m.author?.username || '',
+    authorId: m.author?.id || '',
     bot: !!m.author?.bot,
     text: m.content || '',
     ts: m.timestamp ? Date.parse(m.timestamp) : 0,
+    refAuthorId: m.referenced_message?.author?.id || '',
+    mentions: (m.mentions || []).map((u) => u.id),
     url: `https://discord.com/channels/${guildId}/${channelId}/${m.id}`,
   }));
+}
+
+// Кто мы (id/username аккаунта токена) — для детекта ответов нам.
+export async function whoAmI() {
+  const u = await api('/users/@me');
+  return { id: u.id, username: u.username };
 }
 
 import { pathToFileURL } from 'node:url';
