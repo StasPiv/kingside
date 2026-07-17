@@ -49,17 +49,25 @@ const now = Date.now();
 const seen = loadSeen();
 const items = [];
 const funnel = { read: 0, dedup: 0 };
+// inbox — ответы на комментарии/посты и упоминания; messages — личка (ЛС).
+const SOURCES = [
+  ['https://old.reddit.com/message/inbox/', 'reply'],
+  ['https://old.reddit.com/message/messages/', 'pm'],
+];
 try {
   await withSession('reddit', async (page) => {
-    await page.goto('https://old.reddit.com/message/inbox/', { waitUntil: 'domcontentloaded', timeout: 45000 });
-    for (const it of await extractRedditInbox(page)) {
-      if (!it.link) continue;
-      funnel.read++;
-      const k = keyOf(it);
-      if (seen.has(k)) { funnel.dedup++; dumpItem('dedup', it); continue; }
-      items.push({ from: it.from, subject: it.subject, body: it.body, link: it.link, isNew: it.isNew });
-      seen.add(k);
-      dumpItem('NEW', it);
+    for (const [url, kind] of SOURCES) {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      for (const it of await extractRedditInbox(page)) {
+        funnel.read++;
+        // У ЛС пермалинк может отсутствовать — ключ дедупа берём с фолбэком на тело.
+        const k = it.link ? keyOf(it) : `pm|${it.from}|${(it.body || '').slice(0, 80)}`;
+        if (seen.has(k)) { funnel.dedup++; dumpItem('dedup', it); continue; }
+        items.push({ from: it.from, subject: it.subject, body: it.body, link: it.link, isNew: it.isNew, kind });
+        seen.add(k);
+        dumpItem(kind === 'pm' ? 'NEW-pm' : 'NEW', it);
+      }
+      await jitter(1500, 3500);
     }
     recordRead('reddit-inbox');
   });
