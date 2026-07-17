@@ -78,7 +78,9 @@ const requireChat = (state) => {
   return state.chatId;
 };
 
-const send = (chatId, text) => api('sendMessage', { chat_id: chatId, text, disable_web_page_preview: false });
+const send = (chatId, text, extra = {}) => api('sendMessage', { chat_id: chatId, text, disable_web_page_preview: false, ...extra });
+// Экранирование под parse_mode HTML (Telegram): только & < >
+const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // --- Команды ---
 
@@ -106,7 +108,9 @@ if (cmd === 'start') {
   const chatId = requireChat(state);
   const draft = loadDrafts()[rest[0]];
   if (!draft) { console.error(`черновик «${rest[0]}» не найден`); process.exit(2); }
-  await send(chatId, `ЧЕРНОВИК ${rest[0]} [${draft.platform}]${draft.note ? ` — ${draft.note}` : ''}\n${draft.url}\nОтветь: ok · skip · свой текст.`);
+  // id в <code> — тап по нему копирует id в буфер (tap-to-copy в Telegram).
+  const header = `ЧЕРНОВИК <code>${escHtml(rest[0])}</code> [${escHtml(draft.platform)}]${draft.note ? ` — ${escHtml(draft.note)}` : ''}\n${escHtml(draft.url)}\nОтветь: ok · skip · свой текст.`;
+  await send(chatId, header, { parse_mode: 'HTML' });
   await send(chatId, draft.text);
   console.log(`черновик ${rest[0]} отправлен в чат ${chatId}`);
 } else if (cmd === 'notify') {
