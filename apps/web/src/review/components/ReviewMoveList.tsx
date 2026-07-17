@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { ChessMove } from '../types';
 import { nagToSymbol } from '../utils/nagUtils';
@@ -189,8 +190,15 @@ export function ReviewMoveList({
   });
   const [commentEditIndex, setCommentEditIndex] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
+  // KS-4974: SAN редактируемого хода для заголовка мобильного оверлея.
+  const [commentMoveLabel, setCommentMoveLabel] = useState('');
   const commentTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [expandedComments, setExpandedComments] = useState<Set<number>>(new Set());
+  // KS-4974: высота экранной клавиатуры (visualViewport). На мобильном
+  // редактор комментария рендерится как fixed-оверлей над клавиатурой —
+  // инлайн-поле в height-locked панели «Ходов» уезжает под клавиатуру и
+  // ничем не доскроллить. Отслеживаем инсет, пока открыт редактор.
+  const [keyboardInset, setKeyboardInset] = useState(0);
 
   useEffect(() => {
     const container = movesContainerRef.current;
@@ -211,6 +219,29 @@ export function ReviewMoveList({
       commentTextareaRef.current.focus();
     }
   }, [commentEditIndex]);
+
+  // KS-4974: пока редактор комментария открыт на мобильном — держим
+  // fixed-оверлей над клавиатурой, отслеживая visualViewport. Инсет =
+  // сколько снизу «съедено» клавиатурой относительно layout-вьюпорта.
+  useEffect(() => {
+    if (!isMobile || commentEditIndex === null) {
+      setKeyboardInset(0);
+      return;
+    }
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    if (!vv) return;
+    const update = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardInset(inset);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, [isMobile, commentEditIndex]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, visible: false, move: null }));
@@ -436,12 +467,18 @@ export function ReviewMoveList({
   const openCommentEditor = (move: ChessMove) => {
     setCommentEditIndex(move.globalIndex);
     setCommentText(move.comment ?? '');
+    setCommentMoveLabel(move.san ?? '');
     closeContextMenu();
   };
 
   const saveComment = () => {
     if (commentEditIndex === null || !onSetComment) return;
     onSetComment(commentEditIndex, commentText);
+    setCommentEditIndex(null);
+    setCommentText('');
+  };
+
+  const cancelComment = () => {
     setCommentEditIndex(null);
     setCommentText('');
   };
@@ -537,7 +574,10 @@ export function ReviewMoveList({
 
   /** Render comment block after a move */
   const renderComment = (move: ChessMove) => {
-    if (commentEditIndex === move.globalIndex) {
+    // KS-4974: на мобильном инлайн-редактор не рендерим — вместо него
+    // fixed-оверлей над клавиатурой (см. renderMobileCommentEditor).
+    // Показываем текущий текст комментария (read-only ветка ниже).
+    if (commentEditIndex === move.globalIndex && !isMobile) {
       return (
         <span
           key={`comment-edit-${move.globalIndex}`}
@@ -821,6 +861,68 @@ export function ReviewMoveList({
           </div>
         );
       })()}
+
+      {/* KS-4974: мобильный редактор комментария — fixed-оверлей,
+          прижатый к низу видимой области над экранной клавиатурой
+          (bottom = высота клавиатуры из visualViewport). Поле и каретка
+          всегда видны, шрифт 16px (без zoom-on-focus в iOS Safari). */}
+      {isMobile &&
+        commentEditIndex !== null &&
+        onSetComment &&
+        createPortal(
+          <div
+            className="review-comment-editor-mobile"
+            style={{ bottom: keyboardInset }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="review-comment-editor-mobile__header">
+              <span className="review-comment-editor-mobile__title">
+                {commentMoveLabel
+                  ? t('review.commentForMove', 'Комментарий · {{move}}', {
+                      move: commentMoveLabel,
+                    })
+                  : t('review.comment', 'Комментарий')}
+              </span>
+              <button
+                type="button"
+                className="review-comment-editor-mobile__close"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={cancelComment}
+                aria-label={t('common.cancel', 'Отмена')}
+              >
+                ✕
+              </button>
+            </div>
+            <textarea
+              ref={commentTextareaRef}
+              className="review-comment-textarea review-comment-textarea--mobile"
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={handleCommentKeyDown}
+              rows={3}
+              placeholder={t('review.commentPlaceholder', 'Комментарий к ходу…')}
+            />
+            <div className="review-comment-editor-mobile__actions">
+              <button
+                type="button"
+                className="review-comment-editor-mobile__btn review-comment-editor-mobile__btn--delete"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={deleteComment}
+              >
+                {t('review.deleteComment', 'Удалить')}
+              </button>
+              <button
+                type="button"
+                className="review-comment-editor-mobile__btn review-comment-editor-mobile__btn--save"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={saveComment}
+              >
+                {t('common.save', 'Сохранить')}
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -577,6 +577,87 @@
   background: var(--ov-danger-15);
 }
 
+/* KS-4974: мобильный редактор комментария — fixed-оверлей над клавиатурой.
+   Инлайн-поле в height-locked панели «Ходов» уезжает под экранную
+   клавиатуру; здесь поле прижато к низу видимой области (bottom задаётся
+   inline из visualViewport) и всегда видно. */
+.review-comment-editor-mobile {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* bottom задаётся inline-стилем (высота клавиатуры). */
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: var(--c-1a1a2e, #1a1a2e);
+  border-top: 1px solid var(--c-334155, #334155);
+  box-shadow: 0 -8px 32px var(--ov-black-40, rgba(0, 0, 0, 0.35));
+}
+
+.review-comment-editor-mobile__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.review-comment-editor-mobile__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-e0e0e0, #e0e0e0);
+}
+
+.review-comment-editor-mobile__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--c-a0a0c0, #a0a0c0);
+  min-width: 40px;
+  min-height: 40px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 16px — критично: iOS Safari зумит вьюпорт при фокусе в поле < 16px,
+   из-за чего «фокус уезжает вверх» и текст искажается. */
+.review-comment-textarea--mobile {
+  width: 100%;
+  min-height: 72px;
+  font-size: 16px;
+  resize: none;
+}
+
+.review-comment-editor-mobile__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.review-comment-editor-mobile__btn {
+  min-height: 44px;
+  padding: 0 18px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.review-comment-editor-mobile__btn--save {
+  background: var(--c-4a6fa5, #4a6fa5);
+  color: #fff;
+  border: 1px solid var(--c-4a6fa5, #4a6fa5);
+}
+
+.review-comment-editor-mobile__btn--delete {
+  background: transparent;
+  color: var(--c-f44336, #f44336);
+  border: 1px solid var(--c-555, #555);
+}
+
 /* GameEditorPanel styles */
 .review-editor-panel {
   position: absolute;
