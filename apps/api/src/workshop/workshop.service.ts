@@ -22,6 +22,10 @@ export class WorkshopService {
   async importPgn(
     userId: string,
     file: Express.Multer.File,
+    // ADR-166: провенанс импорта. Ручная загрузка — 'manual' (default);
+    // import-external — external_lichess/external_chesscom; крон
+    // трекинга — auto_lichess/auto_chesscom.
+    origin: string = 'manual',
   ) {
     if (!file) {
       throw new BadRequestException('PGN file is required');
@@ -102,6 +106,7 @@ export class WorkshopService {
       data: {
         userId,
         fileName,
+        origin,
         games: {
           create: games.map((g, i) => ({
             pgn: g.pgn,

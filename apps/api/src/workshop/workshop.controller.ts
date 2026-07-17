@@ -130,6 +130,9 @@ export class WorkshopController {
       originalname: `${fileName}.pgn`,
     } as Express.Multer.File;
 
-    return this.workshopService.importPgn(req.user.id, fakeFile);
+    // ADR-166: провенанс внешнего импорта — external_<provider>.
+    const origin =
+      platform === 'chesscom' ? 'external_chesscom' : 'external_lichess';
+    return this.workshopService.importPgn(req.user.id, fakeFile, origin);
   }
 }

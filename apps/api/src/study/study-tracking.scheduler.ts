@@ -184,10 +184,15 @@ export class StudyTrackingScheduler {
       pgn = activity.dayPgn ?? '';
     }
     if (!pgn.trim()) return;
-    const result = await this.workshop.importPgn(userId, {
-      buffer: Buffer.from(pgn, 'utf8'),
-      originalname: `study-auto (${job.provider}).pgn`,
-    } as Express.Multer.File);
+    const result = await this.workshop.importPgn(
+      userId,
+      {
+        buffer: Buffer.from(pgn, 'utf8'),
+        originalname: `study-auto (${job.provider}).pgn`,
+      } as Express.Multer.File,
+      // ADR-166: провенанс автоимпорта — auto_<provider>.
+      job.provider === 'lichess' ? 'auto_lichess' : 'auto_chesscom',
+    );
     this.logger.log(
       `study-auto import ${job.provider}/${job.username}: +${
         (result as { added?: number }).added ?? (result as { gamesCount?: number }).gamesCount ?? 0

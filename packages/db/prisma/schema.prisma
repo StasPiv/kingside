@@ -971,6 +971,10 @@ model PgnImport {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
   fileName  String   @map("file_name")
+  // ADR-166: провенанс импорта. manual | external_lichess |
+  // external_chesscom | auto_lichess | auto_chesscom. Источник истины
+  // для фильтра материала game-шага (только online-origin + свои партии).
+  origin    String   @default("manual")
   createdAt DateTime @default(now()) @map("created_at")
 
   user  User            @relation(fields: [userId], references: [id])
@@ -3185,4 +3189,39 @@ model ExternalActivitySnapshot {
 
   @@unique([userId, provider, date])
   @@map("external_activity_snapshots")
+}
+
+/// KS-4941 / ADR-164 rev3 §2.3. Серверный преразбор позиции: очередь
+/// и готовые тексты «разбора с вариантами». Разбор делает модель
+/// webhook (агент с инструментами Maia/Stockfish в своём окружении),
+/// сервер хранит результат и раздаёт его всем через
+/// GET /analyses/position/review. Одна запись = одна (позиция, язык).
+/// `probeTrace` — лог прогонов из ответа модели (аудит правила
+/// «ни одного хода в тексте без прогона») + флаги легальности линий.
+model AiPositionReview {
+  id               String    @id @default(uuid()) @db.Uuid
+  /// Поля 1-4 FEN (расстановка, ход, рокировки, en passant).
+  fenNormalized    String    @map("fen_normalized")
+  /// Полный FEN, как пришёл из источника (для запуска движков).
+  fen              String
+  language         String
+  /// daily_puzzle | manual
+  source           String
+  /// queued | processing | done | failed
+  status           String    @default("queued")
+  comment          String?   @db.Text
+  /// { highlights: [...], arrows: [...] } — шейп ADR-108.
+  highlightsArrows Json?     @map("highlights_arrows")
+  /// Лог прогонов модели + серверные пометки легальности линий.
+  probeTrace       Json?     @map("probe_trace")
+  webhookCalls     Int       @default(0) @map("webhook_calls")
+  /// Причина failed (диагностика).
+  error            String?
+  publishedAt      DateTime? @map("published_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([fenNormalized, language])
+  @@index([status, createdAt])
+  @@map("ai_position_reviews")
 }
