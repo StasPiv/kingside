@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js';
 import type { ChessMove, NodeAnnotations } from '../types';
-import { linkAllMovesRecursively } from './ChessHistoryUtils';
+import { linkAllMovesRecursively, startPlyFromFen } from './ChessHistoryUtils';
 import { parseCommentMacros } from './commentMacros';
 
 // Symbolic NAG annotations that can appear directly after a move in PGN
@@ -320,15 +320,9 @@ export function parseAnnotatedPgn(pgn: string): ChessMove[] {
   }
 
   const chess = startFen ? new Chess(startFen) : new Chess();
-  // Compute starting ply from FEN (fullmove number * 2 - (white=1, black=0))
-  const startPly = startFen
-    ? (() => {
-        const parts = startFen.split(' ');
-        const fullmove = parseInt(parts[5] || '1', 10);
-        const isBlack = parts[1] === 'b';
-        return (fullmove - 1) * 2 + (isBlack ? 2 : 1);
-      })()
-    : 1;
+  // KS-4983: startPly из fullmove-счётчика FEN — общий хелпер (та же
+  // формула теперь и в useReviewState для пути «вставка FEN»).
+  const startPly = startFen ? startPlyFromFen(startFen) : 1;
   const history = parseMoves(chess, startPly);
   linkAllMovesRecursively(history);
   return history;

@@ -8,6 +8,7 @@ import {
   linkAllMovesRecursively,
   safeClone,
   searchInHistory,
+  startPlyFromFen,
 } from './utils/ChessHistoryUtils';
 import { promoteVariationLink } from './utils/PromoteVariationLink';
 import { deleteVariation as deleteVariationUtil } from './utils/DeleteVariation';
@@ -570,11 +571,16 @@ export function useReviewState() {
         // Прежняя формула `(currentMove?.ply ?? 0) + 1` давала на root
         // всегда ply=1, и formatMoveDisplay рисовал «1.e5» вместо
         // «25...e5» для партии из произвольного branching-point.
+        // KS-4983: на root с ПУСТОЙ историей (свежая позиция из вставленного
+        // FEN) стартовый ply берём из fullmove-счётчика initialFen, а не 1 —
+        // иначе первый ход из «… w … 15» нумеровался как «1.», делая нотацию
+        // разбора бессмысленной. Для непустой истории — как раньше (ply
+        // первого хода основной линии).
         const ply = state.currentMove
           ? state.currentMove.ply + 1
           : state.history.length > 0
             ? state.history[0].ply
-            : 1;
+            : startPlyFromFen(state.initialFen);
         const globalIndex = state.nextGlobalIndex;
         const newMove: ChessMove = {
           san: move.san,

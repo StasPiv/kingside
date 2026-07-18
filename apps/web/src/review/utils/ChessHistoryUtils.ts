@@ -3,6 +3,27 @@
  */
 
 /**
+ * KS-4983: абсолютный `ply` ПЕРВОГО хода из позиции, заданной FEN, с
+ * учётом счётчика полного хода (fullmove) и стороны к ходу.
+ *
+ * Нумерация нотации у нас 1-based по ply: `moveNumber = ceil(ply/2)`,
+ * белый ход — нечётный ply (см. formatMoveDisplay / ChessMoveProcessing).
+ * Для позиции `… w … N`  первый ход белых → ply = 2N-1  (отобразится «N.»).
+ * Для позиции `… b … N`  первый ход чёрных → ply = 2N    (отобразится «N…»).
+ *
+ * Та же формула, что в PgnDeserializer для PGN с `[FEN]` — вынесена сюда,
+ * чтобы путь «вставка FEN в новый анализ» (SET_INITIAL_FEN + makeVariantMove)
+ * нумеровал ходы так же, а не с 1. Невалидный/отсутствующий fullmove → 1.
+ */
+export function startPlyFromFen(fen: string | null | undefined): number {
+  const parts = (fen ?? '').split(' ');
+  const isBlack = parts[1] === 'b';
+  const parsed = parseInt(parts[5] ?? '1', 10);
+  const fullmove = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  return (fullmove - 1) * 2 + (isBlack ? 2 : 1);
+}
+
+/**
  * Безопасное клонирование объекта с циклическими ссылками
  */
 export function safeClone(obj: any, visited = new WeakMap()): any {

@@ -603,3 +603,39 @@ describe('useReviewState — KS-4961 Отменить/Вернуть (Undo/Redo)
     expect(result.current.canUndo).toBe(false);
   });
 });
+
+describe('useReviewState — KS-4983: нумерация ходов от fullmove вставленного FEN', () => {
+  it('первый ход белых из FEN «… w … 15» получает ply 29 (отобразится «15.»)', () => {
+    const { result } = renderHook(() => useReviewState());
+    act(() => {
+      result.current.setInitialFen(
+        'r3k2r/1p2bppp/p1n1b3/8/5B2/1N6/PPPRB1PP/2K4R w kq - 0 15',
+      );
+    });
+    act(() => {
+      result.current.makeVariantMove('f4', 'e3'); // Be3
+    });
+    expect(result.current.history[0]?.ply).toBe(29);
+  });
+
+  it('первый ход чёрных из FEN «… b … 15» получает ply 30 (отобразится «15…»)', () => {
+    const { result } = renderHook(() => useReviewState());
+    act(() => {
+      result.current.setInitialFen(
+        'r3k2r/1p2bppp/p1n1b3/8/8/1N2B3/PPPRB1PP/2K4R b kq - 1 15',
+      );
+    });
+    act(() => {
+      result.current.makeVariantMove('e8', 'g8'); // O-O
+    });
+    expect(result.current.history[0]?.ply).toBe(30);
+  });
+
+  it('дефолтная стартовая позиция — первый ход ply 1 (регрессия не затронута)', () => {
+    const { result } = renderHook(() => useReviewState());
+    act(() => {
+      result.current.makeVariantMove('e2', 'e4');
+    });
+    expect(result.current.history[0]?.ply).toBe(1);
+  });
+});
