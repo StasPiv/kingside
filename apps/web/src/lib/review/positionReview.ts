@@ -625,29 +625,22 @@ export async function buildReviewPlan(
     const oppPolicy = await engines.getMaiaPolicy(childFen, elo);
     const oppMoves = selectOpponentMoves(oppPolicy, thresholds);
 
-    // ADR-165 §4 theory: позиция near-equal И «у соперника нет расходящихся
-    // альтернатив выше порога» — т.е. ровно ОДИН разумный ответ (forced).
+    // KS-4979 (ADR-165, вариант «а», согласовано с пользователем): при
+    // ЕДИНСТВЕННОМ выбранном ответе соперника разбор больше НЕ обрывается
+    // «теорией» после первого хода. Раньше условие `nearEqual &&
+    // oppMoves.length === 1` давало выход theory → на near-equal позиции с
+    // одним доминирующим ответом Maia (замерено в KS-4978: O-O 76.8%, где
+    // второй кандидат Bxb3 9.6% отсекался порогом pFloor=0.10) разбор строил
+    // мусор «Готово: 1 вариант, глубина 0» + ложную метку «дебют пройден».
     //
-    // KS-4975 (репро в positionReview.repro.test.ts): раньше условие было
-    //   `oppMoves.length <= 1 || bothDeveloped(childFen) || depth >= horizon`.
-    //   1) `<= 1` трактовал ПУСТОЙ список кандидатов (0) как «forced/понятно»,
-    //      хотя 0 кандидатов = деградация Maia (на проде policy приходила
-    //      пустой). Итог — мусор «Готово: 1 вариант, глубина 0» + ложная метка
-    //      «[%exit theory] дебют пройден» после одного хода SF.
-    //   2) `bothDeveloped`/`openingHorizonPly` — эвристики «дебют пройден по
-    //      контексту», не входящие в определение theory ADR §4. При запуске
-    //      разбора из ПРОИЗВОЛЬНОЙ (миттельшпильной) позиции они срабатывают
-    //      сразу → та же ложная метка вне реального дебюта.
-    // Теперь: theory только при РОВНО одном кандидате соперника. При 0
-    // кандидатов (Maia пусто) НЕ выходим — ход уходит сопернику, где
-    // processOpp даёт SF-fallback и строит осмысленную линию (движок
-    // задействован, результат не пустой).
-    const nearEqual = isNearEqual(ourExp, thresholds.nearEqualBand);
-    const opponentForced = oppMoves.length === 1;
-    if (nearEqual && opponentForced) {
-      await emitExitLeaf('theory', childFen);
-      return;
-    }
+    // Теперь единственный ответ просто ДОИГРЫВАЕТСЯ как обычная линия (уходит
+    // в очередь сопернику ниже). Точка выхода линии — только существующие
+    // штатные выходы: depth (dTarget), rare (pathProb<pathProbMin), refuted
+    // (решающий перевес), transposition, budget (maxNodes). Одиночный ответ =
+    // ветвление 1, поэтому дерево не разрастается; жёсткий потолок — budget
+    // (maxNodes). Пустая политика Maia (0 кандидатов) — так же не theory: ход
+    // уходит сопернику, processOpp даёт SF-fallback (см. ниже). Выход theory
+    // по этому триггеру больше не ставится.
 
     // depth: наш ход № ≥ D_target (полные ходы) → конец репертуара.
     const ourMoveNumber = Math.floor(task.depth / 2) + 1;

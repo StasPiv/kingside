@@ -84,18 +84,30 @@ describe('KS-4975 — разбор при пустой Maia не выдаёт л
     expect(total).toBeGreaterThanOrEqual(1);
   });
 
-  it('одиночный форсированный ответ Maia → theory (ADR §4, поведение сохранено)', async () => {
-    // Maia отдаёт РОВНО один ход соперника (forced) → near-equal → theory.
+  it('KS-4979: одиночный ответ Maia НЕ обрывает разбор theory, ход доигрывается', async () => {
+    // Замерено в KS-4978: на near-equal позиции с одним доминирующим ответом
+    // Maia (второй кандидат отсекается порогом pFloor) разбор ставил ложную
+    // theory на 1-м ходу. Вариант «а» (KS-4979): одиночный ответ доигрывается.
     const ROOT = 'root w - - 0 1';
-    const AFTER = 'after b - - 0 1';
+    const AFTER = 'after b - - 0 1'; // после нашего хода, ход соперника
+    const REPLY = 'reply w - - 0 2'; // после единственного ответа соперника
     const engines: PositionReviewEngines = {
+      // Один доминирующий ответ соперника (после нашего хода).
       getMaiaPolicy: async (fen): Promise<Record<string, number>> =>
         fen === AFTER ? { m1m1: 0.95 } : {},
-      analyze: async (fen) => nearEqual(fen === ROOT ? 'r1r1' : 's1s1'),
-      applyMove: (fen) => (fen === ROOT ? AFTER : null),
+      analyze: async (fen) =>
+        nearEqual(fen === ROOT ? 'r1r1' : fen === AFTER ? 's1s1' : null),
+      applyMove: (fen, uci) =>
+        fen === ROOT ? AFTER : fen === AFTER && uci === 'm1m1' ? REPLY : null,
       toSan: (_f, u) => u,
     };
     const plan = await buildReviewPlan(ROOT, engines);
-    expect(plan.stats.leaves.theory).toBe(1);
+    // theory по одиночному ответу больше не ставится.
+    expect(plan.stats.leaves.theory).toBe(0);
+    const moves = plan.ops
+      .filter((o) => o.type === 'move')
+      .map((o) => (o as { uci: string }).uci);
+    expect(moves).toContain('r1r1'); // наш ход построен
+    expect(moves).toContain('m1m1'); // единственный ответ соперника доигран
   });
 });

@@ -237,17 +237,29 @@ describe('buildReviewPlan — инвариант очередности и то�
     expect(ann.comment).toContain('[%exit refuted]');
   });
 
-  it('theory: near-equal + один ход соперника (forced) → [%exit theory]', async () => {
+  it('KS-4979: near-equal + единственный ответ соперника → НЕ theory, ответ доигрывается', async () => {
+    // Вариант «а» (ADR-165, KS-4979): одиночный ответ соперника больше НЕ
+    // обрывает разбор «теорией» — ход доигрывается, линия идёт до штатного
+    // выхода (здесь terminal, дальше нет переходов).
     const CH = 'ch b - - 0 1';
+    const R1 = 'r1 w - - 0 2';
     const engines = makeEngines({
-      policy: { [CH]: { m1: 0.95 } }, // один человеческий ход
-      evals: { [ROOT]: nearEqualEval('a'), [CH]: nearEqualEval('cx') },
-      transitions: { [ROOT]: { a: CH } },
+      policy: { [CH]: { m1: 0.95 } }, // один человеческий ход (forced)
+      evals: {
+        [ROOT]: nearEqualEval('a'),
+        [CH]: nearEqualEval('cx'),
+        [R1]: nearEqualEval('z'),
+      },
+      transitions: { [ROOT]: { a: CH }, [CH]: { m1: R1 } }, // z без перехода → terminal
     });
     const plan = await buildReviewPlan(ROOT, engines);
-    expect(plan.stats.leaves.theory).toBe(1);
-    const ann = plan.ops.find((o) => o.type === 'annotate') as any;
-    expect(ann.comment).toContain('[%exit theory]');
+    // theory по одиночному ответу больше не ставится.
+    expect(plan.stats.leaves.theory).toBe(0);
+    const moves = plan.ops
+      .filter((o) => o.type === 'move')
+      .map((o) => (o as { uci: string }).uci);
+    expect(moves).toContain('a'); // наш ход построен (разбор не «обрывается на 0»)
+    expect(moves).toContain('m1'); // единственный ответ соперника доигран
   });
 
   it('transposition: повтор нормализованного FEN → [%exit transposition]', async () => {
