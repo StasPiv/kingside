@@ -176,6 +176,40 @@ describe('<DrillRunner> KS-2249', () => {
     );
   });
 
+  it('KS-4977: при переходе к следующему drill восстанавливает позицию скролла', async () => {
+    const loadDrill = vi.fn(async () => NUMBER_DRILL);
+    const submitAnswer = vi.fn(async () => ({
+      attemptId: 'a1',
+      solved: true,
+      correctAnswer: { shape: 'number', value: 2 },
+    }));
+    const scrollToSpy = vi.fn();
+    // happy-dom: подменяем scrollTo/scrollY, чтобы проверить восстановление.
+    window.scrollTo = scrollToSpy as unknown as typeof window.scrollTo;
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <DrillRunner
+        loadDrill={loadDrill}
+        submitAnswer={submitAnswer}
+        count={2}
+        minSolved={2}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+        'idle',
+      ),
+    );
+    // Пользователь доскроллил до доски (низ страницы).
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 500 });
+    scrollToSpy.mockClear();
+    // Правильный ответ → авто-переход к drill 2 → на idle скролл вернётся к 500,
+    // а не «прыгнет» к 0 из-за схлопывания доски во время loading.
+    await user.click(screen.getByTestId('drill-count-attackers-btn-2'));
+    await waitFor(() => expect(scrollToSpy).toHaveBeenCalledWith(0, 500));
+  });
+
   it('после правильного submit → state=feedback с зелёной подсветкой + counter 1/1', async () => {
     disableReducedMotion();
     const loadDrill = vi.fn(async () => NUMBER_DRILL);

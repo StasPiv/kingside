@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -335,7 +336,18 @@ export function DrillRunner({
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
+  // KS-4977: позиция скролла перед загрузкой следующего drill'а. Во время
+  // `state='loading'` доска снимается с DOM (см. render loading), страница
+  // резко укорачивается и браузер прижимает скролл к верху — в занятии
+  // пользователь каждый раз оказывался над доской и скроллил заново.
+  // Сохраняем позицию при уходе в loading и восстанавливаем, когда новый
+  // drill отрисован (useLayoutEffect ниже — до paint, без «прыжка»).
+  const scrollYBeforeLoadRef = useRef<number | null>(null);
+
   const fetchNext = useCallback(async () => {
+    if (typeof window !== 'undefined') {
+      scrollYBeforeLoadRef.current = window.scrollY;
+    }
     setState('loading');
     setError(null);
     setFeedback(null);
@@ -398,6 +410,18 @@ export function DrillRunner({
     }, 250);
     return () => clearInterval(id);
   }, [state]);
+
+  // KS-4977: восстанавливаем позицию скролла после загрузки нового drill'а.
+  // Срабатывает, когда доска снова в DOM (state вышел из 'loading' в 'idle'/
+  // 'feedback'). useLayoutEffect — до paint, чтобы не было видимого прыжка.
+  useLayoutEffect(() => {
+    if (state === 'loading') return;
+    if (scrollYBeforeLoadRef.current == null) return;
+    if (typeof window === 'undefined') return;
+    const y = scrollYBeforeLoadRef.current;
+    scrollYBeforeLoadRef.current = null;
+    window.scrollTo(0, y);
+  }, [state, drill]);
 
   const finishIfDone = useCallback(
     (nextAttempted: number, nextSolved: number) => {

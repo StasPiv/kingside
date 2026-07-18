@@ -8382,3 +8382,66 @@
   }
 }
 
+/* KS-4977: на НИЗКИХ десктоп-вьюпортах (высота ≲ 840px) на drill-шаге
+   занятия шапка (крошки + заголовок «Занятие: …» + sticky-прогресс) сама
+   по себе выше, чем помещается доска тренажёра + кнопки ответа. Layout уже
+   упёр высоту доски в floor (KS-4976); дальше нужна структурная разгрузка
+   ХРОМА над доской. Скрываем крошки/заголовок, сжимаем отступы — освобождаем
+   ≈100px, доска влезает без скролла. Только desktop (ширина ≥768, чтобы не
+   пересекаться с mobile focus-mode) и только при нехватке высоты. Прогресс
+   «Шаг N/M» остаётся видимым. Действует и на пользовательских занятиях
+   (`.user-lesson-page`, UserLessonView), и на системных (`.lesson-page`,
+   LessonPage); drill-подобные типы шага: drill / endgame_drill /
+   opening_drill (все с доской-тренажёром). */
+@media (min-width: 768px) and (max-height: 840px) {
+  /* --- Пользовательские занятия (UserLessonView) --- */
+  .user-lesson-page[data-current-step-type='drill']
+    .user-lesson-page__breadcrumbs,
+  .user-lesson-page[data-current-step-type='drill']
+    .user-lesson-page__header,
+  .user-lesson-page[data-current-step-type='endgame_drill']
+    .user-lesson-page__breadcrumbs,
+  .user-lesson-page[data-current-step-type='endgame_drill']
+    .user-lesson-page__header,
+  .user-lesson-page[data-current-step-type='opening_drill']
+    .user-lesson-page__breadcrumbs,
+  .user-lesson-page[data-current-step-type='opening_drill']
+    .user-lesson-page__header {
+    display: none;
+  }
+  .user-lesson-page[data-current-step-type='drill'],
+  .user-lesson-page[data-current-step-type='endgame_drill'],
+  .user-lesson-page[data-current-step-type='opening_drill'] {
+    padding-top: 8px;
+    gap: 8px;
+  }
+  .user-lesson-page[data-current-step-type='drill'] .lesson-progress-sticky,
+  .user-lesson-page[data-current-step-type='endgame_drill']
+    .lesson-progress-sticky,
+  .user-lesson-page[data-current-step-type='opening_drill']
+    .lesson-progress-sticky {
+    margin-bottom: 4px;
+  }
+  .user-lesson-page[data-current-step-type='drill'] .lesson-step__header,
+  .user-lesson-page[data-current-step-type='endgame_drill']
+    .lesson-step__header,
+  .user-lesson-page[data-current-step-type='opening_drill']
+    .lesson-step__header {
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+  }
+
+  /* --- Системные занятия (LessonPage) --- */
+  .lesson-page[data-current-step-type='drill'] .lesson-header,
+  .lesson-page[data-current-step-type='endgame_drill'] .lesson-header,
+  .lesson-page[data-current-step-type='opening_drill'] .lesson-header {
+    display: none;
+  }
+  .lesson-page[data-current-step-type='drill'] .lesson-progress-sticky,
+  .lesson-page[data-current-step-type='endgame_drill'] .lesson-progress-sticky,
+  .lesson-page[data-current-step-type='opening_drill'] .lesson-progress-sticky {
+    margin-top: 4px;
+    margin-bottom: 4px;
+  }
+}
+

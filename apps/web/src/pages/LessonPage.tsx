@@ -538,6 +538,9 @@ export function LessonPage() {
       className="lesson-page"
       data-testid="lesson-page"
       data-mode={isReviewMode ? 'review' : 'normal'}
+      // KS-4977: тип текущего шага — хук для CSS. На drill-шагах при нехватке
+      // высоты десктоп-вьюпорта разгружаем шапку над доской (см. lessons.css).
+      data-current-step-type={sortedSteps[currentStepIndex]?.type ?? ''}
     >
       <header className="lesson-header">
         {course && (

@@ -208,6 +208,9 @@ export function UserLessonView({
       className={`user-lesson-page${focusModeActive ? ' user-lesson-page--focus' : ''}`}
       data-testid="user-lesson-page"
       data-focus-mode={focusModeActive ? 'true' : 'false'}
+      // KS-4977: тип текущего шага — хук для CSS. На DRILL-шаге при нехватке
+      // высоты десктоп-вьюпорта разгружаем шапку над доской (см. lessons.css).
+      data-current-step-type={currentStepType ?? ''}
     >
       <nav className="user-lesson-page__breadcrumbs">
         <Link to="/lessons">{t('lessons.title')}</Link>
