@@ -625,12 +625,26 @@ export async function buildReviewPlan(
     const oppPolicy = await engines.getMaiaPolicy(childFen, elo);
     const oppMoves = selectOpponentMoves(oppPolicy, thresholds);
 
+    // ADR-165 §4 theory: позиция near-equal И «у соперника нет расходящихся
+    // альтернатив выше порога» — т.е. ровно ОДИН разумный ответ (forced).
+    //
+    // KS-4975 (репро в positionReview.repro.test.ts): раньше условие было
+    //   `oppMoves.length <= 1 || bothDeveloped(childFen) || depth >= horizon`.
+    //   1) `<= 1` трактовал ПУСТОЙ список кандидатов (0) как «forced/понятно»,
+    //      хотя 0 кандидатов = деградация Maia (на проде policy приходила
+    //      пустой). Итог — мусор «Готово: 1 вариант, глубина 0» + ложная метка
+    //      «[%exit theory] дебют пройден» после одного хода SF.
+    //   2) `bothDeveloped`/`openingHorizonPly` — эвристики «дебют пройден по
+    //      контексту», не входящие в определение theory ADR §4. При запуске
+    //      разбора из ПРОИЗВОЛЬНОЙ (миттельшпильной) позиции они срабатывают
+    //      сразу → та же ложная метка вне реального дебюта.
+    // Теперь: theory только при РОВНО одном кандидате соперника. При 0
+    // кандидатов (Maia пусто) НЕ выходим — ход уходит сопернику, где
+    // processOpp даёт SF-fallback и строит осмысленную линию (движок
+    // задействован, результат не пустой).
     const nearEqual = isNearEqual(ourExp, thresholds.nearEqualBand);
-    const horizon =
-      oppMoves.length <= 1 ||
-      bothDeveloped(childFen) ||
-      task.depth + 1 >= thresholds.openingHorizonPly;
-    if (nearEqual && horizon) {
+    const opponentForced = oppMoves.length === 1;
+    if (nearEqual && opponentForced) {
       await emitExitLeaf('theory', childFen);
       return;
     }
