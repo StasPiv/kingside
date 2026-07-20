@@ -292,6 +292,13 @@ const BlindBoardLandingPage = lazy(() =>
     default: m.BlindBoardLandingPage,
   })),
 );
+// KS-4984 (ADR-167 §7): Vision-тренажёр «зрения доски». Маршрут
+// `/vision`, открыт гостю (результат гостя не сохраняется).
+const VisionTrainerPage = lazy(() =>
+  import('./pages/VisionTrainerPage').then((m) => ({
+    default: m.VisionTrainerPage,
+  })),
+);
 // ADR-067: модуль Studies удалён (KS-3130). Lazy-импорты StudiesPage /
 // StudyPage / UserStudiesPage / StudyInviteAcceptPage и сопутствующие
 // маршруты `/studies/*` вырезаны вместе со страницами и компонентами.
@@ -991,6 +998,16 @@ export function App() {
           element={
             <Suspense fallback={<LazyFallback />}>
               <BlindBoardLandingPage />
+            </Suspense>
+          }
+        />
+        {/* KS-4984 / ADR-167 §7: Vision-тренажёр, открыт гостю (PF).
+            Backend OptionalJwtGuard: результат гостя не сохраняется. */}
+        <Route
+          path="/vision"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <VisionTrainerPage />
             </Suspense>
           }
         />
