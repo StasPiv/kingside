@@ -143,8 +143,6 @@ model User {
   // KS-2373: статистика посещений разделов для динамического
   // MobileBottomBar (top-3 разделы → нижняя панель, остальные в «Ещё»).
   navStats               UserNavStat[]
-  // KS-4982 / ADR-167: итоги Sprint-сессий Vision-тренажёра (зрение доски).
-  visionScores           VisionScore[]
   // KS-3208 / ADR-074 §10 B4: audit-журнал AI-генераций курсов.
   aiLessonGenerations    AiLessonGeneration[]
   // KS-3270 / ADR-077: репертуары и сессии Opening Trainer'а.
@@ -1836,40 +1834,6 @@ model TacticDrillSprintScore {
   @@index([mode, score])
   @@index([userId, createdAt])
   @@map("tactic_drill_sprint_scores")
-}
-
-/**
- * KS-4982 / ADR-167 §5.1: итог одной Sprint-сессии Vision-тренажёра
- * (зрение доски). Генерация и подсчёт — на клиенте; сервер хранит только
- * агрегат сессии и отдаёт лидерборд/статистику/историю. Пер-вопросных
- * записей нет. Гость не сохраняется (userId всегда задан для сохранённых;
- * поле nullable по ADR §5.1). Лидерборд «тренировочного» класса —
- * анти-чит осознанно отложен (ADR §5.2).
- */
-model VisionScore {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId        String?  @map("user_id") @db.Uuid
-  /// 'color' | 'find' | 'name' | 'relation' | 'geometry' | 'mixed'
-  mode          String
-  /// '30s' | '60s' | '120s'
-  timeMode      String   @map("time_mode")
-  /// Уровень сложности 1..N.
-  difficulty    Int
-  /// Верных ответов.
-  score         Int
-  /// Всего вопросов.
-  total         Int
-  /// `score / total`, [0..1], округлено на backend'е.
-  accuracy      Float
-  maxStreak     Int      @map("max_streak")
-  avgResponseMs Int      @map("avg_response_ms")
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([mode, timeMode, score])
-  @@index([userId, createdAt])
-  @@map("vision_scores")
 }
 
 /**
