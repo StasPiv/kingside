@@ -116,3 +116,79 @@ export interface VisionResult {
   maxStreak: number;
   avgResponseMs: number;
 }
+
+/** Все режимы (whitelist для валидации DTO). */
+export const VISION_MODES: readonly VisionMode[] = [
+  'color',
+  'find',
+  'name',
+  'relation',
+  'geometry',
+  'mixed',
+];
+
+/** Все длительности Sprint (whitelist). */
+export const VISION_TIME_MODES: readonly VisionTimeMode[] = [
+  '30s',
+  '60s',
+  '120s',
+];
+
+// --- Контракты API /vision/* (ADR-167 §5) ----------------------------------
+
+/** Ответ `POST /vision/results`. Гость → `saved:false, scoreId:null`. */
+export interface VisionSubmitResultResponse {
+  saved: boolean;
+  scoreId: string | null;
+}
+
+/** Запись лидерборда (лучший результат пользователя для mode+timeMode). */
+export interface VisionLeaderboardEntry {
+  userId: string;
+  username: string;
+  mode: VisionMode;
+  timeMode: VisionTimeMode;
+  score: number;
+  accuracy: number;
+  createdAt: string;
+}
+
+/** Ответ `GET /vision/leaderboard`. */
+export interface VisionLeaderboardResponse {
+  mode: VisionMode;
+  timeMode: VisionTimeMode;
+  entries: VisionLeaderboardEntry[];
+}
+
+/** Ответ `GET /vision/stats/me`. */
+export interface VisionStatsResponse {
+  totalSessions: number;
+  bestScore: number;
+  /** Средняя точность по всем сессиям, 0..1. */
+  avgAccuracy: number;
+  bestMaxStreak: number;
+  /** Среднее время ответа (мс) по всем сессиям. */
+  avgResponseMs: number;
+  byMode: Array<{ mode: VisionMode; sessions: number; bestScore: number }>;
+}
+
+/** Элемент истории `GET /vision/history`. */
+export interface VisionHistoryItem {
+  id: string;
+  mode: VisionMode;
+  timeMode: VisionTimeMode;
+  difficulty: number;
+  score: number;
+  total: number;
+  accuracy: number;
+  maxStreak: number;
+  avgResponseMs: number;
+  createdAt: string;
+}
+
+/** Ответ `GET /vision/history` (курсорная пагинация). */
+export interface VisionHistoryResponse {
+  items: VisionHistoryItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
