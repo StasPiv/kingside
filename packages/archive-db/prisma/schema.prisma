@@ -153,6 +153,46 @@ model ArchiveGamePosition {
   @@map("archive_game_positions")
 }
 
+// ─── ADR-169 §2.2 (KS-4993): векторный индекс похожести позиций ──────
+//
+// Второй индекс над корпусом позиций (первый — точный по FEN, см.
+// `archive_game_positions`). Хранит эмбеддинг позиции из глубокого слоя
+// трансформерной сети Lc0 (ADR-168 §9: t1-256x10, encoder-слой, усреднение
+// по клеткам → vector(256)). Метрика — косинус.
+//
+// Корпус — отдельный набор сильных партий (ADR-169 §2.1), НЕ прод-таблицы
+// архива: ссылка на партию/источник хранится «мягко» (`source`/`game_ref`),
+// без FK на `archive_games`.
+//
+// ВАЖНО (ADR-168 §5 / ADR-169 §2.5): вектор считается ТОЛЬКО в нормализации
+// перспективы «к ходу» + HistoryFill=fen_only, идентично при построении и
+// при запросе. `position_key` — хеш нормализованного FEN (сверка/дедуп).
+//
+// Тип `vector(256)` и HNSW-индекс по косинусу (`vector_cosine_ops`) —
+// pgvector не выражается декларативно в Prisma, поэтому создаются raw-SQL
+// в миграции. Здесь тип объявлен через `Unsupported`, чтобы клиент
+// генерировался и схема совпадала с БД.
+model PositionEmbedding {
+  id          String                    @id @default(uuid()) @db.Uuid
+  /// хеш нормализованного FEN «к ходу» (перспектива + fen_only), для сверки/дедупа
+  positionKey Bytes                     @map("position_key")
+  /// полный FEN — для «проверки глазами» соседей
+  fen         String
+  /// метка корпуса/источника (например, "master")
+  source      String                    @default("master")
+  /// мягкая ссылка на партию (id/URL/offset в PGN), без FK на прод-архив
+  gameRef     String?                   @map("game_ref")
+  ply         Int?                      @db.SmallInt
+  sideToMove  String                    @map("side_to_move") @db.Char(1)
+  /// эмбеддинг позиции, d_model=256; косинусная метрика
+  embedding   Unsupported("vector(256)")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+
+  @@index([positionKey])
+  @@index([source])
+  @@map("position_embedding")
+}
+
 // ─── Players & Events (KS-2064 / ADR-033 §4.4.1) ─────────────────────
 //
 // Нормализованные таблицы под FTS поиск имён и турниров. Заполняются
