@@ -208,3 +208,40 @@ ARCHIVE_DATABASE_URL=... python3 query_similar.py            # проверка 
 ```
 Границы: наполнение только на dev. Маршрут `/positions/similar` и кодировщик
 запроса как сервис — отдельной задачей (ADR-169 §2.3/§2.4).
+
+---
+
+# KS-4995 — тестовый маршрут /positions/similar + сервис-кодировщик (ADR-169 §2.3/§2.4)
+
+Внутренняя «проверка глазами»: по FEN → топ-5 ближайших позиций из
+`position_embedding`. Без публичного UI.
+
+## Архитектура (ADR §2.3: onnxruntime НЕ в основном API)
+Два лёгких процесса в зоне PoC (основной NestJS API не трогается):
+- `encoder_service.py` (:8181) — `GET /encode?fen=…` → `{dim, vector}`.
+  Держит onnxruntime + сеть t1-256x10, слой `/encoder9/ln2`, усреднение по
+  клеткам. Кодирует через общий `lc0poc.encode` — тот же путь, что построение
+  индекса (**инвариант §2.5**: перспектива «к ходу» + `HistoryFill=fen_only`).
+- `similar_service.py` (:8182) — `GET /positions/similar?fen=…&k=5`. Тонкий:
+  берёт вектор запроса у кодировщика по HTTP, ищет топ-k по косинусу (`<=>`,
+  HNSW, `SET hnsw.ef_search=100`) в `position_embedding`, возвращает JSON
+  `{fen, game_ref, ply, side_to_move, cos_dist}`.
+
+Продуктивизация (реальный маршрут рядом с `by-position` + сайдкар-кодировщик) —
+отдельным решением при переходе от «глаз» к функции (ADR §2.3, вне scope).
+
+## Запуск
+```
+PYTHONPATH=/tmp/ks4989-libs:/tmp/ks4989-proto python3 encoder_service.py 8181 &
+ARCHIVE_DATABASE_URL=postgresql://kingside:kingside@localhost:5432/kingside_archive \
+  PYTHONPATH=/tmp/ks4989-libs python3 similar_service.py 8182 &
+curl 'http://127.0.0.1:8182/positions/similar?fen=<URL-encoded FEN>&k=5'
+```
+
+## Примеры (совпадают с прямой проверкой query_similar.py → §2.5 соблюдён)
+Запрос `8/5pk1/6p1/7p/7P/6P1/5PK1/8 w - - 0 40` (пешечный эндшпиль) → соседи:
+d=0.068 `8/6p1/5k1p/8/5K2/7P/6P1/8` (Ding–Carlsen), d=0.091 … — все пешечные/
+королевские окончания.
+Запрос `r1bq1rk1/pp2bppp/2n1pn2/2pp4/2PP4/1PN1PN2/P2B1PPP/R2QKB1R w KQ - 0 8`
+(закрытый центр d4-c4/d5-c5) → d=0.014 … родственные закрытые дебютные структуры.
+Соседи с обеими очередями хода — перспектива нормализована.
