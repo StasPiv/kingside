@@ -1,6 +1,10 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # KS-4992 (ADR-169 §4): pgvector-образ вместо ванильного postgres:16-alpine —
+    # даёт бинарь расширения `vector` для векторного поиска похожих позиций.
+    # Тег pg16 = PostgreSQL 16 + pgvector (debian bookworm), данные PG16-совместимы.
+    # `CREATE EXTENSION vector` включается в scripts/postgres-init/03-create-extensions.sh.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     mem_limit: 256m
     ports:
