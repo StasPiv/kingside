@@ -1,5 +1,8 @@
-"""KS-5003: проверка «глазами» — топ-5 ближайших по multilayer-вектору (embedding_ml)
-рядом с базой (embedding = слой-9 gap). Те же контрольные FEN, что query_similar.py.
+"""KS-5003/5004: проверка «глазами» — топ-5 ближайших для трёх векторов:
+  raw  = embedding_ml_raw (среднее 10 gap-слоёв БЕЗ нормировки, KS-5004),
+  norm = embedding_ml     (то же с L2-нормировкой каждого слоя, KS-5003),
+  gap  = embedding        (слой-9 gap, база).
+Те же контрольные FEN, что query_similar.py.
 
 Запрос кодируется тем же путём (перспектива к ходу + fen_only, §2.5): вектор строится
 идентично build_multilayer.py (среднее 10 L2-нормированных gap слоёв).
@@ -20,10 +23,10 @@ sess = O.make_session("/tmp/t1-256x10.onnx", LAYERS)
 
 def norm(X): return X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-9)
 
-def ml_query(fen):
+def ml_query(fen, raw_mode=False):
     raw = O.run(sess, [chess.Board(fen)], LAYERS)
     gaps = [raw[l].mean(axis=1).astype(np.float32) for l in LAYERS]   # 10 × [1,256]
-    v = np.mean([norm(g) for g in gaps], axis=0)[0]
+    v = (np.mean(gaps, axis=0) if raw_mode else np.mean([norm(g) for g in gaps], axis=0))[0]
     return "[" + ",".join(f"{x:.6f}" for x in v) + "]"
 
 def base_query(fen):
@@ -42,7 +45,9 @@ queries = sys.argv[1:] or [
 ]
 for fen in queries:
     print(f"\nЗАПРОС: {fen}")
-    for tag, col, q in (("ml ", "embedding_ml", ml_query(fen)), ("gap", "embedding", base_query(fen))):
+    for tag, col, q in (("raw ", "embedding_ml_raw", ml_query(fen, raw_mode=True)),
+                        ("norm", "embedding_ml", ml_query(fen)),
+                        ("gap ", "embedding", base_query(fen))):
         rows = con.run(f"SELECT fen, game_ref, round((({col}) <=> :q)::numeric,4) d "
                        f"FROM position_embedding WHERE source='master' AND {col} IS NOT NULL "
                        f"ORDER BY {col} <=> :q LIMIT 5", q=q)
