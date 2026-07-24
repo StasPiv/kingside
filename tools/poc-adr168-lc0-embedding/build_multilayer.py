@@ -9,10 +9,21 @@
 Флаг --raw: усреднять БЕЗ нормировки слоёв — пишет в СВОЮ колонку embedding_ml_raw
 (embedding_ml=ml_norm не затирается). Без флага → embedding_ml (ml_norm).
 После заполнения строит hnsw cosine индекс на целевой колонке.
+Флаг --no-index: только заливка, БЕЗ построения индекса (прод: hnsw отдельно после проверки RAM).
 
-Запуск:
+Параметризация под ВНЕШНЮЮ целевую БД (прод, KS-5006) — через env:
+  TARGET_DATABASE_URL  — прод-БД (иначе ARCHIVE_DATABASE_URL → localhost dev)
+  EMB_TABLE            — таблица (по умолчанию position_embedding)
+  EMB_COL              — целевая колонка (прод: embedding_ml_norm)
+  EMB_WHERE            — фильтр строк (по умолчанию source='master'; пусто = все строки)
+  ORT_THREADS          — потоки onnxruntime (по умолчанию 16)
+
+Запуск (локально dev):
   PYTHONPATH=/tmp/ks4989-libs:/tmp/ks4989:/tmp/ks4989-proto \
-      python3 build_multilayer.py [N=200000] [--raw]
+      python3 build_multilayer.py [N=200000] [--raw] [--no-index]
+Запуск (прод-заготовка, ТОЛЬКО по согласованию):
+  TARGET_DATABASE_URL=... EMB_TABLE=... EMB_COL=embedding_ml_norm EMB_WHERE= \
+      python3 build_multilayer.py 40000000 --no-index
 """
 import sys, os, re, time
 import numpy as np
@@ -35,11 +46,16 @@ def make_session_fast(onnx_path, extra_outputs):
     so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     return ort.InferenceSession(tmp, so, providers=["CPUExecutionProvider"])
 RAW = "--raw" in sys.argv
+NO_INDEX = "--no-index" in sys.argv      # прод: заливка без индекса, hnsw строить отдельно после проверки RAM
 argN = [a for a in sys.argv[1:] if not a.startswith("--")]
 N = int(argN[0]) if argN else 200000
-DB = os.environ.get("ARCHIVE_DATABASE_URL", "postgresql://kingside:kingside@localhost:5432/kingside_archive")
-COL = "embedding_ml_raw" if RAW else "embedding_ml"   # raw → своя колонка, ml_norm не затирается
-IDX = f"position_embedding_{COL}_cosine_idx"
+# Целевая БД/таблица/колонка/фильтр — через env (для внешней прод-БД). По умолчанию — локальный dev.
+DB = os.environ.get("TARGET_DATABASE_URL") or os.environ.get(
+    "ARCHIVE_DATABASE_URL", "postgresql://kingside:kingside@localhost:5432/kingside_archive")
+TABLE = os.environ.get("EMB_TABLE", "position_embedding")
+COL = os.environ.get("EMB_COL") or ("embedding_ml_raw" if RAW else "embedding_ml")
+WHERE_SRC = os.environ.get("EMB_WHERE", "source='master'")   # прод: переопределить/снять фильтр
+IDX = f"{TABLE}_{COL}_cosine_idx"
 
 def norm(X): return X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-9)
 
@@ -51,12 +67,12 @@ def ml_vec(raw):
 
 m = re.match(r"postgresql://([^:]+):([^@]+)@([^:/]+):(\d+)/(.+)", DB); u, pw, h, port, db = m.groups()
 con = pg.Connection(user=u, password=pw, host=h, port=int(port), database=db)
-con.run(f"ALTER TABLE position_embedding ADD COLUMN IF NOT EXISTS {COL} vector(256)")
+con.run(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS {COL} vector(256)")
+_where = (WHERE_SRC + " AND ") if WHERE_SRC else ""
 # докачка: только строки без вектора в целевой колонке (идемпотентно, можно продолжать)
-rows = con.run(f"SELECT id, fen FROM position_embedding WHERE source='master' AND {COL} IS NULL "
-               "ORDER BY id LIMIT :n", n=N)
+rows = con.run(f"SELECT id, fen FROM {TABLE} WHERE {_where}{COL} IS NULL ORDER BY id LIMIT :n", n=N)
 ids = [str(r[0]) for r in rows]; fens = [r[1] for r in rows]; N = len(fens)
-print(f"to fill: {N} positions  col={COL}  mode={'raw' if RAW else 'l2norm'}  threads={THREADS}", flush=True)
+print(f"to fill: {N} rows  db={h}/{db}  table={TABLE}  col={COL}  mode={'raw' if RAW else 'l2norm'}  threads={THREADS}", flush=True)
 
 sess = make_session_fast("/tmp/t1-256x10.onnx", LAYERS)
 def vstr(v): return "[" + ",".join(f"{x:.6f}" for x in v) + "]"
@@ -70,13 +86,17 @@ for i in range(0, N, BS):
     params = {}
     for j, (pid, v) in enumerate(zip(chunk_ids, V)):
         params[f"i{j}"] = pid; params[f"v{j}"] = vstr(v)
-    con.run(f"UPDATE position_embedding p SET {COL} = d.v FROM (VALUES {ph}) AS d(id,v) WHERE p.id = d.id", **params)
+    con.run(f"UPDATE {TABLE} p SET {COL} = d.v FROM (VALUES {ph}) AS d(id,v) WHERE p.id = d.id", **params)
     if (i // BS) % 20 == 0:
         print(f"  {i+len(boards)}/{N}  {time.time()-t0:.0f}s", flush=True)
 
+if NO_INDEX:
+    n = con.run(f"SELECT count(*) FROM {TABLE} WHERE {COL} IS NOT NULL")[0][0]
+    print(f"DONE fill (--no-index). {COL} filled: {n}  {time.time()-t0:.0f}s. hnsw строить отдельно после проверки RAM.", flush=True)
+    con.close(); sys.exit(0)
 print(f"building hnsw cosine index on {COL} ...", flush=True)
 con.run(f"DROP INDEX IF EXISTS {IDX}")
-con.run(f"CREATE INDEX {IDX} ON position_embedding USING hnsw ({COL} vector_cosine_ops)")
-n = con.run(f"SELECT count(*) FROM position_embedding WHERE {COL} IS NOT NULL")[0][0]
+con.run(f"CREATE INDEX {IDX} ON {TABLE} USING hnsw ({COL} vector_cosine_ops)")
+n = con.run(f"SELECT count(*) FROM {TABLE} WHERE {COL} IS NOT NULL")[0][0]
 print(f"DONE. {COL} filled: {n}  {time.time()-t0:.0f}s", flush=True)
 con.close()
