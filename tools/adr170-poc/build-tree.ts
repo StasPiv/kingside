@@ -1,0 +1,510 @@
+/**
+ * ADR-170 PoC (KS-5009) — конвейер дерева веток.
+ *
+ * Разовый скрипт (НЕ сервис). От тестовой позиции строит дерево ~20-40
+ * веток: Maia policy (человеческие ходы выше порога вероятностной массы,
+ * широко у корня) + Stockfish (сильнейшие ходы, если Maia не дала),
+ * малая глубина. На каждую ветку сохраняет запись по схеме §4 ADR-170:
+ *   root_fen, moves_uci, eval (Stockfish), outcome_prob (WDL),
+ *   subterms (63+ подкомпоненты форк-trace, eval json, NNUE выкл),
+ *   depth, stop_reason.
+ * БЕЗ описаний и эмбеддингов — это следующая задача (фаза наполнения C).
+ *
+ * Инструменты:
+ *   - Maia:  @kingside/maia-core + tools/maia3/maia3_simplified.onnx
+ *   - Оценка/WDL/сильнейшие ходы: системный Stockfish 18 (/usr/games/stockfish)
+ *   - trace 63 subterms: форк tools/stockfish-trace/src/stockfish (NNUE off)
+ *
+ * Запуск:  npx tsx tools/adr170-poc/build-tree.ts
+ * Выход:   tools/adr170-poc/tree.json
+ */
+import { spawn } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
+import { Chess } from 'chess.js';
+import {
+  Maia,
+  createNodeProvider,
+  loadModelFromFs,
+  type PredictResult,
+} from '@kingside/maia-core';
+
+// ---------------------------------------------------------------------------
+// Конфигурация (пороги — эмпирические, §8 ADR-170).
+// ---------------------------------------------------------------------------
+const ROOT_FEN =
+  'rn1qkbnr/pp3ppp/2p1p3/3pPb2/3P4/5N2/PPP1BPPP/RNBQK2R b KQkq - 1 5';
+
+const SF_BIN = '/usr/games/stockfish';
+const TRACE_BIN =
+  '/project/tools/stockfish-trace/src/stockfish';
+const MAIA_MODEL = '/project/tools/maia3/maia3_simplified.onnx';
+const MAIA_ELO = 1500; // «разумный» человеческий уровень для разброса планов
+const OUT_PATH = '/project/tools/adr170-poc/tree.json';
+
+const SF_DEPTH = 14; // малая глубина оценки
+const SF_MULTIPV = 4;
+const MAX_PLIES = 4; // глубина дерева (b, w, b, w)
+const MAX_BRANCHES = 40;
+
+// Ширина по полуходам: у корня широко, вглубь узко.
+type WidthRule = {
+  maiaMassCap: number; // берём ходы Maia, пока накопленная масса < cap
+  maiaProbMin: number; // и вероятность хода >= min
+  maiaMax: number; // не более N ходов Maia
+  sfTop: number; // + сильнейшие ходы Stockfish (union)
+};
+const WIDTH: WidthRule[] = [
+  { maiaMassCap: 0.82, maiaProbMin: 0.06, maiaMax: 6, sfTop: 3 }, // ply 0 (root)
+  { maiaMassCap: 0.7, maiaProbMin: 0.2, maiaMax: 2, sfTop: 1 }, // ply 1
+  { maiaMassCap: 0.7, maiaProbMin: 0.2, maiaMax: 2, sfTop: 1 }, // ply 2
+  { maiaMassCap: 0.6, maiaProbMin: 0.3, maiaMax: 1, sfTop: 1 }, // ply 3
+];
+
+// ---------------------------------------------------------------------------
+// Stockfish 18: сильнейшие ходы + оценка (cp) + WDL для позиции.
+// ---------------------------------------------------------------------------
+interface SfMove {
+  uci: string;
+  cp: number | null; // от лица side-to-move
+  mate: number | null;
+  wdl: [number, number, number] | null; // W D L, per mille, side-to-move
+}
+interface SfResult {
+  moves: SfMove[]; // отсортированы multipv 1..N (сильнейшие первыми)
+  nodeCp: number | null;
+  nodeMate: number | null;
+  nodeWdl: [number, number, number] | null;
+}
+
+function runUci(
+  bin: string,
+  args: string[],
+  setup: string[],
+  go: string,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(bin, args);
+    let out = '';
+    let done = false;
+    p.stdout.on('data', (d) => {
+      out += d.toString();
+      if (!done && /^bestmove/m.test(out)) {
+        done = true;
+        p.stdin.write('quit\n');
+      }
+    });
+    p.on('error', reject);
+    p.on('close', () => resolve(out));
+    for (const s of setup) p.stdin.write(s + '\n');
+    p.stdin.write('isready\n');
+    p.stdin.write(go + '\n');
+  });
+}
+
+async function runSf(fen: string): Promise<SfResult> {
+  const out = await runUci(
+    SF_BIN,
+    [],
+    [
+      'uci',
+      'setoption name UCI_ShowWDL value true',
+      `setoption name MultiPV value ${SF_MULTIPV}`,
+      `position fen ${fen}`,
+    ],
+    `go depth ${SF_DEPTH}`,
+  );
+  // Берём последнюю (максимальную) глубину.
+  const lines = out.split('\n').filter((l) => l.includes('multipv'));
+  let maxDepth = -1;
+  for (const l of lines) {
+    const m = /info depth (\d+)/.exec(l);
+    if (m) maxDepth = Math.max(maxDepth, parseInt(m[1], 10));
+  }
+  const byPv = new Map<number, SfMove>();
+  for (const l of lines) {
+    const dm = /info depth (\d+)/.exec(l);
+    if (!dm || parseInt(dm[1], 10) !== maxDepth) continue;
+    const pv = /multipv (\d+)/.exec(l);
+    const pvMove = / pv ([a-h][0-9][a-h][0-9][qrbn]?)/.exec(l);
+    if (!pv || !pvMove) continue;
+    const cpM = /score cp (-?\d+)/.exec(l);
+    const mateM = /score mate (-?\d+)/.exec(l);
+    const wdlM = /wdl (\d+) (\d+) (\d+)/.exec(l);
+    byPv.set(parseInt(pv[1], 10), {
+      uci: pvMove[1],
+      cp: cpM ? parseInt(cpM[1], 10) : null,
+      mate: mateM ? parseInt(mateM[1], 10) : null,
+      wdl: wdlM
+        ? [parseInt(wdlM[1], 10), parseInt(wdlM[2], 10), parseInt(wdlM[3], 10)]
+        : null,
+    });
+  }
+  const moves = [...byPv.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, v]) => v);
+  const top = moves[0];
+  return {
+    moves,
+    nodeCp: top?.cp ?? null,
+    nodeMate: top?.mate ?? null,
+    nodeWdl: top?.wdl ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Форк trace: 63+ подкомпоненты (eval json, NNUE off).
+// ---------------------------------------------------------------------------
+interface TraceEntry {
+  id: string;
+  color: 'w' | 'b';
+  square: string;
+  value_mg: number;
+  value_eg: number;
+}
+interface TraceResult {
+  total: { mg: number; eg: number; v: number };
+  raw: TraceEntry[];
+  // Агрегат по id, нетто с точки зрения белых (white - black), в pawn-units.
+  byId: Record<string, { mg: number; eg: number }>;
+}
+
+// Каноничный список id (порядок = subterm_id_names[] в форке).
+const SUBTERM_IDS = [
+  'pawn_doubled_early','pawn_connected','pawn_doubled','pawn_isolated','pawn_backward','pawn_lever_double','pawn_blocked',
+  'king_shelter_strength','king_blocked_storm','king_unblocked_storm','king_on_file',
+  'rook_on_king_ring','bishop_on_king_ring','knight_uncontested_outpost','outpost_knight','outpost_bishop','knight_reachable_outpost','minor_behind_pawn','knight_king_protector_distance','bishop_king_protector_distance','bishop_pawns','bishop_xray_pawns','bishop_long_diagonal','bishop_cornered','rook_on_open_file','rook_on_closed_file','rook_trapped','queen_weak',
+  'king_safety_pawn','king_danger','king_safe_check_rook','king_safe_check_queen','king_safe_check_bishop','king_safe_check_knight','king_pawnless_flank','king_flank_attacks',
+  'threat_by_minor','threat_by_rook','threat_by_king','threat_hanging','threat_weak_queen_protection','threat_restricted_piece','threat_by_safe_pawn','threat_by_pawn_push','threat_knight_on_queen','threat_slider_on_queen',
+  'passed_rank','passed_king_proximity','passed_path_advance','passed_file_edge',
+  'space',
+  'psqt_pawn','psqt_knight','psqt_bishop','psqt_rook','psqt_queen','psqt_king',
+  'mobility_knight','mobility_bishop','mobility_rook','mobility_queen','king_attackers_count','king_attackers_weight',
+  'material','imbalance',
+];
+
+async function runTrace(fen: string): Promise<TraceResult> {
+  const out = await new Promise<string>((resolve, reject) => {
+    const p = spawn(TRACE_BIN, []);
+    let o = '';
+    p.stdout.on('data', (d) => (o += d.toString()));
+    p.on('error', reject);
+    p.on('close', () => resolve(o));
+    p.stdin.write('setoption name Use NNUE value false\n');
+    p.stdin.write(`position fen ${fen}\n`);
+    p.stdin.write('eval json\n');
+    p.stdin.write('quit\n');
+  });
+  // Извлекаем первый сбалансированный JSON-объект из вывода UCI.
+  const start = out.indexOf('{');
+  const decoded: {
+    total: { mg: number; eg: number; v: number };
+    subterms: TraceEntry[];
+  } = (() => {
+    let depth = 0;
+    for (let i = start; i < out.length; i++) {
+      if (out[i] === '{') depth++;
+      else if (out[i] === '}') {
+        depth--;
+        if (depth === 0) return JSON.parse(out.slice(start, i + 1));
+      }
+    }
+    throw new Error('trace json not found for ' + fen);
+  })();
+
+  const byId: Record<string, { mg: number; eg: number }> = {};
+  for (const id of SUBTERM_IDS) byId[id] = { mg: 0, eg: 0 };
+  for (const e of decoded.subterms) {
+    if (!byId[e.id]) byId[e.id] = { mg: 0, eg: 0 };
+    const sign = e.color === 'w' ? 1 : -1;
+    byId[e.id].mg += sign * e.value_mg;
+    byId[e.id].eg += sign * e.value_eg;
+  }
+  return { total: decoded.total, raw: decoded.subterms, byId };
+}
+
+// ---------------------------------------------------------------------------
+// Ветки: перспектива белых.
+// ---------------------------------------------------------------------------
+function evalWhitePawns(
+  fen: string,
+  cp: number | null,
+  mate: number | null,
+): number | null {
+  const white = fen.split(' ')[1] === 'w';
+  if (mate !== null) {
+    const m = white ? mate : -mate;
+    return m > 0 ? 100 : -100; // mate — заглушка в pawn-units
+  }
+  if (cp === null) return null;
+  const cpWhite = white ? cp : -cp;
+  return Math.round(cpWhite) / 100;
+}
+function outcomeWhite(
+  fen: string,
+  wdl: [number, number, number] | null,
+): { white: number; draw: number; black: number } | null {
+  if (!wdl) return null;
+  const white = fen.split(' ')[1] === 'w';
+  const [w, d, l] = wdl.map((x) => x / 1000);
+  return white
+    ? { white: w, draw: d, black: l }
+    : { white: l, draw: d, black: w };
+}
+
+interface Candidate {
+  uci: string;
+  source: ('maia' | 'sf')[];
+  maiaProb: number | null;
+  sfRank: number | null;
+}
+
+function pickCandidates(
+  ply: number,
+  maia: PredictResult | null,
+  sf: SfResult,
+): Candidate[] {
+  const rule = WIDTH[Math.min(ply, WIDTH.length - 1)];
+  const map = new Map<string, Candidate>();
+
+  // Maia: широкий набор по массе.
+  if (maia) {
+    let mass = 0;
+    let count = 0;
+    for (const mv of maia.policy) {
+      if (count >= rule.maiaMax) break;
+      if (mv.probability < rule.maiaProbMin && count > 0) break;
+      map.set(mv.move, {
+        uci: mv.move,
+        source: ['maia'],
+        maiaProb: mv.probability,
+        sfRank: null,
+      });
+      mass += mv.probability;
+      count++;
+      if (mass >= rule.maiaMassCap) break;
+    }
+  }
+  // Stockfish: сильнейшие (union).
+  sf.moves.slice(0, rule.sfTop).forEach((m, i) => {
+    const ex = map.get(m.uci);
+    if (ex) {
+      if (!ex.source.includes('sf')) ex.source.push('sf');
+      ex.sfRank = i + 1;
+    } else {
+      map.set(m.uci, {
+        uci: m.uci,
+        source: ['sf'],
+        maiaProb: maia?.policy.find((p) => p.move === m.uci)?.probability ?? null,
+        sfRank: i + 1,
+      });
+    }
+  });
+  return [...map.values()];
+}
+
+// ---------------------------------------------------------------------------
+// Обход дерева.
+// ---------------------------------------------------------------------------
+interface BranchRecord {
+  id: string;
+  root_fen: string;
+  moves_uci: string[];
+  moves_san: string[];
+  leaf_fen: string;
+  depth: number;
+  stop_reason: string;
+  source: ('maia' | 'sf')[];
+  maia_prob: number | null; // вероятность последнего хода по Maia
+  sf_rank: number | null; // ранг последнего хода в multipv, если из SF
+  eval: number | null; // пешки, перспектива белых
+  eval_cp_stm: number | null; // cp side-to-move (как отдал SF)
+  mate: number | null;
+  outcome_prob: { white: number; draw: number; black: number } | null;
+  subterms: Record<string, { mg: number; eg: number }>;
+  subterms_total: { mg: number; eg: number; v: number };
+  subterms_raw: TraceEntry[];
+}
+
+let maia: Maia | null = null;
+async function maiaPredict(fen: string): Promise<PredictResult | null> {
+  if (!maia) return null;
+  try {
+    return await maia.predictMoves(fen, MAIA_ELO, MAIA_ELO);
+  } catch (e) {
+    console.warn('maia fail', (e as Error).message);
+    return null;
+  }
+}
+
+const branches: BranchRecord[] = [];
+const seen = new Set<string>();
+
+async function evalNode(
+  fen: string,
+  movesUci: string[],
+  movesSan: string[],
+  cand: Candidate,
+  ply: number,
+  chessGameOver: boolean,
+): Promise<SfResult> {
+  const sf = await runSf(fen);
+  const trace = await runTrace(fen);
+  const stop = chessGameOver
+    ? 'terminal'
+    : ply >= MAX_PLIES
+      ? 'max_depth'
+      : 'expanded';
+  branches.push({
+    id: `br${branches.length + 1}`,
+    root_fen: ROOT_FEN,
+    moves_uci: [...movesUci],
+    moves_san: [...movesSan],
+    leaf_fen: fen,
+    depth: ply,
+    stop_reason: stop,
+    source: cand.source,
+    maia_prob: cand.maiaProb,
+    sf_rank: cand.sfRank,
+    eval: evalWhitePawns(fen, sf.nodeCp, sf.nodeMate),
+    eval_cp_stm: sf.nodeCp,
+    mate: sf.nodeMate,
+    outcome_prob: outcomeWhite(fen, sf.nodeWdl),
+    subterms: trace.byId,
+    subterms_total: trace.total,
+    subterms_raw: trace.raw,
+  });
+  return sf;
+}
+
+// Обход в ширину (BFS): сперва покрываем все планы у корня, затем
+// углубляемся, пока не исчерпан бюджет веток. Так plan-diversity не
+// съедается ранними глубокими линиями.
+interface QueueItem {
+  fen: string;
+  movesUci: string[];
+  movesSan: string[];
+  ply: number;
+  sf: SfResult;
+}
+
+async function expandTree(rootSf: SfResult): Promise<void> {
+  const queue: QueueItem[] = [
+    { fen: ROOT_FEN, movesUci: [], movesSan: [], ply: 0, sf: rootSf },
+  ];
+  while (queue.length > 0) {
+    if (branches.length >= MAX_BRANCHES) break;
+    const node = queue.shift()!;
+    if (node.ply >= MAX_PLIES) continue;
+    const maiaRes = await maiaPredict(node.fen);
+    const cands = pickCandidates(node.ply, maiaRes, node.sf);
+
+    for (const cand of cands) {
+      if (branches.length >= MAX_BRANCHES) break;
+      const game = new Chess(node.fen);
+      let moved;
+      try {
+        moved = game.move(cand.uci);
+      } catch {
+        continue; // нелегальный (Maia иногда шумит) — пропускаем
+      }
+      if (!moved) continue;
+      const childFen = game.fen();
+      const childUci = [...node.movesUci, cand.uci];
+      const key = childUci.join(' ');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const childSan = [...node.movesSan, moved.san];
+      const over = game.isGameOver();
+      const childSf = await evalNode(
+        childFen,
+        childUci,
+        childSan,
+        cand,
+        node.ply + 1,
+        over,
+      );
+      if (!over)
+        queue.push({
+          fen: childFen,
+          movesUci: childUci,
+          movesSan: childSan,
+          ply: node.ply + 1,
+          sf: childSf,
+        });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+async function main() {
+  console.log('ADR-170 PoC — построение дерева веток');
+  console.log('root:', ROOT_FEN);
+
+  // Maia init.
+  try {
+    maia = new Maia({
+      provider: createNodeProvider(),
+      fetchBuffer: () => loadModelFromFs(MAIA_MODEL),
+    });
+    await maia.ensureSession();
+    console.log('Maia: сессия готова (ELO', MAIA_ELO + ')');
+  } catch (e) {
+    console.error('Maia init FAILED:', (e as Error).message);
+    process.exit(1);
+  }
+
+  // Корневая позиция: eval/trace как baseline + источник SF для ply 0.
+  const rootGame = new Chess(ROOT_FEN);
+  const rootSf = await runSf(ROOT_FEN);
+  const rootTrace = await runTrace(ROOT_FEN);
+  const baseline = {
+    root_fen: ROOT_FEN,
+    eval: evalWhitePawns(ROOT_FEN, rootSf.nodeCp, rootSf.nodeMate),
+    outcome_prob: outcomeWhite(ROOT_FEN, rootSf.nodeWdl),
+    subterms: rootTrace.byId,
+    subterms_total: rootTrace.total,
+  };
+  void rootGame;
+
+  await expandTree(rootSf);
+
+  // Диагностика покрытия планов — по первому ходу ветки.
+  const byFirstMove = new Map<string, number>();
+  for (const b of branches) {
+    const first = b.moves_san[0] ?? '(none)';
+    byFirstMove.set(first, (byFirstMove.get(first) ?? 0) + 1);
+  }
+
+  const output = {
+    meta: {
+      adr: 'ADR-170',
+      task: 'KS-5009',
+      generated_note: 'разовый скрипт; описания/эмбеддинги — следующая задача',
+      root_fen: ROOT_FEN,
+      maia_elo: MAIA_ELO,
+      sf_depth: SF_DEPTH,
+      sf_multipv: SF_MULTIPV,
+      max_plies: MAX_PLIES,
+      width_rule: WIDTH,
+      subterm_ids: SUBTERM_IDS,
+      branch_count: branches.length,
+      distinct_first_moves: [...byFirstMove.entries()].map(([m, n]) => ({
+        move: m,
+        branches: n,
+      })),
+    },
+    baseline,
+    branches,
+  };
+  await writeFile(OUT_PATH, JSON.stringify(output, null, 2));
+  console.log(
+    `\nГотово: ${branches.length} веток, ${byFirstMove.size} разных первых ходов`,
+  );
+  console.log('первые ходы:', [...byFirstMove.keys()].join(', '));
+  console.log('файл:', OUT_PATH);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
