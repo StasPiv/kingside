@@ -17,12 +17,14 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
 const TREE = '/project/tools/adr170-poc/tree.json';
+const DESCS = '/project/tools/adr170-poc/descriptions.json';
 const OUT = '/project/tools/adr170-poc/store.json';
 const ENV = '/project/.env';
 const VOYAGE_URL = 'https://api.voyageai.com/v1/embeddings';
 const MODEL = 'voyage-3';
 const DIM = 1024;
 
+// (сохранён на случай отладки; описания берутся из descriptions.json)
 const PIECE_RU: Record<string, string> = {
   N: 'конь',
   B: 'слон',
@@ -54,42 +56,7 @@ interface Tree {
   branches: Branch[];
 }
 
-// Фактическая констатация одного полухода: КТО и ЧТО делает по доске.
-// Только наблюдаемое (фигура, поля from–to, взятие, шах, рокировка,
-// превращение). Без оценки замысла.
-function moveFactual(san: string, uci: string, isBlack: boolean): string {
-  const side = isBlack ? 'чёрные' : 'белые';
-  const check = /#/.test(san)
-    ? ' с шахом и матом'
-    : /\+/.test(san)
-      ? ' с шахом'
-      : '';
-  if (/^O-O-O/.test(san)) return `${side} делают длинную рокировку${check}`;
-  if (/^O-O/.test(san)) return `${side} делают короткую рокировку${check}`;
-  const from = uci.slice(0, 2);
-  const to = uci.slice(2, 4);
-  const promoLetter = uci.length > 4 ? uci[4].toUpperCase() : '';
-  const promo = promoLetter ? `, превращение в ${PIECE_RU[promoLetter]}` : '';
-  const capture = /x/.test(san);
-  const pieceLetter = /^[NBRQK]/.test(san) ? san[0] : '';
-  let verb: string;
-  if (!pieceLetter) {
-    verb = capture ? `пешка ${from} бьёт на ${to}` : `пешка идёт ${from}–${to}`;
-  } else {
-    const p = PIECE_RU[pieceLetter];
-    verb = capture ? `${p} ${from} бьёт на ${to}` : `${p} идёт ${from}–${to}`;
-  }
-  return `${side}: ${verb}${promo}${check}`;
-}
-
-// ОДНО описание линии — пересказ ходов обеих сторон, без ярлыков и факторов.
-function describe(b: Branch): string {
-  const parts: string[] = [];
-  for (let i = 0; i < b.moves_san.length; i++) {
-    parts.push(moveFactual(b.moves_san[i], b.moves_uci[i], i % 2 === 0));
-  }
-  return `Линия от исходной позиции: ${parts.join('; ')}.`;
-}
+void PIECE_RU;
 
 async function readVoyageKey(): Promise<string> {
   const env = await readFile(ENV, 'utf8');
@@ -121,10 +88,19 @@ async function embed(key: string, texts: string[]): Promise<number[][]> {
 
 async function main() {
   const tree: Tree = JSON.parse(await readFile(TREE, 'utf8'));
+  const descMap: Record<string, string> = JSON.parse(
+    await readFile(DESCS, 'utf8'),
+  );
   const key = await readVoyageKey();
-  console.log(`линий: ${tree.branches.length} — одно описание + один вектор на линию`);
+  console.log(`линий: ${tree.branches.length} — одно осмысленное описание + один вектор на линию`);
 
-  const descriptions = tree.branches.map(describe);
+  // Описания — осмысленный разбор смысла линии (рев.3), сгенерированы
+  // агентом в сессии, хранятся в descriptions.json по id ветки.
+  const descriptions = tree.branches.map((b) => {
+    const d = descMap[b.id];
+    if (!d) throw new Error(`нет описания для ${b.id} (${b.moves_san.join(' ')})`);
+    return d;
+  });
 
   // Один эмбеддинг на линию. Батчами по 100.
   const BATCH = 100;
@@ -163,7 +139,8 @@ async function main() {
       embedding_dim: DIM,
       embedding_input_type: 'document',
       description_principle:
-        'одно описание линии — только ходы обеих сторон, без ярлыков и факторов; eval/outcome_prob/subterms — отдельные поля вне эмбеддинга',
+        'одно осмысленное LLM-описание смысла линии (дебют/структура/планы/ключевые поля/следствие), сгенерировано агентом, с упором на distinctive «своё»; eval/outcome_prob/subterms — отдельные поля вне эмбеддинга',
+      adr_rev: 'рев.3',
       branch_count: records.length,
     },
     baseline: {
