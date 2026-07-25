@@ -41,24 +41,23 @@ const MAIA_MODEL = '/project/tools/maia3/maia3_simplified.onnx';
 const MAIA_ELO = 1500; // «разумный» человеческий уровень для разброса планов
 const OUT_PATH = '/project/tools/adr170-poc/tree.json';
 
-const SF_DEPTH = 14; // малая глубина оценки
-const SF_MULTIPV = 4;
-const MAX_PLIES = 4; // глубина дерева (b, w, b, w)
-const MAX_BRANCHES = 40;
+// Замер Stockfish+trace — ТОЛЬКО на листе линии, поэтому здесь можно дать
+// нормальную глубину (листьев ~40, не сотни узлов).
+const SF_DEPTH_LEAF = 16; // глубина Stockfish на конечной позиции линии
+const SF_MULTIPV_ROOT = 3; // multipv в КОРНЕ (первые ходы ∪ Maia)
 
-// Ширина по полуходам: у корня широко, вглубь узко.
-type WidthRule = {
-  maiaMassCap: number; // берём ходы Maia, пока накопленная масса < cap
-  maiaProbMin: number; // и вероятность хода >= min
-  maiaMax: number; // не более N ходов Maia
-  sfTop: number; // + сильнейшие ходы Stockfish (union)
-};
-const WIDTH: WidthRule[] = [
-  { maiaMassCap: 0.82, maiaProbMin: 0.06, maiaMax: 6, sfTop: 3 }, // ply 0 (root)
-  { maiaMassCap: 0.7, maiaProbMin: 0.2, maiaMax: 2, sfTop: 1 }, // ply 1
-  { maiaMassCap: 0.7, maiaProbMin: 0.2, maiaMax: 2, sfTop: 1 }, // ply 2
-  { maiaMassCap: 0.6, maiaProbMin: 0.3, maiaMax: 1, sfTop: 1 }, // ply 3
-];
+// §5.1 (ADR-170 рев.4)
+const D_MAX = 12; // максимум полуходов в линии
+const MAX_LINES = 40; // объём ≤40 линий
+// Первые ходы (ply 1): Maia policy prob≥0.05, масса до 0.85, ≤6 ходов.
+const ROOT_MAIA_PROB_MIN = 0.05;
+const ROOT_MAIA_MASS = 0.85;
+const ROOT_MAIA_MAX = 6;
+// Развилки Maia top-2 на этих полуходах (по номеру хода в линии), иначе top-1.
+const FORK_AT_MOVE = new Set([2, 4]);
+// Стоп по стабильному исходу: Maia winProbability за/против стороны хода
+// (прокси «одна из W/D/L > 90%», т.к. SF внутри линии не вызываем — §5.1 п.5).
+const STABLE_WIN = 0.9;
 
 // ---------------------------------------------------------------------------
 // Stockfish 18: сильнейшие ходы + оценка (cp) + WDL для позиции.
@@ -101,17 +100,17 @@ function runUci(
   });
 }
 
-async function runSf(fen: string): Promise<SfResult> {
+async function runSf(fen: string, multipv = 1): Promise<SfResult> {
   const out = await runUci(
     SF_BIN,
     [],
     [
       'uci',
       'setoption name UCI_ShowWDL value true',
-      `setoption name MultiPV value ${SF_MULTIPV}`,
+      `setoption name MultiPV value ${multipv}`,
       `position fen ${fen}`,
     ],
-    `go depth ${SF_DEPTH}`,
+    `go depth ${SF_DEPTH_LEAF}`,
   );
   // Берём последнюю (максимальную) глубину.
   const lines = out.split('\n').filter((l) => l.includes('multipv'));
@@ -251,54 +250,43 @@ function outcomeWhite(
     : { white: l, draw: d, black: w };
 }
 
-interface Candidate {
+// §5.1 шаг 2 — первые ходы: Maia policy (prob≥MIN, масса≤MASS, ≤MAX) ∪
+// Stockfish multipv top-3 корня. Дедуп.
+interface FirstMove {
   uci: string;
+  maiaProb: number;
   source: ('maia' | 'sf')[];
-  maiaProb: number | null;
-  sfRank: number | null;
 }
-
-function pickCandidates(
-  ply: number,
-  maia: PredictResult | null,
-  sf: SfResult,
-): Candidate[] {
-  const rule = WIDTH[Math.min(ply, WIDTH.length - 1)];
-  const map = new Map<string, Candidate>();
-
-  // Maia: широкий набор по массе.
+function rootFirstMoves(maia: PredictResult | null, sf: SfResult): FirstMove[] {
+  const map = new Map<string, FirstMove>();
   if (maia) {
     let mass = 0;
-    let count = 0;
+    let n = 0;
     for (const mv of maia.policy) {
-      if (count >= rule.maiaMax) break;
-      if (mv.probability < rule.maiaProbMin && count > 0) break;
+      if (n >= ROOT_MAIA_MAX) break;
+      if (mv.probability < ROOT_MAIA_PROB_MIN) break;
       map.set(mv.move, {
         uci: mv.move,
-        source: ['maia'],
         maiaProb: mv.probability,
-        sfRank: null,
+        source: ['maia'],
       });
       mass += mv.probability;
-      count++;
-      if (mass >= rule.maiaMassCap) break;
+      n++;
+      if (mass >= ROOT_MAIA_MASS) break;
     }
   }
-  // Stockfish: сильнейшие (union).
-  sf.moves.slice(0, rule.sfTop).forEach((m, i) => {
+  for (const m of sf.moves.slice(0, 3)) {
     const ex = map.get(m.uci);
     if (ex) {
       if (!ex.source.includes('sf')) ex.source.push('sf');
-      ex.sfRank = i + 1;
     } else {
       map.set(m.uci, {
         uci: m.uci,
+        maiaProb: maia?.policy.find((p) => p.move === m.uci)?.probability ?? 0,
         source: ['sf'],
-        maiaProb: maia?.policy.find((p) => p.move === m.uci)?.probability ?? null,
-        sfRank: i + 1,
       });
     }
-  });
+  }
   return [...map.values()];
 }
 
@@ -337,102 +325,154 @@ async function maiaPredict(fen: string): Promise<PredictResult | null> {
 }
 
 const branches: BranchRecord[] = [];
-const seen = new Set<string>();
 
-async function evalNode(
+// §5.1 шаг 3–4 — ПЕРЕЧИСЛЕНИЕ линий по Maia (БЕЗ Stockfish внутри линии).
+// Вглубь ведёт Maia top-1; на 2-м и 4-м полуходах — развилка Maia top-2.
+// Стоп: D_max ИЛИ мат/пат ИЛИ стабильный исход (Maia winProbability за/против
+// стороны хода ≥ STABLE_WIN — прокси «W или L >90%», SF внутри линии не зовём).
+interface LeafLine {
+  movesUci: string[];
+  movesSan: string[];
+  leafFen: string;
+  ply: number;
+  stop: string;
+  pathProb: number; // произведение вероятностей ходов Maia (для отсечения §5.1 п.6)
+  lastMaiaProb: number;
+  firstSource: ('maia' | 'sf')[];
+}
+const leaves: LeafLine[] = [];
+
+async function enumerateLine(
   fen: string,
   movesUci: string[],
   movesSan: string[],
-  cand: Candidate,
-  ply: number,
-  chessGameOver: boolean,
-): Promise<SfResult> {
-  const sf = await runSf(fen);
-  const trace = await runTrace(fen);
-  const stop = chessGameOver
-    ? 'terminal'
-    : ply >= MAX_PLIES
-      ? 'max_depth'
-      : 'expanded';
+  pathProb: number,
+  lastMaiaProb: number,
+  firstSource: ('maia' | 'sf')[],
+): Promise<void> {
+  const ply = movesUci.length;
+  const over = new Chess(fen).isGameOver();
+  const maiaRes = await maiaPredict(fen);
+  const wp = maiaRes?.winProbability ?? null;
+  const stable = wp != null && (wp >= STABLE_WIN || wp <= 1 - STABLE_WIN);
+  const noMoves = !maiaRes || maiaRes.policy.length === 0;
+
+  if (over || ply >= D_MAX || (stable && ply >= 1) || noMoves) {
+    leaves.push({
+      movesUci,
+      movesSan,
+      leafFen: fen,
+      ply,
+      stop: over
+        ? 'terminal'
+        : ply >= D_MAX
+          ? 'max_depth'
+          : stable
+            ? 'stable_wdl'
+            : 'no_moves',
+      pathProb,
+      lastMaiaProb,
+      firstSource,
+    });
+    return;
+  }
+
+  const width = FORK_AT_MOVE.has(ply + 1) ? 2 : 1; // развилка на 2-м/4-м полуходе
+  let any = false;
+  for (const pick of maiaRes!.policy.slice(0, width)) {
+    const g = new Chess(fen);
+    let moved;
+    try {
+      moved = g.move(pick.move);
+    } catch {
+      continue;
+    }
+    if (!moved) continue;
+    any = true;
+    await enumerateLine(
+      g.fen(),
+      [...movesUci, pick.move],
+      [...movesSan, moved.san],
+      pathProb * pick.probability,
+      pick.probability,
+      firstSource,
+    );
+  }
+  if (!any) {
+    leaves.push({
+      movesUci,
+      movesSan,
+      leafFen: fen,
+      ply,
+      stop: 'no_moves',
+      pathProb,
+      lastMaiaProb,
+      firstSource,
+    });
+  }
+}
+
+// §5.1 шаг 5 — замер ТОЛЬКО на листе: Stockfish eval+WDL + форк trace.
+async function measureLeaf(line: LeafLine): Promise<void> {
+  const sf = await runSf(line.leafFen); // depth SF_DEPTH_LEAF, multipv 1
+  const trace = await runTrace(line.leafFen);
   branches.push({
     id: `br${branches.length + 1}`,
     root_fen: ROOT_FEN,
-    moves_uci: [...movesUci],
-    moves_san: [...movesSan],
-    leaf_fen: fen,
-    depth: ply,
-    stop_reason: stop,
-    source: cand.source,
-    maia_prob: cand.maiaProb,
-    sf_rank: cand.sfRank,
-    eval: evalWhitePawns(fen, sf.nodeCp, sf.nodeMate),
+    moves_uci: line.movesUci,
+    moves_san: line.movesSan,
+    leaf_fen: line.leafFen,
+    depth: line.ply,
+    stop_reason: line.stop,
+    source: line.firstSource,
+    maia_prob: line.lastMaiaProb,
+    sf_rank: null,
+    eval: evalWhitePawns(line.leafFen, sf.nodeCp, sf.nodeMate),
     eval_cp_stm: sf.nodeCp,
     mate: sf.nodeMate,
-    outcome_prob: outcomeWhite(fen, sf.nodeWdl),
+    outcome_prob: outcomeWhite(line.leafFen, sf.nodeWdl),
     subterms: trace.byId,
     subterms_total: trace.total,
     subterms_raw: trace.raw,
   });
-  return sf;
-}
-
-// Обход в ширину (BFS): сперва покрываем все планы у корня, затем
-// углубляемся, пока не исчерпан бюджет веток. Так plan-diversity не
-// съедается ранними глубокими линиями.
-interface QueueItem {
-  fen: string;
-  movesUci: string[];
-  movesSan: string[];
-  ply: number;
-  sf: SfResult;
+  console.log(
+    `  [${branches.length}] линия(${line.ply}, ${line.stop}): ${line.movesSan.join(' ')}  eval ${evalWhitePawns(line.leafFen, sf.nodeCp, sf.nodeMate)}`,
+  );
 }
 
 async function expandTree(rootSf: SfResult): Promise<void> {
-  const queue: QueueItem[] = [
-    { fen: ROOT_FEN, movesUci: [], movesSan: [], ply: 0, sf: rootSf },
-  ];
-  while (queue.length > 0) {
-    if (branches.length >= MAX_BRANCHES) break;
-    const node = queue.shift()!;
-    if (node.ply >= MAX_PLIES) continue;
-    const maiaRes = await maiaPredict(node.fen);
-    const cands = pickCandidates(node.ply, maiaRes, node.sf);
-
-    for (const cand of cands) {
-      if (branches.length >= MAX_BRANCHES) break;
-      const game = new Chess(node.fen);
-      let moved;
-      try {
-        moved = game.move(cand.uci);
-      } catch {
-        continue; // нелегальный (Maia иногда шумит) — пропускаем
-      }
-      if (!moved) continue;
-      const childFen = game.fen();
-      const childUci = [...node.movesUci, cand.uci];
-      const key = childUci.join(' ');
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const childSan = [...node.movesSan, moved.san];
-      const over = game.isGameOver();
-      const childSf = await evalNode(
-        childFen,
-        childUci,
-        childSan,
-        cand,
-        node.ply + 1,
-        over,
-      );
-      if (!over)
-        queue.push({
-          fen: childFen,
-          movesUci: childUci,
-          movesSan: childSan,
-          ply: node.ply + 1,
-          sf: childSf,
-        });
+  const rootMaia = await maiaPredict(ROOT_FEN);
+  const firsts = rootFirstMoves(rootMaia, rootSf);
+  console.log(
+    `первые ходы (Maia∪SF-top3): ${firsts.length} — ${firsts.map((f) => f.uci).join(', ')}`,
+  );
+  // Перечисляем линии от каждого первого хода (только Maia — дёшево).
+  for (const fm of firsts) {
+    const g = new Chess(ROOT_FEN);
+    let moved;
+    try {
+      moved = g.move(fm.uci);
+    } catch {
+      continue;
     }
+    if (!moved) continue;
+    await enumerateLine(
+      g.fen(),
+      [fm.uci],
+      [moved.san],
+      Math.max(fm.maiaProb, 0.005),
+      fm.maiaProb,
+      fm.source,
+    );
   }
+  // §5.1 п.6 — объём ≤ MAX_LINES: отсекаем по вероятности пути Maia.
+  leaves.sort((a, b) => b.pathProb - a.pathProb);
+  const kept = leaves.slice(0, MAX_LINES);
+  console.log(
+    `перечислено линий: ${leaves.length}; оставляем ${kept.length} (по вероятности пути Maia). Замеряю SF+trace на листьях...`,
+  );
+  // §5.1 п.5 — Stockfish+trace ТОЛЬКО на листьях оставленных линий.
+  for (const line of kept) await measureLeaf(line);
 }
 
 // ---------------------------------------------------------------------------
@@ -453,9 +493,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Корневая позиция: eval/trace как baseline + источник SF для ply 0.
+  // Корневая позиция: multipv-SF (для первых ходов, §5.1 шаг 2) + baseline.
   const rootGame = new Chess(ROOT_FEN);
-  const rootSf = await runSf(ROOT_FEN);
+  const rootSf = await runSf(ROOT_FEN, SF_MULTIPV_ROOT);
   const rootTrace = await runTrace(ROOT_FEN);
   const baseline = {
     root_fen: ROOT_FEN,
@@ -477,15 +517,17 @@ async function main() {
 
   const output = {
     meta: {
-      adr: 'ADR-170',
-      task: 'KS-5009',
-      generated_note: 'разовый скрипт; описания/эмбеддинги — следующая задача',
+      adr: 'ADR-170 рев.4 §5.1',
+      task: 'KS-5014',
+      generated_note:
+        'дерево по §5.1: первые ходы Maia∪SF-top3, вглубь Maia top-1 с развилками на 2-м/4-м полуходе, стоп D_max/мат/стабильный WDL; SF+trace только на листьях',
       root_fen: ROOT_FEN,
       maia_elo: MAIA_ELO,
-      sf_depth: SF_DEPTH,
-      sf_multipv: SF_MULTIPV,
-      max_plies: MAX_PLIES,
-      width_rule: WIDTH,
+      d_max: D_MAX,
+      sf_depth_leaf: SF_DEPTH_LEAF,
+      sf_multipv_root: SF_MULTIPV_ROOT,
+      fork_at_moves: [...FORK_AT_MOVE],
+      stable_win: STABLE_WIN,
       subterm_ids: SUBTERM_IDS,
       branch_count: branches.length,
       distinct_first_moves: [...byFirstMove.entries()].map(([m, n]) => ({
