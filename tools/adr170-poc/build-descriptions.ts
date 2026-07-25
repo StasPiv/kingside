@@ -160,23 +160,44 @@ function outcomePhrase(
   return `вероятности исхода: белые ${pct(op.white)}%, ничья ${pct(op.draw)}%, чёрные ${pct(op.black)}%`;
 }
 
-// SAN → человеческая фраза хода (для сырого пересказа).
-function sanToRu(san: string): string {
-  let s = san;
-  const check = /\+/.test(s) ? ' с шахом' : /#/.test(s) ? ' с матом' : '';
-  s = s.replace(/[+#]/g, '');
-  if (s === 'O-O') return 'короткая рокировка' + check;
-  if (s === 'O-O-O') return 'длинная рокировка' + check;
-  const pieceLetter = /^[NBRQK]/.test(s) ? s[0] : '';
-  const piece = pieceLetter ? PIECE_RU[pieceLetter] : 'пешка';
-  const capture = /x/.test(s) ? 'бьёт на ' : 'идёт на ';
-  const dest = s.match(/([a-h][1-8])(=([NBRQ]))?$/);
-  const to = dest ? dest[1] : s;
-  const promo = dest && dest[3] ? `, превращение в ${PIECE_RU[dest[3]]}` : '';
-  return `${piece} ${capture}${to}${promo}${check}`;
+// Фактическое описание одного полухода: КТО и ЧТО делает по доске, без
+// оценки замысла. Только наблюдаемое: фигура, поля from–to, взятие, шах,
+// рокировка, превращение. UCI даёт точные поля (from/to).
+function moveFactual(san: string, uci: string, isBlack: boolean): string {
+  const side = isBlack ? 'чёрные' : 'белые';
+  const check = /#/.test(san) ? ' с шахом и матом' : /\+/.test(san) ? ' с шахом' : '';
+  if (/^O-O-O/.test(san)) return `${side} делают длинную рокировку${check}`;
+  if (/^O-O/.test(san)) return `${side} делают короткую рокировку${check}`;
+  const from = uci.slice(0, 2);
+  const to = uci.slice(2, 4);
+  const promoLetter = uci.length > 4 ? uci[4].toUpperCase() : '';
+  const promo = promoLetter ? `, превращение в ${PIECE_RU[promoLetter]}` : '';
+  const capture = /x/.test(san);
+  const pieceLetter = /^[NBRQK]/.test(san) ? san[0] : '';
+  let verb: string;
+  if (!pieceLetter) {
+    // пешка
+    verb = capture
+      ? `пешка ${from} бьёт на ${to}`
+      : `пешка идёт ${from}–${to}`;
+  } else {
+    const p = PIECE_RU[pieceLetter];
+    verb = capture ? `${p} ${from} бьёт на ${to}` : `${p} идёт ${from}–${to}`;
+  }
+  return `${side}: ${verb}${promo}${check}`;
 }
 
-// Топ-N подкомпонент по модулю дельты к корню (кроме psqt-шума в тексте).
+// Пофактовый пересказ всей линии (оба цвета, каждый ход).
+function lineNarrative(b: Branch): string {
+  const parts: string[] = [];
+  for (let i = 0; i < b.moves_san.length; i++) {
+    parts.push(moveFactual(b.moves_san[i], b.moves_uci[i], i % 2 === 0));
+  }
+  return parts.join('; ');
+}
+
+// Топ-N подкомпонент по модулю дельты к корню (кроме psqt-шума в тексте) —
+// это ЗАМЕР движка (Stockfish trace), а не интерпретация.
 function topSubterms(
   st: Record<string, { mg: number; eg: number }>,
   base: Record<string, { mg: number; eg: number }>,
@@ -193,47 +214,33 @@ function topSubterms(
     .slice(0, n);
 }
 
-// ---------------------------------------------------------------------------
-function moveList(san: string[]): string {
-  // Нумерация полуходов от корня (ход чёрных первый).
-  const parts: string[] = [];
-  for (let i = 0; i < san.length; i++) {
-    const mover = i % 2 === 0 ? 'чёрные' : 'белые';
-    parts.push(`${mover}: ${sanToRu(san[i])}`);
-  }
-  return parts.join('; ');
-}
-
+// Три стиля — это уровни ФАКТИЧЕСКОГО описания линии (без домыслов о
+// планах): (raw) только ходы; (line_eval) ходы + числовой итог линии;
+// (line_factors) ходы + итог + изменённые факторы оценки по замеру движка.
 function descRaw(b: Branch): string {
-  return `Линия от исходной позиции (Каро-Канн, продвижение центра): ${moveList(
-    b.moves_san,
-  )}. Ходы (UCI): ${b.moves_uci.join(' ')}. ${evalPhrase(b.eval)}.`;
+  return `Линия от исходной позиции: ${lineNarrative(b)}. Ходы (UCI): ${b.moves_uci.join(
+    ' ',
+  )}.`;
 }
 
-function descPlan(b: Branch): string {
-  const fam = planFamily(b.moves_san[0]);
-  const cont =
-    b.moves_san.length > 1
-      ? ` Продолжение: ${b.moves_san.slice(1).join(' ')}.`
-      : '';
-  return `План чёрных: ${fam}.${cont} Итог линии: ${evalPhrase(
+function descLineEval(b: Branch): string {
+  return `Линия: ${lineNarrative(b)}. По итогу линии ${evalPhrase(
     b.eval,
   )}; ${outcomePhrase(b.outcome_prob)}.`;
 }
 
-function descPlanSubterms(b: Branch, base: Tree['baseline']): string {
-  const fam = planFamily(b.moves_san[0]);
-  const tops = topSubterms(b.subterms, base.subterms, 4);
+function descLineFactors(b: Branch, base: Tree['baseline']): string {
+  const tops = topSubterms(b.subterms, base.subterms, 5);
   const named = tops
     .map((t) => {
       const ru = SUBTERM_RU[t.id] ?? t.id;
-      const dir = t.delta > 0 ? 'растёт' : 'снижается';
-      return `${ru} (${dir})`;
+      const dir = t.delta > 0 ? 'усиливается' : 'ослабевает';
+      return `${ru} ${dir}`;
     })
     .join(', ');
-  return `План чёрных: ${fam}. Ходы: ${b.moves_san.join(
-    ' ',
-  )}. ${evalPhrase(b.eval)}. Меняются позиционные факторы: ${named}. ${outcomePhrase(
+  return `Линия: ${lineNarrative(b)}. По итогу ${evalPhrase(
+    b.eval,
+  )}. По разбору Stockfish относительно исходной позиции изменяются факторы: ${named}. ${outcomePhrase(
     b.outcome_prob,
   )}.`;
 }
@@ -244,8 +251,8 @@ function buildDescriptions(
 ): Record<Style, string> {
   return {
     raw: descRaw(b),
-    plan: descPlan(b),
-    plan_subterms: descPlanSubterms(b, base),
+    plan: descLineEval(b),
+    plan_subterms: descLineFactors(b, base),
   };
 }
 
@@ -318,12 +325,10 @@ async function main() {
     }
   });
 
-  // Эмбеддинг батчами. Free-tier: 3 RPM / 10K TPM → мелкие батчи + троттл.
-  const BATCH = 20;
-  const THROTTLE = 25000; // ~ до 3 запросов/мин
+  // Эмбеддинг батчами. Платёжный метод добавлен — лимит снят, паузы нет.
+  const BATCH = 100;
   const embeddings: number[][] = [];
   for (let i = 0; i < flatTexts.length; i += BATCH) {
-    if (i > 0) await sleep(THROTTLE);
     const chunk = flatTexts.slice(i, i + BATCH);
     const emb = await embedBatch(key, chunk);
     embeddings.push(...emb);
@@ -365,10 +370,13 @@ async function main() {
       embedding_input_type: 'document',
       styles: STYLES,
       style_notes: {
-        raw: 'сырой пересказ ходов',
-        plan: 'план-обобщение (замысел линии)',
-        plan_subterms: 'план + ключевые позиционные подкомпоненты',
+        raw: 'фактический пересказ ходов линии (оба цвета)',
+        plan: 'ходы линии + числовой итог (оценка, W/D/L)',
+        plan_subterms:
+          'ходы линии + итог + изменённые факторы оценки по замеру Stockfish',
       },
+      description_principle:
+        'описание констатирует что происходит в линии (ходы + замеры движка), без домыслов о планах',
       branch_count: records.length,
       note: 'фаза C (поиск+ответ) — KS-5011',
     },
