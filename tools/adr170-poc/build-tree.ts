@@ -32,6 +32,7 @@ import {
 // Конфигурация (пороги — эмпирические, §8 ADR-170).
 // ---------------------------------------------------------------------------
 const ROOT_FEN =
+  process.env.ADR170_FEN ||
   'rn1qkbnr/pp3ppp/2p1p3/3pPb2/3P4/5N2/PPP1BPPP/RNBQK2R b KQkq - 1 5';
 
 const SF_BIN = '/usr/games/stockfish';
@@ -39,7 +40,8 @@ const TRACE_BIN =
   '/project/tools/stockfish-trace/src/stockfish';
 const MAIA_MODEL = '/project/tools/maia3/maia3_simplified.onnx';
 const MAIA_ELO = 1500; // «разумный» человеческий уровень для разброса планов
-const OUT_PATH = '/project/tools/adr170-poc/tree.json';
+const OUT_PATH =
+  process.env.ADR170_OUT || '/project/tools/adr170-poc/tree.json';
 
 // Замер Stockfish+trace — ТОЛЬКО на листе линии, поэтому здесь можно дать
 // нормальную глубину (листьев ~40, не сотни узлов).

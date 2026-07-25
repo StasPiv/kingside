@@ -16,9 +16,10 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 
-const TREE = '/project/tools/adr170-poc/tree.json';
-const DESCS = '/project/tools/adr170-poc/descriptions.json';
-const OUT = '/project/tools/adr170-poc/store.json';
+const TREE = process.env.ADR170_TREE || '/project/tools/adr170-poc/tree.json';
+const DESCS =
+  process.env.ADR170_DESCS || '/project/tools/adr170-poc/descriptions.json';
+const OUT = process.env.ADR170_STORE || '/project/tools/adr170-poc/store.json';
 const ENV = '/project/.env';
 const VOYAGE_URL = 'https://api.voyageai.com/v1/embeddings';
 const MODEL = 'voyage-3';
@@ -65,25 +66,51 @@ async function readVoyageKey(): Promise<string> {
   return line.slice('VOYAGE_API_KEY='.length).trim().replace(/^["']|["']$/g, '');
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function embed(key: string, texts: string[]): Promise<number[][]> {
-  const res = await fetch(VOYAGE_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      input: texts,
-      model: MODEL,
-      input_type: 'document',
-      output_dimension: DIM,
-    }),
-  });
-  if (!res.ok) throw new Error(`Voyage ${res.status}: ${await res.text()}`);
-  const json = (await res.json()) as {
-    data: { index: number; embedding: number[] }[];
-  };
-  return json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
+  // Ретрай на сетевые сбои (ECONNRESET/terminated) и 429/5xx.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 15; attempt++) {
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 20000); // таймаут запроса
+      let res: Response;
+      try {
+        res = await fetch(VOYAGE_URL, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            input: texts,
+            model: MODEL,
+            input_type: 'document',
+            output_dimension: DIM,
+          }),
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(to);
+      }
+      if (res.status === 429 || res.status >= 500) {
+        console.log(`  Voyage ${res.status}, повтор ${attempt + 1}`);
+        await sleep(Math.min(20000, 3000 * (attempt + 1)));
+        continue;
+      }
+      if (!res.ok) throw new Error(`Voyage ${res.status}: ${await res.text()}`);
+      const json = (await res.json()) as {
+        data: { index: number; embedding: number[] }[];
+      };
+      return json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
+    } catch (e) {
+      lastErr = e;
+      console.log(`  сетевой сбой (${(e as Error).message}), повтор ${attempt + 1}`);
+      await sleep(Math.min(20000, 3000 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 async function main() {
