@@ -21,10 +21,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { Chess } from 'chess.js';
-// Обе сети (Maia-1 policy + оракул Leela T1) считает тёплый python-сервис
-// nets-oracle.py через ONNX (без поиска): один прогон каждой сети на позицию.
-// Maia-1 (maia-1500.onnx, классическая CNN) — ~1мс против ~26мс у maia3;
-// качеством жертвуем ради скорости (ADR-170 §8: скорость важнее точности planов).
+import * as ort from 'onnxruntime-node';
+// Прямой прогон Maia через onnxruntime-node: переиспользуем кодирование/декод
+// maia-core (корректность сохранена), но минуем тяжёлый класс-обёртку —
+// вызов падает со ~121мс до ~32мс (JS-обёртка нужна только фронту).
+import {
+  preprocessMaia3,
+  postprocessMaia3,
+  type PredictResult,
+} from '@kingside/maia-core';
 
 // ---------------------------------------------------------------------------
 // Конфигурация (пороги — эмпирические, §8 ADR-170).
@@ -34,8 +39,10 @@ const ROOT_FEN =
   'rn1qkbnr/pp3ppp/2p1p3/3pPb2/3P4/5N2/PPP1BPPP/RNBQK2R b KQkq - 1 5';
 
 const TRACE_BIN = '/project/tools/stockfish-trace/src/stockfish';
-// Тёплый python-сервис двух сетей (Maia-1 policy + оракул Leela T1).
-const NETS_PY = '/project/tools/adr170-poc/nets-oracle.py';
+const MAIA_MODEL = '/project/tools/maia3/maia3_simplified.onnx';
+const MAIA_ELO = 1500; // «разумный» человеческий уровень для разброса планов
+// Оракул Leela T1 — ONNX без поиска (рев.8): тёплый python-сервис.
+const ORACLE_PY = '/project/tools/adr170-poc/leela-oracle.py';
 const KS4989_LIBS = '/tmp/ks4989-libs';
 const OUT_PATH =
   process.env.ADR170_OUT || '/project/tools/adr170-poc/tree.json';
@@ -65,60 +72,44 @@ const T_MAX_MS = 120000; // максимум времени обхода
 const PROGRESS_EVERY = 50; // логировать прогресс раз в N узлов
 
 // ---------------------------------------------------------------------------
-// Тёплый python-сервис двух сетей (nets-oracle.py): один прогон Maia-1 (policy)
-// и Leela T1 (оракул) на позицию, без поиска. Протокол «строка FEN → строка
-// JSON». Вызовы сериализованы (дерево строится последовательно).
+// Оракул Leela T1 — ОДИН прогон ONNX без поиска (рев.8): тёплый python-сервис
+// (leela-oracle.py), протокол «строка FEN → строка JSON». Голова политики +
+// WDL стороны хода. Вызовы сериализованы (дерево строится последовательно).
 // ---------------------------------------------------------------------------
-interface NetsResult {
-  maia: { move: string; probability: number }[]; // человеческая policy Maia-1
-  maiaWdl: [number, number, number] | null;
-  oracle: { move: string; probability: number }[]; // policy оракула Leela T1
-  oracleBest: string | null; // argmax политики оракула
-  oracleWdl: [number, number, number] | null; // доли [W,D,L], side-to-move
+interface LeelaResult {
+  moves: { uci: string; prob: number }[]; // голова политики, сильнейшие первыми
+  best: string | null; // argmax политики
+  wdlTop: [number, number, number] | null; // доли [W,D,L], side-to-move
 }
 
-function toResult(line: string): NetsResult {
-  const empty: NetsResult = {
-    maia: [],
-    maiaWdl: null,
-    oracle: [],
-    oracleBest: null,
-    oracleWdl: null,
-  };
+function toResult(line: string): LeelaResult {
   try {
     const d = JSON.parse(line) as {
-      maia?: [string, number][];
-      maia_wdl?: number[] | null;
-      oracle?: [string, number][];
-      oracle_best?: string | null;
-      oracle_wdl?: number[] | null;
+      best?: string | null;
+      wdl?: number[] | null;
+      policy?: [string, number][];
       error?: string;
     };
-    if (d.error) return empty;
+    if (d.error) return { moves: [], best: null, wdlTop: null };
     return {
-      maia: (d.maia ?? []).map(([move, probability]) => ({ move, probability })),
-      maiaWdl: (d.maia_wdl as [number, number, number] | undefined) ?? null,
-      oracle: (d.oracle ?? []).map(([move, probability]) => ({
-        move,
-        probability,
-      })),
-      oracleBest: d.oracle_best ?? null,
-      oracleWdl: (d.oracle_wdl as [number, number, number] | undefined) ?? null,
+      moves: (d.policy ?? []).map(([uci, prob]) => ({ uci, prob })),
+      best: d.best ?? null,
+      wdlTop: (d.wdl as [number, number, number] | undefined) ?? null,
     };
   } catch {
-    return empty;
+    return { moves: [], best: null, wdlTop: null };
   }
 }
 
-class Nets {
+class Leela {
   private proc: ChildProcessWithoutNullStreams;
   private out = '';
-  private pending: ((v: NetsResult) => void)[] = [];
+  private pending: ((v: LeelaResult) => void)[] = [];
   private readyRes: (() => void) | null = null;
   private ready: Promise<void>;
 
   constructor() {
-    this.proc = spawn('python3', [NETS_PY], {
+    this.proc = spawn('python3', [ORACLE_PY], {
       env: { ...process.env, PYTHONPATH: KS4989_LIBS },
     });
     this.ready = new Promise((res) => (this.readyRes = res));
@@ -147,7 +138,7 @@ class Nets {
     await this.ready;
   }
 
-  go(fen: string): Promise<NetsResult> {
+  go(fen: string): Promise<LeelaResult> {
     return new Promise((res) => {
       this.pending.push(res);
       this.proc.stdin.write(fen + '\n');
@@ -257,30 +248,31 @@ interface FirstMove {
   maiaProb: number;
   source: ('maia' | 'leela')[];
 }
-function rootFirstMoves(root: NetsResult): FirstMove[] {
+function rootFirstMoves(
+  maia: PredictResult | null,
+  leela: LeelaResult,
+): FirstMove[] {
   const map = new Map<string, FirstMove>();
-  let mass = 0;
-  let n = 0;
-  for (const mv of root.maia) {
-    if (n >= ROOT_MAIA_MAX) break;
-    if (mv.probability < ROOT_MAIA_PROB_MIN) break;
-    map.set(mv.move, {
-      uci: mv.move,
-      maiaProb: mv.probability,
-      source: ['maia'],
-    });
-    mass += mv.probability;
-    n++;
-    if (mass >= ROOT_MAIA_MASS) break;
+  if (maia) {
+    let mass = 0;
+    let n = 0;
+    for (const mv of maia.policy) {
+      if (n >= ROOT_MAIA_MAX) break;
+      if (mv.probability < ROOT_MAIA_PROB_MIN) break;
+      map.set(mv.move, { uci: mv.move, maiaProb: mv.probability, source: ['maia'] });
+      mass += mv.probability;
+      n++;
+      if (mass >= ROOT_MAIA_MASS) break;
+    }
   }
-  for (const m of root.oracle.slice(0, ROOT_LEELA_MULTIPV)) {
-    const ex = map.get(m.move);
+  for (const m of leela.moves.slice(0, ROOT_LEELA_MULTIPV)) {
+    const ex = map.get(m.uci);
     if (ex) {
       if (!ex.source.includes('leela')) ex.source.push('leela');
     } else {
-      map.set(m.move, {
-        uci: m.move,
-        maiaProb: root.maia.find((p) => p.move === m.move)?.probability ?? 0,
+      map.set(m.uci, {
+        uci: m.uci,
+        maiaProb: maia?.policy.find((p) => p.move === m.uci)?.probability ?? 0,
         source: ['leela'],
       });
     }
@@ -310,7 +302,30 @@ interface BranchRecord {
   subterms_raw: TraceEntry[];
 }
 
-let nets: Nets | null = null;
+let maiaSession: ort.InferenceSession | null = null;
+let leela: Leela | null = null;
+
+async function maiaPredict(fen: string): Promise<PredictResult | null> {
+  if (!maiaSession) return null;
+  try {
+    const { boardTokens, legalMoves, blackToMove } = preprocessMaia3(fen);
+    const feeds = {
+      tokens: new ort.Tensor('float32', boardTokens, [1, 64, 12]),
+      elo_self: new ort.Tensor('float32', Float32Array.from([MAIA_ELO]), [1]),
+      elo_oppo: new ort.Tensor('float32', Float32Array.from([MAIA_ELO]), [1]),
+    };
+    const out = await maiaSession.run(feeds);
+    return postprocessMaia3(
+      out.logits_move.data as Float32Array,
+      out.logits_value.data as Float32Array,
+      legalMoves,
+      blackToMove,
+    );
+  } catch (e) {
+    console.warn('maia fail', (e as Error).message);
+    return null;
+  }
+}
 
 const branches: BranchRecord[] = [];
 
@@ -344,7 +359,7 @@ interface QueueNode {
 // trace (total.v), WDL — один прогон Leela; Stockfish go depth не запускается.
 async function measureLeaf(line: LeafLine): Promise<void> {
   const trace = await runTrace(line.leafFen);
-  const oracle = await nets!.go(line.leafFen);
+  const oracle = await leela!.go(line.leafFen);
   const evalWhite = trace.total.v;
   branches.push({
     id: `br${branches.length + 1}`,
@@ -358,7 +373,7 @@ async function measureLeaf(line: LeafLine): Promise<void> {
     maia_prob: line.lastMaiaProb,
     engine_only_plies: line.engineOnlyPlies,
     eval: evalWhite,
-    outcome_prob: outcomeWhite(line.leafFen, oracle.oracleWdl),
+    outcome_prob: outcomeWhite(line.leafFen, oracle.wdlTop),
     eval_static_note: 'форк-trace total.v (статика, NNUE off); поиск не запускался (рев.8)',
     subterms: trace.byId,
     subterms_total: trace.total,
@@ -369,8 +384,11 @@ async function measureLeaf(line: LeafLine): Promise<void> {
   );
 }
 
-async function expandTree(root: NetsResult): Promise<void> {
-  const firsts = rootFirstMoves(root);
+async function expandTree(
+  rootMaia: PredictResult | null,
+  rootLeela: LeelaResult,
+): Promise<void> {
+  const firsts = rootFirstMoves(rootMaia, rootLeela);
   console.log(
     `первые ходы (Maia∪Leela-top3): ${firsts.length} — ${firsts.map((f) => f.uci).join(', ')}`,
   );
@@ -436,13 +454,13 @@ async function expandTree(root: NetsResult): Promise<void> {
 
     const ply = node.movesUci.length;
     const over = new Chess(node.fen).isGameOver();
-    const res = await nets!.go(node.fen); // один вызов: Maia policy + оракул
-    const wdl = res.oracleWdl; // доли side-to-move (WDL оракула Leela)
+    const maiaRes = await maiaPredict(node.fen);
+    const oracle = await leela!.go(node.fen);
+    const wdl = oracle.wdlTop; // доли side-to-move
     const stable =
       wdl != null && Math.max(wdl[0], wdl[1], wdl[2]) > STABLE_WIN;
-    const policy = res.maia;
-    const oracleBest = res.oracleBest;
-    const noMoves = policy.length === 0 && !oracleBest;
+    const policy = maiaRes?.policy ?? [];
+    const noMoves = policy.length === 0 && !oracle.best;
 
     if (over || ply >= D_MAX || (stable && ply >= 1) || noMoves) {
       leaves.push({
@@ -487,9 +505,9 @@ async function expandTree(root: NetsResult): Promise<void> {
     if (maiaTop) add(maiaTop, false);
     if (!beyondOracle) {
       for (const p of policy) if (p.probability >= P_FORK) add(p.move, false);
-      if (oracleBest && oracleUsed < K_ORACLE) {
-        const mp = policy.find((p) => p.move === oracleBest)?.probability ?? 0;
-        add(oracleBest, oracleBest !== maiaTop && mp < P_FORK);
+      if (oracle.best && oracleUsed < K_ORACLE) {
+        const mp = policy.find((p) => p.move === oracle.best)?.probability ?? 0;
+        add(oracle.best, oracle.best !== maiaTop && mp < P_FORK);
       }
     }
     // за пределом D_ORACLE — только Maia top-1 (реализация плана)
@@ -556,31 +574,41 @@ async function main() {
   console.log('ADR-170 PoC рев.8 — построение дерева веток');
   console.log('root:', ROOT_FEN);
 
-  // Инициализация тёплого сервиса двух сетей (Maia-1 policy + оракул Leela T1).
+  // Maia init — прямая сессия onnxruntime-node (без класс-обёртки maia-core).
   try {
-    nets = new Nets();
-    await nets.init();
-    console.log('Nets: тёплый onnx-сервис готов (Maia-1 + Leela T1)');
+    maiaSession = await ort.InferenceSession.create(MAIA_MODEL);
+    console.log('Maia: сессия готова (прямой прогон, ELO', MAIA_ELO + ')');
   } catch (e) {
-    console.error('Nets init FAILED:', (e as Error).message);
+    console.error('Maia init FAILED:', (e as Error).message);
+    process.exit(1);
+  }
+
+  // Leela T1 init (тёплый python-оракул ONNX, без поиска).
+  try {
+    leela = new Leela();
+    await leela.init();
+    console.log('Leela T1: тёплый onnx-оракул готов');
+  } catch (e) {
+    console.error('Leela init FAILED:', (e as Error).message);
     process.exit(1);
   }
 
   // Корень: Maia policy + Leela top-3 головы политики (первые ходы, §5.1 шаг 2).
-  const root = await nets.go(ROOT_FEN);
+  const rootMaia = await maiaPredict(ROOT_FEN);
+  const rootLeela = await leela.go(ROOT_FEN);
 
   // baseline корня (для отчёта): eval = статика форк-trace, WDL — Leela.
   const rootTrace = await runTrace(ROOT_FEN);
   const baseline = {
     root_fen: ROOT_FEN,
     eval: rootTrace.total.v,
-    outcome_prob: outcomeWhite(ROOT_FEN, root.oracleWdl),
+    outcome_prob: outcomeWhite(ROOT_FEN, rootLeela.wdlTop),
     subterms: rootTrace.byId,
     subterms_total: rootTrace.total,
   };
 
-  await expandTree(root);
-  nets.quit();
+  await expandTree(rootMaia, rootLeela);
+  leela.quit();
 
   // Диагностика покрытия планов — по первому ходу ветки.
   const byFirstMove = new Map<string, number>();
@@ -595,10 +623,10 @@ async function main() {
       adr: 'ADR-170 рев.8 §5.1',
       task: 'KS-5015',
       generated_note:
-        'дерево по §5.1 рев.8: обе сети (Maia-1 policy + оракул Leela T1) — ОДИН прогон ONNX каждой на узел (голова политики, БЕЗ поиска), тёплый python-сервис nets-oracle.py; первые ходы Maia∪Leela-top3; продолжения Maia top-1 ∪ Maia≥P_fork ∪ ход-оракул (ширина ≤4), оракул до D_oracle и ≤K_oracle на линию; best-first обход по вероятности пути Maia с пределами N_max/T_max/L_max; ходы оракула помечены engine_only_plies и защищены от отсечки; стоп D_max/мат/WDL Leela>90%; лист: eval=статика форк-trace total.v, WDL=Leela, Stockfish go depth не запускается',
+        'дерево по §5.1 рев.8: оракул Leela T1 — ОДИН прогон ONNX (голова политики, БЕЗ поиска); первые ходы Maia∪Leela-top3; продолжения Maia top-1 ∪ Maia≥P_fork ∪ ход-оракул (ширина ≤4), оракул до D_oracle и ≤K_oracle на линию; best-first обход по вероятности пути Maia с пределами N_max/T_max/L_max; ходы оракула помечены engine_only_plies и защищены от отсечки; стоп D_max/мат/WDL Leela>90%; лист: eval=статика форк-trace total.v, WDL=Leela, Stockfish go depth не запускается',
       root_fen: ROOT_FEN,
-      maia_net: '/tmp/maia-1500.onnx (Maia-1 CNN, голова политики, ELO 1500, без поиска)',
-      leela_net: '/project/.agent-tmp/t1-256x10.onnx (оракул, голова политики, без поиска)',
+      maia_elo: MAIA_ELO,
+      leela_net: '/project/.agent-tmp/t1-256x10.onnx (голова политики, без поиска)',
       d_max: D_MAX,
       d_oracle: D_ORACLE,
       k_oracle: K_ORACLE,
