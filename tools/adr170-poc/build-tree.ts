@@ -1,30 +1,33 @@
 /**
- * ADR-170 PoC (KS-5009) — конвейер дерева веток.
+ * ADR-170 PoC (KS-5015) — конвейер дерева веток, рев.6.
  *
- * Разовый скрипт (НЕ сервис). От тестовой позиции строит дерево ~20-40
- * веток: Maia policy (человеческие ходы выше порога вероятностной массы,
- * широко у корня) + Stockfish (сильнейшие ходы, если Maia не дала),
- * малая глубина. На каждую ветку сохраняет запись по схеме §4 ADR-170:
- *   root_fen, moves_uci, eval (Stockfish), outcome_prob (WDL),
- *   subterms (63+ подкомпоненты форк-trace, eval json, NNUE выкл),
- *   depth, stop_reason.
- * БЕЗ описаний и эмбеддингов — это следующая задача (фаза наполнения C).
+ * Разовый скрипт (НЕ сервис). От тестовой позиции строит дерево ~20-40 линий.
+ * Ходы внутри дерева ведут ТОЛЬКО два тёплых процесса Lc0 (без Stockfish):
+ *   - Maia-1500 (@kingside/maia-core) — человеческая policy;
+ *   - сильная сеть Leela T1 256×10 (бинарь lc0) — «оракул», объективно
+ *     сильнейший ход на узле, даже если Maia его недооценивает.
+ * Продолжения узла = Maia top-1 ∪ Maia-ходы ≥ P_FORK ∪ ход-оракул Leela,
+ * ширина ≤ MAX_WIDTH. Ход, вошедший только по оракулу (Maia < порога, не
+ * top-1), помечается в engine_only_plies и защищён от отсечки по вероятности
+ * пути Maia (§5.1 п.3, п.6 рев.6).
  *
- * Инструменты:
- *   - Maia:  @kingside/maia-core + tools/maia3/maia3_simplified.onnx
- *   - Оценка/WDL/сильнейшие ходы: системный Stockfish 18 (/usr/games/stockfish)
- *   - trace 63 subterms: форк tools/stockfish-trace/src/stockfish (NNUE off)
+ * Stockfish — ТОЛЬКО на листе (§5.1 п.5): eval + WDL и форк trace (63+
+ * подкомпоненты, eval json, NNUE off) — сеть Leela разбиения не даёт.
+ * WDL для стоп-условия внутри линии берётся у Leela (тёплый процесс).
  *
  * Запуск:  npx tsx tools/adr170-poc/build-tree.ts
- * Выход:   tools/adr170-poc/tree.json
+ * Выход:   tools/adr170-poc/tree.json  (ADR170_OUT / ADR170_FEN — переопределяют)
  */
-import { spawn } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
 import { Chess } from 'chess.js';
+import * as ort from 'onnxruntime-node';
+// Прямой прогон Maia через onnxruntime-node: переиспользуем кодирование/декод
+// maia-core (корректность сохранена), но минуем тяжёлый класс-обёртку —
+// вызов падает со ~121мс до ~32мс (JS-обёртка нужна только фронту).
 import {
-  Maia,
-  createNodeProvider,
-  loadModelFromFs,
+  preprocessMaia3,
+  postprocessMaia3,
   type PredictResult,
 } from '@kingside/maia-core';
 
@@ -35,121 +38,120 @@ const ROOT_FEN =
   process.env.ADR170_FEN ||
   'rn1qkbnr/pp3ppp/2p1p3/3pPb2/3P4/5N2/PPP1BPPP/RNBQK2R b KQkq - 1 5';
 
-const SF_BIN = '/usr/games/stockfish';
-const TRACE_BIN =
-  '/project/tools/stockfish-trace/src/stockfish';
+const TRACE_BIN = '/project/tools/stockfish-trace/src/stockfish';
 const MAIA_MODEL = '/project/tools/maia3/maia3_simplified.onnx';
 const MAIA_ELO = 1500; // «разумный» человеческий уровень для разброса планов
+// Оракул Leela T1 — ONNX без поиска (рев.8): тёплый python-сервис.
+const ORACLE_PY = '/project/tools/adr170-poc/leela-oracle.py';
+const KS4989_LIBS = '/tmp/ks4989-libs';
 const OUT_PATH =
   process.env.ADR170_OUT || '/project/tools/adr170-poc/tree.json';
 
-// Замер Stockfish+trace — ТОЛЬКО на листе линии, поэтому здесь можно дать
-// нормальную глубину (листьев ~40, не сотни узлов).
-const SF_DEPTH_LEAF = 16; // глубина Stockfish на конечной позиции линии
-const SF_MULTIPV_ROOT = 3; // multipv в КОРНЕ (первые ходы ∪ Maia)
+// §5.1 рев.8: Stockfish go depth убран; на листе — только форк trace
+// (eval = статическая оценка total.v, subterms), WDL — прогон Leela.
 
-// §5.1 (ADR-170 рев.4)
+// §5.1 рев.7
 const D_MAX = 12; // максимум полуходов в линии
-const MAX_LINES = 40; // объём ≤40 линий
-// Первые ходы (ply 1): Maia policy prob≥0.05, масса до 0.85, ≤6 ходов.
+const L_MAX = 40; // предел листьев (соблюдается В ХОДЕ обхода, §5.1 п.6)
+// Первые ходы (ply 1): Maia policy prob≥0.05, масса до 0.85, ≤6 ходов ∪ Leela top-3.
 const ROOT_MAIA_PROB_MIN = 0.05;
 const ROOT_MAIA_MASS = 0.85;
 const ROOT_MAIA_MAX = 6;
-// Развилки Maia top-2 на этих полуходах (по номеру хода в линии), иначе top-1.
-const FORK_AT_MOVE = new Set([2, 4]);
-// Стоп по стабильному исходу: Maia winProbability за/против стороны хода
-// (прокси «одна из W/D/L > 90%», т.к. SF внутри линии не вызываем — §5.1 п.5).
+const ROOT_LEELA_MULTIPV = 3;
+// Продолжения: Maia top-1 ∪ Maia≥P_FORK ∪ ход-оракул Leela; ширина ≤ MAX_WIDTH.
+const P_FORK = 0.3;
+const MAX_WIDTH = 4;
+// Ограничение роста оракула (§5.1 п.3 рев.7).
+const D_ORACLE = 6; // оракул добавляет ход только до этой глубины (полуходов)
+const K_ORACLE = 2; // не более стольких оракульных отклонений на линию
+// Стоп по стабильному исходу: одна из W/D/L сети Leela > STABLE (§5.1 п.4).
 const STABLE_WIN = 0.9;
+// Защита построителя (§5.1 п.7 рев.7): аварийные пределы + прогресс в лог.
+const N_MAX = 1500; // максимум раскрытых узлов
+const T_MAX_MS = 120000; // максимум времени обхода
+const PROGRESS_EVERY = 50; // логировать прогресс раз в N узлов
 
 // ---------------------------------------------------------------------------
-// Stockfish 18: сильнейшие ходы + оценка (cp) + WDL для позиции.
+// Оракул Leela T1 — ОДИН прогон ONNX без поиска (рев.8): тёплый python-сервис
+// (leela-oracle.py), протокол «строка FEN → строка JSON». Голова политики +
+// WDL стороны хода. Вызовы сериализованы (дерево строится последовательно).
 // ---------------------------------------------------------------------------
-interface SfMove {
-  uci: string;
-  cp: number | null; // от лица side-to-move
-  mate: number | null;
-  wdl: [number, number, number] | null; // W D L, per mille, side-to-move
-}
-interface SfResult {
-  moves: SfMove[]; // отсортированы multipv 1..N (сильнейшие первыми)
-  nodeCp: number | null;
-  nodeMate: number | null;
-  nodeWdl: [number, number, number] | null;
+interface LeelaResult {
+  moves: { uci: string; prob: number }[]; // голова политики, сильнейшие первыми
+  best: string | null; // argmax политики
+  wdlTop: [number, number, number] | null; // доли [W,D,L], side-to-move
 }
 
-function runUci(
-  bin: string,
-  args: string[],
-  setup: string[],
-  go: string,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const p = spawn(bin, args);
-    let out = '';
-    let done = false;
-    p.stdout.on('data', (d) => {
-      out += d.toString();
-      if (!done && /^bestmove/m.test(out)) {
-        done = true;
-        p.stdin.write('quit\n');
+function toResult(line: string): LeelaResult {
+  try {
+    const d = JSON.parse(line) as {
+      best?: string | null;
+      wdl?: number[] | null;
+      policy?: [string, number][];
+      error?: string;
+    };
+    if (d.error) return { moves: [], best: null, wdlTop: null };
+    return {
+      moves: (d.policy ?? []).map(([uci, prob]) => ({ uci, prob })),
+      best: d.best ?? null,
+      wdlTop: (d.wdl as [number, number, number] | undefined) ?? null,
+    };
+  } catch {
+    return { moves: [], best: null, wdlTop: null };
+  }
+}
+
+class Leela {
+  private proc: ChildProcessWithoutNullStreams;
+  private out = '';
+  private pending: ((v: LeelaResult) => void)[] = [];
+  private readyRes: (() => void) | null = null;
+  private ready: Promise<void>;
+
+  constructor() {
+    this.proc = spawn('python3', [ORACLE_PY], {
+      env: { ...process.env, PYTHONPATH: KS4989_LIBS },
+    });
+    this.ready = new Promise((res) => (this.readyRes = res));
+    this.proc.stderr.on('data', (d) => {
+      if (/готов/.test(d.toString()) && this.readyRes) {
+        this.readyRes();
+        this.readyRes = null;
       }
     });
-    p.on('error', reject);
-    p.on('close', () => resolve(out));
-    for (const s of setup) p.stdin.write(s + '\n');
-    p.stdin.write('isready\n');
-    p.stdin.write(go + '\n');
-  });
-}
-
-async function runSf(fen: string, multipv = 1): Promise<SfResult> {
-  const out = await runUci(
-    SF_BIN,
-    [],
-    [
-      'uci',
-      'setoption name UCI_ShowWDL value true',
-      `setoption name MultiPV value ${multipv}`,
-      `position fen ${fen}`,
-    ],
-    `go depth ${SF_DEPTH_LEAF}`,
-  );
-  // Берём последнюю (максимальную) глубину.
-  const lines = out.split('\n').filter((l) => l.includes('multipv'));
-  let maxDepth = -1;
-  for (const l of lines) {
-    const m = /info depth (\d+)/.exec(l);
-    if (m) maxDepth = Math.max(maxDepth, parseInt(m[1], 10));
-  }
-  const byPv = new Map<number, SfMove>();
-  for (const l of lines) {
-    const dm = /info depth (\d+)/.exec(l);
-    if (!dm || parseInt(dm[1], 10) !== maxDepth) continue;
-    const pv = /multipv (\d+)/.exec(l);
-    const pvMove = / pv ([a-h][0-9][a-h][0-9][qrbn]?)/.exec(l);
-    if (!pv || !pvMove) continue;
-    const cpM = /score cp (-?\d+)/.exec(l);
-    const mateM = /score mate (-?\d+)/.exec(l);
-    const wdlM = /wdl (\d+) (\d+) (\d+)/.exec(l);
-    byPv.set(parseInt(pv[1], 10), {
-      uci: pvMove[1],
-      cp: cpM ? parseInt(cpM[1], 10) : null,
-      mate: mateM ? parseInt(mateM[1], 10) : null,
-      wdl: wdlM
-        ? [parseInt(wdlM[1], 10), parseInt(wdlM[2], 10), parseInt(wdlM[3], 10)]
-        : null,
+    this.proc.stdout.on('data', (d) => {
+      this.out += d.toString();
+      let nl: number;
+      while ((nl = this.out.indexOf('\n')) >= 0) {
+        const line = this.out.slice(0, nl);
+        this.out = this.out.slice(nl + 1);
+        const res = this.pending.shift();
+        if (res) res(toResult(line));
+      }
+    });
+    this.proc.on('error', (e) => {
+      throw e;
     });
   }
-  const moves = [...byPv.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([, v]) => v);
-  const top = moves[0];
-  return {
-    moves,
-    nodeCp: top?.cp ?? null,
-    nodeMate: top?.mate ?? null,
-    nodeWdl: top?.wdl ?? null,
-  };
+
+  async init(): Promise<void> {
+    await this.ready;
+  }
+
+  go(fen: string): Promise<LeelaResult> {
+    return new Promise((res) => {
+      this.pending.push(res);
+      this.proc.stdin.write(fen + '\n');
+    });
+  }
+
+  quit(): void {
+    try {
+      this.proc.stdin.write('quit\n');
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +167,6 @@ interface TraceEntry {
 interface TraceResult {
   total: { mg: number; eg: number; v: number };
   raw: TraceEntry[];
-  // Агрегат по id, нетто с точки зрения белых (white - black), в pawn-units.
   byId: Record<string, { mg: number; eg: number }>;
 }
 
@@ -195,7 +196,6 @@ async function runTrace(fen: string): Promise<TraceResult> {
     p.stdin.write('eval json\n');
     p.stdin.write('quit\n');
   });
-  // Извлекаем первый сбалансированный JSON-объект из вывода UCI.
   const start = out.indexOf('{');
   const decoded: {
     total: { mg: number; eg: number; v: number };
@@ -224,42 +224,34 @@ async function runTrace(fen: string): Promise<TraceResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Ветки: перспектива белых.
+// Перспектива белых.
 // ---------------------------------------------------------------------------
-function evalWhitePawns(
-  fen: string,
-  cp: number | null,
-  mate: number | null,
-): number | null {
-  const white = fen.split(' ')[1] === 'w';
-  if (mate !== null) {
-    const m = white ? mate : -mate;
-    return m > 0 ? 100 : -100; // mate — заглушка в pawn-units
-  }
-  if (cp === null) return null;
-  const cpWhite = white ? cp : -cp;
-  return Math.round(cpWhite) / 100;
-}
+// Рев.8: eval листа = статическая оценка форк-trace total.v — она уже с точки
+// зрения белых, в пешках (см. «Classical evaluation X (white side)»).
+// WDL — доли [W,D,L] стороны хода от одного прогона Leela → в перспективу белых.
 function outcomeWhite(
   fen: string,
   wdl: [number, number, number] | null,
 ): { white: number; draw: number; black: number } | null {
   if (!wdl) return null;
   const white = fen.split(' ')[1] === 'w';
-  const [w, d, l] = wdl.map((x) => x / 1000);
+  const [w, d, l] = wdl;
   return white
     ? { white: w, draw: d, black: l }
     : { white: l, draw: d, black: w };
 }
 
 // §5.1 шаг 2 — первые ходы: Maia policy (prob≥MIN, масса≤MASS, ≤MAX) ∪
-// Stockfish multipv top-3 корня. Дедуп.
+// Leela top-3 (multipv). Дедуп.
 interface FirstMove {
   uci: string;
   maiaProb: number;
-  source: ('maia' | 'sf')[];
+  source: ('maia' | 'leela')[];
 }
-function rootFirstMoves(maia: PredictResult | null, sf: SfResult): FirstMove[] {
+function rootFirstMoves(
+  maia: PredictResult | null,
+  leela: LeelaResult,
+): FirstMove[] {
   const map = new Map<string, FirstMove>();
   if (maia) {
     let mass = 0;
@@ -267,25 +259,21 @@ function rootFirstMoves(maia: PredictResult | null, sf: SfResult): FirstMove[] {
     for (const mv of maia.policy) {
       if (n >= ROOT_MAIA_MAX) break;
       if (mv.probability < ROOT_MAIA_PROB_MIN) break;
-      map.set(mv.move, {
-        uci: mv.move,
-        maiaProb: mv.probability,
-        source: ['maia'],
-      });
+      map.set(mv.move, { uci: mv.move, maiaProb: mv.probability, source: ['maia'] });
       mass += mv.probability;
       n++;
       if (mass >= ROOT_MAIA_MASS) break;
     }
   }
-  for (const m of sf.moves.slice(0, 3)) {
+  for (const m of leela.moves.slice(0, ROOT_LEELA_MULTIPV)) {
     const ex = map.get(m.uci);
     if (ex) {
-      if (!ex.source.includes('sf')) ex.source.push('sf');
+      if (!ex.source.includes('leela')) ex.source.push('leela');
     } else {
       map.set(m.uci, {
         uci: m.uci,
         maiaProb: maia?.policy.find((p) => p.move === m.uci)?.probability ?? 0,
-        source: ['sf'],
+        source: ['leela'],
       });
     }
   }
@@ -303,23 +291,36 @@ interface BranchRecord {
   leaf_fen: string;
   depth: number;
   stop_reason: string;
-  source: ('maia' | 'sf')[];
+  source: ('maia' | 'leela')[];
   maia_prob: number | null; // вероятность последнего хода по Maia
-  sf_rank: number | null; // ранг последнего хода в multipv, если из SF
-  eval: number | null; // пешки, перспектива белых
-  eval_cp_stm: number | null; // cp side-to-move (как отдал SF)
-  mate: number | null;
-  outcome_prob: { white: number; draw: number; black: number } | null;
+  engine_only_plies: number[]; // полуходы (1-based), вошедшие только по оракулу Leela
+  eval: number | null; // статическая оценка форк-trace (total.v), пешки, перспектива белых
+  outcome_prob: { white: number; draw: number; black: number } | null; // WDL Leela, перспектива белых
+  eval_static_note: string; // источник eval (рев.8: статика trace, не поиск)
   subterms: Record<string, { mg: number; eg: number }>;
   subterms_total: { mg: number; eg: number; v: number };
   subterms_raw: TraceEntry[];
 }
 
-let maia: Maia | null = null;
+let maiaSession: ort.InferenceSession | null = null;
+let leela: Leela | null = null;
+
 async function maiaPredict(fen: string): Promise<PredictResult | null> {
-  if (!maia) return null;
+  if (!maiaSession) return null;
   try {
-    return await maia.predictMoves(fen, MAIA_ELO, MAIA_ELO);
+    const { boardTokens, legalMoves, blackToMove } = preprocessMaia3(fen);
+    const feeds = {
+      tokens: new ort.Tensor('float32', boardTokens, [1, 64, 12]),
+      elo_self: new ort.Tensor('float32', Float32Array.from([MAIA_ELO]), [1]),
+      elo_oppo: new ort.Tensor('float32', Float32Array.from([MAIA_ELO]), [1]),
+    };
+    const out = await maiaSession.run(feeds);
+    return postprocessMaia3(
+      out.logits_move.data as Float32Array,
+      out.logits_value.data as Float32Array,
+      legalMoves,
+      blackToMove,
+    );
   } catch (e) {
     console.warn('maia fail', (e as Error).message);
     return null;
@@ -328,96 +329,38 @@ async function maiaPredict(fen: string): Promise<PredictResult | null> {
 
 const branches: BranchRecord[] = [];
 
-// §5.1 шаг 3–4 — ПЕРЕЧИСЛЕНИЕ линий по Maia (БЕЗ Stockfish внутри линии).
-// Вглубь ведёт Maia top-1; на 2-м и 4-м полуходах — развилка Maia top-2.
-// Стоп: D_max ИЛИ мат/пат ИЛИ стабильный исход (Maia winProbability за/против
-// стороны хода ≥ STABLE_WIN — прокси «W или L >90%», SF внутри линии не зовём).
+// §5.1 шаг 3–4 (рев.6) — перечисление линий двумя тёплыми сетями Lc0.
 interface LeafLine {
   movesUci: string[];
   movesSan: string[];
   leafFen: string;
   ply: number;
   stop: string;
-  pathProb: number; // произведение вероятностей ходов Maia (для отсечения §5.1 п.6)
+  pathProb: number; // произведение вероятностей ходов Maia (для отсечки §5.1 п.6)
   lastMaiaProb: number;
-  firstSource: ('maia' | 'sf')[];
+  firstSource: ('maia' | 'leela')[];
+  engineOnlyPlies: number[];
 }
 const leaves: LeafLine[] = [];
 
-async function enumerateLine(
-  fen: string,
-  movesUci: string[],
-  movesSan: string[],
-  pathProb: number,
-  lastMaiaProb: number,
-  firstSource: ('maia' | 'sf')[],
-): Promise<void> {
-  const ply = movesUci.length;
-  const over = new Chess(fen).isGameOver();
-  const maiaRes = await maiaPredict(fen);
-  const wp = maiaRes?.winProbability ?? null;
-  const stable = wp != null && (wp >= STABLE_WIN || wp <= 1 - STABLE_WIN);
-  const noMoves = !maiaRes || maiaRes.policy.length === 0;
-
-  if (over || ply >= D_MAX || (stable && ply >= 1) || noMoves) {
-    leaves.push({
-      movesUci,
-      movesSan,
-      leafFen: fen,
-      ply,
-      stop: over
-        ? 'terminal'
-        : ply >= D_MAX
-          ? 'max_depth'
-          : stable
-            ? 'stable_wdl'
-            : 'no_moves',
-      pathProb,
-      lastMaiaProb,
-      firstSource,
-    });
-    return;
-  }
-
-  const width = FORK_AT_MOVE.has(ply + 1) ? 2 : 1; // развилка на 2-м/4-м полуходе
-  let any = false;
-  for (const pick of maiaRes!.policy.slice(0, width)) {
-    const g = new Chess(fen);
-    let moved;
-    try {
-      moved = g.move(pick.move);
-    } catch {
-      continue;
-    }
-    if (!moved) continue;
-    any = true;
-    await enumerateLine(
-      g.fen(),
-      [...movesUci, pick.move],
-      [...movesSan, moved.san],
-      pathProb * pick.probability,
-      pick.probability,
-      firstSource,
-    );
-  }
-  if (!any) {
-    leaves.push({
-      movesUci,
-      movesSan,
-      leafFen: fen,
-      ply,
-      stop: 'no_moves',
-      pathProb,
-      lastMaiaProb,
-      firstSource,
-    });
-  }
+// Узел очереди best-first обхода (§5.1 п.3 рев.7).
+interface QueueNode {
+  fen: string;
+  movesUci: string[];
+  movesSan: string[];
+  pathProb: number; // произведение вероятностей ходов Maia (для отсечки/записи)
+  priority: number; // ключ best-first (оракульные рёбра приподняты, чтобы не тонуть)
+  lastMaiaProb: number;
+  firstSource: ('maia' | 'leela')[];
+  engineOnlyPlies: number[];
 }
 
-// §5.1 шаг 5 — замер ТОЛЬКО на листе: Stockfish eval+WDL + форк trace.
+// §5.1 шаг 5 (рев.8) — замер ТОЛЬКО на листе: eval = статическая оценка форк-
+// trace (total.v), WDL — один прогон Leela; Stockfish go depth не запускается.
 async function measureLeaf(line: LeafLine): Promise<void> {
-  const sf = await runSf(line.leafFen); // depth SF_DEPTH_LEAF, multipv 1
   const trace = await runTrace(line.leafFen);
+  const oracle = await leela!.go(line.leafFen);
+  const evalWhite = trace.total.v;
   branches.push({
     id: `br${branches.length + 1}`,
     root_fen: ROOT_FEN,
@@ -428,27 +371,28 @@ async function measureLeaf(line: LeafLine): Promise<void> {
     stop_reason: line.stop,
     source: line.firstSource,
     maia_prob: line.lastMaiaProb,
-    sf_rank: null,
-    eval: evalWhitePawns(line.leafFen, sf.nodeCp, sf.nodeMate),
-    eval_cp_stm: sf.nodeCp,
-    mate: sf.nodeMate,
-    outcome_prob: outcomeWhite(line.leafFen, sf.nodeWdl),
+    engine_only_plies: line.engineOnlyPlies,
+    eval: evalWhite,
+    outcome_prob: outcomeWhite(line.leafFen, oracle.wdlTop),
+    eval_static_note: 'форк-trace total.v (статика, NNUE off); поиск не запускался (рев.8)',
     subterms: trace.byId,
     subterms_total: trace.total,
     subterms_raw: trace.raw,
   });
   console.log(
-    `  [${branches.length}] линия(${line.ply}, ${line.stop}): ${line.movesSan.join(' ')}  eval ${evalWhitePawns(line.leafFen, sf.nodeCp, sf.nodeMate)}`,
+    `  [${branches.length}] линия(${line.ply}, ${line.stop}${line.engineOnlyPlies.length ? ', оракул@' + line.engineOnlyPlies.join(',') : ''}): ${line.movesSan.join(' ')}  eval ${evalWhite}`,
   );
 }
 
-async function expandTree(rootSf: SfResult): Promise<void> {
-  const rootMaia = await maiaPredict(ROOT_FEN);
-  const firsts = rootFirstMoves(rootMaia, rootSf);
+async function expandTree(
+  rootMaia: PredictResult | null,
+  rootLeela: LeelaResult,
+): Promise<void> {
+  const firsts = rootFirstMoves(rootMaia, rootLeela);
   console.log(
-    `первые ходы (Maia∪SF-top3): ${firsts.length} — ${firsts.map((f) => f.uci).join(', ')}`,
+    `первые ходы (Maia∪Leela-top3): ${firsts.length} — ${firsts.map((f) => f.uci).join(', ')}`,
   );
-  // Перечисляем линии от каждого первого хода (только Maia — дёшево).
+  const queue: QueueNode[] = [];
   for (const fm of firsts) {
     const g = new Chess(ROOT_FEN);
     let moved;
@@ -458,57 +402,213 @@ async function expandTree(rootSf: SfResult): Promise<void> {
       continue;
     }
     if (!moved) continue;
-    await enumerateLine(
-      g.fen(),
-      [fm.uci],
-      [moved.san],
-      Math.max(fm.maiaProb, 0.005),
-      fm.maiaProb,
-      fm.source,
-    );
+    // Первый ход из оракула (Maia ниже порога) — тоже помечаем как engine-only.
+    const engineOnly = fm.source.length === 1 && fm.source[0] === 'leela';
+    const pp = Math.max(fm.maiaProb, 0.005);
+    queue.push({
+      fen: g.fen(),
+      movesUci: [fm.uci],
+      movesSan: [moved.san],
+      pathProb: pp,
+      priority: engineOnly ? pp * 0.5 : pp,
+      lastMaiaProb: fm.maiaProb,
+      firstSource: fm.source,
+      engineOnlyPlies: engineOnly ? [1] : [],
+    });
   }
-  // §5.1 п.6 — объём ≤ MAX_LINES: отсекаем по вероятности пути Maia.
-  leaves.sort((a, b) => b.pathProb - a.pathProb);
-  const kept = leaves.slice(0, MAX_LINES);
-  console.log(
-    `перечислено линий: ${leaves.length}; оставляем ${kept.length} (по вероятности пути Maia). Замеряю SF+trace на листьях...`,
+
+  // §5.1 п.3, п.7 (рев.7) — best-first обход по вероятности пути Maia с жёсткими
+  // пределами (N_max/T_max/L_max) и периодическим прогрессом в лог.
+  const start = Date.now();
+  let expanded = 0;
+  let maxDepth = 0;
+  let stopReason = '';
+  const oracleLeaves = () =>
+    leaves.filter((l) => l.engineOnlyPlies.length > 0).length;
+  const progress = () =>
+    console.log(
+      `  …обход: раскрыто ${expanded}, листьев ${leaves.length} (оракульных ${oracleLeaves()}), макс.глубина ${maxDepth}, очередь ${queue.length}, ${Math.round((Date.now() - start) / 1000)}c`,
+    );
+
+  while (queue.length > 0) {
+    if (leaves.length >= L_MAX) {
+      stopReason = 'L_max';
+      break;
+    }
+    if (expanded >= N_MAX) {
+      stopReason = 'N_max';
+      break;
+    }
+    if (Date.now() - start > T_MAX_MS) {
+      stopReason = 'T_max';
+      break;
+    }
+
+    // best-first: вынуть узел с максимальным priority.
+    let bi = 0;
+    for (let i = 1; i < queue.length; i++)
+      if (queue[i].priority > queue[bi].priority) bi = i;
+    const node = queue.splice(bi, 1)[0];
+    expanded++;
+    if (node.movesUci.length > maxDepth) maxDepth = node.movesUci.length;
+
+    const ply = node.movesUci.length;
+    const over = new Chess(node.fen).isGameOver();
+    const maiaRes = await maiaPredict(node.fen);
+    const oracle = await leela!.go(node.fen);
+    const wdl = oracle.wdlTop; // доли side-to-move
+    const stable =
+      wdl != null && Math.max(wdl[0], wdl[1], wdl[2]) > STABLE_WIN;
+    const policy = maiaRes?.policy ?? [];
+    const noMoves = policy.length === 0 && !oracle.best;
+
+    if (over || ply >= D_MAX || (stable && ply >= 1) || noMoves) {
+      leaves.push({
+        movesUci: node.movesUci,
+        movesSan: node.movesSan,
+        leafFen: node.fen,
+        ply,
+        stop: over
+          ? 'terminal'
+          : ply >= D_MAX
+            ? 'max_depth'
+            : stable
+              ? 'stable_wdl'
+              : 'no_moves',
+        pathProb: node.pathProb,
+        lastMaiaProb: node.lastMaiaProb,
+        firstSource: node.firstSource,
+        engineOnlyPlies: node.engineOnlyPlies,
+      });
+      if (expanded % PROGRESS_EVERY === 0) progress();
+      continue;
+    }
+
+    // Продолжения (§5.1 п.3 рев.7): Maia top-1 всегда; развилки Maia≥P_FORK и
+    // ход-оракул — только до D_ORACLE и не более K_ORACLE отклонений на линию.
+    const maiaTop = policy[0]?.move ?? null;
+    const beyondOracle = ply + 1 > D_ORACLE;
+    const oracleUsed = node.engineOnlyPlies.length;
+    const picks = new Map<
+      string,
+      { uci: string; maiaProb: number; engineOnly: boolean }
+    >();
+    const add = (uci: string, engineOnly: boolean) => {
+      const ex = picks.get(uci);
+      if (ex) {
+        if (!engineOnly) ex.engineOnly = false;
+        return;
+      }
+      const mp = policy.find((p) => p.move === uci)?.probability ?? 0;
+      picks.set(uci, { uci, maiaProb: mp, engineOnly });
+    };
+    if (maiaTop) add(maiaTop, false);
+    if (!beyondOracle) {
+      for (const p of policy) if (p.probability >= P_FORK) add(p.move, false);
+      if (oracle.best && oracleUsed < K_ORACLE) {
+        const mp = policy.find((p) => p.move === oracle.best)?.probability ?? 0;
+        add(oracle.best, oracle.best !== maiaTop && mp < P_FORK);
+      }
+    }
+    // за пределом D_ORACLE — только Maia top-1 (реализация плана)
+
+    const rank = (x: { uci: string; engineOnly: boolean }) =>
+      x.uci === maiaTop ? 0 : x.engineOnly ? 1 : 2;
+    const capped = [...picks.values()]
+      .sort((a, b) => rank(a) - rank(b) || b.maiaProb - a.maiaProb)
+      .slice(0, MAX_WIDTH);
+
+    for (const pick of capped) {
+      const g = new Chess(node.fen);
+      let moved;
+      try {
+        moved = g.move(pick.uci);
+      } catch {
+        continue;
+      }
+      if (!moved) continue;
+      const childPath = node.pathProb * Math.max(pick.maiaProb, 0.001);
+      // Оракульное ребро наследует приоритет родителя (иначе тонет из-за низкой
+      // вероятности Maia и не будет раскрыто до предела листьев).
+      const childPriority = pick.engineOnly ? node.priority * 0.5 : childPath;
+      queue.push({
+        fen: g.fen(),
+        movesUci: [...node.movesUci, pick.uci],
+        movesSan: [...node.movesSan, moved.san],
+        pathProb: childPath,
+        priority: childPriority,
+        lastMaiaProb: pick.maiaProb,
+        firstSource: node.firstSource,
+        engineOnlyPlies: pick.engineOnly
+          ? [...node.engineOnlyPlies, ply + 1]
+          : node.engineOnlyPlies,
+      });
+    }
+    if (expanded % PROGRESS_EVERY === 0) progress();
+  }
+
+  progress();
+  if (stopReason)
+    console.log(
+      `  ⚠ остановка обхода по пределу: ${stopReason} (раскрыто ${expanded}, листьев ${leaves.length}, ${Math.round((Date.now() - start) / 1000)}c)`,
+    );
+
+  // §5.1 п.6 — предел листьев соблюдён в ходе обхода; финальная отсечка с
+  // защитой оракульных линий (на случай, если листьев >L_MAX из-за ширины).
+  const protectedL = leaves.filter((l) => l.engineOnlyPlies.length > 0);
+  const rest = leaves
+    .filter((l) => l.engineOnlyPlies.length === 0)
+    .sort((a, b) => b.pathProb - a.pathProb);
+  const slots = Math.max(0, L_MAX - protectedL.length);
+  const kept = [...protectedL, ...rest.slice(0, slots)].sort(
+    (a, b) => b.pathProb - a.pathProb,
   );
-  // §5.1 п.5 — Stockfish+trace ТОЛЬКО на листьях оставленных линий.
+  console.log(
+    `перечислено листьев: ${leaves.length} (с оракулом: ${protectedL.length}); оставляем ${kept.length}. Замеряю SF+trace...`,
+  );
   for (const line of kept) await measureLeaf(line);
 }
 
 // ---------------------------------------------------------------------------
 async function main() {
-  console.log('ADR-170 PoC — построение дерева веток');
+  console.log('ADR-170 PoC рев.8 — построение дерева веток');
   console.log('root:', ROOT_FEN);
 
-  // Maia init.
+  // Maia init — прямая сессия onnxruntime-node (без класс-обёртки maia-core).
   try {
-    maia = new Maia({
-      provider: createNodeProvider(),
-      fetchBuffer: () => loadModelFromFs(MAIA_MODEL),
-    });
-    await maia.ensureSession();
-    console.log('Maia: сессия готова (ELO', MAIA_ELO + ')');
+    maiaSession = await ort.InferenceSession.create(MAIA_MODEL);
+    console.log('Maia: сессия готова (прямой прогон, ELO', MAIA_ELO + ')');
   } catch (e) {
     console.error('Maia init FAILED:', (e as Error).message);
     process.exit(1);
   }
 
-  // Корневая позиция: multipv-SF (для первых ходов, §5.1 шаг 2) + baseline.
-  const rootGame = new Chess(ROOT_FEN);
-  const rootSf = await runSf(ROOT_FEN, SF_MULTIPV_ROOT);
+  // Leela T1 init (тёплый python-оракул ONNX, без поиска).
+  try {
+    leela = new Leela();
+    await leela.init();
+    console.log('Leela T1: тёплый onnx-оракул готов');
+  } catch (e) {
+    console.error('Leela init FAILED:', (e as Error).message);
+    process.exit(1);
+  }
+
+  // Корень: Maia policy + Leela top-3 головы политики (первые ходы, §5.1 шаг 2).
+  const rootMaia = await maiaPredict(ROOT_FEN);
+  const rootLeela = await leela.go(ROOT_FEN);
+
+  // baseline корня (для отчёта): eval = статика форк-trace, WDL — Leela.
   const rootTrace = await runTrace(ROOT_FEN);
   const baseline = {
     root_fen: ROOT_FEN,
-    eval: evalWhitePawns(ROOT_FEN, rootSf.nodeCp, rootSf.nodeMate),
-    outcome_prob: outcomeWhite(ROOT_FEN, rootSf.nodeWdl),
+    eval: rootTrace.total.v,
+    outcome_prob: outcomeWhite(ROOT_FEN, rootLeela.wdlTop),
     subterms: rootTrace.byId,
     subterms_total: rootTrace.total,
   };
-  void rootGame;
 
-  await expandTree(rootSf);
+  await expandTree(rootMaia, rootLeela);
+  leela.quit();
 
   // Диагностика покрытия планов — по первому ходу ветки.
   const byFirstMove = new Map<string, number>();
@@ -516,22 +616,29 @@ async function main() {
     const first = b.moves_san[0] ?? '(none)';
     byFirstMove.set(first, (byFirstMove.get(first) ?? 0) + 1);
   }
+  const oracleLines = branches.filter((b) => b.engine_only_plies.length > 0);
 
   const output = {
     meta: {
-      adr: 'ADR-170 рев.4 §5.1',
-      task: 'KS-5014',
+      adr: 'ADR-170 рев.8 §5.1',
+      task: 'KS-5015',
       generated_note:
-        'дерево по §5.1: первые ходы Maia∪SF-top3, вглубь Maia top-1 с развилками на 2-м/4-м полуходе, стоп D_max/мат/стабильный WDL; SF+trace только на листьях',
+        'дерево по §5.1 рев.8: оракул Leela T1 — ОДИН прогон ONNX (голова политики, БЕЗ поиска); первые ходы Maia∪Leela-top3; продолжения Maia top-1 ∪ Maia≥P_fork ∪ ход-оракул (ширина ≤4), оракул до D_oracle и ≤K_oracle на линию; best-first обход по вероятности пути Maia с пределами N_max/T_max/L_max; ходы оракула помечены engine_only_plies и защищены от отсечки; стоп D_max/мат/WDL Leela>90%; лист: eval=статика форк-trace total.v, WDL=Leela, Stockfish go depth не запускается',
       root_fen: ROOT_FEN,
       maia_elo: MAIA_ELO,
+      leela_net: '/project/.agent-tmp/t1-256x10.onnx (голова политики, без поиска)',
       d_max: D_MAX,
-      sf_depth_leaf: SF_DEPTH_LEAF,
-      sf_multipv_root: SF_MULTIPV_ROOT,
-      fork_at_moves: [...FORK_AT_MOVE],
+      d_oracle: D_ORACLE,
+      k_oracle: K_ORACLE,
+      n_max: N_MAX,
+      t_max_ms: T_MAX_MS,
+      l_max: L_MAX,
+      p_fork: P_FORK,
+      max_width: MAX_WIDTH,
       stable_win: STABLE_WIN,
       subterm_ids: SUBTERM_IDS,
       branch_count: branches.length,
+      oracle_line_count: oracleLines.length,
       distinct_first_moves: [...byFirstMove.entries()].map(([m, n]) => ({
         move: m,
         branches: n,
@@ -542,10 +649,11 @@ async function main() {
   };
   await writeFile(OUT_PATH, JSON.stringify(output, null, 2));
   console.log(
-    `\nГотово: ${branches.length} веток, ${byFirstMove.size} разных первых ходов`,
+    `\nГотово: ${branches.length} веток (${oracleLines.length} с ход-оракулом), ${byFirstMove.size} разных первых ходов`,
   );
   console.log('первые ходы:', [...byFirstMove.keys()].join(', '));
   console.log('файл:', OUT_PATH);
+  process.exit(0);
 }
 
 main().catch((e) => {
