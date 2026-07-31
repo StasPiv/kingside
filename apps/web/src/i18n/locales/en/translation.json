@@ -4455,6 +4455,13 @@
       "errorNoCoi": "Your browser doesn’t support multi-threaded analysis. Update your browser or try a different one.",
       "errorGeneric": "Couldn’t start the chess engine. Refresh the page and try again.",
       "retry": "Try again"
+    },
+    "maiaLoader": {
+      "loadingTitle": "Loading Maia…",
+      "loadingHint": "One-time download, next time it will be instant.",
+      "errorTitle": "Couldn’t load Maia",
+      "errorText": "Failed to load Maia. Check your internet connection and try again.",
+      "retry": "Try again"
     }
   },
   "boardImage": {

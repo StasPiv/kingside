@@ -69,6 +69,14 @@ export function defaultWorkerFactory(): Worker {
 export interface MaiaWorkerEngineOptions {
   modelUrl?: string;
   workerFactory?: WorkerFactory;
+  /**
+   * KS-5016: заранее устойчиво загруженный (main-thread, с повтором и
+   * прогрессом) буфер ONNX-модели. Если задан — воркер использует его
+   * напрямую, без собственного сетевого запроса. Передаётся в воркер
+   * transfer'ом (zero-copy), поэтому после `ensureReady` буфер на
+   * стороне main-thread становится detached.
+   */
+  modelBuffer?: ArrayBuffer;
 }
 
 export class MaiaWorkerEngine {
@@ -78,10 +86,15 @@ export class MaiaWorkerEngine {
   private pending = new Map<number, PendingInference>();
   private readonly modelUrl: string;
   private readonly createWorker: WorkerFactory;
+  // KS-5016: буфер предзагруженной модели. Обнуляется после передачи
+  // воркеру (transfer detach'ит его). Если init провалится и буфер уже
+  // передан — повторный ensureReady откатится на fetch по URL воркером.
+  private modelBuffer: ArrayBuffer | null;
 
   constructor(opts: MaiaWorkerEngineOptions = {}) {
     this.modelUrl = opts.modelUrl ?? DEFAULT_MODEL_URL;
     this.createWorker = opts.workerFactory ?? defaultWorkerFactory;
+    this.modelBuffer = opts.modelBuffer ?? null;
   }
 
   /** Открывает Worker и ждёт `ready`. Идемпотентно. */
@@ -156,7 +169,20 @@ export class MaiaWorkerEngine {
       worker.addEventListener('message', onMessage);
       worker.addEventListener('error', onError);
 
-      worker.postMessage({ type: 'init', modelUrl: this.modelUrl });
+      // KS-5016: отдаём предзагруженный буфер воркеру transfer'ом
+      // (zero-copy). После этого он detached на main-thread —
+      // обнуляем ссылку, чтобы повторный init не пытался передать
+      // пустой буфер (откатится на URL-fetch внутри воркера).
+      if (this.modelBuffer) {
+        const buf = this.modelBuffer;
+        this.modelBuffer = null;
+        worker.postMessage(
+          { type: 'init', modelUrl: this.modelUrl, modelBuffer: buf },
+          [buf],
+        );
+      } else {
+        worker.postMessage({ type: 'init', modelUrl: this.modelUrl });
+      }
     });
     // KS-4289: ставим «поглотитель» на исходный promise. Без него, при
     // отклонении из setTimeout, Node/Vitest успевают зафиксировать

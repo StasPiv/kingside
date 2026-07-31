@@ -31,6 +31,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { MaiaWorkerEngine } from '../lib/maia/workerEngine';
 import type { MovePrediction } from '../lib/maia/workerEngine';
+import {
+  fetchMaiaModelWithRetry,
+  type MaiaLoadErrorReason,
+} from '../lib/maia/maiaLoader';
 
 const MAIA_ELO_MIN = 1100;
 const MAIA_ELO_MAX = 2400;
@@ -45,6 +49,16 @@ export const MAIA_ELO_OPTIONS: readonly number[] = (() => {
 })();
 
 export type MaiaAnalysisStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+/**
+ * KS-5016: статус разовой загрузки ONNX-модели Maia (отдельно от
+ * `status`, который отражает per-move инференс). `loading` — идёт
+ * тяжёлая загрузка ≈45 МБ (окно «Maia загружается» с прогрессом);
+ * `ready` — модель в памяти, дальше инференс быстрый; `error` —
+ * загрузка провалилась даже после повторов (кнопка «Попробовать
+ * снова»).
+ */
+export type MaiaModelStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface MaiaSinglePredictionEngine {
   predictMoves(
@@ -124,6 +138,21 @@ export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
   const [status, setStatus] = useState<MaiaAnalysisStatus>('idle');
   const [error, setError] = useState<string | null>(null);
 
+  // KS-5016: состояние разовой загрузки модели. Если движок инжектнут
+  // (тесты / кастомный движок) — грузить нечего, модель считается
+  // готовой сразу.
+  const hasInjectedEngine = !!injectedEngine;
+  const [modelStatus, setModelStatus] = useState<MaiaModelStatus>(
+    hasInjectedEngine ? 'ready' : 'idle',
+  );
+  const [loadProgress, setLoadProgress] = useState(hasInjectedEngine ? 1 : 0);
+  const [modelErrorReason, setModelErrorReason] =
+    useState<MaiaLoadErrorReason>(null);
+  const [modelRetryToken, setModelRetryToken] = useState(0);
+  const modelStatusRef = useRef<MaiaModelStatus>(modelStatus);
+  modelStatusRef.current = modelStatus;
+  const modelBufferRef = useRef<ArrayBuffer | null>(null);
+
   const engineRef = useRef<MaiaSinglePredictionEngine | null>(
     injectedEngine ?? null,
   );
@@ -140,8 +169,47 @@ export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
     });
   }, []);
 
+  // KS-5016: разовая устойчивая загрузка ONNX-модели по образцу
+  // Stockfish (prefetch + прогресс + повтор при сетевом сбое). Пока не
+  // готова — UI показывает окно «Maia загружается». Буфер затем
+  // отдаётся воркеру напрямую (без второго сетевого запроса).
+  useEffect(() => {
+    if (hasInjectedEngine) return; // движок инжектнут — грузить нечего
+    if (modelBufferRef.current) return; // уже загружено — не повторяем
+
+    const abort = new AbortController();
+    setModelStatus('loading');
+    setModelErrorReason(null);
+    setLoadProgress(0);
+
+    fetchMaiaModelWithRetry(abort.signal, (loaded, total) => {
+      if (abort.signal.aborted) return;
+      setLoadProgress(total > 0 ? Math.min(0.99, loaded / total) : 0);
+    })
+      .then((buffer) => {
+        if (abort.signal.aborted) return;
+        modelBufferRef.current = buffer;
+        setLoadProgress(1);
+        setModelStatus('ready');
+      })
+      .catch((err) => {
+        if (abort.signal.aborted || (err as Error)?.name === 'AbortError') {
+          return;
+        }
+        setModelErrorReason('load_failed');
+        setModelStatus('error');
+      });
+
+    return () => {
+      abort.abort();
+    };
+  }, [hasInjectedEngine, modelRetryToken]);
+
   useEffect(() => {
     if (!fen) return;
+    // KS-5016: не запускаем инференс, пока модель не загружена —
+    // иначе воркер полез бы за моделью сам (без нашей устойчивости).
+    if (modelStatus !== 'ready') return;
 
     const requestId = ++requestIdRef.current;
     setStatus('loading');
@@ -154,7 +222,13 @@ export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
     const timer = setTimeout(async () => {
       try {
         if (!engineRef.current) {
-          engineRef.current = new MaiaWorkerEngine();
+          // KS-5016: отдаём предзагруженный буфер движку — воркер
+          // использует его напрямую, второго сетевого запроса за
+          // моделью нет. `?? undefined` — на случай инжектнутого движка
+          // (сюда не попадём, но типобезопасно).
+          engineRef.current = new MaiaWorkerEngine({
+            modelBuffer: modelBufferRef.current ?? undefined,
+          });
           ownsEngineRef.current = true;
         }
         const result = await engineRef.current.predictMoves(fen, elo, elo);
@@ -177,7 +251,7 @@ export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
     return () => {
       clearTimeout(timer);
     };
-  }, [fen, elo, retryToken]);
+  }, [fen, elo, retryToken, modelStatus]);
 
   useEffect(() => {
     return () => {
@@ -188,7 +262,13 @@ export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
   }, []);
 
   const retry = useCallback(() => {
-    setRetryToken((t) => t + 1);
+    // KS-5016: если провалилась именно загрузка модели — перезапускаем
+    // её (окно «Maia загружается» → повтор). Иначе повторяем инференс.
+    if (modelStatusRef.current === 'error') {
+      setModelRetryToken((t) => t + 1);
+    } else {
+      setRetryToken((t) => t + 1);
+    }
   }, []);
 
   const getProbability = useCallback(
@@ -207,6 +287,11 @@ export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
       error,
       retry,
       getProbability,
+      // KS-5016: состояние разовой загрузки ONNX-модели для окна
+      // «Maia загружается» + прогресс + причина ошибки (для UI-ретрая).
+      modelStatus,
+      loadProgress,
+      modelErrorReason,
       // KS-3597 (ADR-099 F2): raw карта `uci → probability` для
       // выбора Maia top-N как `searchmoves`. Между прогонами и при
       // `status !== 'ready'` объект пустой (см. useEffect выше:
@@ -214,7 +299,18 @@ export function useMaiaAnalysis(options: UseMaiaAnalysisOptions) {
       // `Object.entries(policyByMove)` для построения списка ходов.
       policyByMove,
     }),
-    [elo, setElo, status, error, retry, getProbability, policyByMove],
+    [
+      elo,
+      setElo,
+      status,
+      error,
+      retry,
+      getProbability,
+      modelStatus,
+      loadProgress,
+      modelErrorReason,
+      policyByMove,
+    ],
   );
 }
 

@@ -618,6 +618,23 @@ export function AnalysisSidebar({
                 onRetry={() => onEngineRetry?.()}
               />
             )}
+            {/* KS-5016: окно загрузки Maia (ONNX ≈45 МБ) по образцу
+                Stockfish — прогресс + повтор. Показываем пока модель
+                грузится/упала, чтобы на мобильной сети пользователь
+                видел «Maia загружается», а не пустую колонку MAIA%. */}
+            {(maia.modelStatus === 'loading' || maia.modelStatus === 'error') && (
+              <EngineLoader
+                variant="inline"
+                state={maia.modelStatus}
+                loadProgress={maia.loadProgress}
+                errorReason={maia.modelErrorReason}
+                onRetry={() => maia.retry()}
+                loadingTitleKey="engine.maiaLoader.loadingTitle"
+                loadingHintKey="engine.maiaLoader.loadingHint"
+                errorTitleKey="engine.maiaLoader.errorTitle"
+                errorTextKey="engine.maiaLoader.errorText"
+              />
+            )}
             {/* KS-3687: AI-панель вынесена из engine-panel в отдельный
                 collapsible-блок «AI» (см. ниже). */}
             {/* KS-3593 (ADR-098): заголовок-переключатель сортировки
@@ -1012,6 +1029,20 @@ export function AnalysisSidebar({
                   loadProgress={engineLoadProgress}
                   errorReason={engineErrorReason}
                   onRetry={() => onEngineRetry?.()}
+                />
+              )}
+              {/* KS-5016: мобильная копия окна загрузки Maia. */}
+              {(maia.modelStatus === 'loading' || maia.modelStatus === 'error') && (
+                <EngineLoader
+                  variant="inline"
+                  state={maia.modelStatus}
+                  loadProgress={maia.loadProgress}
+                  errorReason={maia.modelErrorReason}
+                  onRetry={() => maia.retry()}
+                  loadingTitleKey="engine.maiaLoader.loadingTitle"
+                  loadingHintKey="engine.maiaLoader.loadingHint"
+                  errorTitleKey="engine.maiaLoader.errorTitle"
+                  errorTextKey="engine.maiaLoader.errorText"
                 />
               )}
               {/* KS-3687: AI-панель вынесена из engine-секции в отдельную

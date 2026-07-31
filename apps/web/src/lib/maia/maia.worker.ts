@@ -27,7 +27,10 @@ let initPromise: Promise<void> | null = null;
 
 declare const self: DedicatedWorkerGlobalScope;
 
-async function initSession(modelUrl: string): Promise<void> {
+async function initSession(
+  modelUrl: string,
+  modelBuffer?: ArrayBuffer,
+): Promise<void> {
   // Worker без SharedArrayBuffer (на нашем фронте COOP/COEP по KS-3065
   // стоят, но onnxruntime-web в multi-thread в воркере мудрит — проще
   // зафиксировать single-thread, скорость inference Maia-3 single
@@ -46,11 +49,20 @@ async function initSession(modelUrl: string): Promise<void> {
   // отличие от import .mjs-модуля). Same-origin, dev+prod, COEP ок.
   ort.env.wasm.wasmPaths = { wasm: '/ort/ort-wasm-simd-threaded.jsep.wasm' };
 
-  const response = await fetch(modelUrl);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+  // KS-5016: если main-thread уже устойчиво загрузил модель (с повтором
+  // и прогрессом) и передал буфер — используем его напрямую, без второго
+  // сетевого запроса. Fallback на fetch по URL сохранён для обратной
+  // совместимости (тесты/старые вызовы без буфера).
+  let buffer: ArrayBuffer;
+  if (modelBuffer) {
+    buffer = modelBuffer;
+  } else {
+    const response = await fetch(modelUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    buffer = await response.arrayBuffer();
   }
-  const buffer = await response.arrayBuffer();
   session = await ort.InferenceSession.create(buffer, {
     executionProviders: ['wasm'],
   });
@@ -58,7 +70,7 @@ async function initSession(modelUrl: string): Promise<void> {
 
 self.onmessage = async (event: MessageEvent) => {
   const msg = event.data as
-    | { type: 'init'; modelUrl: string }
+    | { type: 'init'; modelUrl: string; modelBuffer?: ArrayBuffer }
     | {
         type: 'inference';
         id: number;
@@ -71,7 +83,7 @@ self.onmessage = async (event: MessageEvent) => {
   try {
     if (msg.type === 'init') {
       if (!initPromise) {
-        initPromise = initSession(msg.modelUrl);
+        initPromise = initSession(msg.modelUrl, msg.modelBuffer);
       }
       await initPromise;
       self.postMessage({ type: 'ready' });

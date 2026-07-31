@@ -15,6 +15,16 @@ type EngineLoaderProps = {
   variant?: 'inline' | 'block';
   /** Дополнительный CSS-класс на корневой контейнер. */
   className?: string;
+  /**
+   * KS-5016: переопределение i18n-ключей — чтобы тот же компонент
+   * обслуживал загрузку Maia («Maia загружается…»), а не только
+   * Stockfish. По умолчанию — ключи Stockfish-движка.
+   */
+  loadingTitleKey?: string;
+  loadingHintKey?: string;
+  errorTitleKey?: string;
+  /** Если задан — используется вместо текста, выбираемого по `errorReason`. */
+  errorTextKey?: string;
 };
 
 /**
@@ -38,6 +48,10 @@ export function EngineLoader({
   onRetry,
   variant = 'block',
   className,
+  loadingTitleKey = 'engine.loader.loadingTitle',
+  loadingHintKey = 'engine.loader.loadingHint',
+  errorTitleKey = 'engine.loader.errorTitle',
+  errorTextKey,
 }: EngineLoaderProps) {
   const { t } = useTranslation();
 
@@ -51,7 +65,7 @@ export function EngineLoader({
     const pct = Math.max(0, Math.min(1, loadProgress));
     return (
       <div className={rootClass} data-testid="engine-loader-loading" role="status" aria-live="polite">
-        <div className="engine-loader__title">{t('engine.loader.loadingTitle')}</div>
+        <div className="engine-loader__title">{t(loadingTitleKey)}</div>
         <div className="engine-loader__bar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct * 100)} role="progressbar">
           <div
             className="engine-loader__bar-fill"
@@ -59,25 +73,26 @@ export function EngineLoader({
           />
         </div>
         <div className="engine-loader__percent">{Math.round(pct * 100)}%</div>
-        <div className="engine-loader__hint">{t('engine.loader.loadingHint')}</div>
+        <div className="engine-loader__hint">{t(loadingHintKey)}</div>
       </div>
     );
   }
 
   // state === 'error'
   const messageKey: string =
-    errorReason === 'no_coi'
+    errorTextKey ??
+    (errorReason === 'no_coi'
       ? 'engine.loader.errorNoCoi'
       : errorReason === 'load_failed'
       ? 'engine.loader.errorLoadFailed'
       : errorReason === 'init_timeout'
       ? 'engine.loader.errorInitTimeout'
-      : 'engine.loader.errorGeneric';
+      : 'engine.loader.errorGeneric');
 
   return (
     <div className={rootClass} data-testid="engine-loader-error" role="alert">
       <div className="engine-loader__title engine-loader__title--error">
-        {t('engine.loader.errorTitle')}
+        {t(errorTitleKey)}
       </div>
       <div className="engine-loader__text">{t(messageKey)}</div>
       {/* `no_coi` не лечится повторной попыткой — кнопку скрываем. */}
