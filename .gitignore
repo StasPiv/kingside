@@ -67,3 +67,7 @@ engines/
 **/stockfish/*.wasm
 *.tar
 stockfish-ubuntu-*
+
+# purged secrets — keep out of git
+/config.yaml
+client_secret_*.json
